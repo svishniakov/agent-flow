@@ -1,0 +1,8 @@
+interface:
+  display_name: "Agent Flow"
+  short_description: "Route work from idea to verified result"
+  brand_color: "#2563EB"
+  default_prompt: "Use $agent-flow to route this task, choose the smallest sufficient flow, and finish with verification evidence."
+
+policy:
+  allow_implicit_invocation: true
