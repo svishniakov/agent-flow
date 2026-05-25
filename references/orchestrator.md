@@ -4,7 +4,7 @@
 
 The orchestrator owns routing, sequencing, verification, and final integration only after the user explicitly invokes Agent Flow at the start of the request.
 
-Agent Flow has one public invocation: `Agent Flow <task>`, `$agent-flow <task>`, or `agent-flow <task>`.
+Agent Flow has one public invocation with these prefixes: `Agent Flow <task>`, `$agent-flow <task>`, `agent-flow <task>`, or `агент-флоу <task>`. Text forms without `$` are case-insensitive.
 
 Requests without that leading prefix run outside this skill as solo work by the main agent. Do not auto-upgrade unprefixed requests into Agent Flow.
 
@@ -27,7 +27,7 @@ The orchestrator must obey:
 1. Check whether a named skill or plugin applies.
 2. Read local project rules if working inside a project.
 3. Classify request type.
-4. Check whether the request starts with `Agent Flow`, `$agent-flow`, or `agent-flow`.
+4. Check whether the request starts with `Agent Flow`, `$agent-flow`, `agent-flow`, or `агент-флоу`.
 5. If no Agent Flow prefix is present, stop this skill route and continue solo outside Agent Flow.
 6. If Agent Flow prefix is present, strip the prefix and choose the internal flow.
 7. Decide whether trace artifacts are required.
@@ -48,6 +48,7 @@ Unprefixed request:
 Agent Flow-prefixed request:
 
 - Strip the prefix and route the remaining task through this skill.
+- Do not run the `brainstorming` skill as a pre-step. Handle uncertainty through Agent Flow intake, route, planning, delegation, and verification.
 - Counts as explicit authorization to use subagents for implementation.
 - Orchestrator writes process artifacts; workers write product changes.
 
@@ -64,6 +65,7 @@ Before `blocked-for-subagents`:
 
 - Prefer direct execution only for tiny non-product tasks inside Agent Flow.
 - Prefer worker subagents for product implementation inside Agent Flow.
+- Treat unclear Agent Flow scope as intake and routing work, not as a reason to launch brainstorming.
 - If product implementation is required and `spawn_agent` is unavailable, return `blocked-for-subagents` unless the user explicitly permits manual fallback for this task.
 - Prefer narrow delegation over broad role chains.
 - Prefer existing project patterns over new abstractions.

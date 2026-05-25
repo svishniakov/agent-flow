@@ -2,7 +2,9 @@
 
 Agent Flow is an explicitly invoked Codex skill for routing requests into an agent workflow with traceable runs, delegation, design gates, and verification gates.
 
-Use it by starting the request with `Agent Flow`, `$agent-flow`, or `agent-flow`. Requests without that prefix stay outside this skill and run solo in the main agent.
+Use it by starting the request with `Agent Flow`, `$agent-flow`, `agent-flow`, or `агент-флоу`. Text forms without `$` are case-insensitive. Requests without that prefix stay outside this skill and run solo in the main agent.
+
+Agent Flow does not run a separate brainstorming pre-step. Unclear Agent Flow requests are handled through intake, routing, delegation, and verification inside the skill.
 
 This repository contains process rules and helper scripts. It is not a standalone application.
 

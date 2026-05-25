@@ -2,6 +2,8 @@
 
 Use internal flows only after the user explicitly invokes Agent Flow at the start of the request. They are not public modes.
 
+Agent Flow does not use the separate `brainstorming` skill. If scope is unclear, handle that through intake, route, and the selected internal flow.
+
 ## Flow Selection
 
 Choose the smallest flow that can produce a verified result.

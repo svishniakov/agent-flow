@@ -1,6 +1,6 @@
 ---
 name: agent-flow
-description: "Use only when the user explicitly invokes Agent Flow at the start of the request, for example `Agent Flow ...`, `$agent-flow ...`, or `agent-flow ...`. Route that request from idea to verified result with traceable artifacts, subagent delegation, design gates, and Definition of Done checks as needed."
+description: "Use only when the user explicitly invokes Agent Flow at the start of the request, for example `Agent Flow ...`, `$agent-flow ...`, `agent-flow ...`, or `агент-флоу ...`. Route that request from idea to verified result with traceable artifacts, subagent delegation, design gates, and Definition of Done checks as needed."
 ---
 
 # Agent Flow
@@ -14,6 +14,9 @@ Agent Flow has one public invocation:
 - `Agent Flow <task>`
 - `$agent-flow <task>`
 - `agent-flow <task>`
+- `агент-флоу <task>`
+
+Text forms without `$` are case-insensitive.
 
 Only use this skill when the invocation appears at the start of the user request. A later mention of Agent Flow is not enough.
 
@@ -35,6 +38,7 @@ Default solo work, without the Agent Flow prefix:
 Agent Flow-prefixed work:
 
 - Use this skill.
+- Do not use a separate brainstorming flow or `brainstorming` skill. Uncertainty is handled inside Agent Flow intake, route, planning, delegation, and verification.
 - Spawn subagents for product/code/docs/design implementation when `spawn_agent` is available.
 - Orchestrator owns route, plan, delegation, review, verification, and final answer.
 - Product implementation writes belong to workers.
@@ -83,9 +87,9 @@ If a product edit is required but `spawn_agent` is unavailable, stop with `block
 
 ## Core Decision Tree
 
-1. If the task starts with `Agent Flow`, `$agent-flow`, or `agent-flow`, strip the prefix and use this skill.
+1. If the task starts with `Agent Flow`, `$agent-flow`, `agent-flow`, or `агент-флоу`, strip the prefix and use this skill.
 2. If the task does not start with an Agent Flow prefix, do not use this skill.
-3. Inside Agent Flow, classify the request and choose the smallest internal flow.
+3. Inside Agent Flow, do not call `brainstorming`; classify the request and choose the smallest internal flow directly.
 4. If the task is trivial, answer or run the command directly within Agent Flow.
 5. If task has multiple steps, regression risk, docs/design/code changes, CI/deploy, external services, or user-facing output, create a traceable run.
 6. If product/code/docs/design implementation is needed, discover `spawn_agent` if needed, then spawn worker subagents with narrow ownership.
