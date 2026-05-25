@@ -1,8 +1,10 @@
 # Delegation
 
-Use subagents for product implementation in `orchestrated`. The orchestrator routes, briefs, reviews, and verifies; workers write product changes.
+Use subagents for product implementation only inside an explicitly invoked Agent Flow request. The orchestrator routes, briefs, reviews, and verifies; workers write product changes.
 
-Every `orchestrated` request is standing explicit user authorization for subagents on product/code/docs/design implementation. This applies even if the current user message does not repeat "use subagents".
+An Agent Flow-prefixed request is standing explicit user authorization for subagents on product/code/docs/design implementation. This applies even if the current user message does not repeat "use subagents".
+
+Unprefixed requests are solo work. Do not launch subagents for them.
 
 If `spawn_agent` is unavailable and product changes are required, return `blocked-for-subagents` unless the user explicitly permits manual fallback for that task.
 
@@ -10,7 +12,7 @@ Before treating `spawn_agent` as unavailable, discover it through active tools a
 
 ## Budget Gate
 
-For product/code/docs/design implementation in `orchestrated`, delegation is mandatory when `spawn_agent` is available.
+For product/code/docs/design implementation inside Agent Flow, delegation is mandatory when `spawn_agent` is available.
 
 For optional sidecar work, delegate when all are true:
 
@@ -80,6 +82,25 @@ Subagent handoff must include:
 - what the next actor should read.
 
 When a run directory exists, save handoff to `handoffs/<role>.md`.
+
+## Per-Agent Trace Contract
+
+When a run directory exists, every delegated subagent must have timeline presence
+owned by that role. Use `scripts/record-agent-trace.py` instead of
+`scripts/append-timeline.py` for subagent events.
+
+The orchestrator records a delegation event before or immediately after sending
+the handoff packet. The worker records at least one terminal event when handing
+work back: `handoff`, `blocked`, or `fail`. Longer work may add intermediate
+`active` or `verification` events.
+
+Each call writes the same event to the run-level `timeline.jsonl` and to
+`agents/<role>/trace.jsonl`. The helper also creates
+`artifacts/agents/<role>/` and indexes repeated `--artifact` paths in
+`artifacts.json` with subagent owner metadata.
+
+This is mandatory for delegated subagents. A handoff file without a matching
+role-owned timeline event is an incomplete traceable run.
 
 ## Integration
 

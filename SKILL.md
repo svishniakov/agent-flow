@@ -1,47 +1,47 @@
 ---
 name: agent-flow
-description: "Use when a request needs AgentFlow orchestration: choosing solo/lite/orchestrated execution, routing work from idea to verified result, deciding whether to create traceable run artifacts, delegating to subagents, or applying Definition of Done gates. Also use when updating AgentFlow process rules."
+description: "Use only when the user explicitly invokes Agent Flow at the start of the request, for example `Agent Flow ...`, `$agent-flow ...`, or `agent-flow ...`. Route that request from idea to verified result with traceable artifacts, subagent delegation, design gates, and Definition of Done checks as needed."
 ---
 
 # Agent Flow
 
-Agent Flow turns a user request into a finished, verified result through the smallest sufficient process. It keeps public modes simple and moves detailed workflow choice into the orchestrator.
+Agent Flow turns an explicitly prefixed user request into a finished, verified result through the smallest sufficient agent workflow.
 
-## Public Modes
+## Invocation Model
 
-Only three public modes exist:
+Agent Flow has one public invocation:
 
-- `/solo <task>`: one main agent, no subagents. Still plan, trace, and verify when risk requires it.
-- `/lite <task>`: short command or quick check. No subagents, no run directory unless scope grows.
-- `orchestrated`: default for every request without `/solo` or `/lite`; subagent-first for product/code/docs/design changes.
+- `Agent Flow <task>`
+- `$agent-flow <task>`
+- `agent-flow <task>`
 
-Standing authorization: every `orchestrated` request is an explicit user request to use subagents for product/code/docs/design implementation. This satisfies subagent tool policies that require explicit user intent for delegation.
+Only use this skill when the invocation appears at the start of the user request. A later mention of Agent Flow is not enough.
 
-Never expose extra modes such as autopilot, parallel-review, or review-mode as public user-facing modes. Treat them as internal flows selected by the orchestrator.
+Requests without the Agent Flow prefix are outside this skill. They run solo in the main agent, without Agent Flow artifacts and without subagents.
 
-## Mode Boundaries
+Standing authorization: an Agent Flow-prefixed request is an explicit user request to use subagents for product/code/docs/design implementation when delegation is useful and available. This satisfies subagent tool policies that require explicit user intent for delegation.
 
-`/solo`:
+Never expose extra modes such as `/solo`, `/lite`, `orchestrated`, autopilot, parallel-review, or review-mode as public user-facing modes. Treat detailed workflow choice as internal routing inside Agent Flow.
 
-- Never spawn subagents.
-- The orchestrator may edit product files directly if the task needs it.
-- If task is too large or risky for one agent, return `blocked-for-solo` and propose `orchestrated`.
+## Boundary
 
-`/lite`:
+Default solo work, without the Agent Flow prefix:
 
-- Never spawn subagents at first.
-- Do not create run directories for quick checks.
-- If scope grows into product/code/docs/design implementation, stop lite execution, switch to `orchestrated`, and use subagents before product edits.
+- Do not use this skill.
+- Do not spawn subagents.
+- Do not create Agent Flow run directories.
+- If the task becomes too broad or risky for solo execution, tell the user to invoke Agent Flow explicitly.
 
-`orchestrated`:
+Agent Flow-prefixed work:
 
-- Spawn subagents for product/code/docs/design implementation.
+- Use this skill.
+- Spawn subagents for product/code/docs/design implementation when `spawn_agent` is available.
 - Orchestrator owns route, plan, delegation, review, verification, and final answer.
 - Product implementation writes belong to workers.
 
 ## Orchestrator Mandate
 
-In `orchestrated`, the orchestrator owns the outcome:
+Inside Agent Flow, the orchestrator owns the outcome:
 
 1. Classify the request.
 2. Pick the internal flow.
@@ -57,7 +57,7 @@ The orchestrator is authoritative inside system, developer, user, tool, and loca
 
 ## Subagent Tool Discovery
 
-Before declaring `spawn_agent` unavailable in `orchestrated`, the orchestrator must try to discover it:
+Before declaring `spawn_agent` unavailable in Agent Flow, the orchestrator must try to discover it:
 
 1. Check active tools for a subagent/spawn tool.
 2. If not visible and `tool_search` is available, call `tool_search` with a narrow query such as `spawn_agent subagent multi-agent tools`.
@@ -66,7 +66,7 @@ Before declaring `spawn_agent` unavailable in `orchestrated`, the orchestrator m
 
 ## Product Edit Boundary
 
-In `orchestrated`, the orchestrator does not directly edit product implementation files when a worker subagent can own the change.
+Inside Agent Flow, the orchestrator does not directly edit product implementation files when a worker subagent can own the change.
 
 The orchestrator may:
 
@@ -83,10 +83,10 @@ If a product edit is required but `spawn_agent` is unavailable, stop with `block
 
 ## Core Decision Tree
 
-1. If the task starts with `/solo`, use solo rules.
-2. If the task starts with `/lite`, use lite rules.
-3. Otherwise use orchestrated.
-4. If task is trivial, answer or run the command directly.
+1. If the task starts with `Agent Flow`, `$agent-flow`, or `agent-flow`, strip the prefix and use this skill.
+2. If the task does not start with an Agent Flow prefix, do not use this skill.
+3. Inside Agent Flow, classify the request and choose the smallest internal flow.
+4. If the task is trivial, answer or run the command directly within Agent Flow.
 5. If task has multiple steps, regression risk, docs/design/code changes, CI/deploy, external services, or user-facing output, create a traceable run.
 6. If product/code/docs/design implementation is needed, discover `spawn_agent` if needed, then spawn worker subagents with narrow ownership.
 7. If `spawn_agent` remains unavailable after discovery and implementation is needed, return `blocked-for-subagents` unless manual fallback is explicitly approved.
@@ -129,7 +129,7 @@ Do not create run directories for short consultation, one-off shell checks, or t
 
 Read `references/delegation.md` before launching subagents.
 
-In `orchestrated`, delegation is mandatory for product/code/docs/design implementation when `spawn_agent` is available. Delegate only when:
+Inside Agent Flow, delegation is mandatory for product/code/docs/design implementation when `spawn_agent` is available. Delegate only when:
 
 - workstream is independent;
 - expected value exceeds coordination cost;
@@ -161,6 +161,7 @@ Optional helper scripts live in `scripts/`:
 
 - `init-run.py`: create a traceable run skeleton.
 - `append-timeline.py`: append one JSONL timeline event.
+- `record-agent-trace.py`: append one subagent event to both run and role traces.
 - `validate-run.py`: check run completeness before final handoff.
 
 Scripts support the workflow; they do not replace engineering judgment.

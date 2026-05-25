@@ -20,6 +20,7 @@ For traceable work:
 - `.agent-work/` is locally ignored when inside git repo;
 - manifest, route, plan, checks, final files are present;
 - timeline is valid JSONL;
+- every delegated subagent has `agents/<role>/trace.jsonl` and matching run-level timeline events;
 - artifacts index is valid JSON;
 - each used subagent has a handoff; explicitly approved manual fallback roles need handoffs too;
 - checks include command names and results;

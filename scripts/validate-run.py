@@ -35,10 +35,33 @@ REQUIRED_TIMELINE_KEYS = {
 FINAL_VERDICTS = {"ship", "pass-with-risks", "blocked", "fail"}
 
 
-def validate_jsonl(path: Path) -> list[str]:
+def validate_artifacts_index(path: Path) -> list[str]:
     errors: list[str] = []
     if not path.exists():
-        return [f"missing {path.name}"]
+        return errors
+
+    try:
+        data = json.loads(path.read_text(encoding="utf-8") or "[]")
+    except json.JSONDecodeError as exc:
+        return [f"artifacts.json invalid JSON: {exc}"]
+
+    if isinstance(data, list):
+        return errors
+    if isinstance(data, dict):
+        artifacts = data.get("artifacts")
+        if not isinstance(artifacts, list):
+            errors.append("artifacts.json field 'artifacts' must be a JSON array")
+        return errors
+
+    errors.append("artifacts.json must be a JSON array or an object with an artifacts array")
+    return errors
+
+
+def validate_jsonl(path: Path, display_name: str | None = None) -> list[str]:
+    errors: list[str] = []
+    label = display_name or path.name
+    if not path.exists():
+        return [f"missing {label}"]
     has_event = False
     for index, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         if not line.strip():
@@ -47,20 +70,76 @@ def validate_jsonl(path: Path) -> list[str]:
         try:
             event = json.loads(line)
         except json.JSONDecodeError as exc:
-            errors.append(f"{path.name}:{index}: invalid JSON: {exc}")
+            errors.append(f"{label}:{index}: invalid JSON: {exc}")
             continue
 
         if not isinstance(event, dict):
-            errors.append(f"{path.name}:{index}: event must be a JSON object")
+            errors.append(f"{label}:{index}: event must be a JSON object")
             continue
 
         missing = REQUIRED_TIMELINE_KEYS - event.keys()
         if missing:
-            errors.append(f"{path.name}:{index}: missing keys: {', '.join(sorted(missing))}")
+            errors.append(f"{label}:{index}: missing keys: {', '.join(sorted(missing))}")
         if "artifacts" in event and not isinstance(event["artifacts"], list):
-            errors.append(f"{path.name}:{index}: artifacts must be a JSON array")
+            errors.append(f"{label}:{index}: artifacts must be a JSON array")
     if not has_event:
-        errors.append(f"{path.name}: no events")
+        errors.append(f"{label}: no events")
+    return errors
+
+
+def load_jsonl_events(path: Path) -> tuple[list[dict], list[str]]:
+    events: list[dict] = []
+    errors: list[str] = []
+    if not path.exists():
+        return events, [f"missing {path.name}"]
+
+    for index, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError as exc:
+            errors.append(f"{path.name}:{index}: invalid JSON: {exc}")
+            continue
+        if not isinstance(event, dict):
+            errors.append(f"{path.name}:{index}: event must be a JSON object")
+            continue
+        events.append(event)
+    return events, errors
+
+
+def event_key(event: dict) -> str:
+    return json.dumps(event, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def validate_agent_traces(run_dir: Path) -> list[str]:
+    errors: list[str] = []
+    agents_dir = run_dir / "agents"
+    if not agents_dir.exists():
+        return errors
+    if not agents_dir.is_dir():
+        return ["agents exists but is not a directory"]
+
+    timeline_events, timeline_load_errors = load_jsonl_events(run_dir / "timeline.jsonl")
+    timeline_event_keys = set()
+    if not timeline_load_errors:
+        timeline_event_keys = {event_key(event) for event in timeline_events}
+
+    for agent_dir in sorted(agents_dir.iterdir()):
+        display_dir = agent_dir.relative_to(run_dir).as_posix()
+        if not agent_dir.is_dir():
+            errors.append(f"{display_dir} is not a directory")
+            continue
+
+        trace_path = agent_dir / "trace.jsonl"
+        display_name = trace_path.relative_to(run_dir).as_posix()
+        errors.extend(validate_jsonl(trace_path, display_name))
+        trace_events, _trace_load_errors = load_jsonl_events(trace_path)
+        if timeline_load_errors:
+            continue
+        for index, event in enumerate(trace_events, start=1):
+            if event_key(event) not in timeline_event_keys:
+                errors.append(f"{display_name}:{index}: event missing from timeline.jsonl")
     return errors
 
 
@@ -96,16 +175,10 @@ def main() -> int:
         if not path.is_dir():
             errors.append(f"missing dir: {name}")
 
-    artifacts = run_dir / "artifacts.json"
-    if artifacts.exists():
-        try:
-            data = json.loads(artifacts.read_text(encoding="utf-8") or "[]")
-            if not isinstance(data, list):
-                errors.append("artifacts.json must be a JSON array")
-        except json.JSONDecodeError as exc:
-            errors.append(f"artifacts.json invalid JSON: {exc}")
+    errors.extend(validate_artifacts_index(run_dir / "artifacts.json"))
 
     errors.extend(validate_jsonl(run_dir / "timeline.jsonl"))
+    errors.extend(validate_agent_traces(run_dir))
 
     if args.require_handoff and not list((run_dir / "handoffs").glob("*.md")):
         errors.append("no handoff markdown files")

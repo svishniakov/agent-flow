@@ -1,6 +1,6 @@
 # Agent Flow Internal Flows
 
-Use internal flows inside `orchestrated`. They are not public modes.
+Use internal flows only after the user explicitly invokes Agent Flow at the start of the request. They are not public modes.
 
 ## Flow Selection
 
@@ -28,7 +28,7 @@ Sequence:
 3. Architecture: system boundaries, data flow, risks.
 4. Design route if UI/UX is involved.
 5. Implementation plan.
-6. Product changes by bounded workers or main agent.
+6. Product changes by bounded workers; main agent writes product changes only with explicit manual fallback.
 7. QA and verification.
 8. AI-slop check for user-facing surfaces.
 9. Reviewer pass.
@@ -38,7 +38,7 @@ Ask approval only when the next step would lock a product/design direction, spen
 
 ## Scope Growth
 
-Upgrade from `lite` to `orchestrated` when any of these appears:
+Unprefixed solo requests do not auto-upgrade into Agent Flow. If any of these appears during solo work, tell the user that Agent Flow must be invoked explicitly before agent delegation can start:
 
 - more than one related step;
 - product/code/doc change with regression risk;
@@ -47,4 +47,4 @@ Upgrade from `lite` to `orchestrated` when any of these appears:
 - user-facing text or UI;
 - unclear acceptance criteria.
 
-If `/solo` is too risky for one agent, return `blocked-for-solo` with the smallest safe orchestrated route.
+Inside an Agent Flow-prefixed request, choose the smallest internal flow that covers the expanded scope.

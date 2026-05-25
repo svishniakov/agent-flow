@@ -2,11 +2,15 @@
 
 ## Authority
 
-The orchestrator owns routing, sequencing, verification, and final integration. It chooses internal flows and subagents without exposing extra public modes.
+The orchestrator owns routing, sequencing, verification, and final integration only after the user explicitly invokes Agent Flow at the start of the request.
 
-In `orchestrated`, product implementation is subagent-first. The orchestrator should not directly edit product code, frontend files, backend files, tests, user-facing docs, or design implementation files when a worker subagent can own that change.
+Agent Flow has one public invocation: `Agent Flow <task>`, `$agent-flow <task>`, or `agent-flow <task>`.
 
-Every request that does not start with `/solo` or `/lite` is treated as the user's standing explicit request for subagents on product/code/docs/design implementation. Do not wait for the user to separately say "use subagents" inside `orchestrated`.
+Requests without that leading prefix run outside this skill as solo work by the main agent. Do not auto-upgrade unprefixed requests into Agent Flow.
+
+Inside Agent Flow, product implementation is subagent-first. The orchestrator should not directly edit product code, frontend files, backend files, tests, user-facing docs, or design implementation files when a worker subagent can own that change.
+
+An Agent Flow-prefixed request is the user's explicit request for subagents on product/code/docs/design implementation. Do not wait for the user to separately say "use subagents" inside Agent Flow.
 
 The orchestrator must obey:
 
@@ -23,32 +27,27 @@ The orchestrator must obey:
 1. Check whether a named skill or plugin applies.
 2. Read local project rules if working inside a project.
 3. Classify request type.
-4. Choose public mode: solo, lite, or orchestrated.
-5. In orchestrated, choose internal flow.
-6. Decide whether trace artifacts are required.
-7. Decide whether `.agent-work/tasks/todo.md` is needed.
-8. If product edits are needed, discover `spawn_agent` before implementation.
-9. State the selected skill/tool briefly when user-facing rules require it.
+4. Check whether the request starts with `Agent Flow`, `$agent-flow`, or `agent-flow`.
+5. If no Agent Flow prefix is present, stop this skill route and continue solo outside Agent Flow.
+6. If Agent Flow prefix is present, strip the prefix and choose the internal flow.
+7. Decide whether trace artifacts are required.
+8. Decide whether `.agent-work/tasks/todo.md` is needed.
+9. If product edits are needed, discover `spawn_agent` before implementation.
+10. State the selected skill/tool briefly when user-facing rules require it.
 
-## Mode Semantics
+## Invocation Semantics
 
-`/solo`:
+Unprefixed request:
 
-- Strip the prefix and perform the task with the main agent only.
+- Do not use Agent Flow.
 - Do not spawn subagents.
-- Product edits are allowed by the main agent.
-- If the task is too broad, risky, or needs independent verification, return `blocked-for-solo` and propose `orchestrated`.
+- Do not create Agent Flow trace artifacts.
+- Product edits are handled by the main agent under normal non-Agent-Flow rules.
+- If the task is too broad, risky, or needs independent verification, tell the user to invoke Agent Flow explicitly.
 
-`/lite`:
+Agent Flow-prefixed request:
 
-- Strip the prefix and treat it as a quick check or one-step answer.
-- Do not spawn subagents initially.
-- Do not create traceable runs initially.
-- If the work becomes product/code/docs/design implementation, stop lite mode, say why it upgraded, and continue as `orchestrated` with subagents.
-
-`orchestrated`:
-
-- Default for all requests without `/solo` or `/lite`.
+- Strip the prefix and route the remaining task through this skill.
 - Counts as explicit authorization to use subagents for implementation.
 - Orchestrator writes process artifacts; workers write product changes.
 
@@ -63,8 +62,8 @@ Before `blocked-for-subagents`:
 
 ## Practical Defaults
 
-- Prefer direct execution only for tiny non-product tasks.
-- Prefer worker subagents for product implementation in `orchestrated`.
+- Prefer direct execution only for tiny non-product tasks inside Agent Flow.
+- Prefer worker subagents for product implementation inside Agent Flow.
 - If product implementation is required and `spawn_agent` is unavailable, return `blocked-for-subagents` unless the user explicitly permits manual fallback for this task.
 - Prefer narrow delegation over broad role chains.
 - Prefer existing project patterns over new abstractions.
@@ -72,14 +71,14 @@ Before `blocked-for-subagents`:
 
 ## Orchestrator Edit Boundary
 
-Allowed direct edits in `orchestrated`:
+Allowed direct edits inside Agent Flow:
 
 - AgentFlow and process docs;
 - trace artifacts under `.agent-work/`;
 - route, plan, handoff, check, and final files;
 - small metadata corrections that are explicitly part of orchestration.
 
-Forbidden direct edits in `orchestrated` when a worker can be spawned:
+Forbidden direct edits inside Agent Flow when a worker can be spawned:
 
 - TypeScript/JavaScript implementation;
 - frontend components, routes, styles, and rendering logic;
