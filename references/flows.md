@@ -2,6 +2,8 @@
 
 Use internal flows only after the user explicitly invokes Agent Flow at the start of the request. They are not public modes.
 
+Do not use this file as preflight for unprefixed requests. Agent Flow starts only from the user-visible leading prefix.
+
 Agent Flow does not use the separate `brainstorming` skill. If scope is unclear, handle that through intake, route, and the selected internal flow.
 
 ## Flow Selection
@@ -30,22 +32,22 @@ Sequence:
 3. Architecture: system boundaries, data flow, risks.
 4. Design route if UI/UX is involved.
 5. Implementation plan.
-6. Product changes by bounded workers; main agent writes product changes only with explicit manual fallback.
-7. QA and verification.
-8. AI-slop check for user-facing surfaces.
-9. Reviewer pass.
+6. Product changes by the main agent by default; bounded workers only when the user explicitly requested subagents.
+7. QA and verification scaled to the selected budget.
+8. AI-slop checklist for user-facing surfaces.
+9. Reviewer pass only for release/high-risk work or explicit request.
 10. Final handoff with evidence and risks.
 
 Ask approval only when the next step would lock a product/design direction, spend money, change external state, handle secrets, deploy, or expand scope.
 
 ## Scope Growth
 
-Unprefixed solo requests do not auto-upgrade into Agent Flow. If any of these appears during solo work, tell the user that Agent Flow must be invoked explicitly before agent delegation can start:
+Unprefixed solo requests do not auto-upgrade into Agent Flow. If any of these appears during solo work, handle it solo when reasonable. If it is too broad or risky, ask the user whether to invoke Agent Flow or explicitly authorize subagents:
 
 - more than one related step;
 - product/code/doc change with regression risk;
 - external service or credential;
-- subagent-worthy independent work;
+- independent work that would benefit from explicit subagents;
 - user-facing text or UI;
 - unclear acceptance criteria.
 

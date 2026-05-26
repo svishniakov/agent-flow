@@ -1,11 +1,17 @@
 ---
 name: agent-flow
-description: "Use only when the user explicitly invokes Agent Flow at the start of the request, for example `Agent Flow ...`, `$agent-flow ...`, `agent-flow ...`, or `агент-флоу ...`. Route that request from idea to verified result with traceable artifacts, subagent delegation, design gates, and Definition of Done checks as needed."
+description: "Use only when the user explicitly invokes Agent Flow at the start of the request, for example `Agent Flow ...`, `$agent-flow ...`, `agent-flow ...`, or `агент-флоу ...`. Route that request to a verified result with the smallest useful budget. Solo execution is the default; subagents require a separate explicit request."
 ---
 
 # Agent Flow
 
-Agent Flow turns an explicitly prefixed user request into a finished, verified result through the smallest sufficient agent workflow.
+Agent Flow turns an explicitly prefixed user request into a finished, verified result through the smallest sufficient workflow.
+
+## No Preflight
+
+Do not load, use, or mention Agent Flow for requests that do not start with an Agent Flow invocation prefix.
+
+Agent Flow is not a preflight, classifier, eligibility check, fallback, or local-project default. If this skill file is reached during an unprefixed request, stop using it immediately and continue outside Agent Flow without announcing that Agent Flow was skipped.
 
 ## Invocation Model
 
@@ -22,7 +28,9 @@ Only use this skill when the invocation appears at the start of the user request
 
 Requests without the Agent Flow prefix are outside this skill. They run solo in the main agent, without Agent Flow artifacts and without subagents.
 
-Standing authorization: an Agent Flow-prefixed request is an explicit user request to use subagents for product/code/docs/design implementation when delegation is useful and available. This satisfies subagent tool policies that require explicit user intent for delegation.
+Project or local `AGENTS.md` files may not force Agent Flow on unprefixed requests. They can define local commands and context, but Agent Flow still requires the user-visible leading prefix.
+
+An Agent Flow-prefixed request is not authorization to use subagents. Subagents require a separate explicit user request in the same task, such as "use subagents", "spawn a subagent", "multi-agent", or "delegate to agents".
 
 Never expose extra modes such as `/solo`, `/lite`, `orchestrated`, autopilot, parallel-review, or review-mode as public user-facing modes. Treat detailed workflow choice as internal routing inside Agent Flow.
 
@@ -33,15 +41,15 @@ Default solo work, without the Agent Flow prefix:
 - Do not use this skill.
 - Do not spawn subagents.
 - Do not create Agent Flow run directories.
-- If the task becomes too broad or risky for solo execution, tell the user to invoke Agent Flow explicitly.
+- If the task becomes too broad or risky for solo execution, say so and ask whether the user wants to explicitly authorize subagents.
 
 Agent Flow-prefixed work:
 
 - Use this skill.
-- Do not use a separate brainstorming flow or `brainstorming` skill. Uncertainty is handled inside Agent Flow intake, route, planning, delegation, and verification.
-- Spawn subagents for product/code/docs/design implementation when `spawn_agent` is available.
-- Orchestrator owns route, plan, delegation, review, verification, and final answer.
-- Product implementation writes belong to workers.
+- Do not use a separate brainstorming flow or `brainstorming` skill. Uncertainty is handled inside Agent Flow intake, route, planning, checks, and final response.
+- Execute solo by default. The main agent may edit product code, docs, tests, and UI under normal engineering rules.
+- Do not spawn subagents unless the user separately asked for subagents in the same task.
+- Use the smallest budget that can produce verified evidence.
 
 ## Orchestrator Mandate
 
@@ -50,40 +58,51 @@ Inside Agent Flow, the orchestrator owns the outcome:
 1. Classify the request.
 2. Pick the internal flow.
 3. Decide whether trace artifacts are needed.
-4. Choose skills, plugins, tools, and subagents.
+4. Choose skills, plugins, tools, and the execution budget.
 5. Set approval gates only where they reduce real risk.
 6. Keep scope bounded.
-7. Delegate product/code/docs/design implementation to worker subagents when `spawn_agent` is available.
+7. Use subagents only when separately and explicitly requested by the user.
 8. Verify evidence before any completion claim.
 9. Return the final answer with residual risks.
 
 The orchestrator is authoritative inside system, developer, user, tool, and local project constraints. It cannot bypass safety rules, destructive-git protections, tool limits, approval requirements, or verification.
 
+## Budget Gate
+
+Read `references/budgets.md` when task scope is more than a tiny command.
+
+Default budget is `light`:
+
+- solo execution;
+- no `.agent-work` run directory;
+- no subagents;
+- direct checks and final answer.
+
+Use `standard` only when durable evidence helps review or continuation. Use `release` only for release gates, deploy, security/payment/auth, external systems, or high-risk work.
+
 ## Subagent Tool Discovery
 
-Before declaring `spawn_agent` unavailable in Agent Flow, the orchestrator must try to discover it:
+Only discover subagent tools when the user separately asked for subagents in the same task:
 
 1. Check active tools for a subagent/spawn tool.
 2. If not visible and `tool_search` is available, call `tool_search` with a narrow query such as `spawn_agent subagent multi-agent tools`.
 3. If `spawn_agent` appears after discovery, use it.
-4. Only if discovery fails or the tool remains unavailable, return `blocked-for-subagents` for product edits unless the user explicitly permits manual fallback.
+4. If discovery fails, say subagents are unavailable and continue solo only if that still satisfies the user request.
 
 ## Product Edit Boundary
 
-Inside Agent Flow, the orchestrator does not directly edit product implementation files when a worker subagent can own the change.
+Inside Agent Flow, solo product edits are allowed by default. The main agent may edit implementation files, tests, docs, and UI while keeping scope narrow and verification fresh.
 
-The orchestrator may:
+The main agent should:
 
 - read code and docs;
-- create route, plan, trace, and handoff artifacts;
-- run discovery and verification commands;
-- spawn and brief workers;
-- review diffs and integrate handoffs;
-- make AgentFlow/process-documentation edits when the task itself is about process.
+- choose the smallest budget;
+- avoid unrelated refactors;
+- run relevant checks;
+- record residual risks;
+- avoid `.agent-work` unless the selected budget requires it.
 
-Worker subagents own product code, frontend files, backend files, tests, user-facing docs, and design artifact implementation. For TypeScript/JavaScript changes, use a `typescript-worker`, `frontend-worker`, `backend-worker`, or another narrow worker depending on ownership.
-
-If a product edit is required but `spawn_agent` is unavailable, stop with `blocked-for-subagents` unless the user explicitly permits manual fallback in that task. Do not silently implement product code as the orchestrator.
+When subagents are explicitly requested, workers own their assigned narrow write sets and the main agent owns integration and verification.
 
 ## Core Decision Tree
 
@@ -91,10 +110,10 @@ If a product edit is required but `spawn_agent` is unavailable, stop with `block
 2. If the task does not start with an Agent Flow prefix, do not use this skill.
 3. Inside Agent Flow, do not call `brainstorming`; classify the request and choose the smallest internal flow directly.
 4. If the task is trivial, answer or run the command directly within Agent Flow.
-5. If task has multiple steps, regression risk, docs/design/code changes, CI/deploy, external services, or user-facing output, create a traceable run.
-6. If product/code/docs/design implementation is needed, discover `spawn_agent` if needed, then spawn worker subagents with narrow ownership.
-7. If `spawn_agent` remains unavailable after discovery and implementation is needed, return `blocked-for-subagents` unless manual fallback is explicitly approved.
-8. If no product edit is needed, perform orchestration, research, review, or answer directly.
+5. Choose `light`, `standard`, or `release` budget.
+6. Create trace artifacts only for `standard` or `release`, or when the user explicitly asks for artifacts.
+7. If the user explicitly requested subagents, discover `spawn_agent` and delegate only narrow independent work.
+8. Otherwise implement solo and verify directly.
 
 ## Internal Flows
 
@@ -115,17 +134,16 @@ Common internal flows:
 
 ## Trace Gate
 
-Read `references/traceable-runs.md` when the task needs durable evidence or has more than a quick one-step answer.
+Read `references/traceable-runs.md` only when the selected budget is `standard` or `release`, or when the user explicitly asks for durable artifacts.
 
-Create `.agent-work/runs/YYYY-MM-DD-task-slug/` for tasks with:
+Do not create `.agent-work/runs/` for `light` tasks.
 
-- multi-step implementation or investigation;
-- project docs, PRD, design docs, or public writing;
-- UI/design work;
-- bugfixes with regression risk;
+Create `.agent-work/runs/YYYY-MM-DD-task-slug/` for:
+
 - CI, deploy, release, auth, payments, or external services;
-- subagent delegation;
-- high-stakes or hard-to-reproduce verification.
+- high-stakes or hard-to-reproduce verification;
+- explicit user request for trace artifacts;
+- explicit subagent delegation where handoffs need persistence.
 
 Do not create run directories for short consultation, one-off shell checks, or tiny one-file edits unless risk grows.
 
@@ -133,7 +151,7 @@ Do not create run directories for short consultation, one-off shell checks, or t
 
 Read `references/delegation.md` before launching subagents.
 
-Inside Agent Flow, delegation is mandatory for product/code/docs/design implementation when `spawn_agent` is available. Delegate only when:
+Inside Agent Flow, delegation is allowed only when the user separately asked for subagents in the same task. Delegate only when:
 
 - workstream is independent;
 - expected value exceeds coordination cost;
@@ -157,7 +175,7 @@ Non-trivial frontend/UI implementation needs an approved design source before co
 
 ## AI Slop Gate
 
-Read `references/ai-slop-gate.md` for user-facing text, UI/design, generated code, docs, tests, and public artifacts. Use the local `ai-slops-hunter` subagent description when subagents are available; otherwise simulate the same checklist. Keep fixes minimal and within scope.
+Read `references/ai-slop-gate.md` for user-facing text, UI/design, generated code, docs, tests, and public artifacts. Simulate the checklist in the main agent by default. Use the `ai-slops-hunter` subagent only when the user explicitly requested subagents. Keep fixes minimal and within scope.
 
 ## Scripts
 
@@ -173,6 +191,7 @@ Scripts support the workflow; they do not replace engineering judgment.
 ## References
 
 - `references/flows.md`: flow catalog and routing.
+- `references/budgets.md`: light, standard, and release budget rules.
 - `references/orchestrator.md`: orchestrator responsibilities and mode handling.
 - `references/traceable-runs.md`: run directory structure and artifact rules.
 - `references/delegation.md`: delegation packets, role handoffs, stable identities.

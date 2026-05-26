@@ -1,6 +1,8 @@
 # Traceable Runs
 
-Traceable runs store evidence for non-trivial work.
+Traceable runs store evidence for work that needs durable review history.
+
+Do not create a traceable run for `light` budget work.
 
 ## Location
 
@@ -16,9 +18,22 @@ Do not reuse an existing run directory for a new task. `scripts/init-run.py` rej
 
 If no project repo exists, either skip trace for simple local skill work or create a local run directory only when it adds value. Do not initialize git or change `.gitignore` unless user asked.
 
-## Required Structure
+## Compact Structure
 
-All traceable runs include:
+For `standard` budget, prefer a compact trace:
+
+```text
+run.md
+checks.md
+final.md
+artifacts/
+```
+
+Use this when the user needs continuity and evidence, but not a full release record.
+
+## Full Structure
+
+For `release` budget or explicit full-trace requests, include:
 
 ```text
 manifest.md
@@ -35,8 +50,7 @@ timeline.jsonl
 final.md
 ```
 
-Runs that use subagents additionally include per-agent traces and owned artifact
-directories:
+Runs that use explicitly requested subagents additionally include per-agent traces and owned artifact directories:
 
 ```text
 agents/
@@ -59,7 +73,7 @@ Agent artifacts must not enter product commits. Prefer `.git/info/exclude` for `
 - `plan.md`: checkable plan and ownership.
 - `definition-of-done.md`: task-specific gates.
 - `decisions.md`: decisions and reasons.
-- `handoffs/`: one file per subagent; for explicitly approved manual fallback, one file per manual role.
+- `handoffs/`: one file per explicitly used subagent.
 - `checks/`: commands, QA, visual diff, review notes.
 - `artifacts/`: screenshots, logs, exports, generated assets.
 - `artifacts/agents/<role>/`: generated assets, logs, and evidence owned by one subagent.
@@ -74,10 +88,7 @@ Agent artifacts must not enter product commits. Prefer `.git/info/exclude` for `
 
 Run `scripts/validate-run.py --run-dir <run-dir>` before final handoff. By default it fails pending verdicts, missing check files, invalid JSON, and incomplete timeline events. Use `--allow-pending` or `--allow-no-check` only for early structural checks, not final handoff.
 
-Validation remains backward compatible with older no-subagent runs: `agents/` is
-not required. If `agents/<role>/` exists, `trace.jsonl` is required there. Agent
-trace files are checked with the same minimum event schema as `timeline.jsonl`,
-and every agent trace event must also be present in the run-level timeline.
+Validation remains backward compatible with older no-subagent runs: `agents/` is not required. If `agents/<role>/` exists, `trace.jsonl` is required there. Agent trace files are checked with the same minimum event schema as `timeline.jsonl`, and every agent trace event must also be present in the run-level timeline.
 
 ## Timeline Event Minimum
 
@@ -97,7 +108,7 @@ and every agent trace event must also be present in the run-level timeline.
 
 ## Trace Updates
 
-Update `manifest.md` and `timeline.jsonl` after intake, route, plan, delegation, handoff, verification, review, blocker, fix, and final.
+For full trace, update `manifest.md` and `timeline.jsonl` after intake, route, plan, explicit delegation, handoff, verification, review, blocker, fix, and final.
 
 Use `scripts/append-timeline.py` for run-level orchestrator events. Use
 `scripts/record-agent-trace.py` for subagent events so the same event appears in

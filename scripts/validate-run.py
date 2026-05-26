@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 
-REQUIRED_FILES = [
+FULL_REQUIRED_FILES = [
     "manifest.md",
     "context.md",
     "route.md",
@@ -20,7 +20,8 @@ REQUIRED_FILES = [
     "final.md",
 ]
 
-REQUIRED_DIRS = ["handoffs", "checks", "artifacts"]
+FULL_REQUIRED_DIRS = ["handoffs", "checks", "artifacts"]
+COMPACT_REQUIRED_FILES = ["run.md", "checks.md", "final.md"]
 REQUIRED_TIMELINE_KEYS = {
     "timestamp",
     "stage",
@@ -33,6 +34,19 @@ REQUIRED_TIMELINE_KEYS = {
     "next_step",
 }
 FINAL_VERDICTS = {"ship", "pass-with-risks", "blocked", "fail"}
+
+
+def detect_mode(run_dir: Path, requested_mode: str) -> str:
+    if requested_mode != "auto":
+        return requested_mode
+
+    if (run_dir / "run.md").exists() and not (run_dir / "manifest.md").exists():
+        return "compact"
+    return "full"
+
+
+def is_empty_file(path: Path) -> bool:
+    return not path.read_text(encoding="utf-8").strip()
 
 
 def validate_artifacts_index(path: Path) -> list[str]:
@@ -151,26 +165,56 @@ def read_field(path: Path, name: str) -> str | None:
     return None
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--run-dir", required=True)
-    parser.add_argument("--require-handoff", action="store_true")
-    parser.add_argument("--allow-no-check", action="store_true")
-    parser.add_argument("--allow-pending", action="store_true")
-    args = parser.parse_args()
+def validate_verdict(path: Path) -> list[str]:
+    errors: list[str] = []
+    verdict = read_field(path, "Verdict")
+    if verdict is None:
+        errors.append(f"{path.name}: missing Verdict field")
+    elif verdict not in FINAL_VERDICTS:
+        allowed = ", ".join(sorted(FINAL_VERDICTS))
+        errors.append(f"{path.name}: invalid Verdict '{verdict}' (expected one of: {allowed})")
+    return errors
 
-    run_dir = Path(args.run_dir).expanduser().resolve()
+
+def validate_compact_run(run_dir: Path, allow_no_check: bool, allow_pending: bool) -> list[str]:
     errors: list[str] = []
 
-    if not run_dir.exists():
-        raise SystemExit(f"run dir not found: {run_dir}")
+    for name in COMPACT_REQUIRED_FILES:
+        path = run_dir / name
+        if not path.exists():
+            errors.append(f"missing file: {name}")
+            continue
+        if not path.is_file():
+            errors.append(f"{name} exists but is not a file")
+            continue
+        if is_empty_file(path) and not (name == "checks.md" and allow_no_check):
+            errors.append(f"{name}: empty file")
 
-    for name in REQUIRED_FILES:
+    artifacts_dir = run_dir / "artifacts"
+    if artifacts_dir.exists() and not artifacts_dir.is_dir():
+        errors.append("artifacts exists but is not a directory")
+
+    final_path = run_dir / "final.md"
+    if not allow_pending and final_path.exists() and final_path.is_file():
+        errors.extend(validate_verdict(final_path))
+
+    return errors
+
+
+def validate_full_run(
+    run_dir: Path,
+    require_handoff: bool,
+    allow_no_check: bool,
+    allow_pending: bool,
+) -> list[str]:
+    errors: list[str] = []
+
+    for name in FULL_REQUIRED_FILES:
         path = run_dir / name
         if not path.exists():
             errors.append(f"missing file: {name}")
 
-    for name in REQUIRED_DIRS:
+    for name in FULL_REQUIRED_DIRS:
         path = run_dir / name
         if not path.is_dir():
             errors.append(f"missing dir: {name}")
@@ -180,30 +224,53 @@ def main() -> int:
     errors.extend(validate_jsonl(run_dir / "timeline.jsonl"))
     errors.extend(validate_agent_traces(run_dir))
 
-    if args.require_handoff and not list((run_dir / "handoffs").glob("*.md")):
+    if require_handoff and not list((run_dir / "handoffs").glob("*.md")):
         errors.append("no handoff markdown files")
 
-    if not args.allow_no_check and not list((run_dir / "checks").glob("*.md")):
+    if not allow_no_check and not list((run_dir / "checks").glob("*.md")):
         errors.append("no check markdown files")
 
-    if not args.allow_pending:
+    if not allow_pending:
         for name in ["manifest.md", "final.md"]:
             path = run_dir / name
             if not path.exists():
                 continue
-            verdict = read_field(path, "Verdict")
-            if verdict is None:
-                errors.append(f"{name}: missing Verdict field")
-            elif verdict not in FINAL_VERDICTS:
-                allowed = ", ".join(sorted(FINAL_VERDICTS))
-                errors.append(f"{name}: invalid Verdict '{verdict}' (expected one of: {allowed})")
+            errors.extend(validate_verdict(path))
+
+    return errors
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--run-dir", required=True)
+    parser.add_argument("--mode", choices=["auto", "compact", "full"], default="auto")
+    parser.add_argument("--require-handoff", action="store_true")
+    parser.add_argument("--allow-no-check", action="store_true")
+    parser.add_argument("--allow-pending", action="store_true")
+    args = parser.parse_args()
+
+    run_dir = Path(args.run_dir).expanduser().resolve()
+
+    if not run_dir.exists():
+        raise SystemExit(f"run dir not found: {run_dir}")
+
+    mode = detect_mode(run_dir, args.mode)
+    if mode == "compact":
+        errors = validate_compact_run(run_dir, args.allow_no_check, args.allow_pending)
+    else:
+        errors = validate_full_run(
+            run_dir,
+            args.require_handoff,
+            args.allow_no_check,
+            args.allow_pending,
+        )
 
     if errors:
         for error in errors:
             print(f"FAIL {error}")
         return 1
 
-    print(f"PASS {run_dir}")
+    print(f"PASS {run_dir} ({mode})")
     return 0
 
 

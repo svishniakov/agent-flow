@@ -14,7 +14,13 @@ Done means scope is complete and evidence exists.
 
 ## Traceable Gates
 
-For traceable work:
+For compact `standard` trace:
+
+- `run.md`, `checks.md`, and `final.md` exist;
+- checks include command names and results;
+- residual risks are recorded.
+
+For full `release` trace:
 
 - run directory exists;
 - `.agent-work/` is locally ignored when inside git repo;
@@ -22,7 +28,7 @@ For traceable work:
 - timeline is valid JSONL;
 - every delegated subagent has `agents/<role>/trace.jsonl` and matching run-level timeline events;
 - artifacts index is valid JSON;
-- each used subagent has a handoff; explicitly approved manual fallback roles need handoffs too;
+- each explicitly used subagent has a handoff;
 - checks include command names and results;
 - final verdict is `ship`, `pass-with-risks`, `blocked`, or `fail`.
 
@@ -51,9 +57,11 @@ For traceable work:
 
 ## AI Slop Gates
 
-- For traceable work with user-facing output, docs, UI/design, generated code, tests, or public artifacts, run or simulate the `ai-slops-hunter` route.
+- For user-facing output, docs, UI/design, generated code, tests, or public artifacts, run the AI slop checklist.
+- Simulate the checklist in the main agent by default.
+- Use `ai-slops-hunter` only when the user explicitly requested subagents.
 - If a subagent is used, save handoff to `handoffs/ai-slops-hunter.md`.
-- If simulated, record findings and fixes in `checks/ai-slop-gate.md`.
+- If simulated during traceable work, record findings and fixes in `checks/ai-slop-gate.md`.
 
 ## Evidence Rule
 

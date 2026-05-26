@@ -1,0 +1,69 @@
+# Budgets
+
+Agent Flow optimizes for verified outcome with the smallest useful process.
+
+## Default
+
+Default to `light`.
+
+Escalate only when risk, scope, or user request makes the extra process useful.
+
+## Light
+
+Use for small and medium solo work:
+
+- short bugfixes;
+- bounded feature changes in one layer;
+- focused docs edits;
+- analysis and planning;
+- local checks that do not need durable artifact history.
+
+Rules:
+
+- no subagents;
+- no `.agent-work/runs/`;
+- no full manifest/route/plan bundle;
+- main agent may edit product files;
+- final answer includes changed files, checks, and residual risks when relevant.
+
+## Standard
+
+Use when evidence will help review, continuation, or rollback:
+
+- multi-file feature across more than one layer;
+- bugfix with non-obvious regression risk;
+- UI work needing screenshots;
+- docs/spec updates that must remain traceable;
+- long investigation with decisions worth preserving.
+
+Rules:
+
+- solo by default;
+- subagents only if explicitly requested by the user;
+- compact trace preferred: `run.md`, `checks.md`, `final.md`, plus artifacts that prove the result;
+- full trace is optional, not default.
+
+## Release
+
+Use when failure cost is high:
+
+- release gates;
+- deploy/CI/package publishing;
+- auth, payments, secrets, external services;
+- security-sensitive changes;
+- high-stakes data migration;
+- user explicitly asks for full trace.
+
+Rules:
+
+- full traceable run;
+- fresh checks before completion;
+- explicit residual risks;
+- subagents still require separate explicit user request;
+- no final `ship` verdict unless acceptance checks passed.
+
+## Escalation
+
+Escalate from `light` to `standard` or `release` only for a concrete reason. Record that reason briefly when trace artifacts are created.
+
+Do not escalate because a task "feels important" or because Agent Flow was invoked.

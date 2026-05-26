@@ -1,17 +1,19 @@
 # Agent Flow
 
-Agent Flow is an explicitly invoked Codex skill for routing requests into an agent workflow with traceable runs, delegation, design gates, and verification gates.
+Agent Flow is an explicitly invoked Codex skill for routing requests into the smallest verified workflow. Solo execution is the default. Subagents require a separate explicit user request.
 
 Use it by starting the request with `Agent Flow`, `$agent-flow`, `agent-flow`, or `агент-флоу`. Text forms without `$` are case-insensitive. Requests without that prefix stay outside this skill and run solo in the main agent.
 
-Agent Flow does not run a separate brainstorming pre-step. Unclear Agent Flow requests are handled through intake, routing, delegation, and verification inside the skill.
+There is no Agent Flow preflight. Unprefixed requests must not load, check, mention, or route through Agent Flow.
+
+Agent Flow does not run a separate brainstorming pre-step. Unclear Agent Flow requests are handled through intake, routing, checks, and verification inside the skill.
 
 This repository contains process rules and helper scripts. It is not a standalone application.
 
 ## Contents
 
 - `SKILL.md` - skill entry point and routing rules.
-- `references/` - workflow details for orchestration, delegation, traceable runs, design gates, and Definition of Done checks.
+- `references/` - workflow details for budgets, orchestration, explicit delegation, traceable runs, design gates, and Definition of Done checks.
 - `scripts/` - optional Python helpers for creating run skeletons, appending timeline events, recording subagent traces, and validating run completeness.
 - `agents/openai.yaml` - agent configuration for OpenAI-based usage.
 
@@ -39,7 +41,7 @@ Replace `YYYY-MM-DD` with the date printed by `init-run.py`.
 
 ## Subagent Trace Contract
 
-For delegated subagents in a traceable run, `scripts/record-agent-trace.py` is
+For explicitly delegated subagents in a traceable run, `scripts/record-agent-trace.py` is
 the required writer. It appends the same role-owned event to run-level
 `timeline.jsonl` and `agents/<role>/trace.jsonl`, creates the per-agent
 directories, and indexes repeated `--artifact` paths in `artifacts.json`.

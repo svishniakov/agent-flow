@@ -1,20 +1,20 @@
 # Delegation
 
-Use subagents for product implementation only inside an explicitly invoked Agent Flow request. The orchestrator routes, briefs, reviews, and verifies; workers write product changes.
+Use subagents only when the user explicitly asks for subagents in the current task. Agent Flow by itself is not enough.
 
-An Agent Flow-prefixed request is standing explicit user authorization for subagents on product/code/docs/design implementation. This applies even if the current user message does not repeat "use subagents".
+Agent Flow-prefixed requests are solo by default. The main agent may write product changes unless subagents were separately requested.
 
-Unprefixed requests are solo work. Do not launch subagents for them.
+Unprefixed requests are also solo unless the user explicitly asks for subagents.
 
-If `spawn_agent` is unavailable and product changes are required, return `blocked-for-subagents` unless the user explicitly permits manual fallback for that task.
+If `spawn_agent` is unavailable after an explicit subagent request, say so. Continue solo only if that still matches the user's request.
 
 Before treating `spawn_agent` as unavailable, discover it through active tools and `tool_search` when available.
 
 ## Budget Gate
 
-For product/code/docs/design implementation inside Agent Flow, delegation is mandatory when `spawn_agent` is available.
+Delegation is never mandatory just because Agent Flow is active.
 
-For optional sidecar work, delegate when all are true:
+Delegate only when the user explicitly requested subagents and all are true:
 
 - task is independent;
 - ownership is narrow;
@@ -27,7 +27,7 @@ Do not delegate ritual roles.
 
 ## Product Ownership
 
-Assign product edits to workers, not the orchestrator:
+Assign product edits to workers only for explicitly delegated scopes:
 
 - TypeScript/JavaScript: `typescript-worker`, `frontend-worker`, or `backend-worker`.
 - UI implementation: `frontend-worker` after design gate.
@@ -35,7 +35,12 @@ Assign product edits to workers, not the orchestrator:
 - Tests and smoke probes: worker or QA verifier with explicit ownership.
 - User-facing docs: `documenter` or docs worker.
 
-Use disjoint write sets when multiple workers run in parallel. Tell every worker they are not alone in the codebase and must not revert edits made by others.
+Use disjoint write sets when multiple workers run in parallel. Tell every worker:
+
+- they are already inside a delegated task;
+- they must not run Agent Flow or brainstorming routing;
+- they are not alone in the codebase;
+- they must not revert edits made by others.
 
 ## Delegation Packet
 
@@ -85,9 +90,7 @@ When a run directory exists, save handoff to `handoffs/<role>.md`.
 
 ## Per-Agent Trace Contract
 
-When a run directory exists, every delegated subagent must have timeline presence
-owned by that role. Use `scripts/record-agent-trace.py` instead of
-`scripts/append-timeline.py` for subagent events.
+When a run directory exists, every delegated subagent must have timeline presence owned by that role. Use `scripts/record-agent-trace.py` instead of `scripts/append-timeline.py` for subagent events.
 
 The orchestrator records a delegation event before or immediately after sending
 the handoff packet. The worker records at least one terminal event when handing
@@ -99,8 +102,7 @@ Each call writes the same event to the run-level `timeline.jsonl` and to
 `artifacts/agents/<role>/` and indexes repeated `--artifact` paths in
 `artifacts.json` with subagent owner metadata.
 
-This is mandatory for delegated subagents. A handoff file without a matching
-role-owned timeline event is an incomplete traceable run.
+This is mandatory only for delegated subagents in a traceable run. A handoff file without a matching role-owned timeline event is an incomplete traceable run.
 
 ## Integration
 
