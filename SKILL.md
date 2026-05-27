@@ -80,6 +80,23 @@ Default budget is `light`:
 
 Use `standard` only when durable evidence helps review or continuation. Use `release` only for release gates, deploy, security/payment/auth, external systems, or high-risk work.
 
+## Project Memory And Environment Gate
+
+Read `references/project-memory-and-env.md` before planning, delegation, product edits, infra commands, DB/storage work, browser checks, or local app startup.
+
+Before implementation or subagent launch, the main agent must read:
+
+- local project instructions;
+- project-declared task memory such as `docs/tasks/lessons.md`, `docs/tasks/todo.md`, and `docs/tasks/implementation-notes.md` when the local project instructions name those files;
+- `.agent-work/tasks/lessons.md` when present;
+- `.agent-work/tasks/implementation-notes.md` when present and relevant;
+- PRD/spec/design documents named by the user;
+- project environment docs when infra, DB, storage, backend, frontend server, or smoke tests are involved.
+
+Do not provision infrastructure by default. Discover and use the existing project environment first. Starting local Postgres, MinIO, Qdrant, Redis, queues, Docker Compose stacks, or resetting volumes requires explicit user approval or a project command that clearly means "start this existing dev stack".
+
+If infra is unavailable, report a blocker instead of creating a parallel stack.
+
 ## Subagent Tool Discovery
 
 Only discover subagent tools when the user separately asked for subagents in the same task:
@@ -110,10 +127,11 @@ When subagents are explicitly requested, workers own their assigned narrow write
 2. If the task does not start with an Agent Flow prefix, do not use this skill.
 3. Inside Agent Flow, do not call `brainstorming`; classify the request and choose the smallest internal flow directly.
 4. If the task is trivial, answer or run the command directly within Agent Flow.
-5. Choose `light`, `standard`, or `release` budget.
-6. Create trace artifacts only for `standard` or `release`, or when the user explicitly asks for artifacts.
-7. If the user explicitly requested subagents, discover `spawn_agent` and delegate only narrow independent work.
-8. Otherwise implement solo and verify directly.
+5. Read project memory and environment context.
+6. Choose `light`, `standard`, or `release` budget.
+7. Create trace artifacts only for `standard` or `release`, or when the user explicitly asks for artifacts.
+8. If the user explicitly requested subagents, discover `spawn_agent` and delegate only narrow independent work.
+9. Otherwise implement solo and verify directly.
 
 ## Internal Flows
 
@@ -192,6 +210,7 @@ Scripts support the workflow; they do not replace engineering judgment.
 
 - `references/flows.md`: flow catalog and routing.
 - `references/budgets.md`: light, standard, and release budget rules.
+- `references/project-memory-and-env.md`: lessons, PRD/context intake, and infra guard.
 - `references/orchestrator.md`: orchestrator responsibilities and mode handling.
 - `references/traceable-runs.md`: run directory structure and artifact rules.
 - `references/delegation.md`: delegation packets, role handoffs, stable identities.
