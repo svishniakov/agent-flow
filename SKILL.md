@@ -87,9 +87,8 @@ Read `references/project-memory-and-env.md` before planning, delegation, product
 Before implementation or subagent launch, the main agent must read:
 
 - local project instructions;
-- project-declared task memory such as `docs/tasks/lessons.md`, `docs/tasks/todo.md`, and `docs/tasks/implementation-notes.md` when the local project instructions name those files;
-- `.agent-work/tasks/lessons.md` when present;
-- `.agent-work/tasks/implementation-notes.md` when present and relevant;
+- primary local project memory from `.agent-work/tasks/`: `lessons.md`, `todo.md`, and `implementation-notes.md` when present;
+- project-declared legacy task docs such as `docs/tasks/lessons.md`, `docs/tasks/todo.md`, and `docs/tasks/implementation-notes.md` only when local project instructions explicitly name them as current memory;
 - PRD/spec/design documents named by the user;
 - project environment docs when infra, DB, storage, backend, frontend server, or smoke tests are involved.
 
@@ -127,7 +126,7 @@ When subagents are explicitly requested, workers own their assigned narrow write
 2. If the task does not start with an Agent Flow prefix, do not use this skill.
 3. Inside Agent Flow, do not call `brainstorming`; classify the request and choose the smallest internal flow directly.
 4. If the task is trivial, answer or run the command directly within Agent Flow.
-5. Read project memory and environment context.
+5. Read primary project memory and environment context.
 6. Choose `light`, `standard`, or `release` budget.
 7. Create trace artifacts only for `standard` or `release`, or when the user explicitly asks for artifacts.
 8. If the user explicitly requested subagents, discover `spawn_agent` and delegate only narrow independent work.

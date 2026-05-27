@@ -2,7 +2,7 @@ interface:
   display_name: "Agent Flow"
   short_description: "Route work from idea to verified result"
   brand_color: "#2563EB"
-  default_prompt: "Use $agent-flow only when the user starts the request with Agent Flow, $agent-flow, agent-flow, or агент-флоу. No preflight: unprefixed requests must not load, check, mention, or route through Agent Flow. Do not run brainstorming first. Route prefixed tasks through the smallest useful budget, solo by default, and finish with verification evidence. Subagents require a separate explicit user request."
+  default_prompt: "Use $agent-flow only when the user starts the request with Agent Flow, $agent-flow, agent-flow, or агент-флоу. No preflight: unprefixed requests must not load, check, mention, or route through Agent Flow. Do not run brainstorming first. For prefixed tasks, read primary local project memory in .agent-work/tasks before planning, infra commands, product edits, or delegation. Route through the smallest useful budget, solo by default, and finish with verification evidence. Subagents require a separate explicit user request."
 
 policy:
   allow_implicit_invocation: false

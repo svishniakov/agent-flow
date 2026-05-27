@@ -30,12 +30,14 @@ The orchestrator must obey:
 
 1. Enter this route only after the user message starts with `Agent Flow`, `$agent-flow`, `agent-flow`, or `агент-флоу`.
 2. Strip the prefix and read local project rules.
-3. Classify request type.
-4. Choose the internal flow.
-5. Choose the smallest execution budget: `light`, `standard`, or `release`.
-6. Decide whether `.agent-work/tasks/todo.md` is needed.
-7. If subagents were explicitly requested, discover `spawn_agent`.
-8. State the selected skill/tool briefly when user-facing rules require it.
+3. Read primary project memory from `.agent-work/tasks/` when present.
+4. Read named PRD/spec/design docs and environment docs needed for the task.
+5. Classify request type.
+6. Choose the internal flow.
+7. Choose the smallest execution budget: `light`, `standard`, or `release`.
+8. Decide whether `.agent-work/tasks/todo.md` needs an update.
+9. If subagents were explicitly requested, discover `spawn_agent`.
+10. State the selected skill/tool briefly when user-facing rules require it.
 
 ## Invocation Semantics
 
