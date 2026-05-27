@@ -12,12 +12,12 @@ from pathlib import Path
 
 RUN_FILES = {
     "manifest.md": "# Manifest\n\nStatus: active\nVerdict: pending\n\n",
-    "context.md": "# Context\n\n",
+    "context.md": "# Context\n\n## Initial Worktree Snapshot\n\n",
     "route.md": "# Route\n\n",
     "plan.md": "# Plan\n\n",
     "definition-of-done.md": "# Definition Of Done\n\n",
     "decisions.md": "# Decisions\n\n",
-    "final.md": "# Final\n\nVerdict: pending\n\n",
+    "final.md": "# Final\n\nVerdict: pending\n\n## Worktree Hygiene\n\n",
 }
 
 

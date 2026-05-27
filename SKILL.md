@@ -96,6 +96,8 @@ Do not provision infrastructure by default. Discover and use the existing projec
 
 If infra is unavailable, report a blocker instead of creating a parallel stack.
 
+Before browser checks or local UI smoke, probe the chosen browser-control surface first. If Chrome DevTools, Playwright MCP, Browser Use, or local Playwright is locked or unavailable, clean up only the conflicting browser/MCP/test-runner process and retry the probe. Do not stop or reset project infra while fixing browser tooling.
+
 ## Subagent Tool Discovery
 
 Only discover subagent tools when the user separately asked for subagents in the same task:
@@ -164,6 +166,12 @@ Create `.agent-work/runs/YYYY-MM-DD-task-slug/` for:
 
 Do not create run directories for short consultation, one-off shell checks, or tiny one-file edits unless risk grows.
 
+For traceable implementation runs inside git repos, capture `git status --short` before edits and report worktree hygiene in `final.md`: run-owned changes, pre-existing dirty files, and any pre-existing file touched by the run.
+
+Timeline events must be appended in real workflow order. Do not record successful verification before the last implementation or fix. `validate-run.py` enforces this for final handoff.
+
+Record exactly one final orchestrator timeline event per run.
+
 ## Delegation Gate
 
 Read `references/delegation.md` before launching subagents.
@@ -184,6 +192,8 @@ Read `references/definition-of-done.md` before final response on traceable work.
 
 No completion claim without fresh evidence. Verification can be tests, build, lint, browser screenshots, visual diff, QA notes, docs review, or a checklist tied to acceptance criteria.
 
+For UI workflows, browser proof must exercise the claimed workflow through the UI. Direct API calls may prepare, inspect, or clean up state, but they do not prove clicks, selections, saves, reloads, or visual states unless the app UI performs those steps too.
+
 ## Design Gate
 
 Read `references/design-flow.md` for UI, UX, Pencil, Figma, screenshots, visual assets, frontend implementation, or design-system work.
@@ -200,7 +210,7 @@ Optional helper scripts live in `scripts/`:
 
 - `init-run.py`: create a traceable run skeleton.
 - `append-timeline.py`: append one JSONL timeline event.
-- `record-agent-trace.py`: append one subagent event to both run and role traces.
+- `record-agent-trace.py`: append one subagent or role-lane event to both run and role traces.
 - `validate-run.py`: check run completeness before final handoff.
 
 Scripts support the workflow; they do not replace engineering judgment.

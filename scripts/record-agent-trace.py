@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Record one subagent event in run-level and per-agent Agent Flow traces."""
+"""Record one subagent or role-lane event in Agent Flow traces."""
 
 from __future__ import annotations
 
@@ -80,6 +80,7 @@ def upsert_artifacts(
     artifact_paths: list[str],
     *,
     role: str,
+    execution_mode: str,
     stable_agent_name: str,
     stable_agent_slug: str,
     timestamp: str,
@@ -94,6 +95,7 @@ def upsert_artifacts(
         entry = {
             "path": artifact_path,
             "role": role,
+            "execution_mode": execution_mode,
             "stable_agent_name": stable_agent_name,
             "stable_agent_slug": stable_agent_slug,
             "source": "agent-trace",
@@ -133,9 +135,13 @@ def main() -> int:
     parser.add_argument("--stable-agent-name")
     parser.add_argument("--stable-agent-slug")
     parser.add_argument("--artifact", action="append", default=[])
+    parser.add_argument("--execution-mode", choices=["subagent", "role-lane"], default="subagent")
     parser.add_argument("--codex-thread-id")
     parser.add_argument("--runtime-nickname")
     args = parser.parse_args()
+
+    if args.execution_mode == "subagent" and args.stage == "spawned" and not args.codex_thread_id:
+        raise SystemExit("spawned subagent events require --codex-thread-id")
 
     run_dir = Path(args.run_dir).expanduser().resolve()
     if not run_dir.exists():
@@ -166,6 +172,7 @@ def main() -> int:
         "summary": args.summary,
         "artifacts": artifact_paths,
         "next_step": args.next_step,
+        "execution_mode": args.execution_mode,
         "agent_trace": agent_trace_path.relative_to(run_dir).as_posix(),
         "agent_artifact_dir": agent_artifact_dir.relative_to(run_dir).as_posix(),
     }
@@ -178,6 +185,7 @@ def main() -> int:
         artifacts_path,
         artifact_paths,
         role=args.role,
+        execution_mode=args.execution_mode,
         stable_agent_name=stable_agent_name,
         stable_agent_slug=stable_agent_slug,
         timestamp=timestamp,

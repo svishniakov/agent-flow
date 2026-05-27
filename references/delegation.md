@@ -102,7 +102,14 @@ Each call writes the same event to the run-level `timeline.jsonl` and to
 `artifacts/agents/<role>/` and indexes repeated `--artifact` paths in
 `artifacts.json` with subagent owner metadata.
 
-This is mandatory only for delegated subagents in a traceable run. A handoff file without a matching role-owned timeline event is an incomplete traceable run.
+Actual spawned subagents and role lanes are different:
+
+- Use `--execution-mode subagent` only when a real subagent/spawn tool was used.
+- A real subagent trace must include a `stage=spawned` event with `--codex-thread-id`.
+- Use `--execution-mode role-lane` when the main agent performed a scoped role review or checklist without a spawned runtime.
+- Do not report `role-lane` work as subagent execution in the final answer or performance analysis.
+
+This is mandatory only for delegated subagents in a traceable run. A handoff file without a matching role-owned timeline event is an incomplete traceable run. A trace that calls itself subagent work but has no spawned event with `codex_thread_id` is also incomplete.
 
 ## Integration
 

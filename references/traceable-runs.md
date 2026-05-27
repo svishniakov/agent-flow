@@ -65,6 +65,35 @@ artifacts/
 
 Agent artifacts must not enter product commits. Prefer `.git/info/exclude` for `.agent-work/` unless the user explicitly approves `.gitignore`.
 
+## Worktree Hygiene
+
+At traceable run intake, capture the project worktree state before edits:
+
+```bash
+git status --short
+```
+
+Record it in `context.md` or `route.md` under `Initial worktree snapshot`.
+If the worktree is dirty, classify the files before making product changes:
+
+- pre-existing unrelated changes;
+- pre-existing files that this run must touch;
+- new files expected from this run;
+- generated artifacts that must not be committed.
+
+Do not hide dirty state in the final report. `final.md` must include a short
+worktree section for traceable implementation runs:
+
+- initial dirty files, if any;
+- run-owned changed files;
+- pre-existing dirty files left untouched;
+- pre-existing dirty files touched by the run and why;
+- untracked/generated files that should not be committed.
+
+If a run touches a file that was already dirty at intake, say so explicitly in
+`final.md`. This keeps commit hygiene reviewable and prevents Agent Flow from
+silently mixing user work with run-owned changes.
+
 ## File Purposes
 
 - `manifest.md`: goal, scope, invocation, flow, agents, blockers, status, verdict.
@@ -88,7 +117,20 @@ Agent artifacts must not enter product commits. Prefer `.git/info/exclude` for `
 
 Run `scripts/validate-run.py --run-dir <run-dir>` before final handoff. By default it fails pending verdicts, missing check files, invalid JSON, and incomplete timeline events. Use `--allow-pending` or `--allow-no-check` only for early structural checks, not final handoff.
 
-Validation remains backward compatible with older no-subagent runs: `agents/` is not required. If `agents/<role>/` exists, `trace.jsonl` is required there. Agent trace files are checked with the same minimum event schema as `timeline.jsonl`, and every agent trace event must also be present in the run-level timeline.
+Validation remains backward compatible with no-subagent runs: `agents/` is not required. If `agents/<role>/` exists, `timeline.jsonl` and `trace.jsonl` are required. Agent trace files are checked with the same minimum event schema as `timeline.jsonl`, and every agent trace event must also be present in the run-level timeline.
+
+For final handoff, `validate-run.py` also requires:
+
+- exactly one `Verdict:` field in `final.md`;
+- exactly one valid final verdict value: `ship`, `pass-with-risks`, `blocked`, or `fail`;
+- exactly one run-level `timeline.jsonl` final event when a timeline exists or any agent trace exists;
+- the last timeline event must be `stage=final` and `role=orchestrator`.
+- timeline timestamps must be non-decreasing in file order;
+- if the timeline contains orchestrator `implementation` or `fix` events, the
+  final successful orchestrator `verification` or `checks` event must come after
+  the last such implementation/fix event.
+
+For compact traces, `timeline.jsonl` is optional only when there are no role/agent traces. If a compact run records timeline or agent traces, the final timeline event rule applies.
 
 ## Timeline Event Minimum
 
@@ -114,6 +156,28 @@ Use `scripts/append-timeline.py` for run-level orchestrator events. Use
 `scripts/record-agent-trace.py` for subagent events so the same event appears in
 the run-level timeline and in `agents/<role>/trace.jsonl`.
 
+Keep timeline events in real workflow order. Do not batch-write route,
+implementation, verification, and final at the end with guessed timestamps. If
+checks are rerun after a fix, append a new verification/checks event after the
+fix. The final timeline should make the actual sequence readable without
+opening chat history.
+
+Exactly one final orchestrator event is mandatory before final handoff:
+
+```bash
+python3 scripts/append-timeline.py \
+  --run-dir <run-dir> \
+  --stage final \
+  --role orchestrator \
+  --stable-agent-name orchestrator \
+  --stable-agent-slug orchestrator \
+  --status pass \
+  --summary "Final checks passed and final.md recorded the verdict." \
+  --next-step "handoff to user" \
+  --artifact final.md \
+  --artifact checks.md
+```
+
 ## Per-Agent Trace Events
 
 Every subagent that receives a delegation packet gets a first-class trace path:
@@ -128,6 +192,7 @@ The helper creates `agents/<role>/` and `artifacts/agents/<role>/` when needed:
 python3 scripts/record-agent-trace.py \
   --run-dir <run-dir> \
   --role python-worker \
+  --execution-mode subagent \
   --stable-agent-name "Мышарик" \
   --stable-agent-slug mysharik \
   --stage handoff \
@@ -139,8 +204,17 @@ python3 scripts/record-agent-trace.py \
 
 Pass each owned artifact with repeated `--artifact` flags. The helper indexes
 those paths in `artifacts.json` with `role`, `stable_agent_name`,
-`stable_agent_slug`, `source: agent-trace`, and timestamp metadata. Repeated
+`stable_agent_slug`, `execution_mode`, `source: agent-trace`, and timestamp metadata. Repeated
 records for the same `role` and `path` update the existing artifact entry instead
 of duplicating it. If `artifacts.json` is a top-level array, the helper writes a
 top-level array back. If it is an object with an `artifacts` array, the helper
 updates that field and preserves the object shape.
+
+## Subagent Vs Role Lane
+
+Do not call a role lane a subagent unless an actual subagent/spawn tool was used.
+
+- Actual spawned subagent: record `--execution-mode subagent`, include a `stage=spawned` event with `--codex-thread-id`, then record the terminal handoff/blocked/fail event.
+- Role lane without a spawned runtime: record `--execution-mode role-lane`, or keep it as an orchestrator note outside `agents/<role>/`. Its output is a scoped role review, not subagent execution.
+
+`validate-run.py` fails agent traces that look like subagents but have no spawned event with `codex_thread_id`. This is intentional: the trace must distinguish real parallel/delegated execution from role-labeled orchestration.

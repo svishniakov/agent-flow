@@ -32,12 +32,13 @@ The orchestrator must obey:
 2. Strip the prefix and read local project rules.
 3. Read primary project memory from `.agent-work/tasks/` when present.
 4. Read named PRD/spec/design docs and environment docs needed for the task.
-5. Classify request type.
-6. Choose the internal flow.
-7. Choose the smallest execution budget: `light`, `standard`, or `release`.
-8. Decide whether `.agent-work/tasks/todo.md` needs an update.
-9. If subagents were explicitly requested, discover `spawn_agent`.
-10. State the selected skill/tool briefly when user-facing rules require it.
+5. If this is a traceable implementation run inside a git repo, capture `git status --short` before edits and record the initial worktree snapshot.
+6. Classify request type.
+7. Choose the internal flow.
+8. Choose the smallest execution budget: `light`, `standard`, or `release`.
+9. Decide whether `.agent-work/tasks/todo.md` needs an update.
+10. If subagents were explicitly requested, discover `spawn_agent`.
+11. State the selected skill/tool briefly when user-facing rules require it.
 
 ## Invocation Semantics
 
@@ -73,6 +74,8 @@ Only when subagents were explicitly requested:
 - If user explicitly requests subagents, prefer narrow delegation over broad role chains.
 - Prefer existing project patterns over new abstractions.
 - Prefer direct verification evidence over narrative.
+- Before browser proof, probe the selected browser-control surface and clear only safe browser/MCP/test-runner conflicts. Do not touch project infra while fixing browser tooling.
+- For UI proof, exercise the claimed user workflow through the UI. API calls can set up or inspect state, but cannot replace the UI action being claimed.
 
 ## Orchestrator Edit Boundary
 
@@ -105,5 +108,8 @@ Before final answer:
 1. Check latest user message.
 2. Verify changed files and command outputs.
 3. Confirm trace artifacts only if used.
-4. Record residual risks.
-5. Keep final answer short and evidence-based.
+4. If a trace timeline exists, append the final orchestrator event before running final validation.
+5. Compare the initial worktree snapshot with current `git status --short`.
+6. In `final.md`, record run-owned changes, pre-existing dirty files left untouched, and pre-existing dirty files touched by the run.
+7. Record residual risks.
+8. Keep final answer short and evidence-based.

@@ -50,6 +50,23 @@ If existing infra is down or inconsistent:
 
 Do not silently provision a second stack.
 
+## Browser Control Guard
+
+Before browser checks, screenshots, visual proof, or local UI smoke, choose one browser-control surface for the task and probe it before running the long check:
+
+- Chrome DevTools;
+- Playwright MCP;
+- Browser Use or in-app browser;
+- local Playwright through shell with Google Chrome.
+
+The probe must verify that the tool answers, can open the target, the selected browser channel exists, and the profile/debug port/user-data-dir is not locked.
+
+If the probe finds a locked profile, occupied debug port, stale MCP process, stuck browser, or stuck test-runner, clean up only that browser-control conflict by PID/process name/path and repeat the probe. Do not start a long smoke/browser proof on top of unavailable tooling.
+
+Cleanup must not stop or reset project infra: Docker Compose, Postgres, MinIO, Qdrant, model gateway, backend/frontend dev servers, volumes, DB, and buckets require explicit approval or a documented project command for that exact action.
+
+If cleanup is unsafe, use one clean isolated browser profile/user-data-dir for the selected surface. If that also fails, record the exact blocker instead of cascading through multiple fallback tools.
+
 ## Delegation Context
 
 Before launching any subagent, the orchestrator must package project memory and env constraints into the delegation packet:

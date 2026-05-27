@@ -26,10 +26,14 @@ For full `release` trace:
 - `.agent-work/` is locally ignored when inside git repo;
 - manifest, route, plan, checks, final files are present;
 - timeline is valid JSONL;
+- timeline records the actual workflow order, with final successful verification/checks after the last orchestrator implementation/fix;
+- timeline has exactly one final orchestrator event;
+- initial and final worktree states are recorded when the run edits a git repo;
 - every delegated subagent has `agents/<role>/trace.jsonl` and matching run-level timeline events;
 - artifacts index is valid JSON;
 - each explicitly used subagent has a handoff;
 - checks include command names and results;
+- final notes run-owned changes and any pre-existing dirty files that were touched or left untouched;
 - final verdict is `ship`, `pass-with-risks`, `blocked`, or `fail`.
 
 ## Code Gates
@@ -51,9 +55,12 @@ For full `release` trace:
 
 - Approved design source exists for non-trivial UI work.
 - Browser screenshots captured for target viewports.
+- Browser-control availability was probed before the long check; locked profiles, occupied debug ports, stale MCP/browser/test-runner processes, or unsafe cleanup were recorded.
 - No clipped text, overlap, or layout shift.
 - Default, loading, empty, error, success, disabled, focus, and hover states checked when applicable.
 - Accessibility basics checked: contrast, keyboard, focus, labels/ARIA.
+- User workflow proof uses the real UI for the workflow being claimed: click/type/select/save/reload through the app. Direct API calls are allowed for setup, diagnostics, or cleanup, but they do not prove a UI interaction unless the result is also exercised through the UI.
+- If UI proof uses API shortcuts for setup or cleanup, record exactly which steps were API-only and do not claim those steps as browser-verified UI behavior.
 
 ## AI Slop Gates
 

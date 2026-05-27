@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -34,6 +35,10 @@ REQUIRED_TIMELINE_KEYS = {
     "next_step",
 }
 FINAL_VERDICTS = {"ship", "pass-with-risks", "blocked", "fail"}
+AGENT_EXECUTION_MODES = {"subagent", "role-lane"}
+IMPLEMENTATION_STAGES = {"implementation", "fix"}
+SUCCESSFUL_CHECK_STAGES = {"verification", "checks"}
+SUCCESS_STATUSES = {"pass", "ship", "pass-with-risks"}
 
 
 def detect_mode(run_dir: Path, requested_mode: str) -> str:
@@ -122,8 +127,104 @@ def load_jsonl_events(path: Path) -> tuple[list[dict], list[str]]:
     return events, errors
 
 
+def parse_event_timestamp(value: object) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
 def event_key(event: dict) -> str:
     return json.dumps(event, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def normalize_execution_mode(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    return value.replace("_", "-")
+
+
+def validate_final_timeline_event(run_dir: Path, require_timeline: bool) -> list[str]:
+    timeline_path = run_dir / "timeline.jsonl"
+    if not timeline_path.exists():
+        return ["missing timeline.jsonl for final timeline event"] if require_timeline else []
+
+    timeline_events, timeline_load_errors = load_jsonl_events(timeline_path)
+    if timeline_load_errors:
+        return []
+    if not timeline_events:
+        return ["timeline.jsonl: no events"]
+
+    errors: list[str] = []
+    final_events = [event for event in timeline_events if event.get("stage") == "final"]
+    if not final_events:
+        errors.append("timeline.jsonl: missing final event")
+    elif len(final_events) > 1:
+        errors.append("timeline.jsonl: multiple final events")
+
+    last_event = timeline_events[-1]
+    if last_event.get("stage") != "final":
+        errors.append("timeline.jsonl: last event must be stage=final")
+    if last_event.get("role") != "orchestrator":
+        errors.append("timeline.jsonl: final event must be owned by role=orchestrator")
+    return errors
+
+
+def validate_timeline_sequence(run_dir: Path) -> list[str]:
+    timeline_path = run_dir / "timeline.jsonl"
+    if not timeline_path.exists():
+        return []
+
+    timeline_events, timeline_load_errors = load_jsonl_events(timeline_path)
+    if timeline_load_errors or not timeline_events:
+        return []
+
+    errors: list[str] = []
+    previous_timestamp: datetime | None = None
+    for index, event in enumerate(timeline_events, start=1):
+        timestamp = parse_event_timestamp(event.get("timestamp"))
+        if timestamp is None:
+            errors.append(f"timeline.jsonl:{index}: invalid timestamp")
+            continue
+        if previous_timestamp is not None and timestamp < previous_timestamp:
+            errors.append(f"timeline.jsonl:{index}: timestamp must be non-decreasing")
+        previous_timestamp = timestamp
+
+    last_implementation_index = max(
+        (
+            index
+            for index, event in enumerate(timeline_events)
+            if event.get("role") == "orchestrator" and event.get("stage") in IMPLEMENTATION_STAGES
+        ),
+        default=None,
+    )
+    last_successful_check_index = max(
+        (
+            index
+            for index, event in enumerate(timeline_events)
+            if event.get("role") == "orchestrator"
+            and event.get("stage") in SUCCESSFUL_CHECK_STAGES
+            and event.get("status") in SUCCESS_STATUSES
+        ),
+        default=None,
+    )
+
+    if (
+        last_implementation_index is not None
+        and last_successful_check_index is not None
+        and last_successful_check_index < last_implementation_index
+    ):
+        errors.append(
+            "timeline.jsonl: final successful verification/checks event must come after "
+            "the last orchestrator implementation/fix event"
+        )
+
+    return errors
 
 
 def validate_agent_traces(run_dir: Path) -> list[str]:
@@ -138,6 +239,8 @@ def validate_agent_traces(run_dir: Path) -> list[str]:
     timeline_event_keys = set()
     if not timeline_load_errors:
         timeline_event_keys = {event_key(event) for event in timeline_events}
+    else:
+        errors.extend(f"agents require timeline.jsonl: {error}" for error in timeline_load_errors)
 
     for agent_dir in sorted(agents_dir.iterdir()):
         display_dir = agent_dir.relative_to(run_dir).as_posix()
@@ -148,7 +251,30 @@ def validate_agent_traces(run_dir: Path) -> list[str]:
         trace_path = agent_dir / "trace.jsonl"
         display_name = trace_path.relative_to(run_dir).as_posix()
         errors.extend(validate_jsonl(trace_path, display_name))
-        trace_events, _trace_load_errors = load_jsonl_events(trace_path)
+        trace_events, trace_load_errors = load_jsonl_events(trace_path)
+        if trace_load_errors:
+            continue
+
+        execution_modes = {
+            normalize_execution_mode(event.get("execution_mode"))
+            for event in trace_events
+            if event.get("execution_mode") is not None
+        }
+        invalid_modes = sorted(mode for mode in execution_modes if mode not in AGENT_EXECUTION_MODES)
+        if invalid_modes:
+            errors.append(f"{display_name}: invalid execution_mode values: {', '.join(invalid_modes)}")
+
+        is_role_lane = execution_modes == {"role-lane"}
+        if not is_role_lane:
+            spawned_events = [event for event in trace_events if event.get("stage") == "spawned"]
+            if not spawned_events:
+                errors.append(
+                    f"{display_name}: missing spawned event with codex_thread_id; "
+                    "use execution_mode=role-lane for non-spawned role lanes"
+                )
+            elif not any(event.get("codex_thread_id") for event in spawned_events):
+                errors.append(f"{display_name}: spawned event missing codex_thread_id")
+
         if timeline_load_errors:
             continue
         for index, event in enumerate(trace_events, start=1):
@@ -157,20 +283,24 @@ def validate_agent_traces(run_dir: Path) -> list[str]:
     return errors
 
 
-def read_field(path: Path, name: str) -> str | None:
+def read_fields(path: Path, name: str) -> list[str]:
     prefix = f"{name}:"
+    values: list[str] = []
     for line in path.read_text(encoding="utf-8").splitlines():
         if line.startswith(prefix):
-            return line[len(prefix) :].strip()
-    return None
+            values.append(line[len(prefix) :].strip())
+    return values
 
 
 def validate_verdict(path: Path) -> list[str]:
     errors: list[str] = []
-    verdict = read_field(path, "Verdict")
-    if verdict is None:
+    verdicts = read_fields(path, "Verdict")
+    if not verdicts:
         errors.append(f"{path.name}: missing Verdict field")
-    elif verdict not in FINAL_VERDICTS:
+    elif len(verdicts) > 1:
+        errors.append(f"{path.name}: multiple Verdict fields")
+    elif verdicts[0] not in FINAL_VERDICTS:
+        verdict = verdicts[0]
         allowed = ", ".join(sorted(FINAL_VERDICTS))
         errors.append(f"{path.name}: invalid Verdict '{verdict}' (expected one of: {allowed})")
     return errors
@@ -198,6 +328,15 @@ def validate_compact_run(run_dir: Path, allow_no_check: bool, allow_pending: boo
     if not allow_pending and final_path.exists() and final_path.is_file():
         errors.extend(validate_verdict(final_path))
 
+    has_timeline = (run_dir / "timeline.jsonl").exists()
+    has_agents = (run_dir / "agents").exists()
+    if has_timeline or has_agents:
+        errors.extend(validate_jsonl(run_dir / "timeline.jsonl"))
+        errors.extend(validate_timeline_sequence(run_dir))
+        errors.extend(validate_agent_traces(run_dir))
+        if not allow_pending:
+            errors.extend(validate_final_timeline_event(run_dir, require_timeline=True))
+
     return errors
 
 
@@ -222,7 +361,10 @@ def validate_full_run(
     errors.extend(validate_artifacts_index(run_dir / "artifacts.json"))
 
     errors.extend(validate_jsonl(run_dir / "timeline.jsonl"))
+    errors.extend(validate_timeline_sequence(run_dir))
     errors.extend(validate_agent_traces(run_dir))
+    if not allow_pending:
+        errors.extend(validate_final_timeline_event(run_dir, require_timeline=True))
 
     if require_handoff and not list((run_dir / "handoffs").glob("*.md")):
         errors.append("no handoff markdown files")
