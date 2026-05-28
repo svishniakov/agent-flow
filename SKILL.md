@@ -194,6 +194,8 @@ No completion claim without fresh evidence. Verification can be tests, build, li
 
 For UI workflows, browser proof must exercise the claimed workflow through the UI. Direct API calls may prepare, inspect, or clean up state, but they do not prove clicks, selections, saves, reloads, or visual states unless the app UI performs those steps too.
 
+For visual UI claims, browser proof must capture the claimed target in the screenshot itself. A screenshot of the surrounding page, an off-screen element, or a pre-scroll viewport does not prove the claim. If the target is below the fold, scroll it into view or capture an element-level screenshot, then record the visible target text/state in `checks/browser-proof.md`.
+
 ## Design Gate
 
 Read `references/design-flow.md` for UI, UX, Pencil, Figma, screenshots, visual assets, frontend implementation, or design-system work.

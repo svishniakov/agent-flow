@@ -37,6 +37,9 @@ Check:
 - interactive states;
 - keyboard and focus behavior;
 - asset rendering;
+- visible proof of the claimed target state in screenshots;
 - screenshot or pixel diff where useful.
 
 Record evidence in `checks/` and artifacts in `artifacts/`.
+
+For screenshot proof, capture the actual target element or state. A top-of-page screenshot does not prove a below-fold panel, table, modal, toast, error state, hover state, or selected value. Prefer an element screenshot plus a viewport screenshot when the target is inside a scroll container or a dense workspace.

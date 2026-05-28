@@ -76,6 +76,7 @@ Only when subagents were explicitly requested:
 - Prefer direct verification evidence over narrative.
 - Before browser proof, probe the selected browser-control surface and clear only safe browser/MCP/test-runner conflicts. Do not touch project infra while fixing browser tooling.
 - For UI proof, exercise the claimed user workflow through the UI. API calls can set up or inspect state, but cannot replace the UI action being claimed.
+- For visual UI proof, make the screenshot prove the exact claim. Scroll or capture the element so the claimed heading/status/value is visible, and list the visible target evidence in `checks/browser-proof.md`.
 
 ## Orchestrator Edit Boundary
 

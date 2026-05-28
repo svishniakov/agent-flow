@@ -67,6 +67,13 @@ Cleanup must not stop or reset project infra: Docker Compose, Postgres, MinIO, Q
 
 If cleanup is unsafe, use one clean isolated browser profile/user-data-dir for the selected surface. If that also fails, record the exact blocker instead of cascading through multiple fallback tools.
 
+Browser proof quality rule:
+
+- A screenshot must show the exact UI element or state being claimed.
+- If the target is off-screen, hidden inside a scroll container, or outside the first viewport, scroll it into view or capture an element-level screenshot.
+- Record the visible target evidence in `checks/browser-proof.md`, including the expected text/status/value and the screenshot artifact path.
+- DOM/API checks can support the proof, but they do not replace a screenshot that visually contains the target.
+
 ## Delegation Context
 
 Before launching any subagent, the orchestrator must package project memory and env constraints into the delegation packet:

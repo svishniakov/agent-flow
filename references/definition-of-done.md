@@ -56,6 +56,10 @@ For full `release` trace:
 - Approved design source exists for non-trivial UI work.
 - Browser screenshots captured for target viewports.
 - Browser-control availability was probed before the long check; locked profiles, occupied debug ports, stale MCP/browser/test-runner processes, or unsafe cleanup were recorded.
+- Browser proof screenshot visibly contains the exact UI target being claimed: heading/label, key state, status, error, table row, modal, overlay, or changed value.
+- If the UI target is below the fold, hidden by a panel, inside a scroll container, or clipped in the first viewport, scroll it into view or capture an element-level screenshot. Do not claim browser proof from a screenshot where the target is not visible.
+- `checks/browser-proof.md` records target evidence as concrete visible text/states and maps each target to screenshot artifact path(s).
+- If browser proof finds the target only through DOM/API inspection but the screenshot does not show it, record the result as `pass-with-risks` or `proof-gap`, not `pass`.
 - No clipped text, overlap, or layout shift.
 - Default, loading, empty, error, success, disabled, focus, and hover states checked when applicable.
 - Accessibility basics checked: contrast, keyboard, focus, labels/ARIA.
