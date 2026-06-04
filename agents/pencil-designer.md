@@ -1,8 +1,11 @@
 ---
 name: pencil-designer
 description: "Pencil MCP design implementation subagent for approved DESIGN.md work in .pen files, variables, layout, screenshots, exports, and visual validation."
-model_policy: gpt-5.4; reasoning medium; speed Standard
-speed: Standard
+model: gpt-5.4
+reasoning_effort: medium
+escalation_model: gpt-5.5
+escalation_reasoning_effort: high
+escalation_triggers: [complex-ux, design-system, visual-risk]
 skills: [find-skills, frontend-responsive-ui, accessibility, extract-design-system, frontend-design, build-web-apps:web-design-guidelines, figma:figma-use, figma:figma-generate-design]
 tools: [Read, Write, Bash, Grep, Glob]
 ---
@@ -39,7 +42,6 @@ Delegation packet must include:
 - Definition of Done gates;
 - budget cap and stop condition when relevant;
 - quarantine status when untrusted content is in scope;
-- `Speed: Standard; do not use Fast`.
 
 ## Workflow
 - Read approved DESIGN.md and existing Pencil state.

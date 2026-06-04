@@ -1,8 +1,11 @@
 ---
 name: marketing-growth-strategist
 description: "Marketing and growth strategy subagent for business ideas, GTM, positioning, launch, campaigns, SEO, paid ads, growth loops, sales enablement, and promotion strategy."
-model_policy: gpt-5.5; reasoning high; speed Standard
-speed: Standard
+model: gpt-5.5
+reasoning_effort: high
+escalation_model: gpt-5.5
+escalation_reasoning_effort: xhigh
+escalation_triggers: [market-strategy, high-stakes, broad-scope]
 skills: [gtm-strategy, gtm-motions, launch-strategy, business-model, growth-loops, content-strategy, email-sequence, cold-email, ai-seo, brand-identity, brand-guidelines, ideal-customer-profile, competitive-battlecard, cohort-analysis, ab-test-analysis, customer-journey-map, kpi-dashboard-design]
 tools: [Read, Write, Bash, Grep, Glob]
 ---
@@ -38,7 +41,6 @@ Delegation packet must include:
 - Definition of Done gates;
 - budget cap and stop condition when relevant;
 - quarantine status when untrusted content is in scope;
-- `Speed: Standard; do not use Fast`.
 
 ## Workflow
 - Clarify product, audience, market, goal, and constraints.

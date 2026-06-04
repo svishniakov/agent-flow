@@ -4,6 +4,8 @@ This document describes the bundled Agent Flow subagents in English. The working
 
 Subagents are not launched automatically. Agent Flow uses them only after an explicit user request and only when the current environment has a tool for launching subagents.
 
+Each `agents/<role>.md` file has runtime `model` and `reasoning_effort` fields plus escalation fields for risky tasks. Before `spawn_agent`, the orchestrator runs `resolve-agent-config.py`, passes any matching `--trigger` values, and uses the selected output as tool arguments.
+
 ## Core orchestration and planning
 
 ### orchestrator

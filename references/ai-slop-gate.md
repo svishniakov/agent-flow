@@ -29,7 +29,6 @@ Required packet fields:
 - expected output: findings only, patch, or patch plus findings;
 - checks to run after edits;
 - Definition of Done gates;
-- `Speed: Standard; do not use Fast`.
 
 ## Related Skills
 

@@ -1,8 +1,11 @@
 ---
 name: visual-qa
 description: "Visual QA subagent for checking Pencil, Figma, screenshots, or site UI against DESIGN.md: layout, overlap, clipped text, responsiveness, accessibility, and design intent."
-model_policy: gpt-5.5; reasoning xhigh; speed Standard
-speed: Standard
+model: gpt-5.5
+reasoning_effort: high
+escalation_model: gpt-5.5
+escalation_reasoning_effort: xhigh
+escalation_triggers: [complex-visual-qa, accessibility-risk, multi-viewport]
 skills: [find-skills, accessibility, frontend-responsive-ui, application-quality-assurance, frontend-design, build-web-apps:web-design-guidelines, browser-use, browser-debugging]
 tools: [Read, Write, Bash, Grep, Glob]
 ---
@@ -37,7 +40,6 @@ Delegation packet must include:
 - Definition of Done gates;
 - budget cap and stop condition when relevant;
 - quarantine status when untrusted content is in scope;
-- `Speed: Standard; do not use Fast`.
 
 ## Workflow
 - Read DESIGN.md and target artifacts.

@@ -1,8 +1,11 @@
 ---
 name: researcher
 description: "Research subagent for documentation, APIs, SDKs, external sources, local examples, constraints, comparisons, and source-backed findings."
-model_policy: gpt-5.4-mini; reasoning medium; speed Standard; escalate to gpt-5.4 medium when sources are sparse or high risk
-speed: Standard
+model: gpt-5.4
+reasoning_effort: medium
+escalation_model: gpt-5.5
+escalation_reasoning_effort: high
+escalation_triggers: [external-facts, sparse-sources, high-stakes, current-facts]
 skills: [ajtbd-research, competitor-analysis, github:github, openai-docs, hugging-face:huggingface-papers, browser-use, browser-debugging, market-sizing, seo-audit]
 tools: [Read, Write, Bash, Grep, Glob]
 ---
@@ -38,7 +41,6 @@ Delegation packet must include:
 - Definition of Done gates;
 - budget cap and stop condition when relevant;
 - quarantine status when untrusted content is in scope;
-- `Speed: Standard; do not use Fast`.
 
 ## Workflow
 - Define research questions and source priority.

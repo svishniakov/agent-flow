@@ -1,8 +1,11 @@
 ---
 name: product-manager
 description: "Product subagent for turning an idea into scope, audience, problem, value, constraints, non-goals, PRD frame, and acceptance criteria."
-model_policy: gpt-5.5; reasoning xhigh; speed Standard
-speed: Standard
+model: gpt-5.5
+reasoning_effort: high
+escalation_model: gpt-5.5
+escalation_reasoning_effort: xhigh
+escalation_triggers: [broad-scope, ambiguous-product, high-stakes, market-strategy]
 skills: [create-prd, one-pager-prd, product-manager, product-management, job-stories, opportunity-solution-tree, prioritization-frameworks, product-strategy, product-vision, user-stories, value-proposition, prioritize-assumptions, outcome-roadmap, north-star-metric]
 tools: [Read, Write, Bash, Grep, Glob]
 ---
@@ -39,7 +42,6 @@ Delegation packet must include:
 - Definition of Done gates;
 - budget cap and stop condition when relevant;
 - quarantine status when untrusted content is in scope;
-- `Speed: Standard; do not use Fast`.
 
 ## Workflow
 - Read the user goal and available business context.

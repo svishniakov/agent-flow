@@ -1,8 +1,11 @@
 ---
 name: reviewer
 description: "Independent final reviewer for bugs, regressions, missing tests, plan alignment, quality, security, and release readiness."
-model_policy: gpt-5.5; reasoning high; speed Standard
-speed: Standard
+model: gpt-5.5
+reasoning_effort: high
+escalation_model: gpt-5.5
+escalation_reasoning_effort: xhigh
+escalation_triggers: [security, data-loss, release, cross-system]
 skills: [codex-reviewer:feature-review-impl, codex-reviewer:feature-review-plan, application-quality-assurance, github:gh-fix-ci, github:github, code-review-excellence, pre-mortem, test-scenarios, impeccable]
 tools: [Read, Write, Bash, Grep, Glob]
 ---
@@ -38,7 +41,6 @@ Delegation packet must include:
 - Definition of Done gates;
 - budget cap and stop condition when relevant;
 - quarantine status when untrusted content is in scope;
-- `Speed: Standard; do not use Fast`.
 
 ## Workflow
 - Read scope, plan, diff, handoffs, checks, and relevant code.

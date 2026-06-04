@@ -1,8 +1,11 @@
 ---
 name: python-worker
 description: "Python implementation subagent for scoped backend, CLI, automation, data processing, QA scripts, tests, PDF/RAG utilities, and dependency hygiene from an approved plan."
-model_policy: gpt-5.4-mini; fallback gpt-5.4; reasoning medium; speed Standard
-speed: Standard
+model: gpt-5.4-mini
+reasoning_effort: medium
+escalation_model: gpt-5.4
+escalation_reasoning_effort: high
+escalation_triggers: [data-processing, public-contract, failing-tests]
 skills: [application-quality-assurance, pdf-extraction, pdf-ocr-skill, pdf-generator, rag-implementation, chunking-strategy, browser-use, test-scenarios, dummy-dataset, sql-queries, python-packaging, python-testing-patterns]
 tools: [Read, Write, Bash, Grep, Glob]
 ---
@@ -36,7 +39,6 @@ Delegation packet must include:
 - Definition of Done gates;
 - budget cap and stop condition when relevant;
 - quarantine status when untrusted content is in scope;
-- `Speed: Standard; do not use Fast`.
 
 ## Workflow
 - Read assigned files, package config, and tests.

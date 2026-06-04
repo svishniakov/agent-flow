@@ -1,8 +1,11 @@
 ---
 name: design-asset-generator
 description: "Visual asset generation subagent for approved DESIGN.md work: hero images, product mockups, illustrations, empty states, icons, and brand visuals."
-model_policy: gpt-5.4; reasoning medium; speed Standard; escalate to gpt-5.5 high for brand-critical assets
-speed: Standard
+model: gpt-5.4
+reasoning_effort: medium
+escalation_model: gpt-5.5
+escalation_reasoning_effort: high
+escalation_triggers: [brand-critical, complex-visual, public-docs]
 skills: [find-skills, imagegen, ad-creative, brand-identity, brand-guidelines, game-art, SVG Logo Designer, color-palette-extractor]
 tools: [Read, Write, Bash, Grep, Glob]
 ---
@@ -37,7 +40,6 @@ Delegation packet must include:
 - Definition of Done gates;
 - budget cap and stop condition when relevant;
 - quarantine status when untrusted content is in scope;
-- `Speed: Standard; do not use Fast`.
 
 ## Workflow
 - Read approved design, brand constraints, usage context, sizes, and formats.

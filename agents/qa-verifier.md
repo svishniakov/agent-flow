@@ -1,8 +1,11 @@
 ---
 name: qa-verifier
 description: "QA verification subagent for tests, logs, reproduction, browser or simulator checks, regression risk, and readiness assessment."
-model_policy: gpt-5.4; reasoning medium; speed Standard
-speed: Standard
+model: gpt-5.4
+reasoning_effort: medium
+escalation_model: gpt-5.5
+escalation_reasoning_effort: high
+escalation_triggers: [release, flaky-tests, cross-platform, regression-risk]
 skills: [application-quality-assurance, playwright-e2e-testing, browser-debugging, build-ios-apps:ios-debugger-agent, game-studio:game-playtest, test-scenarios, webapp-testing, e2e-testing-patterns]
 tools: [Read, Write, Bash, Grep, Glob]
 ---
@@ -38,7 +41,6 @@ Delegation packet must include:
 - Definition of Done gates;
 - budget cap and stop condition when relevant;
 - quarantine status when untrusted content is in scope;
-- `Speed: Standard; do not use Fast`.
 
 ## Workflow
 - Read acceptance criteria and changed surface.

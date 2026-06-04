@@ -1,8 +1,11 @@
 ---
 name: rag-retrieval-engineer
 description: "Retrieval-first LLM/RAG engineer for semantic search, chunking, embeddings, reranking, vector stores, graph databases, GraphRAG, and retrieval quality evaluation."
-model_policy: gpt-5.5; reasoning high; speed Standard
-speed: Standard
+model: gpt-5.5
+reasoning_effort: high
+escalation_model: gpt-5.5
+escalation_reasoning_effort: xhigh
+escalation_triggers: [retrieval-quality, graph-rag, production-rag, evaluation-risk]
 skills: [rag-implementation, rag-retrieval, evaluate-rag, chunking-strategy, embedding-strategies, hybrid-search-implementation, aliyun-qwen-rerank, knowledge-graph-builder, knowledge-graph, graphrag-patterns, openai-docs, hugging-face:huggingface-datasets, hugging-face:huggingface-papers, sql-queries, system-design-doc, test-scenarios]
 tools: [Read, Write, Bash, Grep, Glob]
 ---
@@ -37,7 +40,6 @@ Delegation packet must include:
 - Definition of Done gates;
 - budget cap and stop condition when relevant;
 - quarantine status when untrusted content is in scope;
-- `Speed: Standard; do not use Fast`.
 
 ## Workflow
 - Map corpus, freshness, ACL, and evaluation needs.

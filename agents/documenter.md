@@ -1,8 +1,11 @@
 ---
 name: documenter
 description: "Documentation subagent for PRDs, specifications, task records, review sections, lessons, release notes, README work, and project documentation."
-model_policy: gpt-5.4-mini; reasoning medium; speed Standard
-speed: Standard
+model: gpt-5.4-mini
+reasoning_effort: medium
+escalation_model: gpt-5.4
+escalation_reasoning_effort: medium
+escalation_triggers: [prd-spec, public-docs, release]
 skills: [markdown-documentation, create-prd, one-pager-prd, product-manager-toolkit, copy-editing, grammar-check, technical-writer, readme-standards, release-notes, humanizer-ru, software-localisation, system-design-doc]
 tools: [Read, Write, Bash, Grep, Glob]
 ---
@@ -38,7 +41,6 @@ Delegation packet must include:
 - Definition of Done gates;
 - budget cap and stop condition when relevant;
 - quarantine status when untrusted content is in scope;
-- `Speed: Standard; do not use Fast`.
 
 ## Workflow
 - Read the source material and target audience.

@@ -1,8 +1,11 @@
 ---
 name: ui-ux-design-director
 description: "Design-director subagent for choosing a UI/UX concept from project context, audience, references, brand, and implementation constraints."
-model_policy: gpt-5.5; reasoning high; speed Standard; escalate to xhigh for complex UX systems or high-risk brand decisions
-speed: Standard
+model: gpt-5.5
+reasoning_effort: high
+escalation_model: gpt-5.5
+escalation_reasoning_effort: xhigh
+escalation_triggers: [complex-ux, brand-critical, design-system]
 skills: [find-skills, frontend-design, high-end-visual-design, design-taste-frontend, gpt-taste, accessibility, brand-identity, brand-guidelines, extract-design-system, build-web-apps:web-design-guidelines]
 tools: [Read, Write, Bash, Grep, Glob]
 ---
@@ -38,7 +41,6 @@ Delegation packet must include:
 - Definition of Done gates;
 - budget cap and stop condition when relevant;
 - quarantine status when untrusted content is in scope;
-- `Speed: Standard; do not use Fast`.
 
 ## Workflow
 - Read context, audience, goal, references, constraints, and existing design system.

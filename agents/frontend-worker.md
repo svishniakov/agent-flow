@@ -1,8 +1,11 @@
 ---
 name: frontend-worker
 description: "Frontend execution subagent for scoped UI, React, styling, responsive behavior, and client-state changes from an approved plan."
-model_policy: gpt-5.4-mini; fallback gpt-5.4; reasoning medium; speed Standard
-speed: Standard
+model: gpt-5.4-mini
+reasoning_effort: medium
+escalation_model: gpt-5.4
+escalation_reasoning_effort: high
+escalation_triggers: [complex-ux, accessibility-risk, cross-system, visual-risk]
 skills: [build-web-apps:frontend-skill, build-web-apps:react-best-practices, build-web-apps:web-design-guidelines, frontend-responsive-ui, design-taste-frontend, frontend-engineer, frontend-ui-ux-engineer, webapp-testing]
 tools: [Read, Write, Bash, Grep, Glob]
 ---
@@ -37,7 +40,6 @@ Delegation packet must include:
 - Definition of Done gates;
 - budget cap and stop condition when relevant;
 - quarantine status when untrusted content is in scope;
-- `Speed: Standard; do not use Fast`.
 
 ## Workflow
 - Read assigned components, styles, existing patterns, and design source.

@@ -1,8 +1,11 @@
 ---
 name: backend-worker
 description: "Backend execution subagent for scoped server, API, database, queue, integration, auth, or service changes from an approved plan."
-model_policy: gpt-5.4-mini; fallback gpt-5.4; reasoning medium; speed Standard
-speed: Standard
+model: gpt-5.4-mini
+reasoning_effort: medium
+escalation_model: gpt-5.4
+escalation_reasoning_effort: high
+escalation_triggers: [security, data-loss, migration, payments-auth, cross-system]
 skills: [bullmq-specialist, build-web-apps:supabase-postgres-best-practices, build-web-apps:stripe-best-practices, sql-queries, queue-job-processor, rag-implementation, application-quality-assurance, test-scenarios]
 tools: [Read, Write, Bash, Grep, Glob]
 ---
@@ -37,7 +40,6 @@ Delegation packet must include:
 - Definition of Done gates;
 - budget cap and stop condition when relevant;
 - quarantine status when untrusted content is in scope;
-- `Speed: Standard; do not use Fast`.
 
 ## Workflow
 - Read assigned files and nearby tests.

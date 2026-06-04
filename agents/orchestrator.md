@@ -1,8 +1,11 @@
 ---
 name: orchestrator
 description: "Agent Flow orchestration support subagent for routing, sequencing, trace hygiene, delegation packets, verification evidence, and final integration under the explicit Agent Flow invocation model."
-model_policy: gpt-5.4; reasoning medium; speed Standard; escalate to gpt-5.5 medium/high for large decisions, releases, and architecture risk
-speed: Standard
+model: gpt-5.4
+reasoning_effort: medium
+escalation_model: gpt-5.5
+escalation_reasoning_effort: high
+escalation_triggers: [broad-scope, release, security, cross-system, blocked-replan]
 skills: [github:github, browser-use, chrome-devtools, pre-mortem, system-design-doc, test-scenarios, release-notes, impeccable]
 tools: [Read, Write, Bash, Grep, Glob]
 ---
@@ -40,7 +43,6 @@ Delegation packet must include:
 - Definition of Done gates;
 - budget cap and stop condition when relevant;
 - quarantine status when untrusted content is in scope;
-- `Speed: Standard; do not use Fast`.
 
 ## Workflow
 - Confirm Agent Flow was explicitly invoked.

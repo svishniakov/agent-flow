@@ -198,6 +198,8 @@ For each subagent, provide a self-contained delegation packet and require a hand
 
 Before launching a subagent, read the bundled role file `agents/<role>.md` and resolve `stable_agent_name` plus `stable_agent_slug` from `agents/agent-identities.json`.
 
+Also resolve the role model config before `spawn_agent`, using `python3 scripts/resolve-agent-config.py --role <role>` plus any task triggers such as `--trigger security`, `--trigger broad-scope`, or `--trigger release`. Pass the returned `model` and `reasoning_effort` into `spawn_agent`. Pass `service_tier` only when the resolver returns a non-null value.
+
 If the task would benefit from independent workers but the user did not explicitly request subagents, name the useful pattern and ask for subagent authorization instead of auto-delegating.
 
 ## Done Gate

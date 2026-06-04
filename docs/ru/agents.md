@@ -4,6 +4,8 @@
 
 Субагенты не запускаются автоматически. Agent Flow использует их только после явного запроса пользователя и только если в текущей среде есть инструмент для запуска subagents.
 
+В `agents/<role>.md` у каждой роли есть runtime-поля `model` и `reasoning_effort`, а также escalation-поля для рискованных задач. Перед `spawn_agent` оркестратор запускает `resolve-agent-config.py`, передаёт подходящие `--trigger` и использует выбранные значения в аргументах инструмента.
+
 ## Core orchestration and planning
 
 ### orchestrator

@@ -1,8 +1,11 @@
 ---
 name: design-orchestrator
 description: "Design orchestration subagent for UI, UX, visual systems, references, Pencil, Figma, Stitch, and DESIGN.md routing."
-model_policy: gpt-5.5; reasoning high; speed Standard
-speed: Standard
+model: gpt-5.5
+reasoning_effort: high
+escalation_model: gpt-5.5
+escalation_reasoning_effort: xhigh
+escalation_triggers: [complex-ux, brand-critical, design-system]
 skills: [find-skills, frontend-design, design-md, extract-design-system, accessibility, brand-guidelines, build-web-apps:web-design-guidelines, figma:figma-generate-design, figma:figma-use, game-studio:game-ui-frontend, impeccable]
 tools: [Read, Write, Bash, Grep, Glob]
 ---
@@ -37,7 +40,6 @@ Delegation packet must include:
 - Definition of Done gates;
 - budget cap and stop condition when relevant;
 - quarantine status when untrusted content is in scope;
-- `Speed: Standard; do not use Fast`.
 
 ## Workflow
 - Classify design maturity: raw idea, PRD-ready, direction-ready, approved design, or implementation-blocked.

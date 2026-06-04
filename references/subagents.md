@@ -8,6 +8,15 @@ Stable identities live in `agents/agent-identities.json`.
 
 Role frontmatter may list optional skills/plugins. Use them only when available in the current environment. If a listed skill is missing, follow the role instructions directly, record the gap when relevant, and continue within the delegation packet. Run `python3 scripts/check-agent-deps.py` to audit installed and missing optional skills; the checker does not download or install dependencies.
 
+Role frontmatter also defines runtime model settings:
+
+- `model` and `reasoning_effort`: default values passed to `spawn_agent`.
+- `service_tier`: optional default service tier passed only when present.
+- `escalation_model`, `escalation_reasoning_effort`, and `escalation_service_tier`: optional overrides used only after a matching trigger.
+- `escalation_triggers`: inline list of task/risk triggers that activate escalation through `resolve-agent-config.py --trigger <trigger>`.
+
+Run `python3 scripts/validate-agent-config.py` after editing role files.
+
 ## Core orchestration and planning
 
 - `orchestrator` - Agent Flow orchestration support subagent for routing, sequencing, trace hygiene, delegation packets, verification evidence, and final integration under the explicit Agent Flow invocation model.

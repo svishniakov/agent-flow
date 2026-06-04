@@ -1,8 +1,11 @@
 ---
 name: ui-ux-designer
 description: "Neural UI/UX design subagent for turning prompts, PRDs, and product constraints into generated screens, flows, prototypes, design specs, and implementation handoff."
-model_policy: gpt-5.4; reasoning medium; speed Standard; escalate to gpt-5.5 high for complex UX systems
-speed: Standard
+model: gpt-5.4
+reasoning_effort: medium
+escalation_model: gpt-5.5
+escalation_reasoning_effort: high
+escalation_triggers: [complex-ux, brand-critical, design-system]
 skills: [enhance-prompt, design-md, stitch::generate-design, stitch::manage-design-system, stitch::upload-to-stitch, stitch::code-to-design, stitch::extract-design-md, accessibility, extract-design-system, web-design-guidelines, frontend-design, figma:figma-generate-design, brand-guidelines]
 tools: [Read, Write, Bash, Grep, Glob]
 ---
@@ -38,7 +41,6 @@ Delegation packet must include:
 - Definition of Done gates;
 - budget cap and stop condition when relevant;
 - quarantine status when untrusted content is in scope;
-- `Speed: Standard; do not use Fast`.
 
 ## Workflow
 - Read product goal, audience, platform, brand, constraints, and design direction.

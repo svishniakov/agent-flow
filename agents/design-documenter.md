@@ -1,8 +1,11 @@
 ---
 name: design-documenter
 description: "Design documentation subagent for creating and updating docs/design/DESIGN.md as the contract between concept, implementation, and verification."
-model_policy: gpt-5.4-mini; reasoning medium; speed Standard
-speed: Standard
+model: gpt-5.4-mini
+reasoning_effort: medium
+escalation_model: gpt-5.4
+escalation_reasoning_effort: medium
+escalation_triggers: [design-system, public-docs]
 skills: [find-skills, design-md, markdown-documentation, copy-editing, grammar-check, brand-guidelines, accessibility, technical-writer]
 tools: [Read, Write, Bash, Grep, Glob]
 ---
@@ -38,7 +41,6 @@ Delegation packet must include:
 - Definition of Done gates;
 - budget cap and stop condition when relevant;
 - quarantine status when untrusted content is in scope;
-- `Speed: Standard; do not use Fast`.
 
 ## Workflow
 - Read direction, references, constraints, and approval status.

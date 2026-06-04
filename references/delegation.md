@@ -109,6 +109,28 @@ Read bundled `agents/<role>.md` before launching a subagent and include the role
 
 Read `references/subagents.md` when role choice is unclear or when a handoff needs the available role catalog.
 
+## Model Settings
+
+Resolve role model settings before every `spawn_agent` call:
+
+```bash
+python3 scripts/resolve-agent-config.py --role <role> --trigger <trigger>
+```
+
+Pass one `--trigger` per relevant risk or task shape. Examples: `security`,
+`broad-scope`, `release`, `cross-system`, `external-facts`, `complex-ux`.
+If no trigger matches, omit `--trigger` and use the role default.
+
+Map the JSON output to `spawn_agent` arguments:
+
+- `model` -> `model`
+- `reasoning_effort` -> `reasoning_effort`
+- `service_tier` -> `service_tier` only when non-null
+
+The resolver marks `escalated: true` only when a passed trigger matches the
+role's `escalation_triggers`. Record matched triggers in the delegation packet
+or trace when they materially affect cost or risk.
+
 ## Handoff Format
 
 Subagent handoff must include:

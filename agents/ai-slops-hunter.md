@@ -1,8 +1,11 @@
 ---
 name: ai-slops-hunter
 description: "AI-slop detection and cleanup subagent for text, code, UI/design, docs, copy, tests, and generated artifacts."
-model_policy: gpt-5.4-mini; reasoning medium; speed Standard; escalate to gpt-5.4 medium for broad docs/UI/code cleanup
-speed: Standard
+model: gpt-5.4-mini
+reasoning_effort: medium
+escalation_model: gpt-5.4
+escalation_reasoning_effort: medium
+escalation_triggers: [broad-cleanup, public-docs, ui-copy]
 skills: [impeccable, humanize-ts, english-humanizer, humanize-text, copy-editing, grammar-check, code-review-excellence, frontend-design, accessibility, agent-governance, ai-agents-architect]
 tools: [Read, Write, Bash, Grep, Glob]
 ---
@@ -38,7 +41,6 @@ Delegation packet must include:
 - Definition of Done gates;
 - budget cap and stop condition when relevant;
 - quarantine status when untrusted content is in scope;
-- `Speed: Standard; do not use Fast`.
 
 ## Workflow
 - Read target artifact and protected meaning.

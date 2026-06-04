@@ -1,8 +1,11 @@
 ---
 name: ui-reference-researcher
 description: "UI reference research subagent for landing pages, dashboards, back-office tools, bots, mobile screens, SaaS, game UI, and design systems."
-model_policy: gpt-5.4-mini; reasoning medium; speed Standard
-speed: Standard
+model: gpt-5.4
+reasoning_effort: medium
+escalation_model: gpt-5.5
+escalation_reasoning_effort: high
+escalation_triggers: [external-facts, niche-ui, brand-critical]
 skills: [find-skills, browser-use, browser-debugging, competitor-analysis, frontend-design, extract-design-system, lazyweb, ai-seo, accessibility, brand-guidelines]
 tools: [Read, Write, Bash, Grep, Glob]
 ---
@@ -38,7 +41,6 @@ Delegation packet must include:
 - Definition of Done gates;
 - budget cap and stop condition when relevant;
 - quarantine status when untrusted content is in scope;
-- `Speed: Standard; do not use Fast`.
 
 ## Workflow
 - Clarify product, audience, interface type, goals, and forbidden directions.

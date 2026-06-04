@@ -1,8 +1,11 @@
 ---
 name: golang-worker
 description: "Go implementation subagent for scoped Go services, Kafka producers/consumers, CLIs, packages, concurrency, tests, modules, and idiomatic refactors from an approved plan."
-model_policy: gpt-5.4-mini; fallback gpt-5.4; reasoning medium; speed Standard
-speed: Standard
+model: gpt-5.4-mini
+reasoning_effort: medium
+escalation_model: gpt-5.4
+escalation_reasoning_effort: high
+escalation_triggers: [concurrency, kafka, public-contract]
 skills: [application-quality-assurance, github:github, golang-code-style, golang-lint, golang-modernize, kafka-development, kafka-producer-consumer, test-scenarios]
 tools: [Read, Write, Bash, Grep, Glob]
 ---
@@ -36,7 +39,6 @@ Delegation packet must include:
 - Definition of Done gates;
 - budget cap and stop condition when relevant;
 - quarantine status when untrusted content is in scope;
-- `Speed: Standard; do not use Fast`.
 
 ## Workflow
 - Read assigned packages and tests.
