@@ -40,6 +40,20 @@ https://github.com/svishniakov/agent-flow
 git clone https://github.com/svishniakov/agent-flow.git ~/.codex/skills/agent-flow
 ```
 
+При желании проверьте, какие skills из role files субагентов доступны в текущей среде:
+
+```bash
+python3 ~/.codex/skills/agent-flow/scripts/check-agent-deps.py
+```
+
+Интерактивный post-install check:
+
+```bash
+python3 ~/.codex/skills/agent-flow/scripts/check-agent-deps.py --prompt
+```
+
+Скрипт ничего не скачивает и не устанавливает. Он только показывает installed/missing optional skills. Agent Flow остаётся рабочим без этих optional dependencies.
+
 Если ваша среда читает skills из другой папки, используйте её вместо `~/.codex/skills/agent-flow`.
 
 ## Как использовать
@@ -155,6 +169,20 @@ Manual install:
 ```bash
 git clone https://github.com/svishniakov/agent-flow.git ~/.codex/skills/agent-flow
 ```
+
+Optionally check which skills from bundled subagent role files are already available in the current environment:
+
+```bash
+python3 ~/.codex/skills/agent-flow/scripts/check-agent-deps.py
+```
+
+Interactive post-install check:
+
+```bash
+python3 ~/.codex/skills/agent-flow/scripts/check-agent-deps.py --prompt
+```
+
+The checker does not download or install anything. It only reports installed/missing optional skills. Agent Flow still works without these optional dependencies.
 
 If your environment reads skills from another directory, use that path instead.
 

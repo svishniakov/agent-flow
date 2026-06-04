@@ -6,7 +6,7 @@ If no spawn tool is available, use the same role guidance as a solo checklist or
 
 Stable identities live in `agents/agent-identities.json`.
 
-Role frontmatter may list optional skills/plugins. Use them only when available in the current environment. If a listed skill is missing, follow the role instructions directly, record the gap when relevant, and continue within the delegation packet.
+Role frontmatter may list optional skills/plugins. Use them only when available in the current environment. If a listed skill is missing, follow the role instructions directly, record the gap when relevant, and continue within the delegation packet. Run `python3 scripts/check-agent-deps.py` to audit installed and missing optional skills; the checker does not download or install dependencies.
 
 ## Core orchestration and planning
 
