@@ -10,6 +10,10 @@ Agent Flow does not use the separate `brainstorming` skill. If scope is unclear,
 
 Choose the smallest flow that can produce a verified result.
 
+Read `workflow-patterns.md` when the selected flow needs a repeatable internal
+shape: fan-out, adversarial verification, tournament, quarantine, or loop. These
+patterns refine a flow; they are not separate public modes.
+
 | Flow | Use when | Typical output |
 | --- | --- | --- |
 | `quick-check-flow` | One command, short lookup, tiny explanation | Answer, command output, or brief note |
@@ -52,3 +56,7 @@ Unprefixed solo requests do not auto-upgrade into Agent Flow. If any of these ap
 - unclear acceptance criteria.
 
 Inside an Agent Flow-prefixed request, choose the smallest internal flow that covers the expanded scope.
+
+Inside Agent Flow, if a task matches a workflow pattern but lacks explicit
+subagent authorization, use the solo variant or ask for subagents. Do not infer
+authorization from pattern choice.

@@ -138,6 +138,8 @@ When subagents are explicitly requested, workers own their assigned narrow write
 
 Read `references/flows.md` when a task is non-trivial or when flow choice is unclear.
 
+Read `references/workflow-patterns.md` when a complex task needs a repeatable shape such as fan-out, adversarial verification, tournament ranking, quarantine, or loop-until-done. Patterns are recipes, not public modes, and they never override the subagent gate.
+
 Common internal flows:
 
 - `quick-check-flow`
@@ -170,6 +172,8 @@ For traceable implementation runs inside git repos, capture `git status --short`
 
 Timeline events must be appended in real workflow order. Do not record successful verification before the last implementation or fix. `validate-run.py` enforces this for final handoff.
 
+If a traceable run creates a product commit, create the product commit first, then append a run-local `stage=commit` orchestrator timeline event with the commit hash before writing the final event. AgentFlow trace artifacts under `.agent-work/` remain local audit memory and must not be included in the product commit unless the user explicitly requests that.
+
 Record exactly one final orchestrator timeline event per run.
 
 ## Delegation Gate
@@ -185,6 +189,8 @@ Inside Agent Flow, delegation is allowed only when the user separately asked for
 - subagent tool is available in the current environment.
 
 For each subagent, provide a self-contained delegation packet and require a handoff file when a run directory exists.
+
+If the task would benefit from independent workers but the user did not explicitly request subagents, name the useful pattern and ask for subagent authorization instead of auto-delegating.
 
 ## Done Gate
 
@@ -220,6 +226,7 @@ Scripts support the workflow; they do not replace engineering judgment.
 ## References
 
 - `references/flows.md`: flow catalog and routing.
+- `references/workflow-patterns.md`: reusable task-shaping recipes and guardrails.
 - `references/budgets.md`: light, standard, and release budget rules.
 - `references/project-memory-and-env.md`: lessons, PRD/context intake, and infra guard.
 - `references/orchestrator.md`: orchestrator responsibilities and mode handling.

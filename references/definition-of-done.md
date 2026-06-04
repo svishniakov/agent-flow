@@ -8,6 +8,7 @@ Done means scope is complete and evidence exists.
 - Out-of-scope not added silently.
 - Changed and important read files are known.
 - Verification commands or manual checks are recorded.
+- If a workflow pattern was used, its stop condition and verification evidence are recorded.
 - Agent artifacts are outside product commits.
 - Residual risks are recorded.
 - Final verdict is clear.
@@ -27,6 +28,7 @@ For full `release` trace:
 - manifest, route, plan, checks, final files are present;
 - timeline is valid JSONL;
 - timeline records the actual workflow order, with final successful verification/checks after the last orchestrator implementation/fix;
+- if the run creates a product commit, timeline has an orchestrator `stage=commit` event with the commit hash after successful checks and before the final event;
 - timeline has exactly one final orchestrator event;
 - initial and final worktree states are recorded when the run edits a git repo;
 - every delegated subagent has `agents/<role>/trace.jsonl` and matching run-level timeline events;
@@ -40,9 +42,20 @@ For full `release` trace:
 
 - Build/typecheck/lint/tests run when available and relevant.
 - Regression scenario checked for bugs.
+- Quick adversarial check run for risky assumptions when no separate verifier was authorized.
 - No unrelated refactor.
 - No dead code, fake tests, or generic abstraction.
 - No user changes reverted.
+
+## Pattern Gates
+
+- Workflow patterns are recipes, not public modes.
+- Subagent patterns ran only after explicit subagent authorization.
+- Loop-until-done has max iterations, budget cap, stop condition, failure condition, and handoff state.
+- Tournament has bracket size or max comparisons, stable rubric, tie-breakers, and winner rationale.
+- Fan-out work has deterministic item ownership and synthesis by the orchestrator.
+- Adversarial verification checks evidence against a rubric and records unresolved objections.
+- Quarantined workers that read untrusted content did not perform privileged actions.
 
 ## Docs Gates
 

@@ -24,6 +24,7 @@ Rules:
 - no `.agent-work/runs/`;
 - no full manifest/route/plan bundle;
 - main agent may edit product files;
+- quick adversarial checks are allowed when one skeptical pass improves evidence;
 - final answer includes changed files, checks, and residual risks when relevant.
 
 ## Standard
@@ -40,6 +41,7 @@ Rules:
 
 - solo by default;
 - subagents only if explicitly requested by the user;
+- workflow patterns may be recorded in `run.md` or `checks.md` when they explain the evidence;
 - compact trace preferred: `run.md`, `checks.md`, `final.md`, plus artifacts that prove the result;
 - full trace is optional, not default.
 
@@ -60,6 +62,7 @@ Rules:
 - fresh checks before completion;
 - explicit residual risks;
 - subagents still require separate explicit user request;
+- loops, tournaments, and fan-out work require budget caps and stop conditions;
 - no final `ship` verdict unless acceptance checks passed.
 
 ## Escalation

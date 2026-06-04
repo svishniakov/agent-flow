@@ -20,6 +20,7 @@ def main() -> int:
     parser.add_argument("--stable-agent-name")
     parser.add_argument("--stable-agent-slug")
     parser.add_argument("--artifact", action="append", default=[])
+    parser.add_argument("--commit-hash")
     args = parser.parse_args()
 
     run_dir = Path(args.run_dir).expanduser().resolve()
@@ -38,6 +39,8 @@ def main() -> int:
         "artifacts": args.artifact,
         "next_step": args.next_step,
     }
+    if args.commit_hash:
+        event["commit_hash"] = args.commit_hash
 
     with timeline.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(event, ensure_ascii=False) + "\n")

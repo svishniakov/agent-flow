@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -39,6 +40,10 @@ AGENT_EXECUTION_MODES = {"subagent", "role-lane"}
 IMPLEMENTATION_STAGES = {"implementation", "fix"}
 SUCCESSFUL_CHECK_STAGES = {"verification", "checks"}
 SUCCESS_STATUSES = {"pass", "ship", "pass-with-risks"}
+COMMIT_HASH_PATTERN = re.compile(r"\b[0-9a-f]{7,40}\b", re.IGNORECASE)
+COMMIT_DECLARATION_PATTERN = re.compile(
+    r"(?i)(^\s*(?:[-*]\s*)?(?:product\s+)?commit\s*:|committed\s+as|закомми|коммит\s*:)"
+)
 
 
 def detect_mode(run_dir: Path, requested_mode: str) -> str:
@@ -149,6 +154,34 @@ def normalize_execution_mode(value: object) -> str | None:
     return value.replace("_", "-")
 
 
+def extract_declared_commit_hashes(path: Path) -> list[str]:
+    if not path.exists() or not path.is_file():
+        return []
+
+    hashes: list[str] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not COMMIT_DECLARATION_PATTERN.search(line):
+            continue
+        hashes.extend(match.group(0).lower() for match in COMMIT_HASH_PATTERN.finditer(line))
+    return list(dict.fromkeys(hashes))
+
+
+def event_commit_hashes(event: dict) -> list[str]:
+    values: list[str] = []
+    commit_hash = event.get("commit_hash")
+    if isinstance(commit_hash, str):
+        values.append(commit_hash)
+    for field in ["summary", "next_step"]:
+        value = event.get(field)
+        if isinstance(value, str):
+            values.extend(match.group(0) for match in COMMIT_HASH_PATTERN.finditer(value))
+    return [value.lower() for value in values]
+
+
+def hashes_match(left: str, right: str) -> bool:
+    return left.startswith(right) or right.startswith(left)
+
+
 def validate_final_timeline_event(run_dir: Path, require_timeline: bool) -> list[str]:
     timeline_path = run_dir / "timeline.jsonl"
     if not timeline_path.exists():
@@ -223,6 +256,48 @@ def validate_timeline_sequence(run_dir: Path) -> list[str]:
             "timeline.jsonl: final successful verification/checks event must come after "
             "the last orchestrator implementation/fix event"
         )
+
+    commit_indexes = [
+        index
+        for index, event in enumerate(timeline_events)
+        if event.get("role") == "orchestrator" and event.get("stage") == "commit"
+    ]
+    final_indexes = [
+        index
+        for index, event in enumerate(timeline_events)
+        if event.get("role") == "orchestrator" and event.get("stage") == "final"
+    ]
+    if commit_indexes:
+        last_commit_index = max(commit_indexes)
+        if last_successful_check_index is not None and last_commit_index < last_successful_check_index:
+            errors.append(
+                "timeline.jsonl: orchestrator commit event must come after the "
+                "last successful verification/checks event"
+            )
+        if final_indexes and last_commit_index > max(final_indexes):
+            errors.append("timeline.jsonl: orchestrator commit event must come before final event")
+
+    declared_commit_hashes = extract_declared_commit_hashes(run_dir / "final.md")
+    if declared_commit_hashes:
+        commit_events = [
+            event
+            for event in timeline_events
+            if event.get("role") == "orchestrator" and event.get("stage") == "commit"
+        ]
+        if not commit_events:
+            errors.append("timeline.jsonl: final.md declares a commit but no orchestrator stage=commit event exists")
+        else:
+            commit_event_hashes = [
+                commit_hash
+                for event in commit_events
+                for commit_hash in event_commit_hashes(event)
+            ]
+            for declared_hash in declared_commit_hashes:
+                if not any(hashes_match(declared_hash, event_hash) for event_hash in commit_event_hashes):
+                    errors.append(
+                        f"timeline.jsonl: final.md declares commit {declared_hash} "
+                        "but no matching stage=commit event records it"
+                    )
 
     return errors
 

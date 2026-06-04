@@ -65,6 +65,24 @@ artifacts/
 
 Agent artifacts must not enter product commits. Prefer `.git/info/exclude` for `.agent-work/` unless the user explicitly approves `.gitignore`.
 
+## Product Commits And Local Trace
+
+Trace artifacts are local audit memory. They are not part of the product commit by default.
+
+When a traceable run creates a product commit, use this order:
+
+1. finish implementation;
+2. run the required checks;
+3. create the product commit with only in-scope product/docs changes;
+4. append a run-local `stage=commit` orchestrator event with the commit hash;
+5. write or update `final.md` with the commit hash, evidence and risks;
+6. append the single final orchestrator timeline event;
+7. run `scripts/validate-run.py --run-dir <run-dir>`.
+
+Do not create a second commit just to include `.agent-work/` trace changes. The
+timeline records the product commit hash locally after the product commit
+succeeds.
+
 ## Worktree Hygiene
 
 At traceable run intake, capture the project worktree state before edits:
@@ -129,6 +147,11 @@ For final handoff, `validate-run.py` also requires:
 - if the timeline contains orchestrator `implementation` or `fix` events, the
   final successful orchestrator `verification` or `checks` event must come after
   the last such implementation/fix event.
+- if `final.md` declares a product commit hash, `timeline.jsonl` must contain a
+  matching orchestrator `stage=commit` event before the final event;
+- if an orchestrator `stage=commit` event exists, it must come after the last
+  successful orchestrator `verification` or `checks` event and before the final
+  event.
 
 For compact traces, `timeline.jsonl` is optional only when there are no role/agent traces. If a compact run records timeline or agent traces, the final timeline event rule applies.
 
@@ -163,6 +186,21 @@ fix. The final timeline should make the actual sequence readable without
 opening chat history.
 
 Exactly one final orchestrator event is mandatory before final handoff:
+
+If a product commit was created, append the commit event first:
+
+```bash
+python3 scripts/append-timeline.py \
+  --run-dir <run-dir> \
+  --stage commit \
+  --role orchestrator \
+  --stable-agent-name orchestrator \
+  --stable-agent-slug orchestrator \
+  --status pass \
+  --summary "Committed product changes as <hash>." \
+  --commit-hash <hash> \
+  --next-step "write final.md and validate run"
+```
 
 ```bash
 python3 scripts/append-timeline.py \
