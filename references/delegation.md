@@ -83,6 +83,7 @@ Every packet includes:
 - selected workflow pattern when applicable;
 - 3-7 sentence task context;
 - project repo;
+- project memory summary from `lessons.md`, `todo.md`, and `implementation-notes.md`;
 - artifact root;
 - run directory;
 - handoff path;
@@ -97,6 +98,7 @@ Every packet includes:
 - quarantine status if untrusted content is in scope;
 - artifact registration needs;
 - no `.agent-work/` commit rule;
+- required `Project memory handoff` section;
 - handoff format.
 
 ## Stable Identities
@@ -117,6 +119,11 @@ Subagent handoff must include:
 - commands run and important outputs;
 - what is not done;
 - decisions made;
+- `Project memory handoff` with:
+  - `Todo updates`;
+  - `Implementation notes`;
+  - `Lesson candidates`;
+  - `Evidence`;
 - residual risks;
 - DoD status: `pass`, `pass-with-risks`, `fail`, or `blocked`;
 - artifacts created or updated;

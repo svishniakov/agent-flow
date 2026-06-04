@@ -30,15 +30,17 @@ The orchestrator must obey:
 
 1. Enter this route only after the user message starts with `Agent Flow`, `$agent-flow`, or `agent-flow`.
 2. Strip the prefix and read local project rules.
-3. Read primary project memory from `.agent-work/tasks/` when present.
-4. Read named PRD/spec/design docs and environment docs needed for the task.
-5. If this is a traceable implementation run inside a git repo, capture `git status --short` before edits and record the initial worktree snapshot.
-6. Classify request type.
-7. Choose the internal flow.
-8. Choose the smallest execution budget: `light`, `standard`, or `release`.
-9. Decide whether `.agent-work/tasks/todo.md` needs an update.
-10. If subagents were explicitly requested, discover `spawn_agent`.
-11. State the selected skill/tool briefly when user-facing rules require it.
+3. Detect the project repo and apply global project memory rules from `/Users/ucnlejumper/.codex/AGENTS.md`.
+4. Create/read `.agent-work/tasks/todo.md` and `.agent-work/tasks/lessons.md` for repo tasks.
+5. Read `implementation-notes.md` when global criteria make it relevant.
+6. Read named PRD/spec/design docs and environment docs needed for the task.
+7. If this is a traceable implementation run inside a git repo, capture `git status --short` before edits and record the initial worktree snapshot.
+8. Classify request type.
+9. Choose the internal flow.
+10. Choose the smallest execution budget: `light`, `standard`, or `release`.
+11. Update `.agent-work/tasks/todo.md` for repo tasks before product changes.
+12. If subagents were explicitly requested, discover `spawn_agent`.
+13. State the selected skill/tool briefly when user-facing rules require it.
 
 ## Invocation Semantics
 

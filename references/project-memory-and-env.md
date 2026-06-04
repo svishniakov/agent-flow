@@ -7,10 +7,11 @@ Agent Flow must not start work blind.
 Before planning, delegation, product edits, infra commands, DB/storage work, browser checks, or local app startup, read the smallest useful set of project context:
 
 - local project instructions such as `AGENTS.md`;
-- primary local project memory in `.agent-work/tasks/`:
-  - `lessons.md` when present;
-  - `todo.md` when present;
-  - `implementation-notes.md` when present and relevant;
+- primary local project memory in `.agent-work/tasks/`, following `/Users/ucnlejumper/.codex/AGENTS.md`:
+  - create `.agent-work/tasks/`, `todo.md`, and `lessons.md` for repo tasks when missing;
+  - read `lessons.md` and `todo.md` before repo work;
+  - read `implementation-notes.md` when global criteria make it relevant;
+  - update `todo.md` as the current task checklist;
 - project-declared legacy memory such as `docs/tasks/*` only when local project instructions explicitly name it as current memory;
 - PRD/spec/design docs named by the user;
 - environment docs for infra, Docker, local dev, migrations, test data, and app startup when the task can touch them;
@@ -18,7 +19,7 @@ Before planning, delegation, product edits, infra commands, DB/storage work, bro
 
 If a named PRD/spec is the task source, read it before route/plan. Do not infer scope from file name only.
 
-If `.agent-work/tasks/lessons.md` is missing, do not invent one during normal work. Create or update it only when the user reports a process failure, a repeated blocker appears, or the task explicitly asks to record a lesson.
+If `.agent-work/tasks/lessons.md` is missing during a repo task, create the file according to global project memory rules. Do not invent lesson content. Add lesson entries only after a user correction, repeated process failure, or explicit request to record a lesson.
 
 ## Infra Guard
 

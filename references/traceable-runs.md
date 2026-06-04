@@ -2,6 +2,8 @@
 
 Traceable runs store evidence for work that needs durable review history.
 
+`.agent-work/tasks/` is project memory and follows `/Users/ucnlejumper/.codex/AGENTS.md` for all repo tasks. This file governs only `.agent-work/runs/` trace artifacts.
+
 Do not create a traceable run for `light` budget work.
 
 ## Location

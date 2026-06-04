@@ -83,10 +83,14 @@ Use `standard` only when durable evidence helps review or continuation. Use `rel
 
 Read `references/project-memory-and-env.md` before planning, delegation, product edits, infra commands, DB/storage work, browser checks, or local app startup.
 
-Before implementation or subagent launch, the main agent must read:
+Before implementation or subagent launch, the main agent must follow global project memory rules from `/Users/ucnlejumper/.codex/AGENTS.md`:
 
+- detect the project repo;
+- create `.agent-work/tasks/`, `todo.md`, and `lessons.md` for repo tasks when missing;
+- read `lessons.md` and `todo.md` before repo work;
+- read `implementation-notes.md` when global criteria make it relevant;
+- update `todo.md`, `implementation-notes.md`, and `lessons.md` through the orchestrator rules;
 - local project instructions;
-- primary local project memory from `.agent-work/tasks/`: `lessons.md`, `todo.md`, and `implementation-notes.md` when present;
 - project-declared legacy task docs such as `docs/tasks/lessons.md`, `docs/tasks/todo.md`, and `docs/tasks/implementation-notes.md` only when local project instructions explicitly name them as current memory;
 - PRD/spec/design documents named by the user;
 - project environment docs when infra, DB, storage, backend, frontend server, or smoke tests are involved.
@@ -117,7 +121,8 @@ The main agent should:
 - avoid unrelated refactors;
 - run relevant checks;
 - record residual risks;
-- avoid `.agent-work` unless the selected budget requires it.
+- update `.agent-work/tasks/` according to global project memory rules;
+- avoid `.agent-work/runs/` unless the selected budget requires trace artifacts.
 
 When subagents are explicitly requested, workers own their assigned narrow write sets and the main agent owns integration and verification.
 

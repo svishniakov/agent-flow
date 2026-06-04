@@ -13,6 +13,15 @@ Done means scope is complete and evidence exists.
 - Residual risks are recorded.
 - Final verdict is clear.
 
+## Project Memory Sync
+
+Before final handoff for repo tasks:
+
+- update `.agent-work/tasks/todo.md` with final status and verification;
+- promote relevant `Project memory handoff` items from subagent artifacts, if subagents were used;
+- add confirmed lessons to `.agent-work/tasks/lessons.md`;
+- record important decisions, tradeoffs, constraints, evidence links, and follow-up in `.agent-work/tasks/implementation-notes.md` when global criteria make notes relevant.
+
 ## Traceable Gates
 
 For compact `standard` trace:

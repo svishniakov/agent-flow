@@ -42,6 +42,8 @@ Sequence:
 9. Reviewer pass only for release/high-risk work or explicit request.
 10. Final handoff with evidence and risks.
 
+If the user explicitly asks for a full document package, use at least `standard` budget unless scope is tiny. The package should include PRD or brief, architecture notes, design route when UI/UX is involved, implementation plan, checks, and final handoff. Do not create full trace artifacts for `light` budget unless the user explicitly asks for durable artifacts.
+
 Ask approval only when the next step would lock a product/design direction, spend money, change external state, handle secrets, deploy, or expand scope.
 
 ## Scope Growth
