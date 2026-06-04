@@ -140,6 +140,8 @@ Read `references/flows.md` when a task is non-trivial or when flow choice is unc
 
 Read `references/workflow-patterns.md` when a complex task needs a repeatable shape such as fan-out, adversarial verification, tournament ranking, quarantine, or loop-until-done. Patterns are recipes, not public modes, and they never override the subagent gate.
 
+Read `references/subagents.md` when the user explicitly requested subagents and role choice is needed. Bundled role instructions live in `agents/<role>.md`; stable identities live in `agents/agent-identities.json`.
+
 Common internal flows:
 
 - `quick-check-flow`
@@ -190,6 +192,8 @@ Inside Agent Flow, delegation is allowed only when the user separately asked for
 
 For each subagent, provide a self-contained delegation packet and require a handoff file when a run directory exists.
 
+Before launching a subagent, read the bundled role file `agents/<role>.md` and resolve `stable_agent_name` plus `stable_agent_slug` from `agents/agent-identities.json`.
+
 If the task would benefit from independent workers but the user did not explicitly request subagents, name the useful pattern and ask for subagent authorization instead of auto-delegating.
 
 ## Done Gate
@@ -227,6 +231,7 @@ Scripts support the workflow; they do not replace engineering judgment.
 
 - `references/flows.md`: flow catalog and routing.
 - `references/workflow-patterns.md`: reusable task-shaping recipes and guardrails.
+- `references/subagents.md`: bundled subagent catalog and role-selection guide.
 - `references/budgets.md`: light, standard, and release budget rules.
 - `references/project-memory-and-env.md`: lessons, PRD/context intake, and infra guard.
 - `references/orchestrator.md`: orchestrator responsibilities and mode handling.

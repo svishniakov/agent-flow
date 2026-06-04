@@ -101,9 +101,11 @@ Every packet includes:
 
 ## Stable Identities
 
-If `/Users/ucnlejumper/.codex/agent-identities.json` exists, look up the role before launching a subagent. If identity is missing, use role name as temporary slug and record the gap in route or manifest.
+Look up stable identities in bundled `agents/agent-identities.json` before launching a subagent. If identity is missing, use the role name as temporary slug and record the gap in route or manifest.
 
-If `/Users/ucnlejumper/.codex/agents/<role>.md` exists, read it before launching a subagent and include the role instructions in the packet.
+Read bundled `agents/<role>.md` before launching a subagent and include the role instructions in the packet.
+
+Read `references/subagents.md` when role choice is unclear or when a handoff needs the available role catalog.
 
 ## Handoff Format
 

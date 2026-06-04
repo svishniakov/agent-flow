@@ -1,0 +1,137 @@
+{
+  "schema_version": "2026-06-04",
+  "description": "Self-contained Agent Flow subagent identities bundled with this skill. Runtime nicknames returned by a spawn tool are technical aliases only.",
+  "identity_fields": {
+    "role": "Canonical role slug used in agents/<role>.md.",
+    "stable_agent_name": "Human-readable stable name for trace artifacts and handoffs.",
+    "stable_agent_slug": "Machine-readable stable identity key for traces.",
+    "codex_auto_nickname": "Optional runtime nickname returned by a spawn tool; record separately when available."
+  },
+  "agents": [
+    {
+      "role": "orchestrator",
+      "stable_agent_name": "Кар-Карыч",
+      "stable_agent_slug": "kar-karych"
+    },
+    {
+      "role": "product-manager",
+      "stable_agent_name": "Крош",
+      "stable_agent_slug": "krosh"
+    },
+    {
+      "role": "documenter",
+      "stable_agent_name": "Бараш",
+      "stable_agent_slug": "barash"
+    },
+    {
+      "role": "marketing-growth-strategist",
+      "stable_agent_name": "Нюша",
+      "stable_agent_slug": "nyusha"
+    },
+    {
+      "role": "design-orchestrator",
+      "stable_agent_name": "Звёздочка",
+      "stable_agent_slug": "zvezdochka"
+    },
+    {
+      "role": "ui-reference-researcher",
+      "stable_agent_name": "Ёжик",
+      "stable_agent_slug": "yozhik"
+    },
+    {
+      "role": "ui-ux-design-director",
+      "stable_agent_name": "Панди",
+      "stable_agent_slug": "pandi"
+    },
+    {
+      "role": "ui-ux-designer",
+      "stable_agent_name": "Пандочка",
+      "stable_agent_slug": "pandochka"
+    },
+    {
+      "role": "design-documenter",
+      "stable_agent_name": "Барашик",
+      "stable_agent_slug": "barashik"
+    },
+    {
+      "role": "pencil-designer",
+      "stable_agent_name": "Крошик",
+      "stable_agent_slug": "kroshik"
+    },
+    {
+      "role": "design-asset-generator",
+      "stable_agent_name": "Светлячок",
+      "stable_agent_slug": "svetlyachok"
+    },
+    {
+      "role": "visual-qa",
+      "stable_agent_name": "Совунья",
+      "stable_agent_slug": "sovunya"
+    },
+    {
+      "role": "ai-slops-hunter",
+      "stable_agent_name": "Тигруня",
+      "stable_agent_slug": "tigryunya"
+    },
+    {
+      "role": "architect",
+      "stable_agent_name": "Лосяш",
+      "stable_agent_slug": "losyash"
+    },
+    {
+      "role": "researcher",
+      "stable_agent_name": "Профессор Менделеев",
+      "stable_agent_slug": "professor-mendeleev"
+    },
+    {
+      "role": "rag-retrieval-engineer",
+      "stable_agent_name": "Ушарик",
+      "stable_agent_slug": "usharik"
+    },
+    {
+      "role": "backend-worker",
+      "stable_agent_name": "Копатыч",
+      "stable_agent_slug": "kopatych"
+    },
+    {
+      "role": "frontend-worker",
+      "stable_agent_name": "Шуша",
+      "stable_agent_slug": "shusha"
+    },
+    {
+      "role": "typescript-worker",
+      "stable_agent_name": "БиБи",
+      "stable_agent_slug": "bibi"
+    },
+    {
+      "role": "bun-worker",
+      "stable_agent_name": "Пин",
+      "stable_agent_slug": "pin"
+    },
+    {
+      "role": "python-worker",
+      "stable_agent_name": "Мышарик",
+      "stable_agent_slug": "mysharik"
+    },
+    {
+      "role": "golang-worker",
+      "stable_agent_name": "Игогоша",
+      "stable_agent_slug": "igogosha"
+    },
+    {
+      "role": "ios-worker",
+      "stable_agent_name": "Лили Марлен",
+      "stable_agent_slug": "lili-marlen"
+    },
+    {
+      "role": "qa-verifier",
+      "stable_agent_name": "Железная Няня",
+      "stable_agent_slug": "iron-nanny"
+    },
+    {
+      "role": "reviewer",
+      "stable_agent_name": "Капитан Колобо",
+      "stable_agent_slug": "captain-kolobo"
+    }
+  ]
+}
