@@ -6,7 +6,7 @@ The orchestrator owns routing, sequencing, verification, and final integration o
 
 No Agent Flow preflight exists. Do not use this orchestrator to decide whether Agent Flow applies to an unprefixed request. If this file is loaded during an unprefixed request, stop the Agent Flow route silently and continue outside Agent Flow.
 
-Agent Flow has one public invocation with these prefixes: `Agent Flow <task>`, `$agent-flow <task>`, `agent-flow <task>`, or `агент-флоу <task>`. Text forms without `$` are case-insensitive.
+Agent Flow has one public invocation with these prefixes: `Agent Flow <task>`, `$agent-flow <task>`, or `agent-flow <task>`. Text forms without `$` are case-insensitive.
 
 Requests without that leading prefix run outside this skill as solo work by the main agent. Do not auto-upgrade unprefixed requests into Agent Flow.
 
@@ -28,7 +28,7 @@ The orchestrator must obey:
 
 ## Start Of Request
 
-1. Enter this route only after the user message starts with `Agent Flow`, `$agent-flow`, `agent-flow`, or `агент-флоу`.
+1. Enter this route only after the user message starts with `Agent Flow`, `$agent-flow`, or `agent-flow`.
 2. Strip the prefix and read local project rules.
 3. Read primary project memory from `.agent-work/tasks/` when present.
 4. Read named PRD/spec/design docs and environment docs needed for the task.

@@ -10,128 +10,128 @@
   "agents": [
     {
       "role": "orchestrator",
-      "stable_agent_name": "Кар-Карыч",
-      "stable_agent_slug": "kar-karych"
+      "stable_agent_name": "Orchestrator",
+      "stable_agent_slug": "orchestrator"
     },
     {
       "role": "product-manager",
-      "stable_agent_name": "Крош",
-      "stable_agent_slug": "krosh"
+      "stable_agent_name": "Product Manager",
+      "stable_agent_slug": "product-manager"
     },
     {
       "role": "documenter",
-      "stable_agent_name": "Бараш",
-      "stable_agent_slug": "barash"
+      "stable_agent_name": "Documenter",
+      "stable_agent_slug": "documenter"
     },
     {
       "role": "marketing-growth-strategist",
-      "stable_agent_name": "Нюша",
-      "stable_agent_slug": "nyusha"
-    },
-    {
-      "role": "design-orchestrator",
-      "stable_agent_name": "Звёздочка",
-      "stable_agent_slug": "zvezdochka"
-    },
-    {
-      "role": "ui-reference-researcher",
-      "stable_agent_name": "Ёжик",
-      "stable_agent_slug": "yozhik"
-    },
-    {
-      "role": "ui-ux-design-director",
-      "stable_agent_name": "Панди",
-      "stable_agent_slug": "pandi"
-    },
-    {
-      "role": "ui-ux-designer",
-      "stable_agent_name": "Пандочка",
-      "stable_agent_slug": "pandochka"
-    },
-    {
-      "role": "design-documenter",
-      "stable_agent_name": "Барашик",
-      "stable_agent_slug": "barashik"
-    },
-    {
-      "role": "pencil-designer",
-      "stable_agent_name": "Крошик",
-      "stable_agent_slug": "kroshik"
-    },
-    {
-      "role": "design-asset-generator",
-      "stable_agent_name": "Светлячок",
-      "stable_agent_slug": "svetlyachok"
-    },
-    {
-      "role": "visual-qa",
-      "stable_agent_name": "Совунья",
-      "stable_agent_slug": "sovunya"
-    },
-    {
-      "role": "ai-slops-hunter",
-      "stable_agent_name": "Тигруня",
-      "stable_agent_slug": "tigryunya"
+      "stable_agent_name": "Marketing Growth Strategist",
+      "stable_agent_slug": "marketing-growth-strategist"
     },
     {
       "role": "architect",
-      "stable_agent_name": "Лосяш",
-      "stable_agent_slug": "losyash"
+      "stable_agent_name": "Architect",
+      "stable_agent_slug": "architect"
     },
     {
       "role": "researcher",
-      "stable_agent_name": "Профессор Менделеев",
-      "stable_agent_slug": "professor-mendeleev"
-    },
-    {
-      "role": "rag-retrieval-engineer",
-      "stable_agent_name": "Ушарик",
-      "stable_agent_slug": "usharik"
-    },
-    {
-      "role": "backend-worker",
-      "stable_agent_name": "Копатыч",
-      "stable_agent_slug": "kopatych"
-    },
-    {
-      "role": "frontend-worker",
-      "stable_agent_name": "Шуша",
-      "stable_agent_slug": "shusha"
-    },
-    {
-      "role": "typescript-worker",
-      "stable_agent_name": "БиБи",
-      "stable_agent_slug": "bibi"
-    },
-    {
-      "role": "bun-worker",
-      "stable_agent_name": "Пин",
-      "stable_agent_slug": "pin"
-    },
-    {
-      "role": "python-worker",
-      "stable_agent_name": "Мышарик",
-      "stable_agent_slug": "mysharik"
-    },
-    {
-      "role": "golang-worker",
-      "stable_agent_name": "Игогоша",
-      "stable_agent_slug": "igogosha"
-    },
-    {
-      "role": "ios-worker",
-      "stable_agent_name": "Лили Марлен",
-      "stable_agent_slug": "lili-marlen"
-    },
-    {
-      "role": "qa-verifier",
-      "stable_agent_name": "Железная Няня",
-      "stable_agent_slug": "iron-nanny"
+      "stable_agent_name": "Researcher",
+      "stable_agent_slug": "researcher"
     },
     {
       "role": "reviewer",
-      "stable_agent_name": "Капитан Колобо",
-      "stable_agent_slug": "captain-kolobo"
+      "stable_agent_name": "Reviewer",
+      "stable_agent_slug": "reviewer"
+    },
+    {
+      "role": "qa-verifier",
+      "stable_agent_name": "QA Verifier",
+      "stable_agent_slug": "qa-verifier"
+    },
+    {
+      "role": "ai-slops-hunter",
+      "stable_agent_name": "AI Slop Hunter",
+      "stable_agent_slug": "ai-slops-hunter"
+    },
+    {
+      "role": "backend-worker",
+      "stable_agent_name": "Backend Worker",
+      "stable_agent_slug": "backend-worker"
+    },
+    {
+      "role": "frontend-worker",
+      "stable_agent_name": "Frontend Worker",
+      "stable_agent_slug": "frontend-worker"
+    },
+    {
+      "role": "typescript-worker",
+      "stable_agent_name": "TypeScript Worker",
+      "stable_agent_slug": "typescript-worker"
+    },
+    {
+      "role": "bun-worker",
+      "stable_agent_name": "Bun Worker",
+      "stable_agent_slug": "bun-worker"
+    },
+    {
+      "role": "python-worker",
+      "stable_agent_name": "Python Worker",
+      "stable_agent_slug": "python-worker"
+    },
+    {
+      "role": "golang-worker",
+      "stable_agent_name": "Golang Worker",
+      "stable_agent_slug": "golang-worker"
+    },
+    {
+      "role": "ios-worker",
+      "stable_agent_name": "iOS Worker",
+      "stable_agent_slug": "ios-worker"
+    },
+    {
+      "role": "rag-retrieval-engineer",
+      "stable_agent_name": "RAG Retrieval Engineer",
+      "stable_agent_slug": "rag-retrieval-engineer"
+    },
+    {
+      "role": "design-orchestrator",
+      "stable_agent_name": "Design Orchestrator",
+      "stable_agent_slug": "design-orchestrator"
+    },
+    {
+      "role": "ui-reference-researcher",
+      "stable_agent_name": "UI Reference Researcher",
+      "stable_agent_slug": "ui-reference-researcher"
+    },
+    {
+      "role": "ui-ux-design-director",
+      "stable_agent_name": "UI/UX Design Director",
+      "stable_agent_slug": "ui-ux-design-director"
+    },
+    {
+      "role": "ui-ux-designer",
+      "stable_agent_name": "UI/UX Designer",
+      "stable_agent_slug": "ui-ux-designer"
+    },
+    {
+      "role": "design-documenter",
+      "stable_agent_name": "Design Documenter",
+      "stable_agent_slug": "design-documenter"
+    },
+    {
+      "role": "pencil-designer",
+      "stable_agent_name": "Pencil Designer",
+      "stable_agent_slug": "pencil-designer"
+    },
+    {
+      "role": "design-asset-generator",
+      "stable_agent_name": "Design Asset Generator",
+      "stable_agent_slug": "design-asset-generator"
+    },
+    {
+      "role": "visual-qa",
+      "stable_agent_name": "Visual QA",
+      "stable_agent_slug": "visual-qa"
     }
   ]
 }

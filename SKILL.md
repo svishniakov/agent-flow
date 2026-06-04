@@ -1,6 +1,6 @@
 ---
 name: agent-flow
-description: "Use only when the user explicitly invokes Agent Flow at the start of the request, for example `Agent Flow ...`, `$agent-flow ...`, `agent-flow ...`, or `агент-флоу ...`. Route that request to a verified result with the smallest useful budget. Solo execution is the default; subagents require a separate explicit request."
+description: "Use only when the user explicitly invokes Agent Flow at the start of the request, for example `Agent Flow ...`, `$agent-flow ...`, or `agent-flow ...`. Route that request to a verified result with the smallest useful budget. Solo execution is the default; subagents require a separate explicit request."
 ---
 
 # Agent Flow
@@ -20,7 +20,6 @@ Agent Flow has one public invocation:
 - `Agent Flow <task>`
 - `$agent-flow <task>`
 - `agent-flow <task>`
-- `агент-флоу <task>`
 
 Text forms without `$` are case-insensitive.
 
@@ -124,7 +123,7 @@ When subagents are explicitly requested, workers own their assigned narrow write
 
 ## Core Decision Tree
 
-1. If the task starts with `Agent Flow`, `$agent-flow`, `agent-flow`, or `агент-флоу`, strip the prefix and use this skill.
+1. If the task starts with `Agent Flow`, `$agent-flow`, or `agent-flow`, strip the prefix and use this skill.
 2. If the task does not start with an Agent Flow prefix, do not use this skill.
 3. Inside Agent Flow, do not call `brainstorming`; classify the request and choose the smallest internal flow directly.
 4. If the task is trivial, answer or run the command directly within Agent Flow.

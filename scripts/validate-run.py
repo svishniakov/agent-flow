@@ -42,7 +42,7 @@ SUCCESSFUL_CHECK_STAGES = {"verification", "checks"}
 SUCCESS_STATUSES = {"pass", "ship", "pass-with-risks"}
 COMMIT_HASH_PATTERN = re.compile(r"\b[0-9a-f]{7,40}\b", re.IGNORECASE)
 COMMIT_DECLARATION_PATTERN = re.compile(
-    r"(?i)(^\s*(?:[-*]\s*)?(?:product\s+)?commit\s*:|committed\s+as|закомми|коммит\s*:)"
+    r"(?i)(^\s*(?:[-*]\s*)?(?:product\s+)?commit\s*:|committed\s+as)"
 )
 
 

@@ -231,8 +231,8 @@ python3 scripts/record-agent-trace.py \
   --run-dir <run-dir> \
   --role python-worker \
   --execution-mode subagent \
-  --stable-agent-name "Мышарик" \
-  --stable-agent-slug mysharik \
+  --stable-agent-name "Python Worker" \
+  --stable-agent-slug python-worker \
   --stage handoff \
   --status pass \
   --summary "Python worker completed helper changes and verification." \
