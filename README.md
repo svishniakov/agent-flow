@@ -1,17 +1,29 @@
-# Agent Flow
+# AgentFlow
 
-## Русский
+<p align="center">
+  <a href="README.md"><b>RU</b></a> · <a href="README.en.md">EN</a>
+</p>
 
-Agent Flow - skill для Codex и других coding agents с поддержкой skills. Он помогает вести сложные задачи от запроса до проверенного результата: выбрать маршрут, удержать scope, прочитать проектную память, сделать работу и зафиксировать проверки.
+<p align="center">
+  <img src="docs/assets/readme/agent-flow-hero.svg" alt="AgentFlow: оркестратор, общая память, агенты, проверки" width="100%">
+</p>
 
-Это не приложение и не фреймворк. Репозиторий содержит:
+<h1 align="center">Навык для управляемой работы агентов</h1>
 
-- `SKILL.md` - точка входа и правила включения Agent Flow;
-- `references/` - бюджеты, flows, delegation, traceable runs, Definition of Done;
-- `agents/` - описания встроенных субагентов и их stable identities;
-- `docs/ru/` - русская справка.
+<p align="center">
+  общая память · оркестратор · 25 ролей · model/reasoning на агента · skills на роль
+</p>
 
-Agent Flow включается только явным префиксом в начале запроса:
+<p align="center">
+  <img alt="25 ролей" src="https://img.shields.io/badge/%D1%80%D0%BE%D0%BB%D0%B5%D0%B9-25-cc7d5e?style=flat-square">
+  <img alt="138 skills" src="https://img.shields.io/badge/skills-138-2d2d2b?style=flat-square">
+  <img alt="явный префикс" src="https://img.shields.io/badge/%D0%B7%D0%B0%D0%BF%D1%83%D1%81%D0%BA-%D1%8F%D0%B2%D0%BD%D1%8B%D0%B9%20%D0%BF%D1%80%D0%B5%D1%84%D0%B8%D0%BA%D1%81-cc7d5e?style=flat-square">
+  <img alt="лицензия Apache 2.0" src="https://img.shields.io/badge/%D0%BB%D0%B8%D1%86%D0%B5%D0%BD%D0%B7%D0%B8%D1%8F-Apache--2.0-2d2d2b?style=flat-square">
+</p>
+
+## Контракт
+
+AgentFlow включается только в начале запроса:
 
 ```text
 Agent Flow <задача>
@@ -19,233 +31,100 @@ $agent-flow <задача>
 agent-flow <задача>
 ```
 
-Без такого префикса агент работает обычно: без Agent Flow routing, без trace artifacts и без автоматического запуска субагентов.
+Без префикса навык не используется.
+
+Префикс не разрешает субагентов. Делегирование включается только отдельной явной просьбой в той же задаче: «используй субагентов», `spawn a subagent`, `multi-agent review`.
+
+## Что есть внутри
+
+| Компонент | Назначение |
+| --- | --- |
+| `.agent-work/tasks/` | общая память: todo, lessons, implementation notes, проверки |
+| `agents/*.md` | роли субагентов и их machine-readable config |
+| `model` | модель для роли |
+| `reasoning_effort` | уровень reasoning для роли |
+| `escalation_triggers` | условия перехода на сильнее config |
+| `skills` | skills, которые нужны конкретной роли |
+| `registries/agent-skills.json` | install metadata для role skills |
+| `references/` | бюджеты, flows, delegation, traceable runs, Definition of Done |
+| `scripts/` | resolver, validators, trace helpers, dependency checker |
+
+## Роли
+
+В `agents/` лежат 25 ролей. Каждая роль имеет узкую зону ответственности, свой набор skills, свои настройки модели и reasoning.
+
+Примеры ролей:
+
+- `architect`
+- `reviewer`
+- `qa-verifier`
+- `researcher`
+- `frontend-worker`
+- `backend-worker`
+- `typescript-worker`
+- `python-worker`
+- `ios-worker`
+- `visual-qa`
 
 ## Установка
 
-Самый простой способ: дайте своему coding agent URL этого репозитория и попросите установить skill глобально.
-
-```text
-Установи Agent Flow глобально как Codex skill из репозитория:
-https://github.com/svishniakov/agent-flow
-
-Если это Codex, клонируй репозиторий в ~/.codex/skills/agent-flow.
-Сделай его доступным по префиксам `Agent Flow`, `$agent-flow` и `agent-flow`.
-Не запускай Agent Flow без такого префикса.
-```
-
-Если ставите руками:
-
 ```bash
 git clone https://github.com/svishniakov/agent-flow.git ~/.codex/skills/agent-flow
+python3 ~/.codex/skills/agent-flow/scripts/check-agent-deps.py --post-install
 ```
 
-При желании проверьте, какие skills из role files субагентов доступны в текущей среде:
+`--post-install` показывает missing skills и рекомендует `core` набор. Ничего не ставит молча.
+
+## Проверка
 
 ```bash
-python3 ~/.codex/skills/agent-flow/scripts/check-agent-deps.py
+python3 scripts/check-agent-deps.py
+python3 scripts/check-agent-deps.py --scope core
+python3 scripts/check-agent-deps.py --scope role:typescript-worker
+python3 scripts/check-agent-deps.py --strict
 ```
 
-Интерактивный post-install check:
+План установки skills:
 
 ```bash
-python3 ~/.codex/skills/agent-flow/scripts/check-agent-deps.py --prompt
+python3 scripts/check-agent-deps.py --scope core --install-plan
+python3 scripts/check-agent-deps.py --scope full --install-plan --target project
+python3 scripts/check-agent-deps.py --scope core --guided-install
 ```
 
-Скрипт ничего не скачивает и не устанавливает. Он только показывает installed/missing optional skills. Agent Flow остаётся рабочим без этих optional dependencies.
-
-Если ваша среда читает skills из другой папки, используйте её вместо `~/.codex/skills/agent-flow`.
-
-## Как использовать
-
-Ниже prompts, которые можно копировать и менять под свой проект.
-
-### Быстрый разбор проекта и свод задач
-
-Когда нужно понять, что в проекте уже есть, какие задачи активны и что делать дальше:
-
-```text
-Agent Flow Прочитай текущий репозиторий, project memory, README и ключевую документацию. Сделай краткий свод задач: active, blocked, next actions, риски. Ничего не меняй без отдельной просьбы.
-```
-
-### Bugfix с проверкой
-
-Когда есть баг, лог, failing test или сломанный сценарий:
-
-```text
-Agent Flow Разбери баг: <описание бага>. Найди root cause, исправь минимально, запусти релевантные проверки и верни изменённые файлы, команды проверки и остаточные риски.
-```
-
-### Документация по инициативе
-
-Когда идея ещё не готова к реализации, но нужен полный пакет документов:
-
-```text
-Agent Flow Подготовь пакет документации для инициативы: <идея>.
-Нужны PRD/brief, scope, non-goals, acceptance criteria, архитектурные заметки, design route если есть UI, implementation plan и verification plan. Код не писать, пока документация не согласована.
-```
-
-### Полный цикл от идеи до результата
-
-Когда хотите, чтобы агент провёл задачу от постановки до реализации и проверки:
-
-```text
-Agent Flow Доведи инициативу от идеи до готового результата: <идея или цель>.
-Сначала уточни scope и критерии приёмки, затем выбери минимальный flow, подготовь план, реализуй изменения, проверь результат и дай финальный handoff с файлами, проверками и рисками.
-```
-
-### Review готовой работы
-
-Когда нужно проверить PR, branch, patch или план:
-
-```text
-Agent Flow Проведи review текущих изменений. Ищи bugs, regressions, missing tests, security/data-loss risks и несоответствие задаче. Вывод: findings по severity, test gaps, open questions, verdict.
-```
-
-### UI/design задача
-
-Когда задача касается интерфейса, дизайна, Figma/Pencil, screenshot или frontend:
-
-```text
-Agent Flow Разбери UI-задачу: <описание>. Сначала проверь, есть ли approved design source. Если его нет, подготовь design route и DESIGN.md/brief. Реализацию frontend начинай только после согласованного design source.
-```
-
-### CI, release, deploy
-
-Когда задача касается CI, release, deploy, auth, payments, secrets или внешних систем:
-
-```text
-Agent Flow Проверь release/CI задачу: <описание>. Сначала прочитай project memory и docs по окружению. Не меняй внешние системы без явного approval. Верни evidence, blockers, команды проверки и residual risks.
-```
-
-## Субагенты
-
-В репозитории есть встроенные role files для субагентов: `agents/<role>.md`. Список ролей и краткие описания лежат в `references/subagents.md`, stable identities - в `agents/agent-identities.json`.
-
-Важно: префикс Agent Flow сам по себе не разрешает субагентов. Если хотите их использовать, попросите явно:
-
-```text
-Agent Flow Используй субагентов для независимого review текущей реализации. Раздели работу по ролям, сохрани handoffs и сведи findings в один итог.
-```
-
-Если в вашей среде нет инструмента для запуска субагентов, Agent Flow останется solo workflow.
-
-## English
-
-Agent Flow is a skill for Codex and other coding agents that support skills. It helps route complex work from request to verified outcome: choose a workflow, keep scope tight, read project memory, do the work, and report evidence.
-
-This repository is not an app or framework. It contains:
-
-- `SKILL.md` - entry point and activation rules;
-- `references/` - budgets, flows, delegation, traceable runs, Definition of Done;
-- `agents/` - bundled subagent role files and stable identities;
-- `docs/ru/` - Russian reference docs.
-
-Agent Flow activates only when the user starts the request with one of these prefixes:
-
-```text
-Agent Flow <task>
-$agent-flow <task>
-agent-flow <task>
-```
-
-Without that prefix, the agent works normally: no Agent Flow routing, no trace artifacts, no automatic subagents.
-
-## Install
-
-Simplest path: give your coding agent this repository URL and ask it to install Agent Flow globally.
-
-```text
-Install Agent Flow globally as a Codex skill from:
-https://github.com/svishniakov/agent-flow
-
-If this is Codex, clone the repository into ~/.codex/skills/agent-flow.
-Make it available through the `Agent Flow`, `$agent-flow`, and `agent-flow` prefixes.
-Do not run Agent Flow unless the user starts the request with one of those prefixes.
-```
-
-Manual install:
+Проверки repo:
 
 ```bash
-git clone https://github.com/svishniakov/agent-flow.git ~/.codex/skills/agent-flow
+python3 -m py_compile scripts/*.py
+python3 scripts/validate-agent-config.py
+python3 scripts/validate-agent-skill-registry.py
+python3 scripts/check-agent-deps.py --scope core
+python3 scripts/init-run.py --help
+python3 scripts/append-timeline.py --help
+python3 scripts/record-agent-trace.py --help
+python3 scripts/validate-run.py --help
 ```
 
-Optionally check which skills from bundled subagent role files are already available in the current environment:
+## Примеры
 
-```bash
-python3 ~/.codex/skills/agent-flow/scripts/check-agent-deps.py
-```
-
-Interactive post-install check:
-
-```bash
-python3 ~/.codex/skills/agent-flow/scripts/check-agent-deps.py --prompt
-```
-
-The checker does not download or install anything. It only reports installed/missing optional skills. Agent Flow still works without these optional dependencies.
-
-If your environment reads skills from another directory, use that path instead.
-
-## Usage Prompts
-
-Copy these prompts and replace the placeholders.
-
-### Project task summary
+Одиночная работа:
 
 ```text
-Agent Flow Read the current repository, project memory, README, and key docs. Return a concise task summary: active items, blockers, next actions, and risks. Do not change files unless I ask.
+Agent Flow Прочитай репозиторий, память проекта и README. Верни активные задачи, блокеры, следующие действия и риски. Ничего не меняй.
 ```
 
-### Bugfix with verification
+Баг:
 
 ```text
-Agent Flow Investigate this bug: <bug description>. Find the root cause, make the smallest fix, run relevant checks, and report changed files, verification commands, and residual risks.
+Agent Flow Разбери баг: <описание>. Найди причину, исправь минимально, запусти проверки, верни изменённые файлы и риски.
 ```
 
-### Initiative documentation package
+Субагенты:
 
 ```text
-Agent Flow Prepare a documentation package for this initiative: <idea>.
-Include PRD/brief, scope, non-goals, acceptance criteria, architecture notes, design route if UI is involved, implementation plan, and verification plan. Do not write code until the docs are approved.
+Agent Flow Используй субагентов для независимого ревью текущей реализации. Раздели работу по ролям и сведи находки в один итог.
 ```
 
-### Full cycle from idea to result
+## Лицензия
 
-```text
-Agent Flow Take this initiative from idea to finished result: <idea or goal>.
-First clarify scope and acceptance criteria, then choose the smallest useful flow, plan, implement, verify, and return a final handoff with files, checks, and risks.
-```
-
-### Review ready work
-
-```text
-Agent Flow Review the current changes. Look for bugs, regressions, missing tests, security/data-loss risks, and mismatch with the task. Output findings by severity, test gaps, open questions, and verdict.
-```
-
-### UI/design task
-
-```text
-Agent Flow Handle this UI task: <description>. First check whether an approved design source exists. If not, prepare the design route and DESIGN.md/brief. Start frontend implementation only after the design source is approved.
-```
-
-### CI, release, deploy
-
-```text
-Agent Flow Handle this release/CI task: <description>. Read project memory and environment docs first. Do not mutate external systems without explicit approval. Return evidence, blockers, verification commands, and residual risks.
-```
-
-## Subagents
-
-Bundled subagent role files live in `agents/<role>.md`. The role list is in `references/subagents.md`; stable identities are in `agents/agent-identities.json`.
-
-Agent Flow does not use subagents just because the prefix is present. Ask explicitly when you want them:
-
-```text
-Agent Flow Use subagents for an independent review of the current implementation. Split the work by role, save handoffs, and synthesize findings into one final result.
-```
-
-If your environment has no subagent/spawn tool, Agent Flow stays solo.
-
-## License
-
-MIT. See `LICENSE`.
+Apache 2.0. См. [LICENSE](LICENSE).
