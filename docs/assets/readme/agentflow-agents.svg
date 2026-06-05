@@ -1,7 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 520" role="img" aria-label="AgentFlow role cards">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 740" role="img" aria-label="AgentFlow 25 role cards">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#343431"/><stop offset="1" stop-color="#2d2d2b"/>
+      <stop offset="0" stop-color="#343431"/>
+      <stop offset="1" stop-color="#2d2d2b"/>
     </linearGradient>
     <pattern id="grid" width="34" height="34" patternUnits="userSpaceOnUse">
       <path d="M34 0H0V34" fill="none" stroke="#f9f9f7" stroke-opacity=".045" stroke-width="1"/>
@@ -10,53 +11,170 @@
       .t{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;fill:#f9f9f7}
       .m{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;fill:#c7c1b8}
       .f{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;fill:#928c82}
+      .card{fill:#343431;stroke:#f9f9f7;stroke-opacity:.12}
+      .hot{stroke:#cc7d5e;stroke-opacity:.4}
     </style>
   </defs>
-  <rect width="1200" height="520" rx="30" fill="url(#bg)"/>
-  <rect width="1200" height="520" rx="30" fill="url(#grid)"/>
+  <rect width="1200" height="740" rx="30" fill="url(#bg)"/>
+  <rect width="1200" height="740" rx="30" fill="url(#grid)"/>
   <text x="70" y="76" class="t" font-size="34" font-weight="900">25 role files</text>
-  <text x="70" y="112" class="m" font-size="18">Each role carries its own model, reasoning, tools, skills, and handoff contract.</text>
+  <text x="70" y="112" class="m" font-size="18">Every role has narrow ownership, model/reasoning config, skills, tools, and handoff rules.</text>
   <line x1="70" y1="148" x2="1130" y2="148" stroke="#f9f9f7" stroke-opacity=".1"/>
-  <g transform="translate(70 178)">
+
+  <g transform="translate(70 174)">
     <g>
-      <rect width="200" height="118" rx="18" fill="#343431" stroke="#cc7d5e" stroke-opacity=".4"/>
-      <text x="22" y="38" class="f" font-size="12" font-weight="800" letter-spacing="2">PLANNING</text><text x="22" y="72" class="t" font-size="23" font-weight="850">architect</text><text x="22" y="98" class="m" font-size="14">gpt-5.5 · high</text>
+      <rect class="card hot" width="200" height="90" rx="16"/>
+      <text x="18" y="31" class="f" font-size="10" font-weight="800" letter-spacing="1.6">ORCHESTRATE</text>
+      <text x="18" y="58" class="t" font-size="21" font-weight="850">orchestrator</text>
+      <text x="18" y="78" class="m" font-size="12">route · integrate</text>
     </g>
     <g transform="translate(220 0)">
-      <rect width="200" height="118" rx="18" fill="#343431" stroke="#f9f9f7" stroke-opacity=".12"/>
-      <text x="22" y="38" class="f" font-size="12" font-weight="800" letter-spacing="2">REVIEW</text><text x="22" y="72" class="t" font-size="23" font-weight="850">reviewer</text><text x="22" y="98" class="m" font-size="14">risk · regression</text>
+      <rect class="card hot" width="200" height="90" rx="16"/>
+      <text x="18" y="31" class="f" font-size="10" font-weight="800" letter-spacing="1.6">PLANNING</text>
+      <text x="18" y="58" class="t" font-size="21" font-weight="850">architect</text>
+      <text x="18" y="78" class="m" font-size="12">system · tradeoffs</text>
     </g>
     <g transform="translate(440 0)">
-      <rect width="200" height="118" rx="18" fill="#343431" stroke="#cc7d5e" stroke-opacity=".4"/>
-      <text x="22" y="38" class="f" font-size="12" font-weight="800" letter-spacing="2">VERIFY</text><text x="22" y="72" class="t" font-size="23" font-weight="850">qa-verifier</text><text x="22" y="98" class="m" font-size="14">checks · evidence</text>
+      <rect class="card" width="200" height="90" rx="16"/>
+      <text x="18" y="31" class="f" font-size="10" font-weight="800" letter-spacing="1.6">PRODUCT</text>
+      <text x="18" y="58" class="t" font-size="21" font-weight="850">product-manager</text>
+      <text x="18" y="78" class="m" font-size="12">scope · acceptance</text>
     </g>
     <g transform="translate(660 0)">
-      <rect width="200" height="118" rx="18" fill="#343431" stroke="#f9f9f7" stroke-opacity=".12"/>
-      <text x="22" y="38" class="f" font-size="12" font-weight="800" letter-spacing="2">SOURCE</text><text x="22" y="72" class="t" font-size="23" font-weight="850">researcher</text><text x="22" y="98" class="m" font-size="14">facts · browser</text>
+      <rect class="card hot" width="200" height="90" rx="16"/>
+      <text x="18" y="31" class="f" font-size="10" font-weight="800" letter-spacing="1.6">REVIEW</text>
+      <text x="18" y="58" class="t" font-size="21" font-weight="850">reviewer</text>
+      <text x="18" y="78" class="m" font-size="12">bugs · regression</text>
     </g>
     <g transform="translate(880 0)">
-      <rect width="200" height="118" rx="18" fill="#343431" stroke="#cc7d5e" stroke-opacity=".4"/>
-      <text x="22" y="38" class="f" font-size="12" font-weight="800" letter-spacing="2">DESIGN</text><text x="22" y="72" class="t" font-size="23" font-weight="850">visual-qa</text><text x="22" y="98" class="m" font-size="14">screens · UI</text>
+      <rect class="card" width="200" height="90" rx="16"/>
+      <text x="18" y="31" class="f" font-size="10" font-weight="800" letter-spacing="1.6">VERIFY</text>
+      <text x="18" y="58" class="t" font-size="21" font-weight="850">qa-verifier</text>
+      <text x="18" y="78" class="m" font-size="12">checks · evidence</text>
     </g>
-    <g transform="translate(0 144)">
-      <rect width="200" height="118" rx="18" fill="#343431" stroke="#f9f9f7" stroke-opacity=".12"/>
-      <text x="22" y="38" class="f" font-size="12" font-weight="800" letter-spacing="2">WEB</text><text x="22" y="72" class="t" font-size="22" font-weight="850" textLength="156" lengthAdjust="spacingAndGlyphs">frontend-worker</text><text x="22" y="98" class="m" font-size="14">UI · browser</text>
+
+    <g transform="translate(0 106)">
+      <rect class="card" width="200" height="90" rx="16"/>
+      <text x="18" y="31" class="f" font-size="10" font-weight="800" letter-spacing="1.6">SOURCE</text>
+      <text x="18" y="58" class="t" font-size="21" font-weight="850">researcher</text>
+      <text x="18" y="78" class="m" font-size="12">facts · browser</text>
     </g>
-    <g transform="translate(220 144)">
-      <rect width="200" height="118" rx="18" fill="#343431" stroke="#cc7d5e" stroke-opacity=".4"/>
-      <text x="22" y="38" class="f" font-size="12" font-weight="800" letter-spacing="2">API</text><text x="22" y="72" class="t" font-size="22" font-weight="850" textLength="152" lengthAdjust="spacingAndGlyphs">backend-worker</text><text x="22" y="98" class="m" font-size="14">DB · queues</text>
+    <g transform="translate(220 106)">
+      <rect class="card hot" width="200" height="90" rx="16"/>
+      <text x="18" y="31" class="f" font-size="10" font-weight="800" letter-spacing="1.6">SOURCE</text>
+      <text x="18" y="58" class="t" font-size="20" font-weight="850" textLength="166" lengthAdjust="spacingAndGlyphs">ui-reference-researcher</text>
+      <text x="18" y="78" class="m" font-size="12">UI refs · patterns</text>
     </g>
-    <g transform="translate(440 144)">
-      <rect width="200" height="118" rx="18" fill="#343431" stroke="#f9f9f7" stroke-opacity=".12"/>
-      <text x="22" y="38" class="f" font-size="12" font-weight="800" letter-spacing="2">TS</text><text x="22" y="72" class="t" font-size="22" font-weight="850" textLength="158" lengthAdjust="spacingAndGlyphs">typescript-worker</text><text x="22" y="98" class="m" font-size="14">types · tests</text>
+    <g transform="translate(440 106)">
+      <rect class="card" width="200" height="90" rx="16"/>
+      <text x="18" y="31" class="f" font-size="10" font-weight="800" letter-spacing="1.6">DOCS</text>
+      <text x="18" y="58" class="t" font-size="21" font-weight="850">documenter</text>
+      <text x="18" y="78" class="m" font-size="12">docs · handoff</text>
     </g>
-    <g transform="translate(660 144)">
-      <rect width="200" height="118" rx="18" fill="#343431" stroke="#cc7d5e" stroke-opacity=".4"/>
-      <text x="22" y="38" class="f" font-size="12" font-weight="800" letter-spacing="2">PY</text><text x="22" y="72" class="t" font-size="22" font-weight="850" textLength="142" lengthAdjust="spacingAndGlyphs">python-worker</text><text x="22" y="98" class="m" font-size="14">scripts · tooling</text>
+    <g transform="translate(660 106)">
+      <rect class="card hot" width="200" height="90" rx="16"/>
+      <text x="18" y="31" class="f" font-size="10" font-weight="800" letter-spacing="1.6">DOCS</text>
+      <text x="18" y="58" class="t" font-size="20" font-weight="850" textLength="150" lengthAdjust="spacingAndGlyphs">design-documenter</text>
+      <text x="18" y="78" class="m" font-size="12">DESIGN.md · brief</text>
     </g>
-    <g transform="translate(880 144)">
-      <rect width="200" height="118" rx="18" fill="#343431" stroke="#f9f9f7" stroke-opacity=".12"/>
-      <text x="22" y="38" class="f" font-size="12" font-weight="800" letter-spacing="2">APPLE</text><text x="22" y="72" class="t" font-size="23" font-weight="850">ios-worker</text><text x="22" y="98" class="m" font-size="14">SwiftUI · sim</text>
+    <g transform="translate(880 106)">
+      <rect class="card" width="200" height="90" rx="16"/>
+      <text x="18" y="31" class="f" font-size="10" font-weight="800" letter-spacing="1.6">QUALITY</text>
+      <text x="18" y="58" class="t" font-size="20" font-weight="850" textLength="128" lengthAdjust="spacingAndGlyphs">ai-slops-hunter</text>
+      <text x="18" y="78" class="m" font-size="12">slop · polish</text>
+    </g>
+
+    <g transform="translate(0 212)">
+      <rect class="card hot" width="200" height="90" rx="16"/>
+      <text x="18" y="31" class="f" font-size="10" font-weight="800" letter-spacing="1.6">WEB</text>
+      <text x="18" y="58" class="t" font-size="20" font-weight="850" textLength="142" lengthAdjust="spacingAndGlyphs">frontend-worker</text>
+      <text x="18" y="78" class="m" font-size="12">UI · browser</text>
+    </g>
+    <g transform="translate(220 212)">
+      <rect class="card" width="200" height="90" rx="16"/>
+      <text x="18" y="31" class="f" font-size="10" font-weight="800" letter-spacing="1.6">API</text>
+      <text x="18" y="58" class="t" font-size="20" font-weight="850" textLength="138" lengthAdjust="spacingAndGlyphs">backend-worker</text>
+      <text x="18" y="78" class="m" font-size="12">DB · queues</text>
+    </g>
+    <g transform="translate(440 212)">
+      <rect class="card hot" width="200" height="90" rx="16"/>
+      <text x="18" y="31" class="f" font-size="10" font-weight="800" letter-spacing="1.6">TS</text>
+      <text x="18" y="58" class="t" font-size="20" font-weight="850" textLength="148" lengthAdjust="spacingAndGlyphs">typescript-worker</text>
+      <text x="18" y="78" class="m" font-size="12">types · tests</text>
+    </g>
+    <g transform="translate(660 212)">
+      <rect class="card" width="200" height="90" rx="16"/>
+      <text x="18" y="31" class="f" font-size="10" font-weight="800" letter-spacing="1.6">PY</text>
+      <text x="18" y="58" class="t" font-size="20" font-weight="850" textLength="128" lengthAdjust="spacingAndGlyphs">python-worker</text>
+      <text x="18" y="78" class="m" font-size="12">scripts · tooling</text>
+    </g>
+    <g transform="translate(880 212)">
+      <rect class="card hot" width="200" height="90" rx="16"/>
+      <text x="18" y="31" class="f" font-size="10" font-weight="800" letter-spacing="1.6">GO</text>
+      <text x="18" y="58" class="t" font-size="21" font-weight="850">golang-worker</text>
+      <text x="18" y="78" class="m" font-size="12">go · tests</text>
+    </g>
+
+    <g transform="translate(0 318)">
+      <rect class="card" width="200" height="90" rx="16"/>
+      <text x="18" y="31" class="f" font-size="10" font-weight="800" letter-spacing="1.6">BUN</text>
+      <text x="18" y="58" class="t" font-size="21" font-weight="850">bun-worker</text>
+      <text x="18" y="78" class="m" font-size="12">bun · runtime</text>
+    </g>
+    <g transform="translate(220 318)">
+      <rect class="card hot" width="200" height="90" rx="16"/>
+      <text x="18" y="31" class="f" font-size="10" font-weight="800" letter-spacing="1.6">APPLE</text>
+      <text x="18" y="58" class="t" font-size="21" font-weight="850">ios-worker</text>
+      <text x="18" y="78" class="m" font-size="12">SwiftUI · sim</text>
+    </g>
+    <g transform="translate(440 318)">
+      <rect class="card" width="200" height="90" rx="16"/>
+      <text x="18" y="31" class="f" font-size="10" font-weight="800" letter-spacing="1.6">RAG</text>
+      <text x="18" y="58" class="t" font-size="20" font-weight="850" textLength="156" lengthAdjust="spacingAndGlyphs">rag-retrieval-engineer</text>
+      <text x="18" y="78" class="m" font-size="12">retrieval · eval</text>
+    </g>
+    <g transform="translate(660 318)">
+      <rect class="card hot" width="200" height="90" rx="16"/>
+      <text x="18" y="31" class="f" font-size="10" font-weight="800" letter-spacing="1.6">GROWTH</text>
+      <text x="18" y="58" class="t" font-size="20" font-weight="850" textLength="166" lengthAdjust="spacingAndGlyphs">marketing-growth-strategist</text>
+      <text x="18" y="78" class="m" font-size="12">launch · content</text>
+    </g>
+    <g transform="translate(880 318)">
+      <rect class="card" width="200" height="90" rx="16"/>
+      <text x="18" y="31" class="f" font-size="10" font-weight="800" letter-spacing="1.6">DESIGN</text>
+      <text x="18" y="58" class="t" font-size="20" font-weight="850" textLength="154" lengthAdjust="spacingAndGlyphs">design-orchestrator</text>
+      <text x="18" y="78" class="m" font-size="12">route · source</text>
+    </g>
+
+    <g transform="translate(0 424)">
+      <rect class="card hot" width="200" height="90" rx="16"/>
+      <text x="18" y="31" class="f" font-size="10" font-weight="800" letter-spacing="1.6">DESIGN</text>
+      <text x="18" y="58" class="t" font-size="20" font-weight="850" textLength="132" lengthAdjust="spacingAndGlyphs">pencil-designer</text>
+      <text x="18" y="78" class="m" font-size="12">Pencil · specs</text>
+    </g>
+    <g transform="translate(220 424)">
+      <rect class="card" width="200" height="90" rx="16"/>
+      <text x="18" y="31" class="f" font-size="10" font-weight="800" letter-spacing="1.6">ASSET</text>
+      <text x="18" y="58" class="t" font-size="20" font-weight="850" textLength="158" lengthAdjust="spacingAndGlyphs">design-asset-generator</text>
+      <text x="18" y="78" class="m" font-size="12">visual assets</text>
+    </g>
+    <g transform="translate(440 424)">
+      <rect class="card hot" width="200" height="90" rx="16"/>
+      <text x="18" y="31" class="f" font-size="10" font-weight="800" letter-spacing="1.6">DIRECTION</text>
+      <text x="18" y="58" class="t" font-size="20" font-weight="850" textLength="166" lengthAdjust="spacingAndGlyphs">ui-ux-design-director</text>
+      <text x="18" y="78" class="m" font-size="12">taste · system</text>
+    </g>
+    <g transform="translate(660 424)">
+      <rect class="card" width="200" height="90" rx="16"/>
+      <text x="18" y="31" class="f" font-size="10" font-weight="800" letter-spacing="1.6">DESIGN</text>
+      <text x="18" y="58" class="t" font-size="20" font-weight="850" textLength="134" lengthAdjust="spacingAndGlyphs">ui-ux-designer</text>
+      <text x="18" y="78" class="m" font-size="12">flows · screens</text>
+    </g>
+    <g transform="translate(880 424)">
+      <rect class="card hot" width="200" height="90" rx="16"/>
+      <text x="18" y="31" class="f" font-size="10" font-weight="800" letter-spacing="1.6">VISUAL QA</text>
+      <text x="18" y="58" class="t" font-size="21" font-weight="850">visual-qa</text>
+      <text x="18" y="78" class="m" font-size="12">screens · UI</text>
     </g>
   </g>
 </svg>

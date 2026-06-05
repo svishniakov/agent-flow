@@ -27,7 +27,7 @@
   <g transform="translate(120 282)" filter="url(#shadow)">
     <rect width="960" height="214" rx="26" fill="#343431" stroke="#f9f9f7" stroke-opacity=".14"/>
     <rect x="22" y="22" width="916" height="170" rx="20" fill="#2d2d2b" fill-opacity=".62" stroke="#f9f9f7" stroke-opacity=".08"/>
-    <g stroke="#f9f9f7" stroke-opacity=".1">
+    <g stroke="#f9f9f7" stroke-opacity=".1" fill="none">
       <path d="M90 107H870"/>
       <path d="M238 58V156"/>
       <path d="M480 48V166"/>

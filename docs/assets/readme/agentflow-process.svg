@@ -11,7 +11,7 @@
   <rect width="1200" height="260" rx="28" fill="url(#bg)"/>
   <rect width="1200" height="260" rx="28" fill="url(#grid)"/>
   <rect x="36" y="32" width="1128" height="196" rx="22" fill="#2d2d2b" fill-opacity=".58" stroke="#f9f9f7" stroke-opacity=".12"/>
-  <g stroke="#f9f9f7" stroke-opacity=".12" stroke-width="1.5">
+  <g stroke="#f9f9f7" stroke-opacity=".12" stroke-width="1.5" fill="none">
     <path d="M130 130H1070"/>
     <path d="M300 74V186"/>
     <path d="M600 58V202"/>
