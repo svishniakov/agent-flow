@@ -136,13 +136,25 @@ def discover_role_skills(agents_dir: Path) -> list[RoleSkills]:
 
 def read_skill_name(skill_file: Path) -> str | None:
     try:
-        metadata = parse_frontmatter(skill_file)
-    except (OSError, ValueError):
+        lines = skill_file.read_text(encoding="utf-8").splitlines()
+    except OSError:
         return None
-    name = metadata.get("name")
-    if not name:
+
+    if not lines or lines[0].strip() != FRONTMATTER_BOUNDARY:
         return None
-    return strip_yaml_quotes(name).strip() or None
+
+    try:
+        end_index = next(
+            index for index, line in enumerate(lines[1:], start=1) if line.strip() == FRONTMATTER_BOUNDARY
+        )
+    except StopIteration:
+        return None
+
+    for line in lines[1:end_index]:
+        stripped = line.strip()
+        if stripped.startswith("name:"):
+            return strip_yaml_quotes(stripped.split(":", 1)[1].strip()) or None
+    return None
 
 
 def add_hit(index: dict[str, SkillHit], alias: str | None, location: Path) -> None:
@@ -195,6 +207,7 @@ def index_plugin_cache(cache_root: Path, index: dict[str, SkillHit]) -> None:
         add_hit(index, skill_dir.name, skill_file)
         add_hit(index, name, skill_file)
         if plugin_slug:
+            add_hit(index, plugin_slug, skill_file)
             for alias in {skill_dir.name, name}:
                 if alias:
                     add_hit(index, f"{plugin_slug}:{alias}", skill_file)
