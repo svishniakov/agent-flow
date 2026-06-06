@@ -85,12 +85,34 @@ Timeline фиксирует реальный порядок работы. Есл
 
 Если инструмента нет, role files можно использовать как solo checklist или role lane, но это не считается subagent execution.
 
+Зависимости субагентов описаны в `registries/agent-skills.json`. Файлы ролей в `agents/*.md` указывают, какие skills нужны роли; registry хранит tier, роли, target paths, prompts и инструкции по установке.
+
+После установки Agent Flow рекомендуемый шаг такой:
+
+```bash
+python3 ~/.codex/skills/agent-flow/scripts/check-agent-deps.py --post-install
+```
+
+Wizard показывает, сколько не хватает в `core` и `full`, и рекомендует начать с core:
+
+- `core` - skills, без которых роль теряет основную функцию: browser, QA, test, find-skills, language/runtime/toolchain и ключевые design/plugin skills;
+- `full` - все skills из `agents/*.md`, включая узкие, платные или plugin-gated зависимости.
+
+Target выбирает место установки:
+
+- `global` - глобальная среда пользователя, обычно `~/.codex/skills`;
+- `project` - текущий проект, обычно `.codex/skills`.
+
+Тихой установки нет. `--guided-install` выполняет только разрешённые `git`/`local` команды из registry и только после подтверждения `yes`. `plugin`, `prompt` и `manual` entries не выполняются: checker печатает инструкции, официальный prompt или подсказку включить plugin. После guided install checker повторно проверяет missing skills и показывает остаток.
+
 ## Проверки
 
 После изменений в скилле стоит запускать:
 
 ```bash
 python3 -m py_compile scripts/*.py
+python3 scripts/validate-agent-skill-registry.py
+python3 scripts/check-agent-deps.py --scope core
 python3 scripts/init-run.py --help
 python3 scripts/append-timeline.py --help
 python3 scripts/record-agent-trace.py --help

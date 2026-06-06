@@ -1,0 +1,3645 @@
+{
+  "version": 1,
+  "description": "Canonical registry for optional skills referenced by bundled Agent Flow subagents.",
+  "skills": [
+    {
+      "name": "SVG Logo Designer",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "design-asset-generator"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/svg-logo-designer",
+          "instructions": "Install `SVG Logo Designer` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/svg-logo-designer",
+          "instructions": "Install `SVG Logo Designer` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "ab-test-analysis",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "marketing-growth-strategist"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/ab-test-analysis",
+          "instructions": "Install `ab-test-analysis` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/ab-test-analysis",
+          "instructions": "Install `ab-test-analysis` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "accessibility",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "ai-slops-hunter",
+        "design-documenter",
+        "design-orchestrator",
+        "pencil-designer",
+        "ui-reference-researcher",
+        "ui-ux-design-director",
+        "ui-ux-designer",
+        "visual-qa"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/accessibility",
+          "instructions": "Install `accessibility` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/accessibility",
+          "instructions": "Install `accessibility` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "ad-creative",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "design-asset-generator"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/ad-creative",
+          "instructions": "Install `ad-creative` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/ad-creative",
+          "instructions": "Install `ad-creative` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "agent-governance",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "ai-slops-hunter"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/agent-governance",
+          "instructions": "Install `agent-governance` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/agent-governance",
+          "instructions": "Install `agent-governance` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "ai-agents-architect",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "ai-slops-hunter"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/ai-agents-architect",
+          "instructions": "Install `ai-agents-architect` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/ai-agents-architect",
+          "instructions": "Install `ai-agents-architect` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "ai-seo",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "marketing-growth-strategist",
+        "ui-reference-researcher"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/ai-seo",
+          "instructions": "Install `ai-seo` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/ai-seo",
+          "instructions": "Install `ai-seo` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "ajtbd-research",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "researcher"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/ajtbd-research",
+          "instructions": "Install `ajtbd-research` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/ajtbd-research",
+          "instructions": "Install `ajtbd-research` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "aliyun-qwen-rerank",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "rag-retrieval-engineer"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/aliyun-qwen-rerank",
+          "instructions": "Install `aliyun-qwen-rerank` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/aliyun-qwen-rerank",
+          "instructions": "Install `aliyun-qwen-rerank` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "apple-hig-designer",
+      "aliases": [],
+      "tier": "core",
+      "required_by_roles": [
+        "ios-worker"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/apple-hig-designer",
+          "instructions": "Install `apple-hig-designer` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/apple-hig-designer",
+          "instructions": "Install `apple-hig-designer` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "apple-ui-designer",
+      "aliases": [],
+      "tier": "core",
+      "required_by_roles": [
+        "ios-worker"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/apple-ui-designer",
+          "instructions": "Install `apple-ui-designer` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/apple-ui-designer",
+          "instructions": "Install `apple-ui-designer` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "application-quality-assurance",
+      "aliases": [],
+      "tier": "core",
+      "required_by_roles": [
+        "backend-worker",
+        "bun-worker",
+        "golang-worker",
+        "python-worker",
+        "qa-verifier",
+        "reviewer",
+        "visual-qa"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/application-quality-assurance",
+          "instructions": "Install `application-quality-assurance` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/application-quality-assurance",
+          "instructions": "Install `application-quality-assurance` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "architecture-decision-records",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "architect"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/architecture-decision-records",
+          "instructions": "Install `architecture-decision-records` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/architecture-decision-records",
+          "instructions": "Install `architecture-decision-records` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "brand-guidelines",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "design-asset-generator",
+        "design-documenter",
+        "design-orchestrator",
+        "marketing-growth-strategist",
+        "ui-reference-researcher",
+        "ui-ux-design-director",
+        "ui-ux-designer"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/brand-guidelines",
+          "instructions": "Install `brand-guidelines` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/brand-guidelines",
+          "instructions": "Install `brand-guidelines` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "brand-identity",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "design-asset-generator",
+        "marketing-growth-strategist",
+        "ui-ux-design-director"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/brand-identity",
+          "instructions": "Install `brand-identity` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/brand-identity",
+          "instructions": "Install `brand-identity` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "browser-debugging",
+      "aliases": [],
+      "tier": "core",
+      "required_by_roles": [
+        "qa-verifier",
+        "researcher",
+        "ui-reference-researcher",
+        "visual-qa"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/browser-debugging",
+          "instructions": "Install `browser-debugging` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/browser-debugging",
+          "instructions": "Install `browser-debugging` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "browser-use",
+      "aliases": [],
+      "tier": "core",
+      "required_by_roles": [
+        "orchestrator",
+        "python-worker",
+        "researcher",
+        "ui-reference-researcher",
+        "visual-qa"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/browser-use",
+          "instructions": "Install `browser-use` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/browser-use",
+          "instructions": "Install `browser-use` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "build-ios-apps:ios-app-intents",
+      "aliases": [
+        "build-ios-apps::ios-app-intents",
+        "ios-app-intents"
+      ],
+      "tier": "core",
+      "required_by_roles": [
+        "ios-worker"
+      ],
+      "install": {
+        "source_type": "plugin",
+        "global": {
+          "path": "~/.codex/plugins/cache/build-ios-apps/**/skills/ios-app-intents",
+          "instructions": "Enable or install the `build-ios-apps` plugin in the Codex host, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/plugins/build-ios-apps (if project plugins are supported by the host)",
+          "instructions": "Enable `build-ios-apps` for this project if the host supports project-scoped plugins; otherwise install globally."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Plugin-provided skill; no direct skill copy command is bundled."
+      }
+    },
+    {
+      "name": "build-ios-apps:ios-debugger-agent",
+      "aliases": [
+        "build-ios-apps::ios-debugger-agent",
+        "ios-debugger-agent"
+      ],
+      "tier": "core",
+      "required_by_roles": [
+        "ios-worker",
+        "qa-verifier"
+      ],
+      "install": {
+        "source_type": "plugin",
+        "global": {
+          "path": "~/.codex/plugins/cache/build-ios-apps/**/skills/ios-debugger-agent",
+          "instructions": "Enable or install the `build-ios-apps` plugin in the Codex host, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/plugins/build-ios-apps (if project plugins are supported by the host)",
+          "instructions": "Enable `build-ios-apps` for this project if the host supports project-scoped plugins; otherwise install globally."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Plugin-provided skill; no direct skill copy command is bundled."
+      }
+    },
+    {
+      "name": "build-ios-apps:swiftui-ui-patterns",
+      "aliases": [
+        "build-ios-apps::swiftui-ui-patterns",
+        "swiftui-ui-patterns"
+      ],
+      "tier": "core",
+      "required_by_roles": [
+        "ios-worker"
+      ],
+      "install": {
+        "source_type": "plugin",
+        "global": {
+          "path": "~/.codex/plugins/cache/build-ios-apps/**/skills/swiftui-ui-patterns",
+          "instructions": "Enable or install the `build-ios-apps` plugin in the Codex host, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/plugins/build-ios-apps (if project plugins are supported by the host)",
+          "instructions": "Enable `build-ios-apps` for this project if the host supports project-scoped plugins; otherwise install globally."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Plugin-provided skill; no direct skill copy command is bundled."
+      }
+    },
+    {
+      "name": "build-ios-apps:swiftui-view-refactor",
+      "aliases": [
+        "build-ios-apps::swiftui-view-refactor",
+        "swiftui-view-refactor"
+      ],
+      "tier": "core",
+      "required_by_roles": [
+        "architect",
+        "ios-worker"
+      ],
+      "install": {
+        "source_type": "plugin",
+        "global": {
+          "path": "~/.codex/plugins/cache/build-ios-apps/**/skills/swiftui-view-refactor",
+          "instructions": "Enable or install the `build-ios-apps` plugin in the Codex host, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/plugins/build-ios-apps (if project plugins are supported by the host)",
+          "instructions": "Enable `build-ios-apps` for this project if the host supports project-scoped plugins; otherwise install globally."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Plugin-provided skill; no direct skill copy command is bundled."
+      }
+    },
+    {
+      "name": "build-web-apps:frontend-skill",
+      "aliases": [
+        "build-web-apps::frontend-skill",
+        "frontend-skill"
+      ],
+      "tier": "core",
+      "required_by_roles": [
+        "bun-worker",
+        "frontend-worker",
+        "typescript-worker"
+      ],
+      "install": {
+        "source_type": "plugin",
+        "global": {
+          "path": "~/.codex/plugins/cache/build-web-apps/**/skills/frontend-skill",
+          "instructions": "Enable or install the `build-web-apps` plugin in the Codex host, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/plugins/build-web-apps (if project plugins are supported by the host)",
+          "instructions": "Enable `build-web-apps` for this project if the host supports project-scoped plugins; otherwise install globally."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Plugin-provided skill; no direct skill copy command is bundled."
+      }
+    },
+    {
+      "name": "build-web-apps:react-best-practices",
+      "aliases": [
+        "build-web-apps::react-best-practices",
+        "react-best-practices"
+      ],
+      "tier": "core",
+      "required_by_roles": [
+        "architect",
+        "bun-worker",
+        "frontend-worker",
+        "typescript-worker"
+      ],
+      "install": {
+        "source_type": "plugin",
+        "global": {
+          "path": "~/.codex/plugins/cache/build-web-apps/**/skills/react-best-practices",
+          "instructions": "Enable or install the `build-web-apps` plugin in the Codex host, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/plugins/build-web-apps (if project plugins are supported by the host)",
+          "instructions": "Enable `build-web-apps` for this project if the host supports project-scoped plugins; otherwise install globally."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Plugin-provided skill; no direct skill copy command is bundled."
+      }
+    },
+    {
+      "name": "build-web-apps:stripe-best-practices",
+      "aliases": [
+        "build-web-apps::stripe-best-practices",
+        "stripe-best-practices"
+      ],
+      "tier": "optional",
+      "required_by_roles": [
+        "backend-worker"
+      ],
+      "install": {
+        "source_type": "plugin",
+        "global": {
+          "path": "~/.codex/plugins/cache/build-web-apps/**/skills/stripe-best-practices",
+          "instructions": "Enable or install the `build-web-apps` plugin in the Codex host, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/plugins/build-web-apps (if project plugins are supported by the host)",
+          "instructions": "Enable `build-web-apps` for this project if the host supports project-scoped plugins; otherwise install globally."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Plugin-provided skill; no direct skill copy command is bundled."
+      }
+    },
+    {
+      "name": "build-web-apps:supabase-postgres-best-practices",
+      "aliases": [
+        "build-web-apps::supabase-postgres-best-practices",
+        "supabase-postgres-best-practices"
+      ],
+      "tier": "optional",
+      "required_by_roles": [
+        "backend-worker"
+      ],
+      "install": {
+        "source_type": "plugin",
+        "global": {
+          "path": "~/.codex/plugins/cache/build-web-apps/**/skills/supabase-postgres-best-practices",
+          "instructions": "Enable or install the `build-web-apps` plugin in the Codex host, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/plugins/build-web-apps (if project plugins are supported by the host)",
+          "instructions": "Enable `build-web-apps` for this project if the host supports project-scoped plugins; otherwise install globally."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Plugin-provided skill; no direct skill copy command is bundled."
+      }
+    },
+    {
+      "name": "build-web-apps:web-design-guidelines",
+      "aliases": [
+        "build-web-apps::web-design-guidelines",
+        "web-design-guidelines"
+      ],
+      "tier": "optional",
+      "required_by_roles": [
+        "design-orchestrator",
+        "frontend-worker",
+        "pencil-designer",
+        "ui-ux-design-director",
+        "visual-qa"
+      ],
+      "install": {
+        "source_type": "plugin",
+        "global": {
+          "path": "~/.codex/plugins/cache/build-web-apps/**/skills/web-design-guidelines",
+          "instructions": "Enable or install the `build-web-apps` plugin in the Codex host, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/plugins/build-web-apps (if project plugins are supported by the host)",
+          "instructions": "Enable `build-web-apps` for this project if the host supports project-scoped plugins; otherwise install globally."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Plugin-provided skill; no direct skill copy command is bundled."
+      }
+    },
+    {
+      "name": "bullmq-specialist",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "backend-worker",
+        "typescript-worker"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/bullmq-specialist",
+          "instructions": "Install `bullmq-specialist` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/bullmq-specialist",
+          "instructions": "Install `bullmq-specialist` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "bun",
+      "aliases": [],
+      "tier": "core",
+      "required_by_roles": [
+        "bun-worker"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/bun",
+          "instructions": "Install `bun` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/bun",
+          "instructions": "Install `bun` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "bun-dev",
+      "aliases": [],
+      "tier": "core",
+      "required_by_roles": [
+        "bun-worker"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/bun-dev",
+          "instructions": "Install `bun-dev` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/bun-dev",
+          "instructions": "Install `bun-dev` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "business-model",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "marketing-growth-strategist"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/business-model",
+          "instructions": "Install `business-model` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/business-model",
+          "instructions": "Install `business-model` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "chief-architect",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "architect"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/chief-architect",
+          "instructions": "Install `chief-architect` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/chief-architect",
+          "instructions": "Install `chief-architect` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "chrome-devtools",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "orchestrator"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/chrome-devtools",
+          "instructions": "Install `chrome-devtools` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/chrome-devtools",
+          "instructions": "Install `chrome-devtools` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "chunking-strategy",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "python-worker",
+        "rag-retrieval-engineer"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/chunking-strategy",
+          "instructions": "Install `chunking-strategy` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/chunking-strategy",
+          "instructions": "Install `chunking-strategy` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "code-review-excellence",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "ai-slops-hunter",
+        "reviewer"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/code-review-excellence",
+          "instructions": "Install `code-review-excellence` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/code-review-excellence",
+          "instructions": "Install `code-review-excellence` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "codex-reviewer:feature-review-impl",
+      "aliases": [
+        "codex-reviewer::feature-review-impl",
+        "feature-review-impl"
+      ],
+      "tier": "optional",
+      "required_by_roles": [
+        "reviewer"
+      ],
+      "install": {
+        "source_type": "plugin",
+        "global": {
+          "path": "~/.codex/plugins/cache/codex-reviewer/**/skills/feature-review-impl",
+          "instructions": "Enable or install the `codex-reviewer` plugin in the Codex host, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/plugins/codex-reviewer (if project plugins are supported by the host)",
+          "instructions": "Enable `codex-reviewer` for this project if the host supports project-scoped plugins; otherwise install globally."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Plugin-provided skill; no direct skill copy command is bundled."
+      }
+    },
+    {
+      "name": "codex-reviewer:feature-review-plan",
+      "aliases": [
+        "codex-reviewer::feature-review-plan",
+        "feature-review-plan"
+      ],
+      "tier": "optional",
+      "required_by_roles": [
+        "reviewer"
+      ],
+      "install": {
+        "source_type": "plugin",
+        "global": {
+          "path": "~/.codex/plugins/cache/codex-reviewer/**/skills/feature-review-plan",
+          "instructions": "Enable or install the `codex-reviewer` plugin in the Codex host, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/plugins/codex-reviewer (if project plugins are supported by the host)",
+          "instructions": "Enable `codex-reviewer` for this project if the host supports project-scoped plugins; otherwise install globally."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Plugin-provided skill; no direct skill copy command is bundled."
+      }
+    },
+    {
+      "name": "cohort-analysis",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "marketing-growth-strategist"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/cohort-analysis",
+          "instructions": "Install `cohort-analysis` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/cohort-analysis",
+          "instructions": "Install `cohort-analysis` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "cold-email",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "marketing-growth-strategist"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/cold-email",
+          "instructions": "Install `cold-email` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/cold-email",
+          "instructions": "Install `cold-email` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "color-palette-extractor",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "design-asset-generator"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/color-palette-extractor",
+          "instructions": "Install `color-palette-extractor` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/color-palette-extractor",
+          "instructions": "Install `color-palette-extractor` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "competitive-battlecard",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "marketing-growth-strategist"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/competitive-battlecard",
+          "instructions": "Install `competitive-battlecard` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/competitive-battlecard",
+          "instructions": "Install `competitive-battlecard` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "competitor-analysis",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "researcher",
+        "ui-reference-researcher"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/competitor-analysis",
+          "instructions": "Install `competitor-analysis` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/competitor-analysis",
+          "instructions": "Install `competitor-analysis` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "content-strategy",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "marketing-growth-strategist"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/content-strategy",
+          "instructions": "Install `content-strategy` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/content-strategy",
+          "instructions": "Install `content-strategy` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "copy-editing",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "ai-slops-hunter",
+        "design-documenter",
+        "documenter"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/copy-editing",
+          "instructions": "Install `copy-editing` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/copy-editing",
+          "instructions": "Install `copy-editing` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "create-prd",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "documenter",
+        "product-manager"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/create-prd",
+          "instructions": "Install `create-prd` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/create-prd",
+          "instructions": "Install `create-prd` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "customer-journey-map",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "marketing-growth-strategist"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/customer-journey-map",
+          "instructions": "Install `customer-journey-map` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/customer-journey-map",
+          "instructions": "Install `customer-journey-map` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "design-md",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "design-documenter",
+        "design-orchestrator",
+        "ui-ux-designer"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/design-md",
+          "instructions": "Install `design-md` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/design-md",
+          "instructions": "Install `design-md` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "design-taste-frontend",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "frontend-worker",
+        "ui-ux-design-director"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/design-taste-frontend",
+          "instructions": "Install `design-taste-frontend` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/design-taste-frontend",
+          "instructions": "Install `design-taste-frontend` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "dummy-dataset",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "python-worker"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/dummy-dataset",
+          "instructions": "Install `dummy-dataset` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/dummy-dataset",
+          "instructions": "Install `dummy-dataset` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "e2e-testing-patterns",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "qa-verifier"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/e2e-testing-patterns",
+          "instructions": "Install `e2e-testing-patterns` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/e2e-testing-patterns",
+          "instructions": "Install `e2e-testing-patterns` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "email-sequence",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "marketing-growth-strategist"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/email-sequence",
+          "instructions": "Install `email-sequence` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/email-sequence",
+          "instructions": "Install `email-sequence` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "embedding-strategies",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "rag-retrieval-engineer"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/embedding-strategies",
+          "instructions": "Install `embedding-strategies` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/embedding-strategies",
+          "instructions": "Install `embedding-strategies` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "english-humanizer",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "ai-slops-hunter"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/english-humanizer",
+          "instructions": "Install `english-humanizer` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/english-humanizer",
+          "instructions": "Install `english-humanizer` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "enhance-prompt",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "ui-ux-designer"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/enhance-prompt",
+          "instructions": "Install `enhance-prompt` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/enhance-prompt",
+          "instructions": "Install `enhance-prompt` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "evaluate-rag",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "rag-retrieval-engineer"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/evaluate-rag",
+          "instructions": "Install `evaluate-rag` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/evaluate-rag",
+          "instructions": "Install `evaluate-rag` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "extract-design-system",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "design-orchestrator",
+        "pencil-designer",
+        "ui-reference-researcher",
+        "ui-ux-design-director",
+        "ui-ux-designer"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/extract-design-system",
+          "instructions": "Install `extract-design-system` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/extract-design-system",
+          "instructions": "Install `extract-design-system` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "figma:figma-generate-design",
+      "aliases": [
+        "figma-generate-design",
+        "figma::figma-generate-design"
+      ],
+      "tier": "core",
+      "required_by_roles": [
+        "design-orchestrator",
+        "pencil-designer",
+        "ui-ux-designer"
+      ],
+      "install": {
+        "source_type": "plugin",
+        "global": {
+          "path": "~/.codex/plugins/cache/figma/**/skills/figma-generate-design",
+          "instructions": "Enable or install the `figma` plugin in the Codex host, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/plugins/figma (if project plugins are supported by the host)",
+          "instructions": "Enable `figma` for this project if the host supports project-scoped plugins; otherwise install globally."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Plugin-provided skill; no direct skill copy command is bundled."
+      }
+    },
+    {
+      "name": "figma:figma-use",
+      "aliases": [
+        "figma-use",
+        "figma::figma-use"
+      ],
+      "tier": "core",
+      "required_by_roles": [
+        "design-orchestrator",
+        "pencil-designer"
+      ],
+      "install": {
+        "source_type": "plugin",
+        "global": {
+          "path": "~/.codex/plugins/cache/figma/**/skills/figma-use",
+          "instructions": "Enable or install the `figma` plugin in the Codex host, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/plugins/figma (if project plugins are supported by the host)",
+          "instructions": "Enable `figma` for this project if the host supports project-scoped plugins; otherwise install globally."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Plugin-provided skill; no direct skill copy command is bundled."
+      }
+    },
+    {
+      "name": "find-skills",
+      "aliases": [],
+      "tier": "core",
+      "required_by_roles": [
+        "design-asset-generator",
+        "design-documenter",
+        "design-orchestrator",
+        "pencil-designer",
+        "ui-reference-researcher",
+        "ui-ux-design-director",
+        "visual-qa"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/find-skills",
+          "instructions": "Install `find-skills` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/find-skills",
+          "instructions": "Install `find-skills` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "frontend-design",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "ai-slops-hunter",
+        "design-orchestrator",
+        "pencil-designer",
+        "ui-reference-researcher",
+        "ui-ux-design-director",
+        "ui-ux-designer",
+        "visual-qa"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/frontend-design",
+          "instructions": "Install `frontend-design` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/frontend-design",
+          "instructions": "Install `frontend-design` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "frontend-engineer",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "frontend-worker"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/frontend-engineer",
+          "instructions": "Install `frontend-engineer` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/frontend-engineer",
+          "instructions": "Install `frontend-engineer` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "frontend-responsive-ui",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "frontend-worker",
+        "pencil-designer",
+        "visual-qa"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/frontend-responsive-ui",
+          "instructions": "Install `frontend-responsive-ui` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/frontend-responsive-ui",
+          "instructions": "Install `frontend-responsive-ui` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "frontend-ui-ux-engineer",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "frontend-worker"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/frontend-ui-ux-engineer",
+          "instructions": "Install `frontend-ui-ux-engineer` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/frontend-ui-ux-engineer",
+          "instructions": "Install `frontend-ui-ux-engineer` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "game-art",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "design-asset-generator"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/game-art",
+          "instructions": "Install `game-art` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/game-art",
+          "instructions": "Install `game-art` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "game-studio:game-playtest",
+      "aliases": [
+        "game-playtest",
+        "game-studio::game-playtest"
+      ],
+      "tier": "optional",
+      "required_by_roles": [
+        "qa-verifier"
+      ],
+      "install": {
+        "source_type": "plugin",
+        "global": {
+          "path": "~/.codex/plugins/cache/game-studio/**/skills/game-playtest",
+          "instructions": "Enable or install the `game-studio` plugin in the Codex host, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/plugins/game-studio (if project plugins are supported by the host)",
+          "instructions": "Enable `game-studio` for this project if the host supports project-scoped plugins; otherwise install globally."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Plugin-provided skill; no direct skill copy command is bundled."
+      }
+    },
+    {
+      "name": "game-studio:game-ui-frontend",
+      "aliases": [
+        "game-studio::game-ui-frontend",
+        "game-ui-frontend"
+      ],
+      "tier": "optional",
+      "required_by_roles": [
+        "design-orchestrator"
+      ],
+      "install": {
+        "source_type": "plugin",
+        "global": {
+          "path": "~/.codex/plugins/cache/game-studio/**/skills/game-ui-frontend",
+          "instructions": "Enable or install the `game-studio` plugin in the Codex host, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/plugins/game-studio (if project plugins are supported by the host)",
+          "instructions": "Enable `game-studio` for this project if the host supports project-scoped plugins; otherwise install globally."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Plugin-provided skill; no direct skill copy command is bundled."
+      }
+    },
+    {
+      "name": "github:gh-fix-ci",
+      "aliases": [
+        "gh-fix-ci",
+        "github::gh-fix-ci"
+      ],
+      "tier": "optional",
+      "required_by_roles": [
+        "reviewer"
+      ],
+      "install": {
+        "source_type": "plugin",
+        "global": {
+          "path": "~/.codex/plugins/cache/github/**/skills/gh-fix-ci",
+          "instructions": "Enable or install the `github` plugin in the Codex host, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/plugins/github (if project plugins are supported by the host)",
+          "instructions": "Enable `github` for this project if the host supports project-scoped plugins; otherwise install globally."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Plugin-provided skill; no direct skill copy command is bundled."
+      }
+    },
+    {
+      "name": "github:github",
+      "aliases": [
+        "github",
+        "github::github"
+      ],
+      "tier": "optional",
+      "required_by_roles": [
+        "golang-worker",
+        "orchestrator",
+        "researcher",
+        "reviewer"
+      ],
+      "install": {
+        "source_type": "plugin",
+        "global": {
+          "path": "~/.codex/plugins/cache/github/**/skills/github",
+          "instructions": "Enable or install the `github` plugin in the Codex host, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/plugins/github (if project plugins are supported by the host)",
+          "instructions": "Enable `github` for this project if the host supports project-scoped plugins; otherwise install globally."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Plugin-provided skill; no direct skill copy command is bundled."
+      }
+    },
+    {
+      "name": "golang-code-style",
+      "aliases": [],
+      "tier": "core",
+      "required_by_roles": [
+        "golang-worker"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/golang-code-style",
+          "instructions": "Install `golang-code-style` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/golang-code-style",
+          "instructions": "Install `golang-code-style` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "golang-lint",
+      "aliases": [],
+      "tier": "core",
+      "required_by_roles": [
+        "golang-worker"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/golang-lint",
+          "instructions": "Install `golang-lint` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/golang-lint",
+          "instructions": "Install `golang-lint` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "golang-modernize",
+      "aliases": [],
+      "tier": "core",
+      "required_by_roles": [
+        "golang-worker"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/golang-modernize",
+          "instructions": "Install `golang-modernize` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/golang-modernize",
+          "instructions": "Install `golang-modernize` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "gpt-taste",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "ui-ux-design-director"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/gpt-taste",
+          "instructions": "Install `gpt-taste` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/gpt-taste",
+          "instructions": "Install `gpt-taste` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "grammar-check",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "ai-slops-hunter",
+        "design-documenter",
+        "documenter"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/grammar-check",
+          "instructions": "Install `grammar-check` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/grammar-check",
+          "instructions": "Install `grammar-check` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "graphrag-patterns",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "rag-retrieval-engineer"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/graphrag-patterns",
+          "instructions": "Install `graphrag-patterns` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/graphrag-patterns",
+          "instructions": "Install `graphrag-patterns` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "growth-loops",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "marketing-growth-strategist"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/growth-loops",
+          "instructions": "Install `growth-loops` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/growth-loops",
+          "instructions": "Install `growth-loops` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "gtm-motions",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "marketing-growth-strategist"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/gtm-motions",
+          "instructions": "Install `gtm-motions` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/gtm-motions",
+          "instructions": "Install `gtm-motions` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "gtm-strategy",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "marketing-growth-strategist"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/gtm-strategy",
+          "instructions": "Install `gtm-strategy` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/gtm-strategy",
+          "instructions": "Install `gtm-strategy` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "high-end-visual-design",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "ui-ux-design-director"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/high-end-visual-design",
+          "instructions": "Install `high-end-visual-design` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/high-end-visual-design",
+          "instructions": "Install `high-end-visual-design` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "hugging-face:huggingface-datasets",
+      "aliases": [
+        "hugging-face::huggingface-datasets",
+        "huggingface-datasets"
+      ],
+      "tier": "optional",
+      "required_by_roles": [
+        "rag-retrieval-engineer"
+      ],
+      "install": {
+        "source_type": "plugin",
+        "global": {
+          "path": "~/.codex/plugins/cache/hugging-face/**/skills/huggingface-datasets",
+          "instructions": "Enable or install the `hugging-face` plugin in the Codex host, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/plugins/hugging-face (if project plugins are supported by the host)",
+          "instructions": "Enable `hugging-face` for this project if the host supports project-scoped plugins; otherwise install globally."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Plugin-provided skill; no direct skill copy command is bundled."
+      }
+    },
+    {
+      "name": "hugging-face:huggingface-papers",
+      "aliases": [
+        "hugging-face::huggingface-papers",
+        "huggingface-papers"
+      ],
+      "tier": "optional",
+      "required_by_roles": [
+        "rag-retrieval-engineer",
+        "researcher"
+      ],
+      "install": {
+        "source_type": "plugin",
+        "global": {
+          "path": "~/.codex/plugins/cache/hugging-face/**/skills/huggingface-papers",
+          "instructions": "Enable or install the `hugging-face` plugin in the Codex host, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/plugins/hugging-face (if project plugins are supported by the host)",
+          "instructions": "Enable `hugging-face` for this project if the host supports project-scoped plugins; otherwise install globally."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Plugin-provided skill; no direct skill copy command is bundled."
+      }
+    },
+    {
+      "name": "humanize-text",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "ai-slops-hunter"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/humanize-text",
+          "instructions": "Install `humanize-text` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/humanize-text",
+          "instructions": "Install `humanize-text` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "humanize-ts",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "ai-slops-hunter",
+        "typescript-worker"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/humanize-ts",
+          "instructions": "Install `humanize-ts` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/humanize-ts",
+          "instructions": "Install `humanize-ts` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "humanizer-ru",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "documenter"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/humanizer-ru",
+          "instructions": "Install `humanizer-ru` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/humanizer-ru",
+          "instructions": "Install `humanizer-ru` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "hybrid-search-implementation",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "rag-retrieval-engineer"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/hybrid-search-implementation",
+          "instructions": "Install `hybrid-search-implementation` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/hybrid-search-implementation",
+          "instructions": "Install `hybrid-search-implementation` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "ideal-customer-profile",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "marketing-growth-strategist"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/ideal-customer-profile",
+          "instructions": "Install `ideal-customer-profile` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/ideal-customer-profile",
+          "instructions": "Install `ideal-customer-profile` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "imagegen",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "design-asset-generator"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/imagegen",
+          "instructions": "Install `imagegen` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/imagegen",
+          "instructions": "Install `imagegen` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "impeccable",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "ai-slops-hunter",
+        "design-orchestrator",
+        "orchestrator",
+        "reviewer"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/impeccable",
+          "instructions": "Install `impeccable` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/impeccable",
+          "instructions": "Install `impeccable` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "improve-codebase-architecture",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "architect"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/improve-codebase-architecture",
+          "instructions": "Install `improve-codebase-architecture` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/improve-codebase-architecture",
+          "instructions": "Install `improve-codebase-architecture` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "job-stories",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "product-manager"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/job-stories",
+          "instructions": "Install `job-stories` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/job-stories",
+          "instructions": "Install `job-stories` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "kafka-development",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "architect",
+        "golang-worker"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/kafka-development",
+          "instructions": "Install `kafka-development` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/kafka-development",
+          "instructions": "Install `kafka-development` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "kafka-producer-consumer",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "architect",
+        "golang-worker"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/kafka-producer-consumer",
+          "instructions": "Install `kafka-producer-consumer` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/kafka-producer-consumer",
+          "instructions": "Install `kafka-producer-consumer` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "knowledge-graph",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "rag-retrieval-engineer"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/knowledge-graph",
+          "instructions": "Install `knowledge-graph` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/knowledge-graph",
+          "instructions": "Install `knowledge-graph` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "knowledge-graph-builder",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "rag-retrieval-engineer"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/knowledge-graph-builder",
+          "instructions": "Install `knowledge-graph-builder` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/knowledge-graph-builder",
+          "instructions": "Install `knowledge-graph-builder` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "kpi-dashboard-design",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "marketing-growth-strategist"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/kpi-dashboard-design",
+          "instructions": "Install `kpi-dashboard-design` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/kpi-dashboard-design",
+          "instructions": "Install `kpi-dashboard-design` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "launch-strategy",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "marketing-growth-strategist"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/launch-strategy",
+          "instructions": "Install `launch-strategy` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/launch-strategy",
+          "instructions": "Install `launch-strategy` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "lazyweb",
+      "aliases": [
+        "lazyweb-quick-references",
+        "lazyweb:lazyweb-quick-references"
+      ],
+      "tier": "core",
+      "required_by_roles": [
+        "ui-reference-researcher"
+      ],
+      "install": {
+        "source_type": "prompt",
+        "global": {
+          "path": "~/.codex/skills/lazyweb",
+          "instructions": "Install Lazyweb globally through its official plugin or one-line prompt."
+        },
+        "project": {
+          "path": ".codex/skills/lazyweb",
+          "instructions": "Use the same Lazyweb prompt in the project agent context if project-local setup is required."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": "Enable the global Lazyweb plugin, or get the free one-line install prompt at https://lazyweb.com/#pricing, paste it into this agent, then rerun the dependency check.",
+        "notes": "Prompt/manual source; the checker must not execute this automatically."
+      }
+    },
+    {
+      "name": "markdown-documentation",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "design-documenter",
+        "documenter"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/markdown-documentation",
+          "instructions": "Install `markdown-documentation` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/markdown-documentation",
+          "instructions": "Install `markdown-documentation` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "market-sizing",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "researcher"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/market-sizing",
+          "instructions": "Install `market-sizing` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/market-sizing",
+          "instructions": "Install `market-sizing` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "north-star-metric",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "product-manager"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/north-star-metric",
+          "instructions": "Install `north-star-metric` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/north-star-metric",
+          "instructions": "Install `north-star-metric` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "one-pager-prd",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "documenter",
+        "product-manager"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/one-pager-prd",
+          "instructions": "Install `one-pager-prd` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/one-pager-prd",
+          "instructions": "Install `one-pager-prd` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "openai-docs",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "rag-retrieval-engineer",
+        "researcher"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/openai-docs",
+          "instructions": "Install `openai-docs` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/openai-docs",
+          "instructions": "Install `openai-docs` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "opportunity-solution-tree",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "product-manager"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/opportunity-solution-tree",
+          "instructions": "Install `opportunity-solution-tree` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/opportunity-solution-tree",
+          "instructions": "Install `opportunity-solution-tree` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "outcome-roadmap",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "product-manager"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/outcome-roadmap",
+          "instructions": "Install `outcome-roadmap` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/outcome-roadmap",
+          "instructions": "Install `outcome-roadmap` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "pdf-extraction",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "python-worker"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/pdf-extraction",
+          "instructions": "Install `pdf-extraction` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/pdf-extraction",
+          "instructions": "Install `pdf-extraction` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "pdf-generator",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "python-worker"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/pdf-generator",
+          "instructions": "Install `pdf-generator` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/pdf-generator",
+          "instructions": "Install `pdf-generator` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "pdf-ocr-skill",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "python-worker"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/pdf-ocr-skill",
+          "instructions": "Install `pdf-ocr-skill` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/pdf-ocr-skill",
+          "instructions": "Install `pdf-ocr-skill` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "playwright-e2e-testing",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "qa-verifier",
+        "typescript-worker"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/playwright-e2e-testing",
+          "instructions": "Install `playwright-e2e-testing` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/playwright-e2e-testing",
+          "instructions": "Install `playwright-e2e-testing` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "pre-mortem",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "architect",
+        "orchestrator",
+        "reviewer"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/pre-mortem",
+          "instructions": "Install `pre-mortem` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/pre-mortem",
+          "instructions": "Install `pre-mortem` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "prioritization-frameworks",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "product-manager"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/prioritization-frameworks",
+          "instructions": "Install `prioritization-frameworks` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/prioritization-frameworks",
+          "instructions": "Install `prioritization-frameworks` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "prioritize-assumptions",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "product-manager"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/prioritize-assumptions",
+          "instructions": "Install `prioritize-assumptions` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/prioritize-assumptions",
+          "instructions": "Install `prioritize-assumptions` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "product-management",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "product-manager"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/product-management",
+          "instructions": "Install `product-management` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/product-management",
+          "instructions": "Install `product-management` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "product-manager",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "product-manager"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/product-manager",
+          "instructions": "Install `product-manager` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/product-manager",
+          "instructions": "Install `product-manager` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "product-manager-toolkit",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "documenter"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/product-manager-toolkit",
+          "instructions": "Install `product-manager-toolkit` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/product-manager-toolkit",
+          "instructions": "Install `product-manager-toolkit` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "product-strategy",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "product-manager"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/product-strategy",
+          "instructions": "Install `product-strategy` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/product-strategy",
+          "instructions": "Install `product-strategy` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "product-vision",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "product-manager"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/product-vision",
+          "instructions": "Install `product-vision` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/product-vision",
+          "instructions": "Install `product-vision` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "python-packaging",
+      "aliases": [],
+      "tier": "core",
+      "required_by_roles": [
+        "python-worker"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/python-packaging",
+          "instructions": "Install `python-packaging` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/python-packaging",
+          "instructions": "Install `python-packaging` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "python-testing-patterns",
+      "aliases": [],
+      "tier": "core",
+      "required_by_roles": [
+        "python-worker"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/python-testing-patterns",
+          "instructions": "Install `python-testing-patterns` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/python-testing-patterns",
+          "instructions": "Install `python-testing-patterns` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "queue-job-processor",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "architect",
+        "backend-worker"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/queue-job-processor",
+          "instructions": "Install `queue-job-processor` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/queue-job-processor",
+          "instructions": "Install `queue-job-processor` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "rag-implementation",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "backend-worker",
+        "python-worker",
+        "rag-retrieval-engineer"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/rag-implementation",
+          "instructions": "Install `rag-implementation` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/rag-implementation",
+          "instructions": "Install `rag-implementation` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "rag-retrieval",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "rag-retrieval-engineer"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/rag-retrieval",
+          "instructions": "Install `rag-retrieval` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/rag-retrieval",
+          "instructions": "Install `rag-retrieval` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "react-components",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "typescript-worker"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/react-components",
+          "instructions": "Install `react-components` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/react-components",
+          "instructions": "Install `react-components` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "react-patterns",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "typescript-worker"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/react-patterns",
+          "instructions": "Install `react-patterns` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/react-patterns",
+          "instructions": "Install `react-patterns` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "readme-standards",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "documenter"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/readme-standards",
+          "instructions": "Install `readme-standards` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/readme-standards",
+          "instructions": "Install `readme-standards` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "release-notes",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "documenter",
+        "orchestrator"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/release-notes",
+          "instructions": "Install `release-notes` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/release-notes",
+          "instructions": "Install `release-notes` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "seo-audit",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "researcher"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/seo-audit",
+          "instructions": "Install `seo-audit` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/seo-audit",
+          "instructions": "Install `seo-audit` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "software-localisation",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "documenter"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/software-localisation",
+          "instructions": "Install `software-localisation` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/software-localisation",
+          "instructions": "Install `software-localisation` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "sql-queries",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "architect",
+        "backend-worker",
+        "python-worker",
+        "rag-retrieval-engineer"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/sql-queries",
+          "instructions": "Install `sql-queries` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/sql-queries",
+          "instructions": "Install `sql-queries` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "stitch::code-to-design",
+      "aliases": [
+        "code-to-design",
+        "stitch-code-to-design",
+        "stitch:code-to-design"
+      ],
+      "tier": "core",
+      "required_by_roles": [
+        "ui-ux-designer"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/stitch-code-to-design",
+          "instructions": "Install the Stitch skills bundle into the global skill root and enable Stitch MCP tools."
+        },
+        "project": {
+          "path": ".codex/skills/stitch-code-to-design",
+          "instructions": "Install the Stitch skills bundle into this project's `.codex/skills` directory and enable Stitch MCP tools for the project."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; keep Stitch skill directory names such as `stitch-generate-design`."
+      }
+    },
+    {
+      "name": "stitch::extract-design-md",
+      "aliases": [
+        "extract-design-md",
+        "stitch-extract-design-md",
+        "stitch:extract-design-md"
+      ],
+      "tier": "core",
+      "required_by_roles": [
+        "ui-ux-designer"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/stitch-extract-design-md",
+          "instructions": "Install the Stitch skills bundle into the global skill root and enable Stitch MCP tools."
+        },
+        "project": {
+          "path": ".codex/skills/stitch-extract-design-md",
+          "instructions": "Install the Stitch skills bundle into this project's `.codex/skills` directory and enable Stitch MCP tools for the project."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; keep Stitch skill directory names such as `stitch-generate-design`."
+      }
+    },
+    {
+      "name": "stitch::generate-design",
+      "aliases": [
+        "generate-design",
+        "stitch-generate-design",
+        "stitch:generate-design"
+      ],
+      "tier": "core",
+      "required_by_roles": [
+        "ui-ux-designer"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/stitch-generate-design",
+          "instructions": "Install the Stitch skills bundle into the global skill root and enable Stitch MCP tools."
+        },
+        "project": {
+          "path": ".codex/skills/stitch-generate-design",
+          "instructions": "Install the Stitch skills bundle into this project's `.codex/skills` directory and enable Stitch MCP tools for the project."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; keep Stitch skill directory names such as `stitch-generate-design`."
+      }
+    },
+    {
+      "name": "stitch::manage-design-system",
+      "aliases": [
+        "manage-design-system",
+        "stitch-manage-design-system",
+        "stitch:manage-design-system"
+      ],
+      "tier": "core",
+      "required_by_roles": [
+        "ui-ux-designer"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/stitch-manage-design-system",
+          "instructions": "Install the Stitch skills bundle into the global skill root and enable Stitch MCP tools."
+        },
+        "project": {
+          "path": ".codex/skills/stitch-manage-design-system",
+          "instructions": "Install the Stitch skills bundle into this project's `.codex/skills` directory and enable Stitch MCP tools for the project."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; keep Stitch skill directory names such as `stitch-generate-design`."
+      }
+    },
+    {
+      "name": "stitch::upload-to-stitch",
+      "aliases": [
+        "stitch-upload-to-stitch",
+        "stitch:upload-to-stitch",
+        "upload-to-stitch"
+      ],
+      "tier": "core",
+      "required_by_roles": [
+        "ui-ux-designer"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/stitch-upload-to-stitch",
+          "instructions": "Install the Stitch skills bundle into the global skill root and enable Stitch MCP tools."
+        },
+        "project": {
+          "path": ".codex/skills/stitch-upload-to-stitch",
+          "instructions": "Install the Stitch skills bundle into this project's `.codex/skills` directory and enable Stitch MCP tools for the project."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; keep Stitch skill directory names such as `stitch-generate-design`."
+      }
+    },
+    {
+      "name": "system-design-doc",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "architect",
+        "documenter",
+        "orchestrator",
+        "rag-retrieval-engineer"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/system-design-doc",
+          "instructions": "Install `system-design-doc` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/system-design-doc",
+          "instructions": "Install `system-design-doc` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "technical-writer",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "design-documenter",
+        "documenter"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/technical-writer",
+          "instructions": "Install `technical-writer` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/technical-writer",
+          "instructions": "Install `technical-writer` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "test-scenarios",
+      "aliases": [],
+      "tier": "core",
+      "required_by_roles": [
+        "backend-worker",
+        "bun-worker",
+        "golang-worker",
+        "orchestrator",
+        "python-worker",
+        "qa-verifier",
+        "rag-retrieval-engineer",
+        "reviewer",
+        "typescript-worker"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/test-scenarios",
+          "instructions": "Install `test-scenarios` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/test-scenarios",
+          "instructions": "Install `test-scenarios` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "user-stories",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "product-manager"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/user-stories",
+          "instructions": "Install `user-stories` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/user-stories",
+          "instructions": "Install `user-stories` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "value-proposition",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "product-manager"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/value-proposition",
+          "instructions": "Install `value-proposition` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/value-proposition",
+          "instructions": "Install `value-proposition` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "web-design-guidelines",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "ui-ux-designer"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/web-design-guidelines",
+          "instructions": "Install `web-design-guidelines` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/web-design-guidelines",
+          "instructions": "Install `web-design-guidelines` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    },
+    {
+      "name": "webapp-testing",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "frontend-worker",
+        "qa-verifier"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.codex/skills/webapp-testing",
+          "instructions": "Install `webapp-testing` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".codex/skills/webapp-testing",
+          "instructions": "Install `webapp-testing` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manual source; this registry has no authoritative public source yet."
+      }
+    }
+  ]
+}

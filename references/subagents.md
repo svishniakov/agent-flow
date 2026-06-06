@@ -6,7 +6,9 @@ If no spawn tool is available, use the same role guidance as a solo checklist or
 
 Stable identities live in `agents/agent-identities.json`.
 
-Role frontmatter may list optional skills/plugins. Use them only when available in the current environment. If a listed skill is missing, follow the role instructions directly, record the gap when relevant, and continue within the delegation packet. Run `python3 scripts/check-agent-deps.py` to audit installed and missing optional skills; the checker does not download or install dependencies.
+Role frontmatter `skills:` is a dependency demand, not an install command. Use listed skills only when they are available in the current environment. If a listed skill is missing, follow the role instructions directly, record the gap when relevant, and continue within the delegation packet.
+
+Canonical install metadata lives in `registries/agent-skills.json`: tier, role usage, aliases, target paths, prompts, plugin/manual notes, and allowlisted commands. Run `python3 scripts/check-agent-deps.py --post-install` after clone, or `--scope core --install-plan` / `--scope full --install-plan` for a non-interactive audit. The checker never performs silent installs. `--guided-install` requires explicit confirmation and executes only allowlisted `git`/`local` commands; `plugin`, `prompt`, and `manual` entries are printed only.
 
 Role frontmatter also defines runtime model settings:
 

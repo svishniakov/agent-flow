@@ -85,12 +85,34 @@ Subagents are used only when both conditions are true:
 
 If the tool is unavailable, role files can be used as a solo checklist or role lane, but that is not subagent execution.
 
+Subagent dependencies are described in `registries/agent-skills.json`. Role files in `agents/*.md` state which skills a role needs; the registry stores tiers, roles, target paths, prompts, and install instructions.
+
+After installing Agent Flow, run the post-install wizard:
+
+```bash
+python3 ~/.codex/skills/agent-flow/scripts/check-agent-deps.py --post-install
+```
+
+The wizard reports missing `core` and `full` skills and recommends starting with core:
+
+- `core` means skills without which a role loses its main capability: browser, QA, test, find-skills, language/runtime/toolchain, and key design/plugin skills;
+- `full` means every skill referenced by `agents/*.md`, including niche, paid, or plugin-gated dependencies.
+
+Target selects where the skill should be installed:
+
+- `global` means the user's global environment, usually `~/.codex/skills`;
+- `project` means the current project, usually `.codex/skills`.
+
+There is no silent install. `--guided-install` executes only allowlisted `git`/`local` registry commands and only after the user confirms with `yes`. `plugin`, `prompt`, and `manual` entries are not executed: the checker prints instructions, the official prompt, or a note to enable a plugin. After guided install, the checker reruns the scan and reports remaining missing skills.
+
 ## Checks
 
 After changing the skill, these checks are useful:
 
 ```bash
 python3 -m py_compile scripts/*.py
+python3 scripts/validate-agent-skill-registry.py
+python3 scripts/check-agent-deps.py --scope core
 python3 scripts/init-run.py --help
 python3 scripts/append-timeline.py --help
 python3 scripts/record-agent-trace.py --help

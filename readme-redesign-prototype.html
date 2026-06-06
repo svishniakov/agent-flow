@@ -1,0 +1,998 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent Flow README Prototype</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #2d2d2b;
+      --panel: #343431;
+      --panel-2: #3b3a36;
+      --line: rgba(249, 249, 247, 0.14);
+      --line-soft: rgba(249, 249, 247, 0.08);
+      --text: #f9f9f7;
+      --muted: #c7c1b8;
+      --faint: #928c82;
+      --accent: #cc7d5e;
+      --accent-soft: rgba(204, 125, 94, 0.16);
+      --accent-line: rgba(204, 125, 94, 0.36);
+      --good: #00c853;
+      --bad: #ff5f38;
+      --max: 1180px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      background: var(--bg);
+      color: var(--text);
+      font-family:
+        ui-sans-serif,
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        sans-serif;
+      font-size: 16px;
+      letter-spacing: 0;
+    }
+
+    body {
+      margin: 0;
+      min-width: 320px;
+      background:
+        linear-gradient(180deg, rgba(249, 249, 247, 0.035), transparent 22rem),
+        radial-gradient(circle at 50% 0%, rgba(204, 125, 94, 0.14), transparent 22rem),
+        var(--bg);
+    }
+
+    a {
+      color: inherit;
+    }
+
+    .page {
+      overflow: hidden;
+    }
+
+    .shell {
+      width: min(100% - 2rem, var(--max));
+      margin: 0 auto;
+    }
+
+    .hero {
+      padding: 2rem 0 4rem;
+    }
+
+    .nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      min-height: 3.25rem;
+      margin-bottom: 2.5rem;
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.7rem;
+      color: var(--text);
+      text-decoration: none;
+      font-weight: 700;
+    }
+
+    .mark {
+      width: 2.2rem;
+      height: 2.2rem;
+      border-radius: 0.75rem;
+      display: grid;
+      place-items: center;
+      background: var(--accent-soft);
+      border: 1px solid var(--line);
+      color: var(--text);
+      box-shadow: inset 0 1px 0 rgba(249, 249, 247, 0.1);
+    }
+
+    .mark svg {
+      width: 1.25rem;
+      height: 1.25rem;
+    }
+
+    .nav-links {
+      display: none;
+      gap: 0.5rem;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .nav-links a {
+      min-height: 2.75rem;
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 0 0.9rem;
+      text-decoration: none;
+    }
+
+    .nav-links a:hover {
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text);
+    }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 2.25rem;
+      align-items: center;
+      justify-items: center;
+      text-align: center;
+    }
+
+    .hero-grid > *,
+    .split > *,
+    .grid > * {
+      min-width: 0;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      min-height: 2rem;
+      padding: 0 0.8rem;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      background: rgba(255, 255, 255, 0.04);
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+    }
+
+    .dot {
+      width: 0.45rem;
+      height: 0.45rem;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 0 0.25rem var(--accent-soft);
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    h1 {
+      margin-top: 1.2rem;
+      max-width: 15ch;
+      margin-left: auto;
+      margin-right: auto;
+      font-size: 3rem;
+      line-height: 0.98;
+      letter-spacing: 0;
+      text-wrap: balance;
+    }
+
+    .hero-copy {
+      margin-top: 1.2rem;
+      max-width: 46rem;
+      margin-left: auto;
+      margin-right: auto;
+      color: var(--muted);
+      font-size: 1.05rem;
+      line-height: 1.55;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.8rem;
+      margin-top: 1.7rem;
+      justify-content: center;
+    }
+
+    .button {
+      min-height: 3rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.7rem;
+      border-radius: 999px;
+      padding: 0.25rem 0.3rem 0.25rem 1.1rem;
+      border: 1px solid var(--line);
+      text-decoration: none;
+      color: var(--text);
+      font-weight: 700;
+      background: rgba(249, 249, 247, 0.055);
+      transition: transform 500ms cubic-bezier(0.32, 0.72, 0, 1), background 500ms cubic-bezier(0.32, 0.72, 0, 1);
+    }
+
+    .button.primary {
+      color: var(--text);
+      background: var(--accent);
+      border: 0;
+    }
+
+    .button:hover {
+      transform: translateY(-2px);
+      background: rgba(249, 249, 247, 0.08);
+    }
+
+    .button.primary:hover {
+      background: #d38b70;
+    }
+
+    .button span {
+      width: 2.35rem;
+      height: 2.35rem;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: rgba(8, 10, 15, 0.12);
+    }
+
+    .badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-top: 1.3rem;
+      justify-content: center;
+    }
+
+    .badge {
+      min-height: 2rem;
+      display: inline-flex;
+      align-items: center;
+      border: 1px solid var(--line-soft);
+      border-radius: 0.55rem;
+      padding: 0 0.7rem;
+      color: var(--muted);
+      background: rgba(249, 249, 247, 0.04);
+      font-size: 0.78rem;
+      font-weight: 650;
+    }
+
+    .hero-card {
+      border-radius: 1.6rem;
+      padding: 0.45rem;
+      width: min(100%, 980px);
+      background: rgba(249, 249, 247, 0.055);
+      border: 1px solid var(--line);
+      box-shadow:
+        0 1.8rem 5rem rgba(0, 0, 0, 0.32),
+        inset 0 1px 0 rgba(249, 249, 247, 0.12);
+    }
+
+    .diagram {
+      --dot-travel: 30rem;
+      min-height: auto;
+      border-radius: 1.2rem;
+      background:
+        linear-gradient(180deg, rgba(249, 249, 247, 0.055), rgba(249, 249, 247, 0.02)),
+        var(--panel);
+      border: 1px solid var(--line-soft);
+      padding: 1rem;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .diagram::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(249, 249, 247, 0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(249, 249, 247, 0.035) 1px, transparent 1px);
+      background-size: 2rem 2rem;
+      mask-image: linear-gradient(180deg, black, transparent 80%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .diagram-inner {
+      position: relative;
+      display: grid;
+      gap: 0.9rem;
+      z-index: 2;
+    }
+
+    .node {
+      min-height: 4.2rem;
+      border: 1px solid var(--line);
+      border-radius: 1rem;
+      padding: 0.9rem;
+      background: rgba(45, 45, 43, 0.78);
+      box-shadow: inset 0 1px 0 rgba(249, 249, 247, 0.08);
+    }
+
+    .node small {
+      display: block;
+      color: var(--faint);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      font-weight: 800;
+    }
+
+    .node strong {
+      display: block;
+      margin-top: 0.25rem;
+      color: var(--text);
+      font-size: 1rem;
+    }
+
+    .node p {
+      margin-top: 0.35rem;
+      color: var(--muted);
+      font-size: 0.85rem;
+      line-height: 1.45;
+    }
+
+    .node.gate {
+      border-color: var(--accent-line);
+    }
+
+    .node.work {
+      border-color: rgba(0, 200, 83, 0.3);
+    }
+
+    .node.locked {
+      border-color: rgba(255, 95, 56, 0.32);
+    }
+
+    .node.done {
+      border-color: var(--accent-line);
+    }
+
+    .connector {
+      display: none;
+      position: absolute;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+      z-index: 1;
+      opacity: 0.38;
+    }
+
+    .flow-dots {
+      position: absolute;
+      inset: 0;
+      z-index: 3;
+      pointer-events: none;
+      overflow: hidden;
+    }
+
+    .flow-dot {
+      position: absolute;
+      left: -1rem;
+      top: var(--y);
+      width: 0.55rem;
+      height: 0.55rem;
+      border-radius: 50%;
+      background: rgba(204, 125, 94, 0.55);
+      opacity: 0;
+      box-shadow:
+        0 0 0 0.2rem rgba(204, 125, 94, 0.07),
+        0 0 0.9rem rgba(204, 125, 94, 0.34);
+      animation: process-dot var(--duration) linear infinite;
+      animation-delay: var(--delay);
+    }
+
+    .flow-dot.vertical {
+      top: -1rem;
+      left: var(--x);
+      animation-name: process-dot-vertical;
+    }
+
+    .flow-dot::before {
+      content: "";
+      position: absolute;
+      top: 50%;
+      right: 0.2rem;
+      width: 2.8rem;
+      height: 1px;
+      transform: translateY(-50%);
+      background: linear-gradient(90deg, transparent, rgba(204, 125, 94, 0.24));
+    }
+
+    @keyframes process-dot {
+      0% {
+        opacity: 0;
+        transform: translate3d(0, 0, 0) scale(0.8);
+      }
+      8%,
+      88% {
+        opacity: 1;
+      }
+      100% {
+        opacity: 0;
+        transform: translate3d(var(--dot-travel), var(--drift, 0), 0) scale(1);
+      }
+    }
+
+    @keyframes process-dot-vertical {
+      0% {
+        opacity: 0;
+        transform: translate3d(0, 0, 0) scale(0.8);
+      }
+      8%,
+      88% {
+        opacity: 1;
+      }
+      100% {
+        opacity: 0;
+        transform: translate3d(var(--drift, 0), 20rem, 0) scale(1);
+      }
+    }
+
+    section {
+      padding: 3.8rem 0;
+    }
+
+    .section-head {
+      display: grid;
+      gap: 0.7rem;
+      max-width: 44rem;
+      margin: 0 auto 1.5rem;
+      text-align: center;
+    }
+
+    .section-head h2 {
+      font-size: 2rem;
+      line-height: 1;
+      letter-spacing: 0;
+      text-wrap: balance;
+    }
+
+    .section-head p {
+      color: var(--muted);
+      line-height: 1.6;
+      font-size: 1.03rem;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 1rem;
+    }
+
+    .card {
+      border-radius: 1.2rem;
+      padding: 1rem;
+      background: var(--panel);
+      border: 1px solid var(--line-soft);
+      box-shadow: inset 0 1px 0 rgba(249, 249, 247, 0.08);
+    }
+
+    .card h3 {
+      font-size: 1.05rem;
+      line-height: 1.25;
+    }
+
+    .card p {
+      margin-top: 0.55rem;
+      color: var(--muted);
+      line-height: 1.55;
+      font-size: 0.95rem;
+    }
+
+    .card .num {
+      width: 2.2rem;
+      height: 2.2rem;
+      display: grid;
+      place-items: center;
+      border-radius: 0.7rem;
+      margin-bottom: 1rem;
+      color: var(--text);
+      background: var(--accent);
+      font-weight: 800;
+    }
+
+    .code-shell {
+      position: relative;
+      border-radius: 1.3rem;
+      padding: 0.45rem;
+      width: min(100%, 900px);
+      margin-left: auto;
+      margin-right: auto;
+      background: rgba(249, 249, 247, 0.055);
+      border: 1px solid var(--line);
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    .copy-button {
+      position: absolute;
+      top: 0.75rem;
+      right: 0.75rem;
+      z-index: 2;
+      min-width: 4.6rem;
+      min-height: 2.3rem;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 0 0.8rem;
+      color: var(--text);
+      background: rgba(45, 45, 43, 0.92);
+      box-shadow: inset 0 1px 0 rgba(249, 249, 247, 0.1);
+      font: inherit;
+      font-size: 0.78rem;
+      font-weight: 800;
+      cursor: pointer;
+      transition: transform 400ms cubic-bezier(0.32, 0.72, 0, 1), border-color 400ms cubic-bezier(0.32, 0.72, 0, 1);
+    }
+
+    .copy-button:hover {
+      transform: translateY(-1px);
+      border-color: var(--accent-line);
+    }
+
+    .copy-button:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    pre {
+      margin: 0;
+      max-width: 100%;
+      overflow-x: auto;
+      border-radius: 0.95rem;
+      padding: 1rem;
+      background: #242421;
+      color: var(--text);
+      font-size: 0.88rem;
+      line-height: 1.65;
+      border: 1px solid var(--line-soft);
+    }
+
+    [data-copy-block] pre {
+      padding-top: 3rem;
+    }
+
+    [data-copy-block] .terminal-title + pre {
+      padding-top: 1rem;
+    }
+
+    .split {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 1.2rem;
+      align-items: start;
+    }
+
+    .terminal-title {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      margin-bottom: 0.75rem;
+      color: var(--faint);
+      font-size: 0.8rem;
+      font-weight: 750;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    .lights {
+      display: inline-flex;
+      gap: 0.3rem;
+    }
+
+    .lights i {
+      width: 0.58rem;
+      height: 0.58rem;
+      border-radius: 50%;
+      background: var(--bad);
+    }
+
+    .lights i:nth-child(2) {
+      background: var(--accent);
+    }
+
+    .lights i:nth-child(3) {
+      background: var(--good);
+    }
+
+    .footer {
+      padding: 2.5rem 0 3.5rem;
+      color: var(--faint);
+      border-top: 1px solid var(--line-soft);
+    }
+
+    @media (min-width: 768px) {
+      .nav-links {
+        display: flex;
+      }
+
+      .hero {
+        padding-top: 2.4rem;
+        padding-bottom: 5.5rem;
+      }
+
+      h1 {
+        font-size: 5rem;
+      }
+
+      .hero-copy {
+        font-size: 1.18rem;
+      }
+
+      .hero-grid {
+        grid-template-columns: 1fr;
+        gap: 2.5rem;
+      }
+
+      .diagram {
+        --dot-travel: 68rem;
+        padding: 1.2rem;
+      }
+
+      @keyframes process-dot-vertical {
+        0% {
+          opacity: 0;
+          transform: translate3d(0, 0, 0) scale(0.8);
+        }
+        8%,
+        88% {
+          opacity: 1;
+        }
+        100% {
+          opacity: 0;
+          transform: translate3d(var(--drift, 0), 15rem, 0) scale(1);
+        }
+      }
+
+      .diagram-inner {
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        align-items: stretch;
+      }
+
+      .connector {
+        display: block;
+      }
+
+      .connector.a {
+        left: 18%;
+        right: 18%;
+        top: 50%;
+      }
+
+      .connector.b {
+        display: none;
+      }
+
+      .grid.three {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .grid.four {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .split {
+        grid-template-columns: 1fr;
+        gap: 1.4rem;
+      }
+
+      section {
+        padding: 4.7rem 0;
+      }
+
+      .section-head h2 {
+        font-size: 3.2rem;
+      }
+    }
+
+    @media (min-width: 1024px) {
+      .shell {
+        width: min(100% - 3rem, var(--max));
+      }
+
+      h1 {
+        font-size: 6rem;
+      }
+
+      .grid.four {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+
+      .card {
+        padding: 1.25rem;
+      }
+    }
+
+    @media (prefers-color-scheme: light) {
+      :root {
+        color-scheme: light;
+        --bg: #f9f9f7;
+        --panel: #ffffff;
+        --panel-2: #f0eee9;
+        --line: rgba(45, 45, 43, 0.14);
+        --line-soft: rgba(45, 45, 43, 0.08);
+        --text: #2d2d2b;
+        --muted: #5d5850;
+        --faint: #817a70;
+      }
+
+      body {
+        background:
+          linear-gradient(180deg, rgba(204, 125, 94, 0.1), transparent 18rem),
+          var(--bg);
+      }
+
+      .node {
+        background: rgba(255, 255, 255, 0.86);
+      }
+
+      pre {
+        background: #2d2d2b;
+        color: #f9f9f7;
+      }
+
+      .copy-button {
+        background: rgba(249, 249, 247, 0.92);
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="hero">
+      <div class="shell">
+        <nav class="nav" aria-label="Prototype navigation">
+          <a class="brand" href="#">
+            <span class="mark" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M4 12h6m0 0 2-4m-2 4 2 4m2-8h6m-6 8h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </span>
+            Agent Flow
+          </a>
+          <div class="nav-links">
+            <a href="#install">Install</a>
+            <a href="#flows">Flows</a>
+            <a href="#subagents">Subagents</a>
+            <a href="#wizard">Wizard</a>
+          </div>
+        </nav>
+
+        <div class="hero-grid">
+          <div>
+            <span class="eyebrow"><span class="dot"></span> Codex skill prototype</span>
+            <h1>From prompt to verified result.</h1>
+            <p class="hero-copy">
+              Agent Flow activates only when you ask for it, routes complex coding tasks through the smallest useful workflow, keeps scope bounded, and requires evidence before final handoff.
+            </p>
+            <div class="actions">
+              <a class="button primary" href="#install">Install Agent Flow <span>↗</span></a>
+              <a class="button" href="#flows">See workflow <span>↓</span></a>
+            </div>
+            <div class="badges" aria-label="Project qualities">
+              <span class="badge">explicit prefix</span>
+              <span class="badge">solo by default</span>
+              <span class="badge">subagents by request</span>
+              <span class="badge">traceable when risky</span>
+            </div>
+          </div>
+
+            <div class="hero-card" aria-label="Workflow illustration">
+            <div class="diagram">
+              <div class="connector a"></div>
+              <div class="connector b"></div>
+              <div class="flow-dots" aria-hidden="true">
+                <span class="flow-dot" style="--y: 19%; --drift: 1.2rem; --duration: 6.8s; --delay: -1.2s;"></span>
+                <span class="flow-dot" style="--y: 36%; --drift: -0.8rem; --duration: 7.6s; --delay: -4.4s;"></span>
+                <span class="flow-dot" style="--y: 50%; --drift: 0.4rem; --duration: 6.2s; --delay: -2.8s;"></span>
+                <span class="flow-dot" style="--y: 81%; --drift: 0.9rem; --duration: 7.1s; --delay: -3.6s;"></span>
+                <span class="flow-dot vertical" style="--x: 23%; --drift: 0.7rem; --duration: 7.4s; --delay: -5.1s;"></span>
+                <span class="flow-dot vertical" style="--x: 50%; --drift: -0.5rem; --duration: 6.6s; --delay: -2.2s;"></span>
+                <span class="flow-dot vertical" style="--x: 76%; --drift: 0.9rem; --duration: 8.3s; --delay: -6.3s;"></span>
+              </div>
+              <div class="diagram-inner">
+                <article class="node request">
+                  <small>Request</small>
+                  <strong>Agent Flow &lt;task&gt;</strong>
+                  <p>Public entry stays explicit. Unprefixed work remains normal solo Codex work.</p>
+                </article>
+                <article class="node gate">
+                  <small>Route</small>
+                  <strong>Smallest useful flow</strong>
+                  <p>Bugfix, docs, feature, review, design, CI/release, or quick check.</p>
+                </article>
+                <article class="node work">
+                  <small>Execution</small>
+                  <strong>Main agent owns result</strong>
+                  <p>Project memory, scope, implementation, checks, and residual risks stay connected.</p>
+                </article>
+                <article class="node locked">
+                  <small>Optional</small>
+                  <strong>Subagents need approval</strong>
+                  <p>Prefix alone never authorizes delegation. User asks separately.</p>
+                </article>
+                <article class="node done">
+                  <small>Done</small>
+                  <strong>Evidence before handoff</strong>
+                  <p>Tests, build, docs readback, browser proof, trace artifacts, or honest blockers.</p>
+                </article>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <section id="install">
+      <div class="shell split">
+        <div class="section-head">
+          <span class="eyebrow"><span class="dot"></span> Install</span>
+          <h2>One prompt gets the skill in place.</h2>
+          <p>README first screen should make install friction low, then move detail into the dependency wizard section.</p>
+        </div>
+        <div class="code-shell" data-copy-block>
+          <button class="copy-button" type="button" data-copy-button aria-label="Copy install prompt">Copy</button>
+          <pre><code>Install Agent Flow as a Codex skill from https://github.com/svishniakov/agent-flow.
+If installing globally, clone it into ~/.codex/skills/agent-flow.
+After clone, run:
+python3 ~/.codex/skills/agent-flow/scripts/check-agent-deps.py --post-install
+Show the recommendation. Do not install anything without my confirmation.</code></pre>
+        </div>
+      </div>
+    </section>
+
+    <section id="flows">
+      <div class="shell">
+        <div class="section-head">
+          <span class="eyebrow"><span class="dot"></span> Routing</span>
+          <h2>Enough process. No more.</h2>
+          <p>Agent Flow reads scope, risk, project memory, and required evidence. Then it chooses a compact route instead of treating every task like a full orchestration run.</p>
+        </div>
+        <div class="grid four">
+          <article class="card">
+            <div class="num">1</div>
+            <h3>Quick check</h3>
+            <p>One command, short answer, small diagnostic, no trace directory.</p>
+          </article>
+          <article class="card">
+            <div class="num">2</div>
+            <h3>Bugfix or feature</h3>
+            <p>Reproduce, patch, verify. Keep edits narrow and evidence fresh.</p>
+          </article>
+          <article class="card">
+            <div class="num">3</div>
+            <h3>Docs and design</h3>
+            <p>Shape product docs, README, PRD, UI route, or approved design source.</p>
+          </article>
+          <article class="card">
+            <div class="num">4</div>
+            <h3>Release risk</h3>
+            <p>Traceable run for CI, deploy, auth, secrets, external systems, or high-risk checks.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="subagents">
+      <div class="shell split">
+        <div class="section-head">
+          <span class="eyebrow"><span class="dot"></span> Governance</span>
+          <h2>Subagents stay behind a clear gate.</h2>
+          <p>The README should repeat this early: Agent Flow prefix starts routing, not delegation. Delegation needs a separate current-task request.</p>
+        </div>
+        <div class="grid">
+          <article class="card">
+            <h3>Prefix starts Agent Flow</h3>
+            <p><code>Agent Flow &lt;task&gt;</code> means route this task through Agent Flow rules.</p>
+          </article>
+          <article class="card">
+            <h3>Delegation needs explicit ask</h3>
+            <p>“Use subagents”, “spawn agents”, “multi-agent”, or similar direct authorization.</p>
+          </article>
+          <article class="card">
+            <h3>Main agent still owns integration</h3>
+            <p>Workers can help only inside narrow lanes. Final synthesis and verification stay centralized.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="wizard">
+      <div class="shell split">
+        <div class="section-head">
+          <span class="eyebrow"><span class="dot"></span> Dependency wizard</span>
+          <h2>Role skills visible. Silent install forbidden.</h2>
+          <p>Show the checker output as product UX, not script trivia. It explains core/full, target choice, executable vs manual entries, and confirmation gates.</p>
+        </div>
+        <div class="code-shell">
+          <div class="terminal-title"><span class="lights"><i></i><i></i><i></i></span> post-install</div>
+          <pre><code>Agent Flow post-install dependency wizard
+Agent Flow installed: global
+Missing core skills: 7
+Missing full skills: 42
+
+Recommendation: install core skills now.
+
+[1] Install core skills (recommended)
+[2] Show core install plan only
+[3] Save JSON report
+
+No silent install. Confirm each executable step.</code></pre>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="shell">
+        <div class="section-head">
+          <span class="eyebrow"><span class="dot"></span> README sections</span>
+          <h2>Proposed final page map.</h2>
+          <p>This HTML prototype can become a direct README rewrite: SVG hero, compact install, concise workflow, then docs and examples.</p>
+        </div>
+        <div class="grid three">
+          <article class="card">
+            <h3>First viewport</h3>
+            <p>Hero, promise, CTA, badges. Reader understands value before installation detail.</p>
+          </article>
+          <article class="card">
+            <h3>Working examples</h3>
+            <p>Bugfix, project summary, CI/release, review, UI/design prompts as cards.</p>
+          </article>
+          <article class="card">
+            <h3>Reference links</h3>
+            <p>RU/EN docs, bundled agents, registry, scripts, Definition of Done.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <div class="shell">
+        Prototype only. Current README stays unchanged until approved.
+      </div>
+    </footer>
+  </main>
+  <script>
+    (() => {
+      const copyText = async (text) => {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(text);
+          return;
+        }
+        const area = document.createElement("textarea");
+        area.value = text;
+        area.setAttribute("readonly", "");
+        area.style.position = "fixed";
+        area.style.left = "-9999px";
+        document.body.appendChild(area);
+        area.select();
+        document.execCommand("copy");
+        area.remove();
+      };
+
+      document.querySelectorAll("[data-copy-button]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const block = button.closest("[data-copy-block]");
+          const code = block && block.querySelector("code");
+          if (!code) return;
+          const original = button.textContent;
+          try {
+            await copyText(code.textContent.trim());
+            button.textContent = "Copied";
+            button.setAttribute("aria-label", "Copied to clipboard");
+          } catch {
+            button.textContent = "Failed";
+            button.setAttribute("aria-label", "Copy failed");
+          } finally {
+            window.setTimeout(() => {
+              button.textContent = original;
+              button.setAttribute("aria-label", "Copy code block");
+            }, 1400);
+          }
+        });
+      });
+    })();
+  </script>
+</body>
+</html>
