@@ -6,6 +6,8 @@ Subagents are not launched automatically. Agent Flow uses them only after an exp
 
 Each `agents/<role>.md` file has runtime `model` and `reasoning_effort` fields plus escalation fields for risky tasks. Before `spawn_agent`, the orchestrator runs `resolve-agent-config.py`, passes any matching `--trigger` values, and uses the selected output as tool arguments.
 
+In large traceable runs, one role can be used several times as separate lanes. For example, `qa-verifier` can separately cover `qa-verifier:admin-rbac`, `qa-verifier:live-feed`, and `qa-verifier:pii`; the distinction lives in `lane-map.json`, handoffs, and trace metadata, not in new role files.
+
 ## Core orchestration and planning
 
 ### orchestrator

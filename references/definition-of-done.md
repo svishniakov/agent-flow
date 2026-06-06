@@ -41,6 +41,7 @@ For full `release` trace:
 - timeline has exactly one final orchestrator event;
 - initial and final worktree states are recorded when the run edits a git repo;
 - every delegated subagent has `agents/<role>/trace.jsonl` and matching run-level timeline events;
+- when Lane Sharding is used, `lane-map.json` is valid and every critical lane is covered by evidence or a valid replacement lane;
 - artifacts index is valid JSON;
 - each explicitly used subagent has a handoff;
 - checks include command names and results;
@@ -63,6 +64,7 @@ For full `release` trace:
 - Loop-until-done has max iterations, budget cap, stop condition, failure condition, and handoff state.
 - Tournament has bracket size or max comparisons, stable rubric, tie-breakers, and winner rationale.
 - Fan-out work has deterministic item ownership and synthesis by the orchestrator.
+- Lane Sharding has a valid lane map; no final `ship` while a critical lane is unresolved, failed, blocked, or timed out without replacement.
 - Adversarial verification checks evidence against a rubric and records unresolved objections.
 - Quarantined workers that read untrusted content did not perform privileged actions.
 

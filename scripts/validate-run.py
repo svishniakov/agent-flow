@@ -37,6 +37,20 @@ REQUIRED_TIMELINE_KEYS = {
 }
 FINAL_VERDICTS = {"ship", "pass-with-risks", "blocked", "fail"}
 AGENT_EXECUTION_MODES = {"subagent", "role-lane"}
+LANE_TYPES = {"implementation", "integration", "qa", "review"}
+LANE_STATUSES = {
+    "planned",
+    "spawned",
+    "active",
+    "pass",
+    "pass-with-risks",
+    "fail",
+    "blocked",
+    "timed-out",
+    "replaced",
+}
+SUCCESSFUL_LANE_STATUSES = {"pass", "pass-with-risks"}
+UNRESOLVED_LANE_STATUSES = {"planned", "spawned", "active", "timed-out", "fail", "blocked"}
 IMPLEMENTATION_STAGES = {"implementation", "fix"}
 SUCCESSFUL_CHECK_STAGES = {"verification", "checks"}
 SUCCESS_STATUSES = {"pass", "ship", "pass-with-risks"}
@@ -79,6 +93,15 @@ def validate_artifacts_index(path: Path) -> list[str]:
 
     errors.append("artifacts.json must be a JSON array or an object with an artifacts array")
     return errors
+
+
+def load_json(path: Path, display_name: str) -> tuple[object | None, list[str]]:
+    if not path.exists():
+        return None, []
+    try:
+        return json.loads(path.read_text(encoding="utf-8") or "null"), []
+    except json.JSONDecodeError as exc:
+        return None, [f"{display_name} invalid JSON: {exc}"]
 
 
 def validate_jsonl(path: Path, display_name: str | None = None) -> list[str]:
@@ -154,6 +177,12 @@ def normalize_execution_mode(value: object) -> str | None:
     return value.replace("_", "-")
 
 
+def normalize_lane_status(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    return value.replace("_", "-")
+
+
 def extract_declared_commit_hashes(path: Path) -> list[str]:
     if not path.exists() or not path.is_file():
         return []
@@ -176,6 +205,24 @@ def event_commit_hashes(event: dict) -> list[str]:
         if isinstance(value, str):
             values.extend(match.group(0) for match in COMMIT_HASH_PATTERN.finditer(value))
     return [value.lower() for value in values]
+
+
+def read_fields(path: Path, name: str) -> list[str]:
+    prefix = f"{name}:"
+    values: list[str] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.startswith(prefix):
+            values.append(line[len(prefix) :].strip())
+    return values
+
+
+def read_single_field(path: Path, name: str) -> str | None:
+    if not path.exists() or not path.is_file():
+        return None
+    values = read_fields(path, name)
+    if len(values) != 1:
+        return None
+    return values[0]
 
 
 def hashes_match(left: str, right: str) -> bool:
@@ -358,13 +405,209 @@ def validate_agent_traces(run_dir: Path) -> list[str]:
     return errors
 
 
-def read_fields(path: Path, name: str) -> list[str]:
-    prefix = f"{name}:"
-    values: list[str] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if line.startswith(prefix):
-            values.append(line[len(prefix) :].strip())
-    return values
+def resolve_run_path(run_dir: Path, value: str) -> Path:
+    path = Path(value)
+    if path.is_absolute():
+        return path
+    return run_dir / path
+
+
+def lane_label(lane_id: object, index: int) -> str:
+    if isinstance(lane_id, str) and lane_id:
+        return lane_id
+    return f"lanes[{index}]"
+
+
+def validate_lane_string_field(lane: dict, field: str, label: str, errors: list[str]) -> str | None:
+    value = lane.get(field)
+    if not isinstance(value, str) or not value:
+        errors.append(f"lane-map.json: lane {label} missing string field '{field}'")
+        return None
+    return value
+
+
+def validate_lane_path_list(run_dir: Path, paths: object, label: str, field: str, errors: list[str]) -> list[str]:
+    if not isinstance(paths, list):
+        errors.append(f"lane-map.json: lane {label} field '{field}' must be an array")
+        return []
+
+    result: list[str] = []
+    for index, path in enumerate(paths):
+        if not isinstance(path, str) or not path:
+            errors.append(f"lane-map.json: lane {label} {field}[{index}] must be a non-empty string")
+            continue
+        result.append(path)
+        if not resolve_run_path(run_dir, path).exists():
+            errors.append(f"lane-map.json: lane {label} {field}[{index}] not found: {path}")
+    return result
+
+
+def load_lane_trace_events(run_dir: Path, role: str, lane_id: str) -> tuple[list[dict], list[str]]:
+    trace_path = run_dir / "agents" / role / "trace.jsonl"
+    if not trace_path.exists():
+        return [], [f"lane-map.json: lane {lane_id} missing trace file: agents/{role}/trace.jsonl"]
+
+    events, load_errors = load_jsonl_events(trace_path)
+    if load_errors:
+        return [], [f"lane-map.json: lane {lane_id} trace load error: {error}" for error in load_errors]
+
+    return [event for event in events if event.get("lane_id") == lane_id], []
+
+
+def validate_subagent_lane_trace(run_dir: Path, lane_id: str, role: str) -> list[str]:
+    events, errors = load_lane_trace_events(run_dir, role, lane_id)
+    if errors:
+        return errors
+    if not events:
+        return [f"lane-map.json: lane {lane_id} has no trace event with matching lane_id"]
+
+    spawned_events = [event for event in events if event.get("stage") == "spawned"]
+    if not spawned_events:
+        return [f"lane-map.json: lane {lane_id} missing spawned trace event"]
+    if not any(event.get("codex_thread_id") for event in spawned_events):
+        return [f"lane-map.json: lane {lane_id} spawned trace event missing codex_thread_id"]
+    return []
+
+
+def validate_lane_map(run_dir: Path) -> list[str]:
+    lane_map_path = run_dir / "lane-map.json"
+    data, errors = load_json(lane_map_path, "lane-map.json")
+    if errors or data is None:
+        return errors
+
+    if not isinstance(data, dict):
+        return ["lane-map.json must be a JSON object"]
+
+    schema_version = data.get("schema_version")
+    if schema_version != 1:
+        errors.append("lane-map.json field 'schema_version' must be 1")
+
+    lanes = data.get("lanes")
+    if not isinstance(lanes, list):
+        errors.append("lane-map.json field 'lanes' must be an array")
+        return errors
+
+    lane_ids: set[str] = set()
+    lane_by_id: dict[str, dict] = {}
+    normalized_status_by_id: dict[str, str] = {}
+
+    for index, lane in enumerate(lanes):
+        if not isinstance(lane, dict):
+            errors.append(f"lane-map.json: lanes[{index}] must be an object")
+            continue
+
+        lane_id = validate_lane_string_field(lane, "id", f"lanes[{index}]", errors)
+        label = lane_label(lane_id, index)
+        if not lane_id:
+            continue
+        if lane_id in lane_ids:
+            errors.append(f"lane-map.json: duplicate lane id: {lane_id}")
+            continue
+        lane_ids.add(lane_id)
+        lane_by_id[lane_id] = lane
+
+        role = validate_lane_string_field(lane, "role", label, errors)
+
+        lane_type = lane.get("type")
+        if lane_type not in LANE_TYPES:
+            allowed = ", ".join(sorted(LANE_TYPES))
+            errors.append(f"lane-map.json: lane {label} invalid type '{lane_type}' (expected one of: {allowed})")
+
+        wave = lane.get("wave")
+        if not isinstance(wave, int) or isinstance(wave, bool):
+            errors.append(f"lane-map.json: lane {label} field 'wave' must be an integer")
+
+        critical = lane.get("critical")
+        if not isinstance(critical, bool):
+            errors.append(f"lane-map.json: lane {label} field 'critical' must be a boolean")
+
+        execution_mode = normalize_execution_mode(lane.get("execution_mode"))
+        if execution_mode not in AGENT_EXECUTION_MODES:
+            allowed = ", ".join(sorted(AGENT_EXECUTION_MODES))
+            errors.append(
+                f"lane-map.json: lane {label} invalid execution_mode '{lane.get('execution_mode')}' "
+                f"(expected one of: {allowed})"
+            )
+
+        status = normalize_lane_status(lane.get("status"))
+        if status not in LANE_STATUSES:
+            allowed = ", ".join(sorted(LANE_STATUSES))
+            errors.append(
+                f"lane-map.json: lane {label} invalid status '{lane.get('status')}' "
+                f"(expected one of: {allowed})"
+            )
+        else:
+            normalized_status_by_id[lane_id] = status
+
+        evidence = lane.get("evidence")
+        if not isinstance(evidence, list):
+            errors.append(f"lane-map.json: lane {label} field 'evidence' must be an array")
+
+        handoff = lane.get("handoff")
+        if handoff is not None and (not isinstance(handoff, str) or not handoff):
+            errors.append(f"lane-map.json: lane {label} field 'handoff' must be null or a non-empty string")
+
+        replacement = lane.get("replacement")
+        if replacement is not None and (not isinstance(replacement, str) or not replacement):
+            errors.append(f"lane-map.json: lane {label} field 'replacement' must be null or a non-empty string")
+
+        if critical is True and status in SUCCESSFUL_LANE_STATUSES:
+            if not isinstance(handoff, str) or not handoff:
+                errors.append(f"lane-map.json: lane {label} successful critical lane requires handoff")
+            elif not resolve_run_path(run_dir, handoff).exists():
+                errors.append(f"lane-map.json: lane {label} handoff not found: {handoff}")
+            evidence_paths = validate_lane_path_list(run_dir, evidence, label, "evidence", errors)
+            if not evidence_paths:
+                errors.append(f"lane-map.json: lane {label} successful critical lane requires evidence")
+
+        if (
+            execution_mode == "subagent"
+            and role
+            and status not in {"planned", "timed-out", "replaced"}
+        ):
+            errors.extend(validate_subagent_lane_trace(run_dir, lane_id, role))
+
+    for lane_id, lane in lane_by_id.items():
+        if lane.get("critical") is not True:
+            continue
+        status = normalized_status_by_id.get(lane_id)
+        if status != "timed-out":
+            continue
+
+        replacement = lane.get("replacement")
+        if not isinstance(replacement, str) or not replacement:
+            errors.append(f"lane-map.json: lane {lane_id} timed-out lane requires replacement")
+            continue
+        if replacement not in lane_by_id:
+            errors.append(f"lane-map.json: lane {lane_id} replacement target not found: {replacement}")
+            continue
+        replacement_status = normalized_status_by_id.get(replacement)
+        if replacement_status not in SUCCESSFUL_LANE_STATUSES:
+            errors.append(
+                f"lane-map.json: lane {lane_id} replacement {replacement} "
+                f"must be pass or pass-with-risks"
+            )
+
+    final_verdict = read_single_field(run_dir / "final.md", "Verdict")
+    if final_verdict == "ship":
+        for lane_id, lane in lane_by_id.items():
+            if lane.get("critical") is not True:
+                continue
+            status = normalized_status_by_id.get(lane_id)
+            if status in SUCCESSFUL_LANE_STATUSES:
+                continue
+            if status in {"timed-out", "replaced"}:
+                replacement = lane.get("replacement")
+                replacement_status = normalized_status_by_id.get(replacement) if isinstance(replacement, str) else None
+                if replacement_status in SUCCESSFUL_LANE_STATUSES:
+                    continue
+            blocked_status = status or lane.get("status")
+            errors.append(
+                f"lane-map.json: final Verdict ship is blocked by critical lane "
+                f"{lane_id} status {blocked_status}"
+            )
+
+    return errors
 
 
 def validate_verdict(path: Path) -> list[str]:
@@ -412,6 +655,8 @@ def validate_compact_run(run_dir: Path, allow_no_check: bool, allow_pending: boo
         if not allow_pending:
             errors.extend(validate_final_timeline_event(run_dir, require_timeline=True))
 
+    errors.extend(validate_lane_map(run_dir))
+
     return errors
 
 
@@ -438,6 +683,7 @@ def validate_full_run(
     errors.extend(validate_jsonl(run_dir / "timeline.jsonl"))
     errors.extend(validate_timeline_sequence(run_dir))
     errors.extend(validate_agent_traces(run_dir))
+    errors.extend(validate_lane_map(run_dir))
     if not allow_pending:
         errors.extend(validate_final_timeline_event(run_dir, require_timeline=True))
 

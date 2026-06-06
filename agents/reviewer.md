@@ -5,7 +5,7 @@ model: gpt-5.5
 reasoning_effort: high
 escalation_model: gpt-5.5
 escalation_reasoning_effort: xhigh
-escalation_triggers: [security, data-loss, release, cross-system]
+escalation_triggers: [security, data-loss, release, cross-system, multi-lane, qa-critical]
 skills: [codex-reviewer:feature-review-impl, codex-reviewer:feature-review-plan, application-quality-assurance, github:gh-fix-ci, github:github, code-review-excellence, pre-mortem, test-scenarios, impeccable]
 tools: [Read, Write, Bash, Grep, Glob]
 ---

@@ -68,6 +68,12 @@ Agent Flow выбирает минимальный подходящий flow:
 
 Timeline фиксирует реальный порядок работы. Если был создан product commit, commit event записывается после успешных проверок и до финального event. Trace artifacts остаются локальной памятью и не добавляются в product commit, если пользователь явно не попросил обратное.
 
+## Lane Sharding
+
+Для больших PRD с явно разрешёнными субагентами Agent Flow может разделить работу на lanes: implementation, integration, QA и review. Это внутренний workflow pattern, а не публичный режим и не обход правила про явное разрешение субагентов.
+
+В traceable run машинным source of truth становится `lane-map.json`. Markdown-файлы вроде `checks/coverage-matrix.md` остаются удобным summary для человека. Перед финальным handoff `validate-run.py` проверяет `lane-map.json` и не допускает `Verdict: ship`, если critical lane не закрыта evidence или валидной replacement lane.
+
 ## Субагенты
 
 Репозиторий содержит встроенные role files в `agents/<role>.md` и stable identities в `agents/agent-identities.json`. Эти файлы нужны, чтобы коллеги могли скачать репозиторий с GitHub и получить рабочий набор Agent Flow без ссылок на локальную машину автора.
@@ -89,6 +95,7 @@ python3 scripts/init-run.py --help
 python3 scripts/append-timeline.py --help
 python3 scripts/record-agent-trace.py --help
 python3 scripts/validate-run.py --help
+python3 scripts/test-validate-run-lanes.py
 ```
 
 Для проверки языковой чистоты runtime-файлов:

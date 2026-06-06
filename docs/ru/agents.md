@@ -6,6 +6,8 @@
 
 В `agents/<role>.md` у каждой роли есть runtime-поля `model` и `reasoning_effort`, а также escalation-поля для рискованных задач. Перед `spawn_agent` оркестратор запускает `resolve-agent-config.py`, передаёт подходящие `--trigger` и использует выбранные значения в аргументах инструмента.
 
+В больших traceable runs одна роль может использоваться несколько раз как разные lanes. Например, `qa-verifier` может отдельно проверить `qa-verifier:admin-rbac`, `qa-verifier:live-feed` и `qa-verifier:pii`; различие фиксируется в `lane-map.json`, handoff и trace metadata, а не через новые role files.
+
 ## Core orchestration and planning
 
 ### orchestrator

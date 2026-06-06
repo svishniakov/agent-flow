@@ -68,6 +68,12 @@ It usually contains:
 
 The timeline records the real order of work. If a product commit was created, the commit event is recorded after successful checks and before the final event. Trace artifacts remain local memory and are not added to the product commit unless the user explicitly asks for that.
 
+## Lane Sharding
+
+For large PRDs with explicitly authorized subagents, Agent Flow can split work into implementation, integration, QA, and review lanes. This is an internal workflow pattern, not a public mode and not a bypass around explicit subagent authorization.
+
+In a traceable run, `lane-map.json` becomes the machine-readable source of truth. Markdown files such as `checks/coverage-matrix.md` remain human-readable summaries. Before final handoff, `validate-run.py` checks `lane-map.json` and rejects `Verdict: ship` when a critical lane has no evidence or valid replacement lane.
+
 ## Subagents
 
 The repository contains bundled role files in `agents/<role>.md` and stable identities in `agents/agent-identities.json`. These files let others clone the repository from GitHub and use Agent Flow without author-local paths.
@@ -89,6 +95,7 @@ python3 scripts/init-run.py --help
 python3 scripts/append-timeline.py --help
 python3 scripts/record-agent-trace.py --help
 python3 scripts/validate-run.py --help
+python3 scripts/test-validate-run-lanes.py
 ```
 
 To check runtime files for Russian text:

@@ -5,7 +5,7 @@ model: gpt-5.4-mini
 reasoning_effort: medium
 escalation_model: gpt-5.4
 escalation_reasoning_effort: high
-escalation_triggers: [security, data-loss, migration, payments-auth, cross-system]
+escalation_triggers: [security, data-loss, migration, payments-auth, cross-system, integration-risk, pii-risk]
 skills: [bullmq-specialist, build-web-apps:supabase-postgres-best-practices, build-web-apps:stripe-best-practices, sql-queries, queue-job-processor, rag-implementation, application-quality-assurance, test-scenarios]
 tools: [Read, Write, Bash, Grep, Glob]
 ---

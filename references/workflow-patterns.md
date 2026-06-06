@@ -75,6 +75,27 @@ Subagent variant:
 - require structured output and handoff;
 - orchestrator owns synthesis and final verification.
 
+## Lane Sharding
+
+Use when a large PRD or cross-layer implementation needs parallel work without
+turning one worker or verifier into a broad catch-all lane.
+
+Common waves:
+
+1. lane map and ownership plan;
+2. implementation lanes with disjoint write sets;
+3. integration lane for shared contracts, generated files, or cross-lane fixes;
+4. QA and review lanes by risk area.
+
+Rules:
+
+- use only after explicit subagent authorization;
+- record lanes in `lane-map.json` for traceable runs;
+- give every lane an id, role, type, wave, critical flag, status, handoff, and evidence policy;
+- mark shared files as orchestrator-owned or integration-lane-owned before workers start;
+- a timed-out critical lane needs a replacement lane or orchestrator-owned evidence;
+- `validate-run.py` must block `Verdict: ship` while any critical lane is unresolved.
+
 ## Adversarial Verification
 
 Use when self-preference risk is high or wrong output is costly.

@@ -37,12 +37,14 @@ Use when evidence will help review, continuation, or rollback:
 - UI work needing screenshots;
 - docs/spec updates that must remain traceable;
 - long investigation with decisions worth preserving.
+- large PRD work with explicitly authorized subagents when release-level risk is not present.
 
 Rules:
 
 - solo by default;
 - subagents only if explicitly requested by the user;
 - workflow patterns may be recorded in `run.md` or `checks.md` when they explain the evidence;
+- Lane Sharding may use `lane-map.json` when durable lane evidence is useful;
 - compact trace preferred: `run.md`, `checks.md`, `final.md`, plus artifacts that prove the result;
 - full trace is optional, not default.
 
@@ -56,6 +58,7 @@ Use when failure cost is high:
 - security-sensitive changes;
 - high-stakes data migration;
 - user explicitly asks for full trace.
+- large PRD work with explicitly authorized subagents and cross-system, security, data, release, or migration risk.
 
 Rules:
 
@@ -64,6 +67,7 @@ Rules:
 - explicit residual risks;
 - subagents still require separate explicit user request;
 - loops, tournaments, and fan-out work require budget caps and stop conditions;
+- Lane Sharding requires `lane-map.json`; critical lanes must be covered before `ship`;
 - no final `ship` verdict unless acceptance checks passed.
 
 ## Escalation

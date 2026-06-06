@@ -57,6 +57,14 @@ agent-flow <задача>
 
 <br/>
 
+<h2 align="center">Большие PRD</h2>
+
+<p align="center">
+  Если пользователь явно разрешил субагентов, AgentFlow может разложить большой scope на lanes: implementation, integration, QA и review. Для traceable runs source of truth — <code>lane-map.json</code>; <code>validate-run.py</code> блокирует <code>Verdict: ship</code>, если critical lane не закрыта evidence или валидной replacement lane.
+</p>
+
+<br/>
+
 <h2 align="center">Что внутри</h2>
 
 | Компонент | Назначение |
@@ -115,6 +123,7 @@ python3 -m py_compile scripts/*.py
 python3 scripts/validate-agent-config.py
 python3 scripts/validate-agent-skill-registry.py
 python3 scripts/validate-run.py --help
+python3 scripts/test-validate-run-lanes.py
 ```
 
 <br/>

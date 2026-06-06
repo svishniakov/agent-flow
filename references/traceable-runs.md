@@ -44,6 +44,7 @@ route.md
 plan.md
 definition-of-done.md
 decisions.md
+lane-map.json
 handoffs/
 checks/
 artifacts/
@@ -62,6 +63,10 @@ artifacts/
   agents/
     <role>/
 ```
+
+Runs that use Lane Sharding add `lane-map.json` as the machine-readable source
+of truth and usually add `checks/coverage-matrix.md` as a human-readable
+summary. Create those skeletons with `scripts/init-run.py --with-lanes`.
 
 ## Local Ignore Rule
 
@@ -122,6 +127,7 @@ silently mixing user work with run-owned changes.
 - `plan.md`: checkable plan and ownership.
 - `definition-of-done.md`: task-specific gates.
 - `decisions.md`: decisions and reasons.
+- `lane-map.json`: machine-readable lane map for Lane Sharding runs.
 - `handoffs/`: one file per explicitly used subagent.
 - `checks/`: commands, QA, visual diff, review notes.
 - `artifacts/`: screenshots, logs, exports, generated assets.
@@ -138,6 +144,17 @@ silently mixing user work with run-owned changes.
 Run `scripts/validate-run.py --run-dir <run-dir>` before final handoff. By default it fails pending verdicts, missing check files, invalid JSON, and incomplete timeline events. Use `--allow-pending` or `--allow-no-check` only for early structural checks, not final handoff.
 
 Validation remains backward compatible with no-subagent runs: `agents/` is not required. If `agents/<role>/` exists, `timeline.jsonl` and `trace.jsonl` are required. Agent trace files are checked with the same minimum event schema as `timeline.jsonl`, and every agent trace event must also be present in the run-level timeline.
+
+If `lane-map.json` exists, validation also checks the Lane Sharding contract:
+
+- `schema_version` is `1` and `lanes` is an array;
+- lane ids are unique;
+- lane type, execution mode, and status use allowed values;
+- successful critical lanes point to existing handoff and evidence artifacts;
+- a timed-out critical lane points to an existing replacement lane whose status is `pass` or `pass-with-risks`;
+- a `subagent` lane with active or successful status has a matching spawned trace event with `codex_thread_id`;
+- `role-lane` entries do not require a `codex_thread_id`;
+- `Verdict: ship` is rejected while any critical lane is unresolved, failed, blocked, or missing replacement evidence.
 
 For final handoff, `validate-run.py` also requires:
 
@@ -233,6 +250,9 @@ python3 scripts/record-agent-trace.py \
   --run-dir <run-dir> \
   --role python-worker \
   --execution-mode subagent \
+  --lane-id backend-cli \
+  --wave 2 \
+  --critical \
   --stable-agent-name "Python Worker" \
   --stable-agent-slug python-worker \
   --stage handoff \

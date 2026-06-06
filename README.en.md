@@ -57,6 +57,14 @@ agent-flow <task>
 
 <br/>
 
+<h2 align="center">Large PRDs</h2>
+
+<p align="center">
+  When the user explicitly authorizes subagents, AgentFlow can split a large scope into implementation, integration, QA, and review lanes. For traceable runs, <code>lane-map.json</code> is the source of truth; <code>validate-run.py</code> blocks <code>Verdict: ship</code> when a critical lane has no evidence or valid replacement lane.
+</p>
+
+<br/>
+
 <h2 align="center">Contents</h2>
 
 | Component | Purpose |
@@ -115,6 +123,7 @@ python3 -m py_compile scripts/*.py
 python3 scripts/validate-agent-config.py
 python3 scripts/validate-agent-skill-registry.py
 python3 scripts/validate-run.py --help
+python3 scripts/test-validate-run-lanes.py
 ```
 
 <br/>

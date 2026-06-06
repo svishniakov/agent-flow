@@ -84,6 +84,9 @@ def upsert_artifacts(
     stable_agent_name: str,
     stable_agent_slug: str,
     timestamp: str,
+    lane_id: str | None,
+    wave: int | None,
+    critical: bool,
 ) -> int:
     if not artifact_paths:
         return 0
@@ -101,6 +104,12 @@ def upsert_artifacts(
             "source": "agent-trace",
             "timestamp": timestamp,
         }
+        if lane_id:
+            entry["lane_id"] = lane_id
+        if wave is not None:
+            entry["wave"] = wave
+        if critical:
+            entry["critical"] = critical
 
         match_index = next(
             (
@@ -138,6 +147,9 @@ def main() -> int:
     parser.add_argument("--execution-mode", choices=["subagent", "role-lane"], default="subagent")
     parser.add_argument("--codex-thread-id")
     parser.add_argument("--runtime-nickname")
+    parser.add_argument("--lane-id")
+    parser.add_argument("--wave", type=int)
+    parser.add_argument("--critical", action="store_true")
     args = parser.parse_args()
 
     if args.execution_mode == "subagent" and args.stage == "spawned" and not args.codex_thread_id:
@@ -180,6 +192,12 @@ def main() -> int:
         event["codex_thread_id"] = args.codex_thread_id
     if args.runtime_nickname:
         event["runtime_nickname"] = args.runtime_nickname
+    if args.lane_id:
+        event["lane_id"] = args.lane_id
+    if args.wave is not None:
+        event["wave"] = args.wave
+    if args.critical:
+        event["critical"] = args.critical
 
     indexed_count = upsert_artifacts(
         artifacts_path,
@@ -189,6 +207,9 @@ def main() -> int:
         stable_agent_name=stable_agent_name,
         stable_agent_slug=stable_agent_slug,
         timestamp=timestamp,
+        lane_id=args.lane_id,
+        wave=args.wave,
+        critical=args.critical,
     )
 
     encoded_event = json.dumps(event, ensure_ascii=False)

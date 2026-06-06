@@ -79,6 +79,7 @@ Every packet includes:
 
 - role;
 - stable identity if available;
+- lane id, lane type, wave, and critical flag when Lane Sharding is used;
 - goal;
 - selected workflow pattern when applicable;
 - 3-7 sentence task context;
@@ -100,6 +101,24 @@ Every packet includes:
 - no `.agent-work/` commit rule;
 - required `Project memory handoff` section;
 - handoff format.
+
+## Lane Sharding Fields
+
+When Lane Sharding is used, every delegated lane gets:
+
+- `lane_id`: stable id such as `qa-live-feed`;
+- `type`: `implementation`, `integration`, `qa`, or `review`;
+- `wave`: execution wave number;
+- `critical`: whether the lane blocks `Verdict: ship`;
+- owned read set and write set;
+- handoff path and required evidence paths;
+- timeout or stop condition;
+- replacement policy for timed-out critical lanes.
+
+For traceable runs, `lane-map.json` is the machine-readable source of truth.
+Markdown matrices are summaries only. Do not claim that a critical lane is
+covered unless its lane-map entry points to existing handoff and evidence
+artifacts, or to a replacement lane that does.
 
 ## Stable Identities
 
