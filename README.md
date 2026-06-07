@@ -1,19 +1,19 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/agentflow-hero-ru.svg">
-    <source media="(prefers-color-scheme: light)" srcset="docs/assets/readme/agentflow-hero-ru.svg">
-    <img src="docs/assets/readme/agentflow-hero-ru.svg" alt="AgentFlow — оркестратор для агентов: общий контекст, роли, model/reasoning config, role skills, проверка результата" width="100%" draggable="false">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/agentflow-hero-en.svg">
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/readme/agentflow-hero-en.svg">
+    <img src="docs/assets/readme/agentflow-hero-en.svg" alt="AgentFlow — orchestrator for agents: shared memory, roles, model/reasoning config, role skills, verified output" width="100%" draggable="false">
   </picture>
 </p>
 
-<h1 align="center">Оркестратор для команды агентов</h1>
+<h1 align="center">Orchestrator for agent teams</h1>
 
 <p align="center">
-  AgentFlow — Codex skill для задач, где главный агент держит память проекта, выбирает роли, управляет делегированием и возвращает проверенный результат.
+  AgentFlow is a Codex skill for tasks where the main agent keeps project memory, selects roles, controls delegation, and returns verified output.
 </p>
 
 <p align="center">
-  <b>общая память</b> · <b>25 ролей</b> · <b>model/reasoning на агента</b> · <b>skills на роль</b> · <b>no silent install</b>
+  <b>shared memory</b> · <b>25 roles</b> · <b>model/reasoning per agent</b> · <b>skills per role</b> · <b>no silent install</b>
 </p>
 
 <div align="center">
@@ -26,25 +26,25 @@
 </div>
 
 <p align="center">
-  <a href="README.md"><b>RU</b></a> · <a href="README.en.md">EN</a>
+  <a href="README.md"><b>EN</b></a> · <a href="README.ru.md">RU</a>
 </p>
 
 <br/>
 
-<h2 align="center">Контракт</h2>
+<h2 align="center">Contract</h2>
 
 <p align="center">
-  AgentFlow включается только ведущим префиксом. Префикс не разрешает субагентов.
+  AgentFlow runs only when the request starts with an invocation prefix. Prefix does not authorize subagents.
 </p>
 
 ```text
-Agent Flow <задача>
-$agent-flow <задача>
-agent-flow <задача>
+Agent Flow <task>
+$agent-flow <task>
+agent-flow <task>
 ```
 
 <p align="center">
-  Для делегирования нужна отдельная просьба в той же задаче: <code>use subagents</code>, <code>spawn a subagent</code>, <code>multi-agent review</code>.
+  Delegation needs a separate explicit request in the same task: <code>use subagents</code>, <code>spawn a subagent</code>, <code>multi-agent review</code>.
 </p>
 
 <p align="center">
@@ -57,24 +57,24 @@ agent-flow <задача>
 
 <br/>
 
-<h2 align="center">Большие PRD</h2>
+<h2 align="center">Large PRDs</h2>
 
 <p align="center">
-  Если пользователь явно разрешил субагентов, AgentFlow может разложить большой scope на lanes: implementation, integration, QA и review. Для traceable runs source of truth — <code>lane-map.json</code>; <code>validate-run.py</code> блокирует <code>Verdict: ship</code>, если critical lane не закрыта evidence или валидной replacement lane.
+  When the user explicitly authorizes subagents, AgentFlow can split a large scope into implementation, integration, QA, and review lanes. For traceable runs, <code>lane-map.json</code> is the source of truth; <code>validate-run.py</code> blocks <code>Verdict: ship</code> when a critical lane has no evidence or valid replacement lane.
 </p>
 
 <br/>
 
-<h2 align="center">Что внутри</h2>
+<h2 align="center">Contents</h2>
 
-| Компонент | Назначение |
+| Component | Purpose |
 | --- | --- |
-| `.agent-work/tasks/` | общая память: todo, lessons, implementation notes, verification, handoff |
-| `agents/*.md` | 25 role files с узкой специализацией |
-| `model`, `reasoning_effort` | индивидуальная модель и reasoning на роль |
-| `escalation_triggers` | переход на сильнее config при риске |
-| `skills` | skills, которые нужны конкретной роли |
-| `registries/agent-skills.json` | install metadata для role skills |
+| `.agent-work/tasks/` | shared memory: todo, lessons, implementation notes, verification, handoff |
+| `agents/*.md` | 25 narrow role files |
+| `model`, `reasoning_effort` | model and reasoning per role |
+| `escalation_triggers` | stronger config for risky tasks |
+| `skills` | skills required by a role |
+| `registries/agent-skills.json` | install metadata for role skills |
 | `references/` | budgets, flows, delegation, traceable runs, Definition of Done |
 | `scripts/` | resolver, validators, trace helpers, dependency checker |
 
@@ -88,7 +88,7 @@ agent-flow <задача>
 
 <br/>
 
-<h2 align="center">Установка</h2>
+<h2 align="center">Install</h2>
 
 ```bash
 git clone https://github.com/svishniakov/agent-flow.git ~/.codex/skills/agent-flow
@@ -96,10 +96,10 @@ python3 ~/.codex/skills/agent-flow/scripts/check-agent-deps.py --post-install
 ```
 
 <p align="center">
-  <code>--post-install</code> показывает missing skills и рекомендует <code>core</code>. Ничего не ставит молча.
+  <code>--post-install</code> shows missing skills and recommends <code>core</code>. No silent install.
 </p>
 
-<h3 align="center">Проверка окружения</h3>
+<h3 align="center">Environment check</h3>
 
 ```bash
 python3 scripts/check-agent-deps.py
@@ -108,7 +108,7 @@ python3 scripts/check-agent-deps.py --scope role:typescript-worker
 python3 scripts/check-agent-deps.py --strict
 ```
 
-<h3 align="center">План установки skills</h3>
+<h3 align="center">Skill install plan</h3>
 
 ```bash
 python3 scripts/check-agent-deps.py --scope core --install-plan
@@ -116,7 +116,7 @@ python3 scripts/check-agent-deps.py --scope full --install-plan --target project
 python3 scripts/check-agent-deps.py --scope core --guided-install
 ```
 
-<h3 align="center">Проверки repo</h3>
+<h3 align="center">Repo checks</h3>
 
 ```bash
 python3 -m py_compile scripts/*.py
@@ -128,24 +128,24 @@ python3 scripts/test-validate-run-lanes.py
 
 <br/>
 
-<h2 align="center">Промпты</h2>
+<h2 align="center">Prompts</h2>
 
 **Solo**
 
 ```text
-Agent Flow Прочитай репозиторий, память проекта и README. Верни active, blocked, next actions, risks. Ничего не меняй.
+Agent Flow Read the repository, project memory, and README. Return active, blocked, next actions, risks. Do not change anything.
 ```
 
 **Bugfix**
 
 ```text
-Agent Flow Разбери баг: <описание>. Найди причину, исправь минимально, запусти проверки, верни changed files и risks.
+Agent Flow Investigate this bug: <description>. Find the cause, make the smallest fix, run checks, return changed files and risks.
 ```
 
 **Subagents**
 
 ```text
-Agent Flow Используй субагентов для независимого review. Раздели работу по ролям и сведи findings в один итог.
+Agent Flow Use subagents for independent review. Split work by role and merge findings into one result.
 ```
 
 <br/>

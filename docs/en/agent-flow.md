@@ -126,4 +126,4 @@ To check runtime files for Russian text:
 rg -n '\p{Cyrillic}' SKILL.md agents references scripts LICENSE
 ```
 
-Russian text is allowed only in `README.md` and `docs/ru/`.
+Russian text is allowed only in `README.ru.md` and `docs/ru/`.

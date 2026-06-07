@@ -126,4 +126,4 @@ python3 scripts/test-validate-run-lanes.py
 rg -n '[А-Яа-яЁё]' SKILL.md agents references scripts LICENSE
 ```
 
-Русский текст допускается только в `README.md` и в этой папке `docs/ru/`.
+Русский текст допускается только в `README.ru.md` и в этой папке `docs/ru/`.
