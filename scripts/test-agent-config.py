@@ -62,11 +62,29 @@ def test_frontmatter_reader(root: Path) -> None:
     if split_inline_list(metadata["skills"]) != ["humanize-ts", "skill, with comma"]:
         raise AssertionError("inline list with quoted comma parsed incorrectly")
 
+    skills_comment = read_frontmatter(
+        write_file(root, "skills-comment.md", "---\nskills: [Read, Write] # note\n---\n")
+    )
+    if split_inline_list(skills_comment["skills"]) != ["Read", "Write"]:
+        raise AssertionError("inline comment after list was not stripped")
+
     quoted_hash = read_frontmatter(
-        write_file(root, "quoted-hash.md", '---\ndescription: "Role # note"\n---\n')
+        write_file(root, "quoted-hash.md", '---\ndescription: "Role # note" # comment\n---\n')
     )
     if quoted_hash["description"] != "Role # note":
         raise AssertionError("hash inside quoted value was not preserved")
+
+    unquoted_comment = read_frontmatter(
+        write_file(root, "unquoted-comment.md", "---\ndescription: Role # note\n---\n")
+    )
+    if unquoted_comment["description"] != "Role":
+        raise AssertionError("inline comment after unquoted scalar was not stripped")
+
+    literal_hash = read_frontmatter(
+        write_file(root, "literal-hash.md", "---\ndescription: abc#def\n---\n")
+    )
+    if literal_hash["description"] != "abc#def":
+        raise AssertionError("hash without preceding whitespace was not preserved")
 
     full_line_comment = read_frontmatter(
         write_file(root, "full-line-comment.md", "---\n# comment\nname: commented-role\n---\n")
@@ -88,11 +106,6 @@ def test_frontmatter_reader(root: Path) -> None:
         "duplicate key",
         lambda: read_frontmatter(write_file(root, "duplicate.md", "---\nname: a\nname: b\n---\n")),
         "duplicate frontmatter key",
-    )
-    expect_error(
-        "inline comments rejected",
-        lambda: read_frontmatter(write_file(root, "inline-comment.md", "---\nskills: [Read, Write] # note\n---\n")),
-        "inline comments are not supported in role frontmatter",
     )
     expect_error(
         "multiline yaml rejected",
