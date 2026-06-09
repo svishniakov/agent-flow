@@ -126,7 +126,7 @@ Look up stable identities in bundled `agents/agent-identities.json` before launc
 
 Read bundled `agents/<role>.md` before launching a subagent and include the role instructions in the packet.
 
-Read `references/subagents.md` when role choice is unclear or when a handoff needs the available role catalog.
+Read `references/subagents.md` when role choice is unclear or when a handoff needs the available role list. Read `references/role-catalog.md` when role overlap, exclusions, or a new-role decision is in question.
 
 ## Model Settings
 

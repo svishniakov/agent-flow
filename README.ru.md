@@ -75,6 +75,7 @@ agent-flow <задача>
 | --- | --- |
 | `.agent-work/tasks/` | общая память: todo, lessons, implementation notes, verification, handoff |
 | `agents/*.md` | 25 role files с узкой специализацией |
+| `references/role-catalog.md` | жизненный цикл ролей, сценарии, исключения и пересечения |
 | `model`, `reasoning_effort` | индивидуальная модель и reasoning на роль |
 | `escalation_triggers` | переход на сильнее config при риске |
 | `skills` | skills, которые нужны конкретной роли |

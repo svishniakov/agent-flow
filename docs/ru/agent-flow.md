@@ -116,6 +116,7 @@ Target выбирает место установки:
 ```bash
 python3 scripts/check-all.py
 python3 scripts/check-agent-deps.py --scope core
+python3 scripts/validate-role-catalog.py
 ```
 
 `check-all.py` должен закончиться строкой `PASS all Agent Flow checks`.

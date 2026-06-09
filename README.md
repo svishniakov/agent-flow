@@ -75,6 +75,7 @@ agent-flow <task>
 | --- | --- |
 | `.agent-work/tasks/` | shared memory: todo, lessons, implementation notes, verification, handoff |
 | `agents/*.md` | 25 narrow role files |
+| `references/role-catalog.md` | role lifecycle, use cases, exclusions, overlap notes |
 | `model`, `reasoning_effort` | model and reasoning per role |
 | `escalation_triggers` | stronger config for risky tasks |
 | `skills` | skills required by a role |
