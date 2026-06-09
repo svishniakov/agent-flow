@@ -30,7 +30,7 @@ The orchestrator must obey:
 
 1. Enter this route only after the user message starts with `Agent Flow`, `$agent-flow`, or `agent-flow`.
 2. Strip the prefix and read local project rules.
-3. Detect the project repo and apply global project memory rules from `/Users/ucnlejumper/.codex/AGENTS.md`.
+3. Detect the project repo and apply global project memory rules from the current user's Codex instructions, usually `~/.codex/AGENTS.md`.
 4. Create/read `.agent-work/tasks/todo.md` and `.agent-work/tasks/lessons.md` for repo tasks.
 5. Read `implementation-notes.md` when global criteria make it relevant.
 6. Read named PRD/spec/design docs and environment docs needed for the task.

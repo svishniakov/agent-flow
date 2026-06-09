@@ -37,6 +37,10 @@
   AgentFlow runs only when the request starts with an invocation prefix. Prefix does not authorize subagents.
 </p>
 
+<p align="center">
+  Supported target: Codex with OpenAI models. Claude Code, Cursor, Hermes, and other hosts are outside this package scope.
+</p>
+
 ```text
 Agent Flow <task>
 $agent-flow <task>
@@ -119,11 +123,13 @@ python3 scripts/check-agent-deps.py --scope core --guided-install
 <h3 align="center">Repo checks</h3>
 
 ```bash
-python3 -m py_compile scripts/*.py
-python3 scripts/validate-agent-config.py
-python3 scripts/validate-agent-skill-registry.py
-python3 scripts/validate-run.py --help
-python3 scripts/test-validate-run-lanes.py
+python3 scripts/check-all.py
+```
+
+Expected final line:
+
+```text
+PASS all Agent Flow checks
 ```
 
 <br/>

@@ -4,6 +4,8 @@ Agent Flow is a Codex skill that helps move a complex task from the user request
 
 The main idea is simple: choose the shortest useful workflow, keep the task bounded, gather the needed context, do the work, and verify the result before the final response. By default, Agent Flow runs solo: one main agent owns the outcome. Subagents are used only when the user separately asks for subagents, spawn, multi-agent, or delegation, and the current environment has a subagent/spawn tool.
 
+Supported target is Codex with OpenAI models. Claude Code, Cursor, Hermes, and other hosts are outside this package scope.
+
 ## Purpose
 
 Agent Flow is useful when a task is larger than one short answer or one mechanical edit. It helps to:
@@ -87,6 +89,8 @@ If the tool is unavailable, role files can be used as a solo checklist or role l
 
 Subagent dependencies are described in `registries/agent-skills.json`. Role files in `agents/*.md` state which skills a role needs; the registry stores tiers, roles, target paths, prompts, and install instructions.
 
+Role frontmatter intentionally uses a narrow format: one-line `key: value` entries and inline lists such as `[Read, Write]`. Multiline YAML is not supported in role files; keeping it out makes validation predictable.
+
 After installing Agent Flow, run the post-install wizard:
 
 ```bash
@@ -110,15 +114,11 @@ There is no silent install. `--guided-install` executes only allowlisted `git`/`
 After changing the skill, these checks are useful:
 
 ```bash
-python3 -m py_compile scripts/*.py
-python3 scripts/validate-agent-skill-registry.py
+python3 scripts/check-all.py
 python3 scripts/check-agent-deps.py --scope core
-python3 scripts/init-run.py --help
-python3 scripts/append-timeline.py --help
-python3 scripts/record-agent-trace.py --help
-python3 scripts/validate-run.py --help
-python3 scripts/test-validate-run-lanes.py
 ```
+
+`check-all.py` should finish with `PASS all Agent Flow checks`.
 
 To check runtime files for Russian text:
 

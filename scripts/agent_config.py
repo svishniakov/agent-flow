@@ -10,6 +10,7 @@ from typing import Any
 ALLOWED_MODELS = {"gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex-spark"}
 ALLOWED_REASONING_EFFORTS = {"low", "medium", "high", "xhigh"}
 ALLOWED_SERVICE_TIERS = {"priority"}
+ALLOWED_TOOLS = {"Read", "Write", "Bash", "Grep", "Glob"}
 ALLOWED_ESCALATION_TRIGGERS = {
     "accessibility-risk",
     "ambiguous-product",
@@ -62,6 +63,17 @@ ALLOWED_ESCALATION_TRIGGERS = {
     "visual-risk",
 }
 DEPRECATED_FRONTMATTER_KEYS = {"model_policy", "speed", "fallback_model"}
+REQUIRED_FRONTMATTER_KEYS = {
+    "name",
+    "description",
+    "model",
+    "reasoning_effort",
+    "escalation_model",
+    "escalation_reasoning_effort",
+    "escalation_triggers",
+    "skills",
+    "tools",
+}
 ROLE_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
 
@@ -225,8 +237,35 @@ def validate_service_tier_field(metadata: dict[str, str], key: str, errors: list
         errors.append(f"invalid {key}: {value}")
 
 
+def validate_required_keys(metadata: dict[str, str], errors: list[str]) -> None:
+    for key in sorted(REQUIRED_FRONTMATTER_KEYS - metadata.keys()):
+        errors.append(f"missing required frontmatter key: {key}")
+
+
+def validate_inline_list_field(
+    metadata: dict[str, str],
+    key: str,
+    errors: list[str],
+    allowed_values: set[str] | None = None,
+) -> list[str]:
+    value = metadata.get(key)
+    items = split_inline_list(value)
+    if not value:
+        return items
+    if not value.strip().startswith("[") or not value.strip().endswith("]"):
+        errors.append(f"{key} must be an inline list")
+    if not items:
+        errors.append(f"{key} must not be empty")
+    invalid_items = sorted(set(items) - allowed_values) if allowed_values is not None else []
+    if invalid_items:
+        errors.append(f"invalid {key}: {', '.join(invalid_items)}")
+    return items
+
+
 def validate_role_metadata(path: Path, metadata: dict[str, str]) -> list[str]:
     errors: list[str] = []
+
+    validate_required_keys(metadata, errors)
 
     deprecated_keys = sorted(DEPRECATED_FRONTMATTER_KEYS & metadata.keys())
     if deprecated_keys:
@@ -239,7 +278,9 @@ def validate_role_metadata(path: Path, metadata: dict[str, str]) -> list[str]:
     validate_service_tier_field(metadata, "service_tier", errors)
     validate_service_tier_field(metadata, "escalation_service_tier", errors)
 
-    escalation_triggers = split_inline_list(metadata.get("escalation_triggers"))
+    validate_inline_list_field(metadata, "skills", errors)
+    validate_inline_list_field(metadata, "tools", errors, allowed_values=ALLOWED_TOOLS)
+    escalation_triggers = validate_inline_list_field(metadata, "escalation_triggers", errors)
     invalid_triggers = sorted(set(escalation_triggers) - ALLOWED_ESCALATION_TRIGGERS)
     if invalid_triggers:
         errors.append(f"invalid escalation_triggers: {', '.join(invalid_triggers)}")
@@ -252,7 +293,7 @@ def validate_role_metadata(path: Path, metadata: dict[str, str]) -> list[str]:
         errors.append("escalation config requires escalation_triggers")
 
     name = metadata.get("name")
-    if name and name != path.stem:
+    if name != path.stem:
         errors.append(f"name does not match file stem: {name} != {path.stem}")
 
     return errors

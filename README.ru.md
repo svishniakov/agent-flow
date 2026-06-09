@@ -37,6 +37,10 @@
   AgentFlow включается только ведущим префиксом. Префикс не разрешает субагентов.
 </p>
 
+<p align="center">
+  Поддерживаемая среда: Codex с моделями OpenAI. Claude Code, Cursor, Hermes и другие hosts вне scope этого пакета.
+</p>
+
 ```text
 Agent Flow <задача>
 $agent-flow <задача>
@@ -119,11 +123,13 @@ python3 scripts/check-agent-deps.py --scope core --guided-install
 <h3 align="center">Проверки repo</h3>
 
 ```bash
-python3 -m py_compile scripts/*.py
-python3 scripts/validate-agent-config.py
-python3 scripts/validate-agent-skill-registry.py
-python3 scripts/validate-run.py --help
-python3 scripts/test-validate-run-lanes.py
+python3 scripts/check-all.py
+```
+
+Ожидаемая последняя строка:
+
+```text
+PASS all Agent Flow checks
 ```
 
 <br/>

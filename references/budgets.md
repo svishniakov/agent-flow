@@ -23,7 +23,7 @@ Rules:
 - no subagents;
 - no `.agent-work/runs/`;
 - no full manifest/route/plan bundle;
-- `.agent-work/tasks/` still follows global project memory rules from `/Users/ucnlejumper/.codex/AGENTS.md`;
+- `.agent-work/tasks/` still follows global project memory rules from the current user's Codex instructions, usually `~/.codex/AGENTS.md`;
 - main agent may edit product files;
 - quick adversarial checks are allowed when one skeptical pass improves evidence;
 - final answer includes changed files, checks, and residual risks when relevant.

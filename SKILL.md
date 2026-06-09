@@ -83,7 +83,7 @@ Use `standard` only when durable evidence helps review or continuation. Use `rel
 
 Read `references/project-memory-and-env.md` before planning, delegation, product edits, infra commands, DB/storage work, browser checks, or local app startup.
 
-Before implementation or subagent launch, the main agent must follow global project memory rules from `/Users/ucnlejumper/.codex/AGENTS.md`:
+Before implementation or subagent launch, the main agent must follow global project memory rules from the current user's Codex instructions, usually `~/.codex/AGENTS.md`:
 
 - detect the project repo;
 - create `.agent-work/tasks/`, `todo.md`, and `lessons.md` for repo tasks when missing;

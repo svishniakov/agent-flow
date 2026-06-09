@@ -7,7 +7,7 @@ Agent Flow must not start work blind.
 Before planning, delegation, product edits, infra commands, DB/storage work, browser checks, or local app startup, read the smallest useful set of project context:
 
 - local project instructions such as `AGENTS.md`;
-- primary local project memory in `.agent-work/tasks/`, following `/Users/ucnlejumper/.codex/AGENTS.md`:
+- primary local project memory in `.agent-work/tasks/`, following the current user's Codex instructions, usually `~/.codex/AGENTS.md`:
   - create `.agent-work/tasks/`, `todo.md`, and `lessons.md` for repo tasks when missing;
   - read `lessons.md` and `todo.md` before repo work;
   - read `implementation-notes.md` when global criteria make it relevant;
