@@ -89,7 +89,7 @@ Timeline фиксирует реальный порядок работы. Есл
 
 Зависимости субагентов описаны в `registries/agent-skills.json`. Файлы ролей в `agents/*.md` указывают, какие skills нужны роли; registry хранит tier, роли, target paths, prompts и инструкции по установке.
 
-Frontmatter ролей намеренно узкий: однострочные записи `key: value` и inline lists вроде `[Read, Write]`. Multiline YAML в role files не поддерживается, чтобы validation оставалась предсказуемой.
+Frontmatter ролей намеренно узкий: однострочные записи `key: value`, inline lists вроде `[Read, Write]` и отдельные строки-комментарии. Inline comments после значений и multiline YAML не поддерживаются, чтобы validation оставалась предсказуемой.
 
 После установки Agent Flow рекомендуемый шаг такой:
 

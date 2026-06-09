@@ -89,7 +89,7 @@ If the tool is unavailable, role files can be used as a solo checklist or role l
 
 Subagent dependencies are described in `registries/agent-skills.json`. Role files in `agents/*.md` state which skills a role needs; the registry stores tiers, roles, target paths, prompts, and install instructions.
 
-Role frontmatter intentionally uses a narrow format: one-line `key: value` entries and inline lists such as `[Read, Write]`. Multiline YAML is not supported in role files; keeping it out makes validation predictable.
+Role frontmatter intentionally uses a narrow format: one-line `key: value` entries and inline lists such as `[Read, Write]`. Full-line comments are allowed; inline comments after values and multiline YAML are not supported, which keeps validation predictable.
 
 After installing Agent Flow, run the post-install wizard:
 

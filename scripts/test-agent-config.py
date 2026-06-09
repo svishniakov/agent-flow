@@ -62,6 +62,18 @@ def test_frontmatter_reader(root: Path) -> None:
     if split_inline_list(metadata["skills"]) != ["humanize-ts", "skill, with comma"]:
         raise AssertionError("inline list with quoted comma parsed incorrectly")
 
+    quoted_hash = read_frontmatter(
+        write_file(root, "quoted-hash.md", '---\ndescription: "Role # note"\n---\n')
+    )
+    if quoted_hash["description"] != "Role # note":
+        raise AssertionError("hash inside quoted value was not preserved")
+
+    full_line_comment = read_frontmatter(
+        write_file(root, "full-line-comment.md", "---\n# comment\nname: commented-role\n---\n")
+    )
+    if full_line_comment["name"] != "commented-role":
+        raise AssertionError("full-line comment was not ignored")
+
     expect_error(
         "missing opening marker",
         lambda: read_frontmatter(write_file(root, "missing-open.md", "name: broken\n")),
@@ -76,6 +88,11 @@ def test_frontmatter_reader(root: Path) -> None:
         "duplicate key",
         lambda: read_frontmatter(write_file(root, "duplicate.md", "---\nname: a\nname: b\n---\n")),
         "duplicate frontmatter key",
+    )
+    expect_error(
+        "inline comments rejected",
+        lambda: read_frontmatter(write_file(root, "inline-comment.md", "---\nskills: [Read, Write] # note\n---\n")),
+        "inline comments are not supported in role frontmatter",
     )
     expect_error(
         "multiline yaml rejected",

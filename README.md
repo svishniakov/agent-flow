@@ -69,7 +69,7 @@ PASS all Agent Flow checks
 - `.agent-work/tasks/` is local project memory.
 - `.agent-work/runs/` is used only for traceable work.
 - AgentFlow artifacts should not be included in product commits unless explicitly requested.
-- Role frontmatter uses one-line `key: value` entries and inline lists only. Multiline YAML is intentionally unsupported.
+- Role frontmatter uses one-line `key: value` entries and inline lists only. Full-line comments are allowed; inline comments after values and multiline YAML are unsupported.
 
 ### Large Scopes
 
@@ -173,7 +173,7 @@ PASS all Agent Flow checks
 - `.agent-work/tasks/` - локальная проектная память.
 - `.agent-work/runs/` используется только для traceable work.
 - AgentFlow artifacts не попадают в product commits без явной просьбы.
-- Frontmatter ролей использует только однострочные `key: value` и inline lists. Multiline YAML намеренно не поддерживается.
+- Frontmatter ролей использует однострочные `key: value`, inline lists и отдельные строки-комментарии. Inline comments после значений и multiline YAML не поддерживаются.
 
 ### Большие задачи
 

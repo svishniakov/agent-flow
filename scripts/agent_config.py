@@ -116,6 +116,8 @@ def read_frontmatter(path: Path) -> dict[str, str]:
         key, raw_value = line.split(":", 1)
         key = key.strip()
         value = raw_value.strip()
+        if find_unquoted_hash(value) is not None:
+            raise AgentConfigError(f"{path}:{number}: inline comments are not supported in role frontmatter")
         if not key:
             raise AgentConfigError(f"{path}:{number}: empty frontmatter key")
         if key in metadata:
@@ -123,6 +125,29 @@ def read_frontmatter(path: Path) -> dict[str, str]:
         metadata[key] = strip_yaml_quotes(value)
 
     return metadata
+
+
+def find_unquoted_hash(value: str) -> int | None:
+    quote: str | None = None
+    escape = False
+
+    for index, char in enumerate(value):
+        if escape:
+            escape = False
+            continue
+        if char == "\\" and quote:
+            escape = True
+            continue
+        if char in {"'", '"'}:
+            if quote is None:
+                quote = char
+            elif quote == char:
+                quote = None
+            continue
+        if char == "#" and quote is None:
+            return index
+
+    return None
 
 
 def strip_yaml_quotes(value: str) -> str:
