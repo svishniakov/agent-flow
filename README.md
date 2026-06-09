@@ -1,45 +1,18 @@
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/agentflow-hero-en.svg">
-    <source media="(prefers-color-scheme: light)" srcset="docs/assets/readme/agentflow-hero-en.svg">
-    <img src="docs/assets/readme/agentflow-hero-en.svg" alt="AgentFlow — orchestrator for agents: shared memory, roles, model/reasoning config, role skills, verified output" width="100%" draggable="false">
-  </picture>
-</p>
+# AgentFlow
 
-<h1 align="center">Orchestrator for agent teams</h1>
+[English](#english) | [Русский](#russian)
 
-<p align="center">
-  AgentFlow is a Codex skill for tasks where the main agent keeps project memory, selects roles, controls delegation, and returns verified output.
-</p>
+## English
 
-<p align="center">
-  <b>shared memory</b> · <b>25 roles</b> · <b>model/reasoning per agent</b> · <b>skills per role</b> · <b>no silent install</b>
-</p>
+AgentFlow is a Codex skill for scoped agent workflows. It keeps project memory, routes work through narrow roles, controls explicit subagent delegation, and requires verification before a final answer.
 
-<div align="center">
+Target: Codex with OpenAI models only. Claude Code, Cursor, Hermes, and other hosts are outside this package scope.
 
-[![roles](https://img.shields.io/badge/roles-25-cc7d5e?style=flat-square)](agents)
-[![role skills](https://img.shields.io/badge/role%20skills-138-2d2d2b?style=flat-square)](registries/agent-skills.json)
-[![memory](https://img.shields.io/badge/memory-.agent--work%2Ftasks-cc7d5e?style=flat-square)](references/project-memory-and-env.md)
-[![license](https://img.shields.io/badge/license-Apache--2.0-2d2d2b?style=flat-square)](LICENSE)
+It ships 25 roles and tracks 138 role skill dependencies.
 
-</div>
+### Contract
 
-<p align="center">
-  <a href="README.md"><b>EN</b></a> · <a href="README.ru.md">RU</a>
-</p>
-
-<br/>
-
-<h2 align="center">Contract</h2>
-
-<p align="center">
-  AgentFlow runs only when the request starts with an invocation prefix. Prefix does not authorize subagents.
-</p>
-
-<p align="center">
-  Supported target: Codex with OpenAI models. Claude Code, Cursor, Hermes, and other hosts are outside this package scope.
-</p>
+AgentFlow runs only when the user request starts with one of these prefixes:
 
 ```text
 Agent Flow <task>
@@ -47,114 +20,192 @@ $agent-flow <task>
 agent-flow <task>
 ```
 
-<p align="center">
-  Delegation needs a separate explicit request in the same task: <code>use subagents</code>, <code>spawn a subagent</code>, <code>multi-agent review</code>.
-</p>
+The prefix does not authorize subagents. Delegation needs a separate explicit request in the same task, for example `use subagents`, `spawn a subagent`, or `multi-agent review`.
 
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/agentflow-process.svg">
-    <source media="(prefers-color-scheme: light)" srcset="docs/assets/readme/agentflow-process.svg">
-    <img src="docs/assets/readme/agentflow-process.svg" alt="AgentFlow process grid with flying dots" width="100%" draggable="false">
-  </picture>
-</p>
+Without that separate request, AgentFlow runs solo through the main agent.
 
-<br/>
-
-<h2 align="center">Large PRDs</h2>
-
-<p align="center">
-  When the user explicitly authorizes subagents, AgentFlow can split a large scope into implementation, integration, QA, and review lanes. For traceable runs, <code>lane-map.json</code> is the source of truth; <code>validate-run.py</code> blocks <code>Verdict: ship</code> when a critical lane has no evidence or valid replacement lane.
-</p>
-
-<br/>
-
-<h2 align="center">Contents</h2>
-
-| Component | Purpose |
-| --- | --- |
-| `.agent-work/tasks/` | shared memory: todo, lessons, implementation notes, verification, handoff |
-| `agents/*.md` | 25 narrow role files |
-| `references/role-catalog.md` | role lifecycle, use cases, exclusions, overlap notes |
-| `model`, `reasoning_effort` | model and reasoning per role |
-| `escalation_triggers` | stronger config for risky tasks |
-| `skills` | skills required by a role |
-| `registries/agent-skills.json` | install metadata for role skills |
-| `references/` | budgets, flows, delegation, traceable runs, Definition of Done |
-| `scripts/` | resolver, validators, trace helpers, dependency checker |
-
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/agentflow-agents.svg">
-    <source media="(prefers-color-scheme: light)" srcset="docs/assets/readme/agentflow-agents.svg">
-    <img src="docs/assets/readme/agentflow-agents.svg" alt="AgentFlow role cards" width="100%" draggable="false">
-  </picture>
-</p>
-
-<br/>
-
-<h2 align="center">Install</h2>
+### Install
 
 ```bash
 git clone https://github.com/svishniakov/agent-flow.git ~/.codex/skills/agent-flow
 python3 ~/.codex/skills/agent-flow/scripts/check-agent-deps.py --post-install
 ```
 
-<p align="center">
-  <code>--post-install</code> shows missing skills and recommends <code>core</code>. No silent install.
-</p>
+`--post-install` reports missing role skills and recommends the `core` set. It never installs anything silently.
 
-<h3 align="center">Environment check</h3>
+### Checks
 
-```bash
-python3 scripts/check-agent-deps.py
-python3 scripts/check-agent-deps.py --scope core
-python3 scripts/check-agent-deps.py --scope role:typescript-worker
-python3 scripts/check-agent-deps.py --strict
-```
-
-<h3 align="center">Skill install plan</h3>
-
-```bash
-python3 scripts/check-agent-deps.py --scope core --install-plan
-python3 scripts/check-agent-deps.py --scope full --install-plan --target project
-python3 scripts/check-agent-deps.py --scope core --guided-install
-```
-
-<h3 align="center">Repo checks</h3>
+Run from the repository root:
 
 ```bash
 python3 scripts/check-all.py
+python3 scripts/check-agent-deps.py --strict
 ```
 
-Expected final line:
+Expected final line from `check-all.py`:
 
 ```text
 PASS all Agent Flow checks
 ```
 
-<br/>
+### What Is Inside
 
-<h2 align="center">Prompts</h2>
+| Path | Purpose |
+| --- | --- |
+| `SKILL.md` | Codex skill entrypoint and invocation contract |
+| `agents/*.md` | 25 bundled role prompts |
+| `agents/agent-identities.json` | stable role identities for traces and handoffs |
+| `references/role-catalog.md` | role lifecycle, use cases, exclusions, overlap notes |
+| `registries/agent-skills.json` | metadata for role skill dependencies |
+| `scripts/check-all.py` | repository validation suite |
+| `scripts/resolve-agent-config.py` | model/reasoning resolver for `spawn_agent` |
+| `scripts/validate-run.py` | traceable run and lane-map validator |
 
-**Solo**
+### Key Rules
+
+- AgentFlow is not a general preflight. Unprefixed requests stay outside this skill.
+- Project `AGENTS.md` files cannot force AgentFlow on.
+- Subagents are off by default.
+- `.agent-work/tasks/` is local project memory.
+- `.agent-work/runs/` is used only for traceable work.
+- AgentFlow artifacts should not be included in product commits unless explicitly requested.
+- Role frontmatter uses one-line `key: value` entries and inline lists only. Multiline YAML is intentionally unsupported.
+
+### Large Scopes
+
+When the user explicitly authorizes subagents, large work can be split into implementation, integration, QA, and review lanes. For traceable runs, `lane-map.json` is the source of truth. `validate-run.py` blocks `Verdict: ship` if a critical lane lacks evidence or a valid replacement lane.
+
+### Examples
+
+Solo repository read:
 
 ```text
-Agent Flow Read the repository, project memory, and README. Return active, blocked, next actions, risks. Do not change anything.
+Agent Flow Read the repository and project memory. Return active work, blocked items, next actions, and risks. Do not change anything.
 ```
 
-**Bugfix**
+Bugfix:
 
 ```text
-Agent Flow Investigate this bug: <description>. Find the cause, make the smallest fix, run checks, return changed files and risks.
+Agent Flow Investigate this bug: <description>. Find the cause, make the smallest fix, run checks, and return changed files plus residual risks.
 ```
 
-**Subagents**
+Explicit subagents:
 
 ```text
 Agent Flow Use subagents for independent review. Split work by role and merge findings into one result.
 ```
 
-<br/>
+### Useful Links
 
-<p align="center">Apache 2.0 · <a href="LICENSE">LICENSE</a></p>
+- [Role catalog](references/role-catalog.md)
+- [Subagent policy](references/subagents.md)
+- [Delegation rules](references/delegation.md)
+- [Traceable runs](references/traceable-runs.md)
+- [Definition of Done](references/definition-of-done.md)
+- [Russian documentation](docs/ru/agent-flow.md)
+- [English documentation](docs/en/agent-flow.md)
+- [License](LICENSE)
+
+## Russian
+
+AgentFlow - это Codex skill для задач, где нужен управляемый workflow агента. Он хранит проектную память, выбирает узкие роли, контролирует явное делегирование субагентам и требует проверку перед финальным ответом.
+
+Поддерживаемая среда: Codex с моделями OpenAI. Claude Code, Cursor, Hermes и другие hosts вне scope этого пакета.
+
+В комплекте 25 ролей и 138 зависимостей role skills.
+
+### Контракт
+
+AgentFlow включается только если запрос пользователя начинается с одного из префиксов:
+
+```text
+Agent Flow <задача>
+$agent-flow <задача>
+agent-flow <задача>
+```
+
+Префикс не разрешает субагентов. Для делегирования нужна отдельная явная просьба в той же задаче: например, `use subagents`, `spawn a subagent` или `multi-agent review`.
+
+Без такой просьбы AgentFlow работает solo через основного агента.
+
+### Установка
+
+```bash
+git clone https://github.com/svishniakov/agent-flow.git ~/.codex/skills/agent-flow
+python3 ~/.codex/skills/agent-flow/scripts/check-agent-deps.py --post-install
+```
+
+`--post-install` показывает missing role skills и рекомендует набор `core`. Тихой установки нет.
+
+### Проверки
+
+Запускать из корня репозитория:
+
+```bash
+python3 scripts/check-all.py
+python3 scripts/check-agent-deps.py --strict
+```
+
+Ожидаемая последняя строка `check-all.py`:
+
+```text
+PASS all Agent Flow checks
+```
+
+### Что внутри
+
+| Путь | Назначение |
+| --- | --- |
+| `SKILL.md` | entrypoint скилла и контракт включения |
+| `agents/*.md` | 25 встроенных role prompts |
+| `agents/agent-identities.json` | стабильные identity ролей для trace и handoff |
+| `references/role-catalog.md` | жизненный цикл ролей, сценарии, исключения и пересечения |
+| `registries/agent-skills.json` | metadata для зависимостей role skills |
+| `scripts/check-all.py` | полный набор проверок репозитория |
+| `scripts/resolve-agent-config.py` | resolver model/reasoning для `spawn_agent` |
+| `scripts/validate-run.py` | validator traceable runs и lane-map |
+
+### Главные правила
+
+- AgentFlow не является общим preflight для каждого запроса.
+- Проектный `AGENTS.md` не может включить AgentFlow без префикса пользователя.
+- Субагенты выключены по умолчанию.
+- `.agent-work/tasks/` - локальная проектная память.
+- `.agent-work/runs/` используется только для traceable work.
+- AgentFlow artifacts не попадают в product commits без явной просьбы.
+- Frontmatter ролей использует только однострочные `key: value` и inline lists. Multiline YAML намеренно не поддерживается.
+
+### Большие задачи
+
+Если пользователь явно разрешил субагентов, большую задачу можно разделить на implementation, integration, QA и review lanes. Для traceable runs source of truth - `lane-map.json`. `validate-run.py` блокирует `Verdict: ship`, если critical lane не закрыта evidence или валидной replacement lane.
+
+### Примеры
+
+Solo чтение репозитория:
+
+```text
+Agent Flow Read the repository and project memory. Return active work, blocked items, next actions, and risks. Do not change anything.
+```
+
+Bugfix:
+
+```text
+Agent Flow Investigate this bug: <description>. Find the cause, make the smallest fix, run checks, and return changed files plus residual risks.
+```
+
+Явные субагенты:
+
+```text
+Agent Flow Use subagents for independent review. Split work by role and merge findings into one result.
+```
+
+### Ссылки
+
+- [Role catalog](references/role-catalog.md)
+- [Subagent policy](references/subagents.md)
+- [Delegation rules](references/delegation.md)
+- [Traceable runs](references/traceable-runs.md)
+- [Definition of Done](references/definition-of-done.md)
+- [Документация на русском](docs/ru/agent-flow.md)
+- [Documentation in English](docs/en/agent-flow.md)
+- [License](LICENSE)

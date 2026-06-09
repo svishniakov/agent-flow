@@ -67,6 +67,37 @@ def run_content_guard(name: str, needle: str) -> int:
     return 0
 
 
+def run_readme_markdown_guard() -> int:
+    print("==> README Markdown-only guard")
+    forbidden = [
+        "<p",
+        "<picture",
+        "<source",
+        "<img",
+        "<div",
+        "<h1",
+        "<h2",
+        "<h3",
+        "</",
+        ".svg",
+        "img.shields.io",
+    ]
+    failures: list[str] = []
+    for name in ["README.md", "README.ru.md"]:
+        path = ROOT / name
+        text = path.read_text(encoding="utf-8")
+        for needle in forbidden:
+            if needle in text:
+                failures.append(f"{name}: {needle}")
+    if failures:
+        print("FAIL README Markdown-only guard", file=sys.stderr)
+        for failure in failures:
+            print(f"- {failure}", file=sys.stderr)
+        return 1
+    print("PASS README Markdown-only guard")
+    return 0
+
+
 def main() -> int:
     python_files = sorted(str(path.relative_to(ROOT)) for path in SCRIPTS.glob("*.py"))
     command_steps = [
@@ -93,6 +124,8 @@ def main() -> int:
     for name, needle in content_steps:
         if run_content_guard(name, needle):
             failures += 1
+    if run_readme_markdown_guard():
+        failures += 1
 
     if failures:
         print(f"FAILED {failures} check(s)", file=sys.stderr)
