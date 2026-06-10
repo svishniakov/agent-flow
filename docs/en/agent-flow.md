@@ -119,6 +119,17 @@ Target selects where the skill should be installed:
 
 There is no silent install. `--guided-install` executes only allowlisted `git`/`local` registry commands and only after the user confirms with `yes`. `plugin`, `prompt`, and `manual` entries are not executed: the checker prints instructions, the official prompt, or a note to enable a plugin. After guided install, the checker reruns the scan and reports remaining missing skills.
 
+## Update
+
+Use the bundled updater instead of cloning over an existing install:
+
+```bash
+python3 ~/.codex/skills/agent-flow/scripts/update-agent-flow-skill.py --dry-run
+python3 ~/.codex/skills/agent-flow/scripts/update-agent-flow-skill.py
+```
+
+`--dry-run` fetches the remote and reports whether the checkout is clean, behind, ahead, or diverged. A real update only fast-forwards a clean checkout. To discard local edits or divergent commits, rerun with explicit `--overwrite`.
+
 ## Checks
 
 After changing the skill, these checks are useful:

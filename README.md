@@ -31,6 +31,15 @@ python3 ~/.codex/skills/agent-flow/scripts/check-agent-deps.py --post-install
 
 `--post-install` reports missing role skills and recommends the `core` set. It never installs anything silently.
 
+### Update
+
+```bash
+python3 ~/.codex/skills/agent-flow/scripts/update-agent-flow-skill.py --dry-run
+python3 ~/.codex/skills/agent-flow/scripts/update-agent-flow-skill.py
+```
+
+The updater fetches `origin`, reports dirty state, and only fast-forwards a clean checkout. If local edits or divergent commits should be discarded, pass `--overwrite` explicitly.
+
 ### Checks
 
 Run from the repository root:
@@ -140,6 +149,15 @@ python3 ~/.codex/skills/agent-flow/scripts/check-agent-deps.py --post-install
 ```
 
 `--post-install` показывает missing role skills и рекомендует набор `core`. Тихой установки нет.
+
+### Обновление
+
+```bash
+python3 ~/.codex/skills/agent-flow/scripts/update-agent-flow-skill.py --dry-run
+python3 ~/.codex/skills/agent-flow/scripts/update-agent-flow-skill.py
+```
+
+Updater делает `fetch` из `origin`, показывает dirty state и обновляет только clean checkout через fast-forward. Если локальные правки или divergent commits нужно отбросить, передайте явный `--overwrite`.
 
 ### Проверки
 

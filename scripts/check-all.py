@@ -105,6 +105,7 @@ def main() -> int:
         ("agent config fixtures", [sys.executable, "scripts/test-agent-config.py"]),
         ("validate-agent-config fixtures", [sys.executable, "scripts/test-validate-agent-config.py"]),
         ("role catalog fixtures", [sys.executable, "scripts/test-validate-role-catalog.py"]),
+        ("updater fixtures", [sys.executable, "scripts/test-update-agent-flow-skill.py"]),
         ("agent config validation", [sys.executable, "scripts/validate-agent-config.py"]),
         ("role catalog validation", [sys.executable, "scripts/validate-role-catalog.py"]),
         ("agent skill registry validation", [sys.executable, "scripts/validate-agent-skill-registry.py"]),

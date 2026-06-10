@@ -119,6 +119,17 @@ Target выбирает место установки:
 
 Тихой установки нет. `--guided-install` выполняет только разрешённые `git`/`local` команды из registry и только после подтверждения `yes`. `plugin`, `prompt` и `manual` entries не выполняются: checker печатает инструкции, официальный prompt или подсказку включить plugin. После guided install checker повторно проверяет missing skills и показывает остаток.
 
+## Обновление
+
+Для обновления уже установленного Agent Flow используйте встроенный updater, а не повторный `git clone` поверх существующей папки:
+
+```bash
+python3 ~/.codex/skills/agent-flow/scripts/update-agent-flow-skill.py --dry-run
+python3 ~/.codex/skills/agent-flow/scripts/update-agent-flow-skill.py
+```
+
+`--dry-run` делает `fetch` и показывает, clean checkout или нет, отстаёт он от remote, опережает его или разошёлся с ним. Реальное обновление делает только fast-forward для clean checkout. Чтобы отбросить локальные правки или divergent commits, нужно явно запустить с `--overwrite`.
+
 ## Проверки
 
 После изменений в скилле стоит запускать:
