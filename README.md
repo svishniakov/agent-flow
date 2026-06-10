@@ -4,7 +4,7 @@
 
 ## English
 
-AgentFlow is a Codex skill for scoped agent workflows. Put `Agent Flow` first in the prompt; after that, the orchestrator reads context, switches internal budgets under the hood, decides whether subagents are useful, and requires verification before a final answer.
+AgentFlow is a Codex skill for scoped agent workflows. Put `Agent Flow` first in the prompt; after that, the orchestrator reads context, checks active project work, switches internal budgets under the hood, decides whether subagents are useful, and requires verification before a final answer.
 
 Target: Codex with OpenAI models only. Claude Code, Cursor, Hermes, and other hosts are outside this package scope.
 
@@ -64,6 +64,7 @@ PASS all Agent Flow checks
 - AgentFlow is not a general preflight. Unprefixed requests stay outside this skill.
 - Project `AGENTS.md` files cannot force AgentFlow on.
 - Budget switching is internal; users do not choose workflow depth manually.
+- Dependency Gate is mandatory before new feature work: if another active task may affect the new one, the orchestrator stops and recommends waiting or merging the work into one coordinated run.
 - Subagents no longer need an explicit user request; the orchestrator turns them on when they add real review, QA, research, or parallel implementation value.
 - `.agent-work/tasks/` is local project memory.
 - `.agent-work/runs/` is used only for traceable work.
@@ -73,6 +74,12 @@ PASS all Agent Flow checks
 ### Large Scopes
 
 For large or risky scopes, the orchestrator can split work into implementation, integration, QA, and review lanes. For traceable runs, `lane-map.json` is the source of truth. `validate-run.py` blocks `Verdict: ship` if a critical lane lacks evidence or a valid replacement lane. Architecture-sensitive code review must be checked against an architect-owned review contract before reviewer readiness verdict.
+
+### Dependency Gate
+
+When a user starts a new feature while another feature is still `in_progress` or `blocked`, the orchestrator checks project memory before planning. If the active work may change the same files, API, data model, UI flow, tests, deploy path, or acceptance criteria, AgentFlow stops the new session.
+
+The warning names the active task, explains the risk in practical terms, and recommends waiting for the active feature to finish. The user can still continue by explicitly accepting the risk, or can merge both pieces of work into one coordinated AgentFlow run.
 
 ### Examples
 
@@ -107,7 +114,7 @@ Agent Flow Finish this feature for release. Run architecture, QA, and review gat
 
 ## Russian
 
-AgentFlow - это Codex skill для задач, где нужен управляемый workflow агента. Пользователь ставит `Agent Flow` первым в prompt; дальше оркестратор читает контекст, под капотом переключает внутренние budgets, решает, нужны ли субагенты, и требует проверку перед финальным ответом.
+AgentFlow - это Codex skill для задач, где нужен управляемый workflow агента. Пользователь ставит `Agent Flow` первым в prompt; дальше оркестратор читает контекст, проверяет активные задачи проекта, под капотом переключает внутренние budgets, решает, нужны ли субагенты, и требует проверку перед финальным ответом.
 
 Поддерживаемая среда: Codex с моделями OpenAI. Claude Code, Cursor, Hermes и другие hosts вне scope этого пакета.
 
@@ -167,6 +174,7 @@ PASS all Agent Flow checks
 - AgentFlow не является общим preflight для каждого запроса.
 - Проектный `AGENTS.md` не может включить AgentFlow без префикса пользователя.
 - Переключение budgets работает под капотом; пользователь не выбирает глубину workflow вручную.
+- Dependency Gate обязателен перед новой фичей: если другая активная задача может повлиять на неё, оркестратор останавливает старт и рекомендует дождаться результата или объединить работы в один coordinated run.
 - Субагенты больше не требуют явной просьбы пользователя; оркестратор включает их, когда они дают реальную пользу для review, QA, research или параллельной реализации.
 - `.agent-work/tasks/` - локальная проектная память.
 - `.agent-work/runs/` используется только для traceable work.
@@ -176,6 +184,12 @@ PASS all Agent Flow checks
 ### Большие задачи
 
 Для больших или рискованных задач оркестратор может разделить работу на implementation, integration, QA и review lanes. Для traceable runs source of truth - `lane-map.json`. `validate-run.py` блокирует `Verdict: ship`, если critical lane не закрыта evidence или валидной replacement lane. Architecture-sensitive code review проверяется against architect-owned review contract до reviewer verdict о готовности.
+
+### Dependency Gate
+
+Когда пользователь запускает новую фичу, а в проекте уже есть задача со статусом `in_progress` или `blocked`, оркестратор сначала смотрит проектную память. Если активная работа может поменять те же файлы, API, модель данных, UI flow, тесты, deploy path или критерии приёмки, AgentFlow останавливает новую сессию.
+
+Предупреждение называет активную задачу, объясняет практический риск и рекомендует дождаться завершения текущей фичи. Пользователь может явно принять риск и продолжить или объединить обе работы в один coordinated AgentFlow run.
 
 ### Примеры
 

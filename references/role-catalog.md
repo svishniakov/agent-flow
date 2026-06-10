@@ -11,7 +11,7 @@ Do not create a new role for a one-off lane. Use the existing role plus `lane-ma
 ### orchestrator
 
 Status: active
-Use when: Flow choice, budget selection, trace policy, delegation packets, handoff integration, or final readiness needs a focused orchestration pass.
+Use when: Flow choice, budget selection, dependency gate judgment, trace policy, delegation packets, handoff integration, or final readiness needs a focused orchestration pass.
 Do not use when: The main agent can route and verify directly, or when a specialized implementation/review role owns the work.
 Overlap notes: Use `architect` for technical design depth, `reviewer` for independent critique, and `qa-verifier` for behavioral evidence.
 

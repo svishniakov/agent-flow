@@ -12,9 +12,9 @@ In large traceable runs, one role can be used several times as separate lanes. F
 
 ### orchestrator
 
-The Agent Flow orchestration support role. It helps the main agent choose the flow, internal budget, trace policy, work sequence, and verification criteria. It prepares delegation packets, integrates handoffs, watches the Definition of Done, and checks that the final response is backed by evidence.
+The Agent Flow orchestration support role. It helps the main agent choose the flow, internal budget, trace policy, work sequence, dependency gate result, and verification criteria. It prepares delegation packets, integrates handoffs, watches the Definition of Done, and checks that the final response is backed by evidence.
 
-It must not activate Agent Flow by itself or invent public modes. It launches subagents only after internal workflow selection and a usefulness check.
+It must not activate Agent Flow by itself or invent public modes. It launches subagents only after internal workflow selection, dependency gate clearance, and a usefulness check.
 
 ### product-manager
 

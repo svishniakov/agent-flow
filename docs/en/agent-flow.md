@@ -2,7 +2,7 @@
 
 Agent Flow is a Codex skill that helps move a complex task from the user request to a verified result. It does not activate automatically. The user must put one of these prefixes first in the prompt: `Agent Flow`, `$agent-flow`, or `agent-flow`.
 
-The main idea is simple: the user invokes Agent Flow with one leading prefix, and the orchestrator chooses the right route. It keeps the task bounded, gathers the needed context, switches internal budgets under the hood, decides whether subagents are useful, does the work, and verifies the result before the final response.
+The main idea is simple: the user invokes Agent Flow with one leading prefix, and the orchestrator chooses the right route. It keeps the task bounded, checks active project work for dependencies, gathers the needed context, switches internal budgets under the hood, decides whether subagents are useful, does the work, and verifies the result before the final response.
 
 Supported target is Codex with OpenAI models. Claude Code, Cursor, Hermes, and other hosts are outside this package scope.
 
@@ -13,6 +13,7 @@ Agent Flow is useful when a task is larger than one short answer or one mechanic
 - parse the request and choose the right workflow without making the user pick a mode;
 - avoid extra process when direct work is enough;
 - read project memory and local rules before changes;
+- stop a new feature when active project work can affect it;
 - avoid touching infrastructure without need;
 - separate ordinary solo work from tasks with trace artifacts;
 - prepare a delegation packet for subagents when the task shape justifies delegation;
@@ -36,8 +37,17 @@ If the prefix is absent, the request stays outside Agent Flow. Codex then works 
 - Do not run a separate brainstorming flow before Agent Flow.
 - Users do not choose budgets and do not need to explicitly request subagents.
 - The orchestrator decides from context whether to keep the task solo or use subagents.
+- Before new feature work, the orchestrator checks active `in_progress` and `blocked` tasks. If one can affect the new work, Agent Flow stops and recommends waiting or merging the work into one coordinated run.
 - Trace artifacts are created only when justified by risk, an internal routing decision, or a direct user request.
 - `.agent-work/` must not be included in product commits.
+
+## Dependency Gate
+
+Dependency Gate protects separate feature sessions from stepping on each other. At the start of new feature work, the orchestrator reads project memory and checks active tasks marked `in_progress` or `blocked`.
+
+If an active task may change the same files, API contracts, data model, UI flow, tests, deploy path, or acceptance criteria, the new session stops before planning or implementation. The warning names the active task, explains the practical risk, and recommends waiting for the active feature to finish.
+
+The user can still continue by explicitly accepting the recorded risk. Another option is to merge the work into one coordinated Agent Flow run. Internal lanes inside one Agent Flow run are not blocked by this gate.
 
 ## Internal flows
 

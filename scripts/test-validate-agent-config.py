@@ -52,8 +52,9 @@ def write_identities(agents_dir: Path, entries: list[dict[str, object]]) -> Path
 
 
 def write_readmes(root: Path, count: int) -> None:
+    russian_role_count = f"{count} \u0440\u043e\u043b\u0435\u0439"
     (root / "README.md").write_text(f"roles-{count}\n{count} roles\n", encoding="utf-8")
-    (root / "README.ru.md").write_text(f"roles-{count}\n{count} ролей\n", encoding="utf-8")
+    (root / "README.ru.md").write_text(f"roles-{count}\n{russian_role_count}\n", encoding="utf-8")
 
 
 def validate(agents_dir: Path, identities_path: Path | None = None, skip_readme_counts: bool = False) -> subprocess.CompletedProcess[str]:

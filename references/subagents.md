@@ -23,7 +23,7 @@ Run `python3 scripts/validate-agent-config.py` and `python3 scripts/validate-rol
 
 ## Core orchestration and planning
 
-- `orchestrator` - Agent Flow orchestration support subagent for routing, sequencing, trace hygiene, delegation packets, verification evidence, and final integration under the explicit Agent Flow invocation model.
+- `orchestrator` - Agent Flow orchestration support subagent for routing, dependency gate checks, sequencing, trace hygiene, delegation packets, verification evidence, and final integration under the explicit Agent Flow invocation model.
 - `product-manager` - Product subagent for turning an idea into scope, audience, problem, value, constraints, non-goals, PRD frame, and acceptance criteria.
 - `architect` - Architecture subagent for implementation plans, module boundaries, dependencies, sequencing, ownership, risk, and verification criteria.
 - `researcher` - Research subagent for documentation, APIs, SDKs, external sources, local examples, constraints, comparisons, and source-backed findings.

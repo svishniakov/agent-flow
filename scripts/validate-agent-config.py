@@ -86,7 +86,8 @@ def validate_readme_role_counts(repo_root: Path, role_count: int) -> list[str]:
         except OSError as exc:
             errors.append(f"{path}: {exc}")
             continue
-        if f"{role_count} roles" not in text and f"{role_count} рол" not in text:
+        russian_role_prefix = f"{role_count} \u0440\u043e\u043b"
+        if f"{role_count} roles" not in text and russian_role_prefix not in text:
             errors.append(f"{path}: visible role count does not match actual role count {role_count}")
     return errors
 

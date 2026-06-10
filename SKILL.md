@@ -60,10 +60,11 @@ Inside Agent Flow, the orchestrator owns the outcome:
 3. Decide whether trace artifacts are needed.
 4. Choose skills, plugins, tools, and the execution budget.
 5. Set approval gates only where they reduce real risk.
-6. Keep scope bounded.
-7. Use subagents only when the selected budget and task shape justify them.
-8. Verify evidence before any completion claim.
-9. Return the final answer with residual risks.
+6. Run the dependency gate before planning new feature work.
+7. Keep scope bounded.
+8. Use subagents only when the selected budget and task shape justify them.
+9. Verify evidence before any completion claim.
+10. Return the final answer with residual risks.
 
 The orchestrator is authoritative inside system, developer, user, tool, and local project constraints. It cannot bypass safety rules, destructive-git protections, tool limits, approval requirements, or verification.
 
@@ -95,6 +96,24 @@ Before implementation or subagent launch, the main agent must follow global proj
 - project-declared legacy task docs such as `docs/tasks/lessons.md`, `docs/tasks/todo.md`, and `docs/tasks/implementation-notes.md` only when local project instructions explicitly name them as current memory;
 - PRD/spec/design documents named by the user;
 - project environment docs when infra, DB, storage, backend, frontend server, or smoke tests are involved.
+
+## Dependency Gate
+
+Before planning a new feature, product edit, cross-file implementation, or delegated run, read any named PRD/spec/design source needed to understand the request, then inspect active project memory for existing `Status: in_progress` or `Status: blocked` tasks. Ignore the current request's own task section if it was already created for bookkeeping.
+
+Classify each active task against the new request:
+
+- `clear`: no shared files, contracts, data model, user flow, infra, generated assets, or release surface.
+- `uncertain`: possible overlap, stale active notes, missing ownership, or unclear affected surface.
+- `dependent`: the active work may change the same files, API/types, DB/storage schema, routes, UI flow, design source, tests, deployment path, or acceptance criteria.
+
+If any active task is `dependent` or `uncertain`, stop before implementation, subagent launch, or traceable run setup. Tell the user which active task is involved, what could conflict, and recommend waiting for that feature to finish before starting the new one. Offer only these exits:
+
+- wait for the active task to finish and restart from the resulting project state;
+- merge the work into one coordinated Agent Flow run;
+- continue only after the user explicitly accepts the recorded risk and the orchestrator can isolate scope.
+
+Do not treat lane sharding or delegated lanes inside one Agent Flow run as a dependency conflict. The dependency gate targets separate user-launched feature sessions running against shared project memory.
 
 Do not provision infrastructure by default. Discover and use the existing project environment first. Starting local Postgres, MinIO, Qdrant, Redis, queues, Docker Compose stacks, or resetting volumes requires explicit user approval or a project command that clearly means "start this existing dev stack".
 
@@ -137,11 +156,12 @@ When subagents are used, workers own their assigned narrow write sets and the ma
 2. If the task does not start with an Agent Flow prefix, do not use this skill.
 3. Inside Agent Flow, do not call `brainstorming`; classify the request and choose the smallest internal flow directly.
 4. If the task is trivial, answer or run the command directly within Agent Flow.
-5. Read primary project memory and environment context.
-6. Choose `light`, `standard`, or `release` budget.
-7. Create trace artifacts only for `standard` or `release`, or when the user explicitly asks for artifacts.
-8. If the budget and task shape justify subagents, discover `spawn_agent` and delegate only narrow independent work.
-9. Otherwise implement solo and verify directly.
+5. Read primary project memory, named task sources, and environment context.
+6. Run the dependency gate for new feature, implementation, or delegated work.
+7. Choose `light`, `standard`, or `release` budget.
+8. Create trace artifacts only for `standard` or `release`, or when the user explicitly asks for artifacts.
+9. If the budget and task shape justify subagents, discover `spawn_agent` and delegate only narrow independent work.
+10. Otherwise implement solo and verify directly.
 
 ## Internal Flows
 

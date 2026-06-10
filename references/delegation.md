@@ -101,6 +101,7 @@ Every packet includes:
 - 3-7 sentence task context;
 - project repo;
 - project memory summary from `lessons.md`, `todo.md`, and `implementation-notes.md`;
+- dependency gate outcome, including active task conflicts, explicit override, and forbidden overlap;
 - artifact root;
 - run directory;
 - handoff path;

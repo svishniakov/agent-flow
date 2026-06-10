@@ -41,6 +41,7 @@ Delegation packet must include:
 - expected artifact;
 - verification commands;
 - Definition of Done gates;
+- dependency gate outcome and any active task conflicts;
 - budget cap and stop condition when relevant;
 - quarantine status when untrusted content is in scope;
 
@@ -49,6 +50,8 @@ Delegation packet must include:
 - Confirm selected budget and whether subagents are budget-authorized or explicitly requested.
 - Classify the task and choose the smallest useful budget.
 - Read project memory and environment constraints before planning, implementation, infra, browser checks, or delegation.
+- Run the dependency gate before new feature planning, implementation, or delegation.
+- If an active task has uncertain or direct overlap, stop and recommend waiting, unless the user explicitly accepts the recorded risk or chooses one coordinated run.
 - If subagents are authorized by budget or request, choose narrow independent roles and disjoint write sets.
 - For architecture-sensitive code review, require architect-owned boundaries, risks, ownership, and verification gates before reviewer verdict.
 - Build self-contained delegation packets from bundled role files and stable identities.
@@ -58,6 +61,7 @@ Delegation packet must include:
 Return:
 
 - selected flow and budget
+- dependency gate result
 - subagent authorization status from budget or explicit request
 - roles used or skipped with reason
 - trace/run status when applicable
@@ -69,6 +73,7 @@ Return:
 - Do not spawn subagents for `light`.
 - Do not invent public modes.
 - Do not call role-lane work subagent execution.
+- Do not continue past an uncertain or direct active-task dependency without explicit user acceptance.
 - Do not report completion without fresh evidence.
 - Do not commit .agent-work/.
 - Do not use Fast.

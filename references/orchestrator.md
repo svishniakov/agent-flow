@@ -34,13 +34,14 @@ The orchestrator must obey:
 4. Create/read `.agent-work/tasks/todo.md` and `.agent-work/tasks/lessons.md` for repo tasks.
 5. Read `implementation-notes.md` when global criteria make it relevant.
 6. Read named PRD/spec/design docs and environment docs needed for the task.
-7. If this is a traceable implementation run inside a git repo, capture `git status --short` before edits and record the initial worktree snapshot.
-8. Classify request type.
-9. Choose the internal flow.
-10. Choose the smallest execution budget: `light`, `standard`, or `release`.
-11. Update `.agent-work/tasks/todo.md` for repo tasks before product changes.
-12. If the budget and task shape justify subagents, discover `spawn_agent`.
-13. State the selected skill/tool briefly when user-facing rules require it.
+7. Run the dependency gate for new feature work, product edits, cross-file implementation, or delegation.
+8. If this is a traceable implementation run inside a git repo, capture `git status --short` before edits and record the initial worktree snapshot.
+9. Classify request type.
+10. Choose the internal flow.
+11. Choose the smallest execution budget: `light`, `standard`, or `release`.
+12. Update `.agent-work/tasks/todo.md` for repo tasks before product changes.
+13. If the budget and task shape justify subagents, discover `spawn_agent`.
+14. State the selected skill/tool briefly when user-facing rules require it.
 
 ## Invocation Semantics
 
@@ -77,6 +78,7 @@ Only after the budget and task shape justify subagents:
 - In `release`, consider architect, QA, reviewer, and worker lanes by default; skip only with a concrete reason.
 - Use workflow patterns as internal recipes only when they strengthen routing or verification.
 - Treat unclear Agent Flow scope as intake and routing work, not as a reason to launch brainstorming.
+- Treat uncertain dependency overlap as a stop condition, not as a warning to ignore.
 - Prefer narrow delegation over broad role chains.
 - For code review touching architecture, public contracts, APIs, data flow, security, migrations, or multiple subsystems, require an architect-owned review contract before reviewer verdict.
 - Prefer existing project patterns over new abstractions.
@@ -106,6 +108,7 @@ Stop or ask the user when:
 - scope is contradictory;
 - required credential or approval is missing;
 - product direction needs user choice;
+- the dependency gate finds an active `in_progress` or `blocked` task with uncertain or direct overlap;
 - design approval is required before UI implementation;
 - destructive action is requested ambiguously;
 - subagents are required by risk/budget or user request, but no subagent tool is available and role-lane or solo fallback would violate the task;

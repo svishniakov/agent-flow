@@ -21,6 +21,56 @@ If a named PRD/spec is the task source, read it before route/plan. Do not infer 
 
 If `.agent-work/tasks/lessons.md` is missing during a repo task, create the file according to global project memory rules. Do not invent lesson content. Add lesson entries only after a user correction, repeated process failure, or explicit request to record a lesson.
 
+## Dependency Gate
+
+Before planning new feature work, product edits, cross-file implementation, or
+delegation, inspect `.agent-work/tasks/todo.md` for existing sections marked
+`Status: in_progress` or `Status: blocked`. Ignore the section for the current
+request if it was already added as bookkeeping.
+
+If the new request names a PRD, spec, design source, issue, or task document,
+read that source before dependency classification. The gate must compare active
+work with the real requested scope, not only with the prompt wording.
+
+For each active task, compare it with the new request across practical surfaces:
+
+- files, packages, generated artifacts, and tests;
+- API contracts, shared types, routes, events, queues, and background jobs;
+- DB/storage schema, migrations, seed data, and external integrations;
+- UI flows, design sources, user-facing copy, and visual assets;
+- infra, environment, deploy, release, and CI paths;
+- acceptance criteria and product decisions.
+
+Classify every active task:
+
+- `clear`: no meaningful overlap with the new request.
+- `uncertain`: possible overlap, stale active notes, incomplete ownership, or
+  too little context to prove independence.
+- `dependent`: active work may affect the new request, or the new request may
+  affect the active work.
+
+If every active task is `clear`, continue and record that the dependency gate
+passed in task memory or trace notes when those artifacts exist.
+
+If any task is `uncertain` or `dependent`, stop before implementation,
+delegation, or trace setup. The user-facing warning must include:
+
+- active task title and status;
+- likely shared surface or missing context;
+- practical risk, such as rework, conflicting contracts, broken tests, or
+  inconsistent UX;
+- recommendation to wait for the active feature to finish and restart from that
+  result.
+
+The orchestrator may continue only after the user explicitly accepts the risk.
+If continuing, record the override, isolate scope, and avoid writes to the
+active task's likely ownership unless the user chose to merge the work into one
+coordinated Agent Flow run.
+
+Do not block internal lane sharding, workers, or QA/review lanes that belong to
+the same Agent Flow run. The gate protects separate user-launched feature
+sessions from silently stepping on each other.
+
 ## Infra Guard
 
 Default posture: existing project infra already exists.
@@ -81,6 +131,7 @@ Before launching any subagent, the orchestrator must package project memory and 
 
 - relevant lessons from `.agent-work/tasks/lessons.md`;
 - relevant active task notes from `.agent-work/tasks/todo.md` and `.agent-work/tasks/implementation-notes.md`;
+- dependency gate outcome, including active task conflicts or explicit user override;
 - named PRD/spec/design source;
 - current repo and expected existing infra;
 - allowed commands;
