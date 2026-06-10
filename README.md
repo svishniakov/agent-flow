@@ -4,7 +4,7 @@
 
 ## English
 
-AgentFlow is a Codex skill for scoped agent workflows. It keeps project memory, routes work through narrow roles, lets the orchestrator choose budget and execution topology, and requires verification before a final answer.
+AgentFlow is a Codex skill for scoped agent workflows. Put `Agent Flow` first in the prompt; after that, the orchestrator reads context, switches internal budgets under the hood, decides whether subagents are useful, and requires verification before a final answer.
 
 Target: Codex with OpenAI models only. Claude Code, Cursor, Hermes, and other hosts are outside this package scope.
 
@@ -20,7 +20,7 @@ $agent-flow <task>
 agent-flow <task>
 ```
 
-The prefix authorizes the orchestrator to choose the smallest useful budget and execution topology. `light` stays solo. `standard` and `release` may use subagents when delegation adds real review, QA, research, or parallel implementation value.
+The prefix must be first, and it is enough. Users do not choose budgets or explicitly ask for subagents. The orchestrator decides from context whether the task should stay solo, collect more evidence, create trace artifacts, or delegate work to subagents.
 
 ### Install
 
@@ -63,8 +63,8 @@ PASS all Agent Flow checks
 
 - AgentFlow is not a general preflight. Unprefixed requests stay outside this skill.
 - Project `AGENTS.md` files cannot force AgentFlow on.
-- `light` budget is always solo.
-- `standard` and `release` may use subagents when the orchestrator can justify them.
+- Budget switching is internal; users do not choose workflow depth manually.
+- Subagents no longer need an explicit user request; the orchestrator turns them on when they add real review, QA, research, or parallel implementation value.
 - `.agent-work/tasks/` is local project memory.
 - `.agent-work/runs/` is used only for traceable work.
 - AgentFlow artifacts should not be included in product commits unless explicitly requested.
@@ -72,7 +72,7 @@ PASS all Agent Flow checks
 
 ### Large Scopes
 
-For large scopes, `standard` and `release` can split work into implementation, integration, QA, and review lanes. For traceable runs, `lane-map.json` is the source of truth. `validate-run.py` blocks `Verdict: ship` if a critical lane lacks evidence or a valid replacement lane. Architecture-sensitive code review must be checked against an architect-owned review contract before reviewer readiness verdict.
+For large or risky scopes, the orchestrator can split work into implementation, integration, QA, and review lanes. For traceable runs, `lane-map.json` is the source of truth. `validate-run.py` blocks `Verdict: ship` if a critical lane lacks evidence or a valid replacement lane. Architecture-sensitive code review must be checked against an architect-owned review contract before reviewer readiness verdict.
 
 ### Examples
 
@@ -107,7 +107,7 @@ Agent Flow Finish this feature for release. Run architecture, QA, and review gat
 
 ## Russian
 
-AgentFlow - это Codex skill для задач, где нужен управляемый workflow агента. Он хранит проектную память, выбирает узкие роли, даёт оркестратору выбрать budget и execution topology и требует проверку перед финальным ответом.
+AgentFlow - это Codex skill для задач, где нужен управляемый workflow агента. Пользователь ставит `Agent Flow` первым в prompt; дальше оркестратор читает контекст, под капотом переключает внутренние budgets, решает, нужны ли субагенты, и требует проверку перед финальным ответом.
 
 Поддерживаемая среда: Codex с моделями OpenAI. Claude Code, Cursor, Hermes и другие hosts вне scope этого пакета.
 
@@ -123,7 +123,7 @@ $agent-flow <задача>
 agent-flow <задача>
 ```
 
-Префикс разрешает оркестратору выбрать минимальный полезный budget и execution topology. `light` остаётся solo. `standard` и `release` могут использовать субагентов, если делегирование даёт реальную пользу для review, QA, research или параллельной реализации.
+Префикс должен стоять первым, и этого достаточно. Пользователю не нужно выбирать budgets или явно просить субагентов. Оркестратор сам решает по контексту, оставить задачу solo, собрать больше evidence, создать trace artifacts или делегировать часть работы субагентам.
 
 ### Установка
 
@@ -166,8 +166,8 @@ PASS all Agent Flow checks
 
 - AgentFlow не является общим preflight для каждого запроса.
 - Проектный `AGENTS.md` не может включить AgentFlow без префикса пользователя.
-- `light` budget всегда solo.
-- `standard` и `release` могут использовать субагентов, если оркестратор может это обосновать.
+- Переключение budgets работает под капотом; пользователь не выбирает глубину workflow вручную.
+- Субагенты больше не требуют явной просьбы пользователя; оркестратор включает их, когда они дают реальную пользу для review, QA, research или параллельной реализации.
 - `.agent-work/tasks/` - локальная проектная память.
 - `.agent-work/runs/` используется только для traceable work.
 - AgentFlow artifacts не попадают в product commits без явной просьбы.
@@ -175,7 +175,7 @@ PASS all Agent Flow checks
 
 ### Большие задачи
 
-Для больших задач `standard` и `release` могут разделить работу на implementation, integration, QA и review lanes. Для traceable runs source of truth - `lane-map.json`. `validate-run.py` блокирует `Verdict: ship`, если critical lane не закрыта evidence или валидной replacement lane. Architecture-sensitive code review проверяется against architect-owned review contract до reviewer verdict о готовности.
+Для больших или рискованных задач оркестратор может разделить работу на implementation, integration, QA и review lanes. Для traceable runs source of truth - `lane-map.json`. `validate-run.py` блокирует `Verdict: ship`, если critical lane не закрыта evidence или валидной replacement lane. Architecture-sensitive code review проверяется against architect-owned review contract до reviewer verdict о готовности.
 
 ### Примеры
 

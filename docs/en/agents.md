@@ -2,7 +2,7 @@
 
 This document describes the bundled Agent Flow subagents in English. The working role files in `agents/*.md` are also written in English so the skill stays consistent and portable.
 
-`light` budget does not launch subagents. In `standard` and `release`, Agent Flow may launch them when the orchestrator decides delegation adds useful evidence or parallelism and the current environment has a tool for launching subagents.
+Users do not decide whether to launch subagents. Agent Flow may launch them automatically when the orchestrator decides delegation adds useful evidence or parallelism and the current environment has a tool for launching subagents.
 
 Each `agents/<role>.md` file has runtime `model` and `reasoning_effort` fields plus escalation fields for risky tasks. Before `spawn_agent`, the orchestrator runs `resolve-agent-config.py`, passes any matching `--trigger` values, and uses the selected output as tool arguments.
 
@@ -12,9 +12,9 @@ In large traceable runs, one role can be used several times as separate lanes. F
 
 ### orchestrator
 
-The Agent Flow orchestration support role. It helps the main agent choose the flow, budget, trace policy, work sequence, and verification criteria. It prepares delegation packets, integrates handoffs, watches the Definition of Done, and checks that the final response is backed by evidence.
+The Agent Flow orchestration support role. It helps the main agent choose the flow, internal budget, trace policy, work sequence, and verification criteria. It prepares delegation packets, integrates handoffs, watches the Definition of Done, and checks that the final response is backed by evidence.
 
-It must not activate Agent Flow by itself or invent public modes. It must not launch subagents for `light`.
+It must not activate Agent Flow by itself or invent public modes. It launches subagents only after internal workflow selection and a usefulness check.
 
 ### product-manager
 
