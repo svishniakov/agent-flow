@@ -22,6 +22,17 @@ Before final handoff for repo tasks:
 - add confirmed lessons to `.agent-work/tasks/lessons.md`;
 - record important decisions, tradeoffs, constraints, evidence links, and follow-up in `.agent-work/tasks/implementation-notes.md` when global criteria make notes relevant.
 
+## Task Status Completion Gate
+
+Before final handoff for any repo task, audit the current `.agent-work/tasks/todo.md` section:
+
+- if every checklist item is checked, verification is recorded, no blocker remains, and any requested product commit succeeded, set `Status: done`;
+- if a product commit was created for the task, update the current task section after the commit with commit and check evidence before final handoff;
+- if every checklist item is checked but verification, review, approval, or commit evidence is missing, do not call the task done; keep `Status: in_progress` or `Status: blocked` and record the missing evidence;
+- if work is intentionally deferred, leave an unchecked item or explicit blocker so the dependency gate has an honest active task to read.
+
+A task section must not remain `Status: in_progress` only because the agent forgot to flip the status after successful verification or commit.
+
 ## Traceable Gates
 
 For compact `standard` trace:

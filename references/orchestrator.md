@@ -34,14 +34,15 @@ The orchestrator must obey:
 4. Create/read `.agent-work/tasks/todo.md` and `.agent-work/tasks/lessons.md` for repo tasks.
 5. Read `implementation-notes.md` when global criteria make it relevant.
 6. Read named PRD/spec/design docs and environment docs needed for the task.
-7. Run the dependency gate for new feature work, product edits, cross-file implementation, or delegation.
-8. If this is a traceable implementation run inside a git repo, capture `git status --short` before edits and record the initial worktree snapshot.
-9. Classify request type.
-10. Choose the internal flow.
-11. Choose the smallest execution budget: `light`, `standard`, or `release`.
-12. Update `.agent-work/tasks/todo.md` for repo tasks before product changes.
-13. If the budget and task shape justify subagents, discover `spawn_agent`.
-14. State the selected skill/tool briefly when user-facing rules require it.
+7. Normalize stale completed task sections before dependency classification.
+8. Run the dependency gate for new feature work, product edits, cross-file implementation, or delegation.
+9. If this is a traceable implementation run inside a git repo, capture `git status --short` before edits and record the initial worktree snapshot.
+10. Classify request type.
+11. Choose the internal flow.
+12. Choose the smallest execution budget: `light`, `standard`, or `release`.
+13. Update `.agent-work/tasks/todo.md` for repo tasks before product changes.
+14. If the budget and task shape justify subagents, discover `spawn_agent`.
+15. State the selected skill/tool briefly when user-facing rules require it.
 
 ## Invocation Semantics
 
@@ -122,10 +123,11 @@ Before final answer:
 2. Verify changed files and command outputs.
 3. Confirm trace artifacts only if used.
 4. If product changes must be committed, create the product commit after checks and before final trace closure. Do not include `.agent-work/` in the product commit unless the user explicitly requested it.
-5. If a trace timeline exists and a product commit was created, append an orchestrator `stage=commit` event with the commit hash.
-6. Compare the initial worktree snapshot with current `git status --short`.
-7. In `final.md`, record run-owned changes, product commit hash when applicable, pre-existing dirty files left untouched, and pre-existing dirty files touched by the run.
-8. If a trace timeline exists, append the final orchestrator event after `final.md` records the verdict and commit hash.
-9. Run final trace validation.
-10. Record residual risks.
-11. Keep final answer short and evidence-based.
+5. Run the Task Status Completion Gate for the current `.agent-work/tasks/todo.md` section. If the checklist is complete, verification is recorded, no blocker remains, and the requested commit succeeded, set `Status: done`; otherwise record the missing item and keep `Status: in_progress` or `Status: blocked`.
+6. If a trace timeline exists and a product commit was created, append an orchestrator `stage=commit` event with the commit hash.
+7. Compare the initial worktree snapshot with current `git status --short`.
+8. In `final.md`, record run-owned changes, product commit hash when applicable, pre-existing dirty files left untouched, and pre-existing dirty files touched by the run.
+9. If a trace timeline exists, append the final orchestrator event after `final.md` records the verdict and commit hash.
+10. Run final trace validation.
+11. Record residual risks.
+12. Keep final answer short and evidence-based.

@@ -64,7 +64,8 @@ Inside Agent Flow, the orchestrator owns the outcome:
 7. Keep scope bounded.
 8. Use subagents only when the selected budget and task shape justify them.
 9. Verify evidence before any completion claim.
-10. Return the final answer with residual risks.
+10. Close the current project-memory task status before final handoff.
+11. Return the final answer with residual risks.
 
 The orchestrator is authoritative inside system, developer, user, tool, and local project constraints. It cannot bypass safety rules, destructive-git protections, tool limits, approval requirements, or verification.
 
@@ -92,6 +93,7 @@ Before implementation or subagent launch, the main agent must follow global proj
 - read `lessons.md` and `todo.md` before repo work;
 - read `implementation-notes.md` when global criteria make it relevant;
 - update `todo.md`, `implementation-notes.md`, and `lessons.md` through the orchestrator rules;
+- keep the current `todo.md` task status synchronized with checklist, verification, and commit state;
 - local project instructions;
 - project-declared legacy task docs such as `docs/tasks/lessons.md`, `docs/tasks/todo.md`, and `docs/tasks/implementation-notes.md` only when local project instructions explicitly name them as current memory;
 - PRD/spec/design documents named by the user;
@@ -100,6 +102,8 @@ Before implementation or subagent launch, the main agent must follow global proj
 ## Dependency Gate
 
 Before planning a new feature, product edit, cross-file implementation, or delegated run, read any named PRD/spec/design source needed to understand the request, then inspect active project memory for existing `Status: in_progress` or `Status: blocked` tasks. Ignore the current request's own task section if it was already created for bookkeeping.
+
+Before using active sections as blockers, run a task status normalization pass. If a section is marked `Status: in_progress` but every checklist item is checked, verification is recorded in `Review:`, and no blocker remains, close that section as `Status: done` before dependency comparison. If the checklist is complete but verification, review, or commit evidence is missing, classify the section as `uncertain` and stop with a close-or-verify warning instead of treating stale memory as normal active work.
 
 Classify each active task against the new request:
 
@@ -238,6 +242,12 @@ For code review and release readiness work that touches architecture, public con
 Read `references/definition-of-done.md` before final response on traceable work.
 
 No completion claim without fresh evidence. Verification can be tests, build, lint, browser screenshots, visual diff, QA notes, docs review, or a checklist tied to acceptance criteria.
+
+Before final response for any repo task, run the Task Status Completion Gate:
+
+- if the current task checklist is complete, verification is recorded, no blocker remains, and any requested product commit succeeded, set the current `.agent-work/tasks/todo.md` section to `Status: done`;
+- if a product commit was created for the task, update the current task section after the commit with the commit/check evidence before final handoff;
+- if any checklist item, verification, approval, or commit step is missing, keep `Status: in_progress` or `Status: blocked` and record the exact missing item.
 
 For UI workflows, browser proof must exercise the claimed workflow through the UI. Direct API calls may prepare, inspect, or clean up state, but they do not prove clicks, selections, saves, reloads, or visual states unless the app UI performs those steps too.
 

@@ -50,12 +50,14 @@ Delegation packet must include:
 - Confirm selected budget and whether subagents are budget-authorized or explicitly requested.
 - Classify the task and choose the smallest useful budget.
 - Read project memory and environment constraints before planning, implementation, infra, browser checks, or delegation.
+- Normalize stale completed `todo.md` sections before dependency classification.
 - Run the dependency gate before new feature planning, implementation, or delegation.
 - If an active task has uncertain or direct overlap, stop and recommend waiting, unless the user explicitly accepts the recorded risk or chooses one coordinated run.
 - If subagents are authorized by budget or request, choose narrow independent roles and disjoint write sets.
 - For architecture-sensitive code review, require architect-owned boundaries, risks, ownership, and verification gates before reviewer verdict.
 - Build self-contained delegation packets from bundled role files and stable identities.
 - Integrate handoffs, verify evidence directly, and close Definition of Done gates.
+- Before final handoff, close the current project-memory task as `Status: done` when checklist, verification, blockers, and requested commit state satisfy the Task Status Completion Gate.
 
 ## Output Contract
 Return:
@@ -65,6 +67,7 @@ Return:
 - subagent authorization status from budget or explicit request
 - roles used or skipped with reason
 - trace/run status when applicable
+- project-memory task status
 - verification evidence
 - DoD status
 - residual risks or blockers
@@ -75,5 +78,6 @@ Return:
 - Do not call role-lane work subagent execution.
 - Do not continue past an uncertain or direct active-task dependency without explicit user acceptance.
 - Do not report completion without fresh evidence.
+- Do not leave the current task `Status: in_progress` after successful verification or commit when every checklist item is checked and no blocker remains.
 - Do not commit .agent-work/.
 - Do not use Fast.

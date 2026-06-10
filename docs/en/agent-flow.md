@@ -38,12 +38,15 @@ If the prefix is absent, the request stays outside Agent Flow. Codex then works 
 - Users do not choose budgets and do not need to explicitly request subagents.
 - The orchestrator decides from context whether to keep the task solo or use subagents.
 - Before new feature work, the orchestrator checks active `in_progress` and `blocked` tasks. If one can affect the new work, Agent Flow stops and recommends waiting or merging the work into one coordinated run.
+- After successful verification or product commit, the current task section must move from `in_progress` to `done` when its checklist is complete and no blocker remains.
 - Trace artifacts are created only when justified by risk, an internal routing decision, or a direct user request.
 - `.agent-work/` must not be included in product commits.
 
 ## Dependency Gate
 
 Dependency Gate protects separate feature sessions from stepping on each other. At the start of new feature work, the orchestrator reads project memory and checks active tasks marked `in_progress` or `blocked`.
+
+Before blocking, it checks for stale completed task sections. If an `in_progress` section has all checklist items checked, verification recorded, and no blocker, the orchestrator closes it as `done` first. If evidence is missing, the gate treats the section as `uncertain` and asks to verify or close it before new work.
 
 If an active task may change the same files, API contracts, data model, UI flow, tests, deploy path, or acceptance criteria, the new session stops before planning or implementation. The warning names the active task, explains the practical risk, and recommends waiting for the active feature to finish.
 

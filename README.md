@@ -74,6 +74,7 @@ PASS all Agent Flow checks
 - Project `AGENTS.md` files cannot force AgentFlow on.
 - Budget switching is internal; users do not choose workflow depth manually.
 - Dependency Gate is mandatory before new feature work: if another active task may affect the new one, the orchestrator stops and recommends waiting or merging the work into one coordinated run.
+- Task status is a hard completion signal: after successful verification or product commit, a completed current task must move from `in_progress` to `done`.
 - Subagents no longer need an explicit user request; the orchestrator turns them on when they add real review, QA, research, or parallel implementation value.
 - `.agent-work/tasks/` is local project memory.
 - `.agent-work/runs/` is used only for traceable work.
@@ -87,6 +88,8 @@ For large or risky scopes, the orchestrator can split work into implementation, 
 ### Dependency Gate
 
 When a user starts a new feature while another feature is still `in_progress` or `blocked`, the orchestrator checks project memory before planning. If the active work may change the same files, API, data model, UI flow, tests, deploy path, or acceptance criteria, AgentFlow stops the new session.
+
+Before blocking, AgentFlow checks for stale completed task sections. If an `in_progress` section has all checklist items checked, verification recorded, and no blocker, the orchestrator closes it as `done` first. If evidence is missing, the gate treats it as `uncertain` and asks to verify or close it before new work.
 
 The warning names the active task, explains the risk in practical terms, and recommends waiting for the active feature to finish. The user can still continue by explicitly accepting the risk, or can merge both pieces of work into one coordinated AgentFlow run.
 
@@ -193,6 +196,7 @@ PASS all Agent Flow checks
 - Проектный `AGENTS.md` не может включить AgentFlow без префикса пользователя.
 - Переключение budgets работает под капотом; пользователь не выбирает глубину workflow вручную.
 - Dependency Gate обязателен перед новой фичей: если другая активная задача может повлиять на неё, оркестратор останавливает старт и рекомендует дождаться результата или объединить работы в один coordinated run.
+- Статус задачи - жёсткий сигнал завершения: после успешной проверки или product commit закрытая текущая задача должна перейти из `in_progress` в `done`.
 - Субагенты больше не требуют явной просьбы пользователя; оркестратор включает их, когда они дают реальную пользу для review, QA, research или параллельной реализации.
 - `.agent-work/tasks/` - локальная проектная память.
 - `.agent-work/runs/` используется только для traceable work.
@@ -206,6 +210,8 @@ PASS all Agent Flow checks
 ### Dependency Gate
 
 Когда пользователь запускает новую фичу, а в проекте уже есть задача со статусом `in_progress` или `blocked`, оркестратор сначала смотрит проектную память. Если активная работа может поменять те же файлы, API, модель данных, UI flow, тесты, deploy path или критерии приёмки, AgentFlow останавливает новую сессию.
+
+Перед блокировкой AgentFlow проверяет, нет ли stale завершённых секций. Если у секции `in_progress` отмечены все пункты checklist, записана проверка и нет blocker, оркестратор сначала закрывает её как `done`. Если evidence не хватает, gate считает секцию `uncertain` и просит проверить или закрыть её перед новой работой.
 
 Предупреждение называет активную задачу, объясняет практический риск и рекомендует дождаться завершения текущей фичи. Пользователь может явно принять риск и продолжить или объединить обе работы в один coordinated AgentFlow run.
 

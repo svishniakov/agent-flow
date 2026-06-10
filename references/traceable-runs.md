@@ -81,10 +81,11 @@ When a traceable run creates a product commit, use this order:
 1. finish implementation;
 2. run the required checks;
 3. create the product commit with only in-scope product/docs changes;
-4. append a run-local `stage=commit` orchestrator event with the commit hash;
-5. write or update `final.md` with the commit hash, evidence and risks;
-6. append the single final orchestrator timeline event;
-7. run `scripts/validate-run.py --run-dir <run-dir>`.
+4. update the current `.agent-work/tasks/todo.md` section with commit/check evidence and set `Status: done` when the Task Status Completion Gate is satisfied;
+5. append a run-local `stage=commit` orchestrator event with the commit hash;
+6. write or update `final.md` with the commit hash, evidence and risks;
+7. append the single final orchestrator timeline event;
+8. run `scripts/validate-run.py --run-dir <run-dir>`.
 
 Do not create a second commit just to include `.agent-work/` trace changes. The
 timeline records the product commit hash locally after the product commit

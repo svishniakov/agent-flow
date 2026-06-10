@@ -21,6 +21,29 @@ PRODUCT_SEARCH_PATHS = [
     "registries",
 ]
 
+REQUIRED_RUNTIME_TEXT = {
+    "SKILL.md": [
+        "Task Status Completion Gate",
+        "task status normalization pass",
+    ],
+    "references/definition-of-done.md": [
+        "Task Status Completion Gate",
+        "Status: done",
+    ],
+    "references/project-memory-and-env.md": [
+        "normalize stale completed sections",
+        "classify it as `uncertain`",
+    ],
+    "references/orchestrator.md": [
+        "Normalize stale completed task sections",
+        "Task Status Completion Gate",
+    ],
+    "agents/orchestrator.md": [
+        "Normalize stale completed `todo.md` sections",
+        "project-memory task status",
+    ],
+}
+
 
 def run_step(name: str, command: list[str]) -> int:
     print(f"==> {name}")
@@ -98,6 +121,24 @@ def run_readme_markdown_guard() -> int:
     return 0
 
 
+def run_required_runtime_text_guard() -> int:
+    print("==> task status completion guard")
+    failures: list[str] = []
+    for raw_path, needles in REQUIRED_RUNTIME_TEXT.items():
+        path = ROOT / raw_path
+        text = path.read_text(encoding="utf-8")
+        for needle in needles:
+            if needle not in text:
+                failures.append(f"{raw_path}: missing {needle!r}")
+    if failures:
+        print("FAIL task status completion guard", file=sys.stderr)
+        for failure in failures:
+            print(f"- {failure}", file=sys.stderr)
+        return 1
+    print("PASS task status completion guard")
+    return 0
+
+
 def main() -> int:
     python_files = sorted(str(path.relative_to(ROOT)) for path in SCRIPTS.glob("*.py"))
     command_steps = [
@@ -126,6 +167,8 @@ def main() -> int:
         if run_content_guard(name, needle):
             failures += 1
     if run_readme_markdown_guard():
+        failures += 1
+    if run_required_runtime_text_guard():
         failures += 1
 
     if failures:

@@ -12,6 +12,7 @@ Before planning, delegation, product edits, infra commands, DB/storage work, bro
   - read `lessons.md` and `todo.md` before repo work;
   - read `implementation-notes.md` when global criteria make it relevant;
   - update `todo.md` as the current task checklist;
+  - close the current `todo.md` task as `Status: done` when its checklist, verification, blockers, and requested commit state satisfy the Task Status Completion Gate;
 - project-declared legacy memory such as `docs/tasks/*` only when local project instructions explicitly name it as current memory;
 - PRD/spec/design docs named by the user;
 - environment docs for infra, Docker, local dev, migrations, test data, and app startup when the task can touch them;
@@ -27,6 +28,16 @@ Before planning new feature work, product edits, cross-file implementation, or
 delegation, inspect `.agent-work/tasks/todo.md` for existing sections marked
 `Status: in_progress` or `Status: blocked`. Ignore the section for the current
 request if it was already added as bookkeeping.
+
+Before dependency classification, normalize stale completed sections:
+
+- if a section is `Status: in_progress`, every checklist item is checked,
+  `Review:` records verification, and no blocker remains, update that section
+  to `Status: done` and do not use it as a blocker;
+- if every checklist item is checked but verification, review, approval, or
+  commit evidence is missing, keep it active and classify it as `uncertain`;
+- if a product commit is recorded as the task result, the current task section
+  must be updated after the commit and before final handoff.
 
 If the new request names a PRD, spec, design source, issue, or task document,
 read that source before dependency classification. The gate must compare active
