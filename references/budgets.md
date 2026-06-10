@@ -37,12 +37,12 @@ Use when evidence will help review, continuation, or rollback:
 - UI work needing screenshots;
 - docs/spec updates that must remain traceable;
 - long investigation with decisions worth preserving.
-- large PRD work with explicitly authorized subagents when release-level risk is not present.
+- large PRD or cross-layer work where subagents add useful independent evidence and release-level risk is not present.
 
 Rules:
 
-- solo by default;
-- subagents only if explicitly requested by the user;
+- solo unless delegation adds clear value;
+- subagents are allowed when work can be split into narrow independent lanes, review, or QA evidence;
 - workflow patterns may be recorded in `run.md` or `checks.md` when they explain the evidence;
 - Lane Sharding may use `lane-map.json` when durable lane evidence is useful;
 - compact trace preferred: `run.md`, `checks.md`, `final.md`, plus artifacts that prove the result;
@@ -58,14 +58,16 @@ Use when failure cost is high:
 - security-sensitive changes;
 - high-stakes data migration;
 - user explicitly asks for full trace.
-- large PRD work with explicitly authorized subagents and cross-system, security, data, release, or migration risk.
+- large PRD work with cross-system, security, data, release, or migration risk.
 
 Rules:
 
 - full traceable run;
 - fresh checks before completion;
 - explicit residual risks;
-- subagents still require separate explicit user request;
+- orchestrator should consider architect, QA, reviewer, and worker lanes by default;
+- subagents may be skipped only when a concrete reason makes solo safer and sufficient;
+- code review that touches architecture, public contracts, APIs, data flow, security, migrations, or multiple subsystems requires an architect-owned review contract before reviewer verdict;
 - loops, tournaments, and fan-out work require budget caps and stop conditions;
 - Lane Sharding requires `lane-map.json`; critical lanes must be covered before `ship`;
 - no final `ship` verdict unless acceptance checks passed.

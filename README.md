@@ -4,7 +4,7 @@
 
 ## English
 
-AgentFlow is a Codex skill for scoped agent workflows. It keeps project memory, routes work through narrow roles, controls explicit subagent delegation, and requires verification before a final answer.
+AgentFlow is a Codex skill for scoped agent workflows. It keeps project memory, routes work through narrow roles, lets the orchestrator choose budget and execution topology, and requires verification before a final answer.
 
 Target: Codex with OpenAI models only. Claude Code, Cursor, Hermes, and other hosts are outside this package scope.
 
@@ -20,9 +20,7 @@ $agent-flow <task>
 agent-flow <task>
 ```
 
-The prefix does not authorize subagents. Delegation needs a separate explicit request in the same task, for example `use subagents`, `spawn a subagent`, or `multi-agent review`.
-
-Without that separate request, AgentFlow runs solo through the main agent.
+The prefix authorizes the orchestrator to choose the smallest useful budget and execution topology. `light` stays solo. `standard` and `release` may use subagents when delegation adds real review, QA, research, or parallel implementation value.
 
 ### Install
 
@@ -65,7 +63,8 @@ PASS all Agent Flow checks
 
 - AgentFlow is not a general preflight. Unprefixed requests stay outside this skill.
 - Project `AGENTS.md` files cannot force AgentFlow on.
-- Subagents are off by default.
+- `light` budget is always solo.
+- `standard` and `release` may use subagents when the orchestrator can justify them.
 - `.agent-work/tasks/` is local project memory.
 - `.agent-work/runs/` is used only for traceable work.
 - AgentFlow artifacts should not be included in product commits unless explicitly requested.
@@ -73,7 +72,7 @@ PASS all Agent Flow checks
 
 ### Large Scopes
 
-When the user explicitly authorizes subagents, large work can be split into implementation, integration, QA, and review lanes. For traceable runs, `lane-map.json` is the source of truth. `validate-run.py` blocks `Verdict: ship` if a critical lane lacks evidence or a valid replacement lane.
+For large scopes, `standard` and `release` can split work into implementation, integration, QA, and review lanes. For traceable runs, `lane-map.json` is the source of truth. `validate-run.py` blocks `Verdict: ship` if a critical lane lacks evidence or a valid replacement lane. Architecture-sensitive code review must be checked against an architect-owned review contract before reviewer readiness verdict.
 
 ### Examples
 
@@ -89,10 +88,10 @@ Bugfix:
 Agent Flow Investigate this bug: <description>. Find the cause, make the smallest fix, run checks, and return changed files plus residual risks.
 ```
 
-Explicit subagents:
+Release review:
 
 ```text
-Agent Flow Use subagents for independent review. Split work by role and merge findings into one result.
+Agent Flow Finish this feature for release. Run architecture, QA, and review gates, then return ship/pass-with-risks/blocker status with evidence.
 ```
 
 ### Useful Links
@@ -108,7 +107,7 @@ Agent Flow Use subagents for independent review. Split work by role and merge fi
 
 ## Russian
 
-AgentFlow - это Codex skill для задач, где нужен управляемый workflow агента. Он хранит проектную память, выбирает узкие роли, контролирует явное делегирование субагентам и требует проверку перед финальным ответом.
+AgentFlow - это Codex skill для задач, где нужен управляемый workflow агента. Он хранит проектную память, выбирает узкие роли, даёт оркестратору выбрать budget и execution topology и требует проверку перед финальным ответом.
 
 Поддерживаемая среда: Codex с моделями OpenAI. Claude Code, Cursor, Hermes и другие hosts вне scope этого пакета.
 
@@ -124,9 +123,7 @@ $agent-flow <задача>
 agent-flow <задача>
 ```
 
-Префикс не разрешает субагентов. Для делегирования нужна отдельная явная просьба в той же задаче: например, `use subagents`, `spawn a subagent` или `multi-agent review`.
-
-Без такой просьбы AgentFlow работает solo через основного агента.
+Префикс разрешает оркестратору выбрать минимальный полезный budget и execution topology. `light` остаётся solo. `standard` и `release` могут использовать субагентов, если делегирование даёт реальную пользу для review, QA, research или параллельной реализации.
 
 ### Установка
 
@@ -169,7 +166,8 @@ PASS all Agent Flow checks
 
 - AgentFlow не является общим preflight для каждого запроса.
 - Проектный `AGENTS.md` не может включить AgentFlow без префикса пользователя.
-- Субагенты выключены по умолчанию.
+- `light` budget всегда solo.
+- `standard` и `release` могут использовать субагентов, если оркестратор может это обосновать.
 - `.agent-work/tasks/` - локальная проектная память.
 - `.agent-work/runs/` используется только для traceable work.
 - AgentFlow artifacts не попадают в product commits без явной просьбы.
@@ -177,7 +175,7 @@ PASS all Agent Flow checks
 
 ### Большие задачи
 
-Если пользователь явно разрешил субагентов, большую задачу можно разделить на implementation, integration, QA и review lanes. Для traceable runs source of truth - `lane-map.json`. `validate-run.py` блокирует `Verdict: ship`, если critical lane не закрыта evidence или валидной replacement lane.
+Для больших задач `standard` и `release` могут разделить работу на implementation, integration, QA и review lanes. Для traceable runs source of truth - `lane-map.json`. `validate-run.py` блокирует `Verdict: ship`, если critical lane не закрыта evidence или валидной replacement lane. Architecture-sensitive code review проверяется against architect-owned review contract до reviewer verdict о готовности.
 
 ### Примеры
 
@@ -193,10 +191,10 @@ Bugfix:
 Agent Flow Investigate this bug: <description>. Find the cause, make the smallest fix, run checks, and return changed files plus residual risks.
 ```
 
-Явные субагенты:
+Release review:
 
 ```text
-Agent Flow Use subagents for independent review. Split work by role and merge findings into one result.
+Agent Flow Finish this feature for release. Run architecture, QA, and review gates, then return ship/pass-with-risks/blocker status with evidence.
 ```
 
 ### Ссылки

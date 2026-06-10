@@ -25,9 +25,9 @@ Overlap notes: Use `documenter` to write final PRD/spec text; use `architect` af
 ### architect
 
 Status: active
-Use when: Work touches module boundaries, APIs, storage, queues, integrations, migrations, public contracts, or several subsystems.
+Use when: Work touches module boundaries, APIs, storage, queues, integrations, migrations, public contracts, or several subsystems, or when code review needs a technical contract for architecture-sensitive readiness.
 Do not use when: The plan is already narrow enough for a worker.
-Overlap notes: Use `backend-worker`, `frontend-worker`, or language workers for execution after architecture is settled.
+Overlap notes: Use `backend-worker`, `frontend-worker`, or language workers for execution after architecture is settled. Use `reviewer` for independent findings against the architect-owned contract.
 
 ### researcher
 
@@ -48,7 +48,7 @@ Overlap notes: Use `design-documenter` for `docs/design/DESIGN.md`; use `ai-slop
 Status: active
 Use when: Implementation, plan, branch, or release readiness needs independent findings ordered by severity.
 Do not use when: The need is test execution, browser proof, or reproduction evidence.
-Overlap notes: Use `qa-verifier` for behavior checks; reviewer consumes QA evidence but does not replace it.
+Overlap notes: Use `qa-verifier` for behavior checks; reviewer consumes QA evidence but does not replace it. For architecture-sensitive review, reviewer checks the diff against the architect-owned contract instead of replacing architect judgment.
 
 ### qa-verifier
 

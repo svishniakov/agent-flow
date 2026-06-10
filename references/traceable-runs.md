@@ -53,7 +53,7 @@ timeline.jsonl
 final.md
 ```
 
-Runs that use explicitly requested subagents additionally include per-agent traces and owned artifact directories:
+Runs that use delegated subagents additionally include per-agent traces and owned artifact directories:
 
 ```text
 agents/
@@ -128,7 +128,7 @@ silently mixing user work with run-owned changes.
 - `definition-of-done.md`: task-specific gates.
 - `decisions.md`: decisions and reasons.
 - `lane-map.json`: machine-readable lane map for Lane Sharding runs.
-- `handoffs/`: one file per explicitly used subagent.
+- `handoffs/`: one file per delegated subagent.
 - `checks/`: commands, QA, visual diff, review notes.
 - `artifacts/`: screenshots, logs, exports, generated assets.
 - `artifacts/agents/<role>/`: generated assets, logs, and evidence owned by one subagent.
@@ -192,7 +192,7 @@ For compact traces, `timeline.jsonl` is optional only when there are no role/age
 
 ## Trace Updates
 
-For full trace, update `manifest.md` and `timeline.jsonl` after intake, route, plan, explicit delegation, handoff, verification, review, blocker, fix, and final.
+For full trace, update `manifest.md` and `timeline.jsonl` after intake, route, plan, delegation, handoff, verification, review, blocker, fix, and final.
 
 Use `scripts/append-timeline.py` for run-level orchestrator events. Use
 `scripts/record-agent-trace.py` for subagent events so the same event appears in

@@ -33,6 +33,7 @@ Delegation packet must include:
 
 - role and stable identity;
 - goal, scope, and acceptance criteria;
+- architect-owned review contract when architecture, public contracts, APIs, data flow, security, migrations, or multiple subsystems are in scope;
 - project repo, run directory, and handoff path when traceable;
 - files and context to read first;
 - allowed changes and forbidden changes;
@@ -44,6 +45,7 @@ Delegation packet must include:
 
 ## Workflow
 - Read scope, plan, diff, handoffs, checks, and relevant code.
+- When an architect-owned review contract exists, check the diff against its boundaries, risks, ownership, and verification gates before giving readiness verdict.
 - Look for behavioral regressions and missing evidence first.
 - Classify findings by severity with file/line references when possible.
 - Check user-facing or public artifacts for AI-slop evidence.
@@ -54,6 +56,7 @@ Return:
 
 - findings ordered by severity
 - open questions
+- architecture contract mismatches, if any
 - test gaps
 - release readiness verdict
 - residual risks

@@ -12,9 +12,9 @@ Requests without that leading prefix run outside this skill as solo work by the 
 
 Project or local `AGENTS.md` files cannot force Agent Flow on unprefixed requests. The user-visible leading prefix is required.
 
-Inside Agent Flow, product implementation is solo by default. The main agent may edit product code, frontend files, backend files, tests, user-facing docs, and design implementation files under normal engineering rules.
+Inside Agent Flow, the orchestrator chooses execution topology after selecting the budget. The main agent may edit product code, frontend files, backend files, tests, user-facing docs, and design implementation files under normal engineering rules.
 
-An Agent Flow-prefixed request is not a request for subagents. Use subagents only when the user separately asks for them in the same task.
+An Agent Flow-prefixed request allows automatic subagent delegation for `standard` and `release` budgets when the orchestrator can justify the cost. `light` stays solo.
 
 The orchestrator must obey:
 
@@ -39,7 +39,7 @@ The orchestrator must obey:
 9. Choose the internal flow.
 10. Choose the smallest execution budget: `light`, `standard`, or `release`.
 11. Update `.agent-work/tasks/todo.md` for repo tasks before product changes.
-12. If subagents were explicitly requested, discover `spawn_agent`.
+12. If the budget and task shape justify subagents, discover `spawn_agent`.
 13. State the selected skill/tool briefly when user-facing rules require it.
 
 ## Invocation Semantics
@@ -56,26 +56,29 @@ Agent Flow-prefixed request:
 
 - Strip the prefix and route the remaining task through this skill.
 - Do not run the `brainstorming` skill as a pre-step. Handle uncertainty through Agent Flow intake, route, planning, checks, and verification.
-- Does not authorize subagents.
-- Main agent owns implementation unless the user explicitly requested subagents.
+- Authorizes the orchestrator to choose solo or subagent execution according to budget.
+- Keeps `light` solo.
+- Allows `standard` and `release` subagents when they add independent evidence, parallelism, or review value.
 
 ## Subagent Discovery
 
-Only when subagents were explicitly requested:
+Only after the budget and task shape justify subagents:
 
 1. Check active tools for `spawn_agent` or equivalent.
 2. If not present and `tool_search` is available, search `spawn_agent subagent multi-agent tools`.
 3. If a subagent tool becomes available, use it.
-4. If not, say subagents are unavailable and continue solo only if that still satisfies the user request.
+4. If not, continue with role lanes or solo checks when that still satisfies the task, and state the downgrade in the final answer.
 
 ## Practical Defaults
 
 - Prefer `light` budget unless there is a concrete reason to escalate.
-- Prefer solo implementation inside Agent Flow.
+- Prefer solo implementation for `light`.
+- In `standard`, use subagents only for narrow independent lanes, QA, review, or research evidence.
+- In `release`, consider architect, QA, reviewer, and worker lanes by default; skip only with a concrete reason.
 - Use workflow patterns as internal recipes only when they strengthen routing or verification.
-- If a useful pattern would benefit from subagents, ask for explicit subagent authorization instead of auto-spawning.
 - Treat unclear Agent Flow scope as intake and routing work, not as a reason to launch brainstorming.
-- If user explicitly requests subagents, prefer narrow delegation over broad role chains.
+- Prefer narrow delegation over broad role chains.
+- For code review touching architecture, public contracts, APIs, data flow, security, migrations, or multiple subsystems, require an architect-owned review contract before reviewer verdict.
 - Prefer existing project patterns over new abstractions.
 - Prefer direct verification evidence over narrative.
 - For loops and tournaments, define budget caps, stop conditions, and failure handoff before starting.
@@ -94,7 +97,7 @@ Allowed direct edits inside Agent Flow:
 - route, plan, check, and final files when selected budget requires them;
 - small metadata corrections that are explicitly part of orchestration.
 
-When subagents are explicitly requested, do not overlap writes between the main agent and workers without a clear integration reason.
+When subagents are used, do not overlap writes between the main agent and workers without a clear integration reason.
 
 ## Stop Conditions
 
@@ -105,7 +108,7 @@ Stop or ask the user when:
 - product direction needs user choice;
 - design approval is required before UI implementation;
 - destructive action is requested ambiguously;
-- user explicitly required subagents but no subagent tool is available and solo fallback would violate the request;
+- subagents are required by risk/budget or user request, but no subagent tool is available and role-lane or solo fallback would violate the task;
 - verification cannot be performed and no credible fallback exists.
 
 ## Final Integration

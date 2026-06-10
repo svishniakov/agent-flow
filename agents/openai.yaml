@@ -2,7 +2,7 @@ interface:
   display_name: "Agent Flow"
   short_description: "Route work from idea to verified result with bundled subagents"
   brand_color: "#2563EB"
-  default_prompt: "Use $agent-flow only when the user starts the request with Agent Flow, $agent-flow, or agent-flow. No preflight: unprefixed requests must not load, check, mention, or route through Agent Flow. Do not run brainstorming first. For prefixed tasks, read primary local project memory in .agent-work/tasks before planning, infra commands, product edits, or delegation. Route through the smallest useful budget, solo by default, and finish with verification evidence. Subagents require a separate explicit user request. When subagents are explicitly requested, use bundled role files in agents/<role>.md and stable identities from agents/agent-identities.json."
+  default_prompt: "Use $agent-flow only when the user starts the request with Agent Flow, $agent-flow, or agent-flow. No preflight: unprefixed requests must not load, check, mention, or route through Agent Flow. Do not run brainstorming first. For prefixed tasks, read primary local project memory in .agent-work/tasks before planning, infra commands, product edits, or delegation. Route through the smallest useful budget and finish with verification evidence. Light budget stays solo. Standard and release budgets may use subagents when the orchestrator decides they add real verification or parallelism value. When subagents are used, use bundled role files in agents/<role>.md and stable identities from agents/agent-identities.json."
 
 policy:
   allow_implicit_invocation: false

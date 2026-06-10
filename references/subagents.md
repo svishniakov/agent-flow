@@ -1,8 +1,8 @@
 # Bundled Subagents
 
 Agent Flow ships with these subagent definitions in `agents/<role>.md`.
-They are used only after the user explicitly asks for subagents and a spawn tool is available.
-If no spawn tool is available, use the same role guidance as a solo checklist or role lane only when that still satisfies the user request.
+They are used after the orchestrator selects a `standard` or `release` budget and decides delegation is worth the coordination cost, or after the user explicitly asks for subagents.
+If no spawn tool is available, use the same role guidance as a solo checklist or role lane only when that still satisfies the task.
 
 Stable identities live in `agents/agent-identities.json`.
 

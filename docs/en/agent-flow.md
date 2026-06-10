@@ -2,7 +2,7 @@
 
 Agent Flow is a Codex skill that helps move a complex task from the user request to a verified result. It does not activate automatically. The user must start the request with one of these prefixes: `Agent Flow`, `$agent-flow`, or `agent-flow`.
 
-The main idea is simple: choose the shortest useful workflow, keep the task bounded, gather the needed context, do the work, and verify the result before the final response. By default, Agent Flow runs solo: one main agent owns the outcome. Subagents are used only when the user separately asks for subagents, spawn, multi-agent, or delegation, and the current environment has a subagent/spawn tool.
+The main idea is simple: choose the shortest useful workflow, keep the task bounded, gather the needed context, do the work, and verify the result before the final response. `light` budget always runs solo. In `standard` and `release`, the orchestrator may use subagents when independent ownership, review, or QA evidence is worth the coordination cost and the current environment has a subagent/spawn tool.
 
 Supported target is Codex with OpenAI models. Claude Code, Cursor, Hermes, and other hosts are outside this package scope.
 
@@ -15,7 +15,7 @@ Agent Flow is useful when a task is larger than one short answer or one mechanic
 - read project memory and local rules before changes;
 - avoid touching infrastructure without need;
 - separate ordinary solo work from tasks with trace artifacts;
-- prepare a delegation packet for subagents when the user explicitly allows them;
+- prepare a delegation packet for subagents when budget and task shape justify delegation;
 - keep evidence: checks, handoffs, timeline, risks, and final status;
 - avoid claiming the work is done without fresh verification.
 
@@ -34,8 +34,8 @@ If the prefix is absent, the request stays outside Agent Flow. Codex then works 
 - Agent Flow is not a preflight for every request.
 - A project `AGENTS.md` cannot force Agent Flow on.
 - Do not run a separate brainstorming flow before Agent Flow.
-- Subagents are not launched by default.
-- If a task is complex and subagents would help, Agent Flow must ask for explicit permission instead of launching them by itself.
+- `light` budget does not launch subagents.
+- `standard` and `release` budgets may launch subagents when the orchestrator can justify the added evidence or parallelism.
 - Trace artifacts are created only when justified by risk, budget, or a direct user request.
 - `.agent-work/` must not be included in product commits.
 
@@ -72,7 +72,7 @@ The timeline records the real order of work. If a product commit was created, th
 
 ## Lane Sharding
 
-For large PRDs with explicitly authorized subagents, Agent Flow can split work into implementation, integration, QA, and review lanes. This is an internal workflow pattern, not a public mode and not a bypass around explicit subagent authorization.
+For large PRDs or release work, Agent Flow can split work into implementation, integration, QA, and review lanes when the selected budget permits subagents. This is an internal workflow pattern, not a public mode and not a bypass around the `light` solo rule.
 
 In a traceable run, `lane-map.json` becomes the machine-readable source of truth. Markdown files such as `checks/coverage-matrix.md` remain human-readable summaries. Before final handoff, `validate-run.py` checks `lane-map.json` and rejects `Verdict: ship` when a critical lane has no evidence or valid replacement lane.
 
@@ -82,10 +82,10 @@ The repository contains bundled role files in `agents/<role>.md` and stable iden
 
 Subagents are used only when both conditions are true:
 
-- the user explicitly asked for subagents, spawn, multi-agent, or delegation;
+- the selected budget is `standard` or `release`, or the user explicitly asked for subagents, spawn, multi-agent, or delegation;
 - the Codex environment provides a subagent/spawn tool.
 
-If the tool is unavailable, role files can be used as a solo checklist or role lane, but that is not subagent execution.
+If the tool is unavailable, role files can be used as a solo checklist or role lane, but that is not subagent execution. The final answer should state that downgrade.
 
 Subagent dependencies are described in `registries/agent-skills.json`. Role files in `agents/*.md` state which skills a role needs; the registry stores tiers, roles, target paths, prompts, and install instructions.
 

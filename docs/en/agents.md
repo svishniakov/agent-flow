@@ -2,7 +2,7 @@
 
 This document describes the bundled Agent Flow subagents in English. The working role files in `agents/*.md` are also written in English so the skill stays consistent and portable.
 
-Subagents are not launched automatically. Agent Flow uses them only after an explicit user request and only when the current environment has a tool for launching subagents.
+`light` budget does not launch subagents. In `standard` and `release`, Agent Flow may launch them when the orchestrator decides delegation adds useful evidence or parallelism and the current environment has a tool for launching subagents.
 
 Each `agents/<role>.md` file has runtime `model` and `reasoning_effort` fields plus escalation fields for risky tasks. Before `spawn_agent`, the orchestrator runs `resolve-agent-config.py`, passes any matching `--trigger` values, and uses the selected output as tool arguments.
 
@@ -14,7 +14,7 @@ In large traceable runs, one role can be used several times as separate lanes. F
 
 The Agent Flow orchestration support role. It helps the main agent choose the flow, budget, trace policy, work sequence, and verification criteria. It prepares delegation packets, integrates handoffs, watches the Definition of Done, and checks that the final response is backed by evidence.
 
-It must not activate Agent Flow by itself, invent public modes, or launch subagents without separate user permission.
+It must not activate Agent Flow by itself or invent public modes. It must not launch subagents for `light`.
 
 ### product-manager
 
@@ -24,7 +24,7 @@ Output: product frame, acceptance criteria, open questions, and the recommended 
 
 ### architect
 
-The architecture agent. It turns product scope into an implementation plan: module boundaries, data flow, ownership, change sequence, risks, checks, and rollback concerns. It is useful before multiple worker agents or changes that touch contracts, APIs, database, queues, Kafka, or several subsystems.
+The architecture agent. It turns product scope into an implementation plan: module boundaries, data flow, ownership, change sequence, risks, checks, and rollback concerns. It is useful before multiple worker agents or changes that touch contracts, APIs, database, queues, Kafka, or several subsystems. It also owns the technical review contract for architecture-sensitive code review.
 
 It should not write code instead of worker agents when the plan is already ready.
 
@@ -42,7 +42,7 @@ It must not invent facts or change canonical documents without explicit scope.
 
 ### reviewer
 
-The independent reviewer. It looks for real risks: bugs, regressions, missing checks, plan mismatch, security/data-loss concerns, and release blockers. Use it after implementation or before release.
+The independent reviewer. It looks for real risks: bugs, regressions, missing checks, plan mismatch, security/data-loss concerns, and release blockers. Use it after implementation or before release. When an architect-owned review contract exists, it checks the diff against that contract before giving a readiness verdict.
 
 Output format: findings by severity, open questions, test gaps, verdict, and residual risks.
 

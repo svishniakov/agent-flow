@@ -1,15 +1,16 @@
 # Workflow Patterns
 
 Patterns are internal recipes for shaping complex Agent Flow tasks. They are not
-public modes, they are not required preflight, and they do not authorize
-subagents. Use the smallest pattern set that makes verification stronger.
+public modes and they are not required preflight. Subagent variants require a
+`standard` or `release` budget, or an explicit user request. Use the smallest
+pattern set that makes verification stronger.
 
 ## Selection Rules
 
 - Pick a pattern only after Agent Flow was explicitly invoked.
-- Prefer solo execution unless the user separately asked for subagents.
-- If subagents would materially help, name the pattern and ask for explicit
-  subagent authorization.
+- Keep `light` work solo.
+- For `standard` and `release`, use subagent variants only when independent
+  ownership or verification value outweighs coordination cost.
 - Every pattern needs scope, expected output, verification evidence, and residual
   risks.
 - Any loop or tournament needs a budget cap and a stop condition.
@@ -70,7 +71,7 @@ Solo variant:
 
 Subagent variant:
 
-- use only after explicit subagent authorization;
+- use only with `standard` or `release`, or explicit user request;
 - give each worker disjoint ownership;
 - require structured output and handoff;
 - orchestrator owns synthesis and final verification.
@@ -89,7 +90,7 @@ Common waves:
 
 Rules:
 
-- use only after explicit subagent authorization;
+- use only with `standard` or `release`, or explicit user request;
 - record lanes in `lane-map.json` for traceable runs;
 - give every lane an id, role, type, wave, critical flag, status, handoff, and evidence policy;
 - mark shared files as orchestrator-owned or integration-lane-owned before workers start;
@@ -182,7 +183,7 @@ Shape:
 4. try to refute the surviving hypothesis;
 5. report root cause, confidence, fix path, and unresolved evidence.
 
-Subagents may own separate evidence sources only after explicit authorization.
+Subagents may own separate evidence sources only with `standard` or `release`, or explicit user request.
 
 ## Quarantine
 
@@ -211,7 +212,7 @@ When a pattern is used in a traceable run, record:
 
 - selected pattern names;
 - why each pattern was useful;
-- solo or explicit-subagent execution;
+- solo, role-lane, or subagent execution;
 - budget cap and stop condition when applicable;
 - verification evidence;
 - residual risks.

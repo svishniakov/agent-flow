@@ -43,7 +43,7 @@ For full `release` trace:
 - every delegated subagent has `agents/<role>/trace.jsonl` and matching run-level timeline events;
 - when Lane Sharding is used, `lane-map.json` is valid and every critical lane is covered by evidence or a valid replacement lane;
 - artifacts index is valid JSON;
-- each explicitly used subagent has a handoff;
+- each delegated subagent has a handoff;
 - checks include command names and results;
 - final notes run-owned changes and any pre-existing dirty files that were touched or left untouched;
 - final verdict is `ship`, `pass-with-risks`, `blocked`, or `fail`.
@@ -53,6 +53,7 @@ For full `release` trace:
 - Build/typecheck/lint/tests run when available and relevant.
 - Regression scenario checked for bugs.
 - Quick adversarial check run for risky assumptions when no separate verifier was authorized.
+- Code review touching architecture, public contracts, APIs, data flow, security, migrations, or multiple subsystems has an architect-owned review contract and reviewer verdict against it.
 - No unrelated refactor.
 - No dead code, fake tests, or generic abstraction.
 - No user changes reverted.
@@ -60,7 +61,7 @@ For full `release` trace:
 ## Pattern Gates
 
 - Workflow patterns are recipes, not public modes.
-- Subagent patterns ran only after explicit subagent authorization.
+- Subagent patterns ran only under `standard` or `release`, or after explicit user request.
 - Loop-until-done has max iterations, budget cap, stop condition, failure condition, and handoff state.
 - Tournament has bracket size or max comparisons, stable rubric, tie-breakers, and winner rationale.
 - Fan-out work has deterministic item ownership and synthesis by the orchestrator.
@@ -94,7 +95,7 @@ For full `release` trace:
 
 - For user-facing output, docs, UI/design, generated code, tests, or public artifacts, run the AI slop checklist.
 - Simulate the checklist in the main agent by default.
-- Use `ai-slops-hunter` only when the user explicitly requested subagents.
+- Use `ai-slops-hunter` only when the selected budget permits subagents and the added check is worthwhile.
 - If a subagent is used, save handoff to `handoffs/ai-slops-hunter.md`.
 - If simulated during traceable work, record findings and fixes in `checks/ai-slop-gate.md`.
 

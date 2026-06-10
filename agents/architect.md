@@ -22,6 +22,7 @@ Define the smallest viable implementation path, module boundaries, data flow, ow
 - The task touches multiple modules or contracts.
 - An implementation plan is needed before workers start.
 - Architecture, API, data flow, migration, queue, Kafka, or dependency decisions are required.
+- Code review needs a technical contract for architecture-sensitive release readiness.
 
 ## Do Not Use When
 - A plan already exists and only code execution remains.
@@ -48,6 +49,7 @@ Delegation packet must include:
 - Choose the smallest approach that fits the codebase.
 - Split work into non-overlapping worker scopes.
 - Define tests, manual checks, rollback concerns, and risk mitigations.
+- For architecture-sensitive review, produce a review contract that the reviewer can check against the diff.
 
 ## Output Contract
 Return:
@@ -58,6 +60,7 @@ Return:
 - ownership boundaries
 - implementation sequence
 - verification criteria
+- review contract for architecture-sensitive code review
 - risks and mitigations
 
 ## Hard Rules

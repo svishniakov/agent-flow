@@ -6,8 +6,8 @@ Use this gate for user-facing text, UI/design, generated code, docs, tests, and 
 
 1. Read the target artifact and upstream constraints.
 2. Simulate the checklist in the main agent by default.
-3. If the user explicitly requested subagents and subagent tools are available, read and delegate to the bundled `agents/ai-slops-hunter.md`.
-4. If subagents were requested but unavailable, say so and continue solo only if that still satisfies the request.
+3. If `standard` or `release` delegation makes the added check worthwhile and subagent tools are available, read and delegate to the bundled `agents/ai-slops-hunter.md`.
+4. If a subagent path was selected but unavailable, say so and continue solo only if that still satisfies the task.
 5. Keep edits minimal: remove AI slop without changing scope, behavior, API, data contracts, accepted design, or product meaning.
 6. Record verdict, checked categories, fixes, checks, and residual risks.
 
@@ -17,7 +17,7 @@ Canonical bundled agent: `agents/ai-slops-hunter.md`.
 
 User-facing alias: `AI slobhunter` maps to `ai-slops-hunter`.
 
-Use it only when the user explicitly requested subagents. Otherwise, run the same checklist in the main agent.
+Use it only when the selected budget permits subagents and the added check is worth the coordination cost. Otherwise, run the same checklist in the main agent.
 
 Required packet fields:
 

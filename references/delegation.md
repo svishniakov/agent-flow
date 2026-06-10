@@ -1,12 +1,12 @@
 # Delegation
 
-Use subagents only when the user explicitly asks for subagents in the current task. Agent Flow by itself is not enough.
+Use subagents only after Agent Flow is active and the selected budget permits delegation.
 
-Agent Flow-prefixed requests are solo by default. The main agent may write product changes unless subagents were separately requested.
+Agent Flow-prefixed requests let the orchestrator choose execution topology. `light` budget stays solo. `standard` and `release` budgets may use subagents when delegation adds independent evidence, parallelism, or review value.
 
 Unprefixed requests are also solo unless the user explicitly asks for subagents.
 
-If `spawn_agent` is unavailable after an explicit subagent request, say so. Continue solo only if that still matches the user's request.
+If `spawn_agent` is unavailable after a subagent path is selected, say so. Continue with role lanes or solo checks only if that still satisfies the task.
 
 Before treating `spawn_agent` as unavailable, discover it through active tools and `tool_search` when available.
 
@@ -14,7 +14,7 @@ Before treating `spawn_agent` as unavailable, discover it through active tools a
 
 Delegation is never mandatory just because Agent Flow is active.
 
-Delegate only when the user explicitly requested subagents and all are true:
+Delegate only when the selected budget allows it and all are true:
 
 - task is independent;
 - ownership is narrow;
@@ -27,8 +27,8 @@ Do not delegate ritual roles.
 
 ## Eligibility Matrix
 
-When subagents were not explicitly requested, the orchestrator may recommend
-authorization for these cases:
+When the selected budget is `standard` or `release`, the orchestrator may choose
+delegation for these cases:
 
 | Task shape | Useful pattern | Why delegation may help |
 | --- | --- | --- |
@@ -41,8 +41,7 @@ authorization for these cases:
 | design, naming, or architecture options | generate-and-filter or tournament | candidates benefit from rubric-based selection |
 | large triage queue | classify-and-act + quarantine | untrusted input must be separated from actions |
 
-Recommendation wording should name the pattern and ask for explicit permission,
-for example: "This fits fan-out + adversarial verification. Authorize subagents?"
+For `light`, use the solo variant or escalate the budget only when there is a concrete reason.
 
 ## Quarantine
 
@@ -65,6 +64,23 @@ Assign product edits to workers only for explicitly delegated scopes:
 - API/database/service work: `backend-worker`.
 - Tests and smoke probes: worker or QA verifier with explicit ownership.
 - User-facing docs: `documenter` or docs worker.
+
+## Architecture-Governed Code Review
+
+For code review or release readiness that touches architecture, public contracts,
+APIs, data flow, security, migrations, or multiple subsystems, add an
+architect-owned review contract before reviewer verdict.
+
+Required sequence:
+
+1. `architect` records affected boundaries, risks, ownership, and verification gates.
+2. Workers or main agent implement inside those boundaries.
+3. `qa-verifier` provides behavior evidence when behavior can be exercised.
+4. `reviewer` checks the diff against the architecture contract and QA evidence.
+5. Orchestrator resolves conflicts and blocks `ship` while architecture gates remain unresolved.
+
+The reviewer stays independent. The architect does not approve the review; the
+architect owns the technical contract that review must check against.
 
 Use disjoint write sets when multiple workers run in parallel. Tell every worker:
 
