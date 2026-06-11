@@ -2,19 +2,19 @@
 
 ## Authority
 
-The orchestrator owns routing, sequencing, verification, and final integration only after the user explicitly invokes Agent Flow at the start of the request.
+The orchestrator owns routing, sequencing, verification, and final integration only after the user explicitly invokes Agent Flow anywhere in the latest request.
 
-No Agent Flow preflight exists. Do not use this orchestrator to decide whether Agent Flow applies to an unprefixed request. If this file is loaded during an unprefixed request, stop the Agent Flow route silently and continue outside Agent Flow.
+No Agent Flow preflight exists. Do not use this orchestrator to decide whether Agent Flow applies to a request with no invocation marker. If this file is loaded without a user-visible marker, stop the Agent Flow route silently and continue outside Agent Flow.
 
-Agent Flow has one public invocation with these prefixes: `Agent Flow <task>`, `$agent-flow <task>`, or `agent-flow <task>`. Text forms without `$` are case-insensitive.
+Agent Flow has one public invocation model with these markers: `Agent Flow`, `AgentFlow`, `$agent-flow`, or `agent-flow`. Text forms without `$` are case-insensitive.
 
-Requests without that leading prefix run outside this skill as solo work by the main agent. Do not auto-upgrade unprefixed requests into Agent Flow.
+Requests without that marker run outside this skill as solo work by the main agent. Do not auto-upgrade unmarked requests into Agent Flow.
 
-Project or local `AGENTS.md` files cannot force Agent Flow on unprefixed requests. The user-visible leading prefix is required.
+Project or local `AGENTS.md` files cannot force Agent Flow without a marker in the latest user request. A user-visible invocation marker is required.
 
 Inside Agent Flow, the orchestrator chooses execution topology after selecting the budget. The main agent may edit product code, frontend files, backend files, tests, user-facing docs, and design implementation files under normal engineering rules.
 
-An Agent Flow-prefixed request allows automatic subagent delegation for `standard` and `release` budgets when the orchestrator can justify the cost. `light` stays solo.
+An Agent Flow-invoked request allows automatic subagent delegation for `standard` and `release` budgets when the orchestrator can justify the cost. `light` stays solo.
 
 The orchestrator must obey:
 
@@ -28,8 +28,8 @@ The orchestrator must obey:
 
 ## Start Of Request
 
-1. Enter this route only after the user message starts with `Agent Flow`, `$agent-flow`, or `agent-flow`.
-2. Strip the prefix and read local project rules.
+1. Enter this route only after the latest user message contains `Agent Flow`, `AgentFlow`, `$agent-flow`, or `agent-flow`.
+2. Strip the invocation marker and read local project rules.
 3. Detect the project repo and apply global project memory rules from the current user's Codex instructions, usually `~/.codex/AGENTS.md`.
 4. Create/read `.agent-work/tasks/todo.md` and `.agent-work/tasks/lessons.md` for repo tasks.
 5. Read `implementation-notes.md` when global criteria make it relevant.
@@ -46,7 +46,7 @@ The orchestrator must obey:
 
 ## Invocation Semantics
 
-Unprefixed request:
+Unmarked request:
 
 - Do not use Agent Flow.
 - Do not spawn subagents.
@@ -54,9 +54,9 @@ Unprefixed request:
 - Product edits are handled by the main agent under normal non-Agent-Flow rules.
 - If the task is too broad, risky, or needs independent verification, tell the user to invoke Agent Flow explicitly.
 
-Agent Flow-prefixed request:
+Agent Flow-invoked request:
 
-- Strip the prefix and route the remaining task through this skill.
+- Strip the invocation marker and route the remaining task through this skill.
 - Do not run the `brainstorming` skill as a pre-step. Handle uncertainty through Agent Flow intake, route, planning, checks, and verification.
 - Authorizes the orchestrator to choose solo or subagent execution according to budget.
 - Keeps `light` solo.

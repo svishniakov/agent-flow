@@ -1,8 +1,8 @@
 # Agent Flow Internal Flows
 
-Use internal flows only after the user explicitly invokes Agent Flow at the start of the request. They are not public modes.
+Use internal flows only after the user explicitly invokes Agent Flow anywhere in the latest request. They are not public modes.
 
-Do not use this file as preflight for unprefixed requests. Agent Flow starts only from the user-visible leading prefix.
+Do not use this file as preflight for requests with no invocation marker. Agent Flow starts only from a user-visible marker in the latest request.
 
 Agent Flow does not use the separate `brainstorming` skill. If scope is unclear, handle that through intake, route, and the selected internal flow.
 
@@ -48,7 +48,7 @@ Ask approval only when the next step would lock a product/design direction, spen
 
 ## Scope Growth
 
-Unprefixed solo requests do not auto-upgrade into Agent Flow. If any of these appears during solo work, handle it solo when reasonable. If it is too broad or risky, ask the user whether to invoke Agent Flow:
+Unmarked solo requests do not auto-upgrade into Agent Flow. If any of these appears during solo work, handle it solo when reasonable. If it is too broad or risky, ask the user whether to invoke Agent Flow:
 
 - more than one related step;
 - product/code/doc change with regression risk;
@@ -57,7 +57,7 @@ Unprefixed solo requests do not auto-upgrade into Agent Flow. If any of these ap
 - user-facing text or UI;
 - unclear acceptance criteria.
 
-Inside an Agent Flow-prefixed request, choose the smallest internal flow that covers the expanded scope.
+Inside an Agent Flow-invoked request, choose the smallest internal flow that covers the expanded scope.
 
 Inside Agent Flow, choose subagent variants only when the selected budget is
 `standard` or `release`, or when the user explicitly asked for subagents. Do not

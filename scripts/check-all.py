@@ -23,6 +23,8 @@ PRODUCT_SEARCH_PATHS = [
 
 REQUIRED_RUNTIME_TEXT = {
     "SKILL.md": [
+        "anywhere in the latest user request",
+        "AgentFlow",
         "Task Status Completion Gate",
         "task status normalization pass",
     ],
@@ -35,6 +37,8 @@ REQUIRED_RUNTIME_TEXT = {
         "classify it as `uncertain`",
     ],
     "references/orchestrator.md": [
+        "anywhere in the latest request",
+        "AgentFlow",
         "Normalize stale completed task sections",
         "Task Status Completion Gate",
     ],

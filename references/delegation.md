@@ -2,9 +2,9 @@
 
 Use subagents only after Agent Flow is active and the selected budget permits delegation.
 
-Agent Flow-prefixed requests let the orchestrator choose execution topology. `light` budget stays solo. `standard` and `release` budgets may use subagents when delegation adds independent evidence, parallelism, or review value.
+Agent Flow-invoked requests let the orchestrator choose execution topology. `light` budget stays solo. `standard` and `release` budgets may use subagents when delegation adds independent evidence, parallelism, or review value.
 
-Unprefixed requests are also solo unless the user explicitly asks for subagents.
+Unmarked requests are also solo unless the user explicitly asks for subagents.
 
 If `spawn_agent` is unavailable after a subagent path is selected, say so. Continue with role lanes or solo checks only if that still satisfies the task.
 

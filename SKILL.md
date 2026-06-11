@@ -1,48 +1,49 @@
 ---
 name: agent-flow
-description: "Use only when the user explicitly invokes Agent Flow at the start of the request, for example `Agent Flow ...`, `$agent-flow ...`, or `agent-flow ...`. Route that request to a verified result with the smallest useful budget. Light budget stays solo; standard and release budgets may use subagents when the orchestrator decides they add real verification or parallelism value."
+description: "Use only when the user explicitly invokes Agent Flow anywhere in the request, for example `Agent Flow`, `AgentFlow`, `$agent-flow`, or `agent-flow`. Route that request to a verified result with the smallest useful budget. Light budget stays solo; standard and release budgets may use subagents when the orchestrator decides they add real verification or parallelism value."
 ---
 
 # Agent Flow
 
-Agent Flow turns an explicitly prefixed user request into a finished, verified result through the smallest sufficient workflow.
+Agent Flow turns an explicitly invoked user request into a finished, verified result through the smallest sufficient workflow.
 
 ## No Preflight
 
-Do not load, use, or mention Agent Flow for requests that do not start with an Agent Flow invocation prefix.
+Do not load, use, or mention Agent Flow for requests that do not contain an explicit Agent Flow invocation marker.
 
-Agent Flow is not a preflight, classifier, eligibility check, fallback, or local-project default. If this skill file is reached during an unprefixed request, stop using it immediately and continue outside Agent Flow without announcing that Agent Flow was skipped.
+Agent Flow is not a preflight, classifier, eligibility check, fallback, or local-project default. If this skill file is reached without a user-visible invocation marker, stop using it immediately and continue outside Agent Flow without announcing that Agent Flow was skipped.
 
 ## Invocation Model
 
 Agent Flow has one public invocation:
 
 - `Agent Flow <task>`
+- `AgentFlow <task>`
 - `$agent-flow <task>`
 - `agent-flow <task>`
 
 Text forms without `$` are case-insensitive.
 
-Only use this skill when the invocation appears at the start of the user request. A later mention of Agent Flow is not enough.
+Use this skill when the invocation marker appears anywhere in the latest user request. The marker may be at the beginning, middle, or end of the message.
 
-Requests without the Agent Flow prefix are outside this skill. They run solo in the main agent, without Agent Flow artifacts and without subagents.
+Requests without an Agent Flow invocation marker are outside this skill. They run solo in the main agent, without Agent Flow artifacts and without subagents.
 
-Project or local `AGENTS.md` files may not force Agent Flow on unprefixed requests. They can define local commands and context, but Agent Flow still requires the user-visible leading prefix.
+Project or local `AGENTS.md` files may not force Agent Flow when the latest user request has no invocation marker. They can define local commands and context, but Agent Flow still requires a user-visible marker.
 
-An Agent Flow-prefixed request authorizes the orchestrator to choose the execution topology for the selected budget. `light` budget stays solo. `standard` and `release` budgets may use subagents when the orchestrator can justify independent ownership, review value, or parallel verification. External writes, deploys, publishing, secrets, destructive git, DB/storage mutation, and infrastructure changes still require explicit approval or a documented project command.
+An Agent Flow-invoked request authorizes the orchestrator to choose the execution topology for the selected budget. `light` budget stays solo. `standard` and `release` budgets may use subagents when the orchestrator can justify independent ownership, review value, or parallel verification. External writes, deploys, publishing, secrets, destructive git, DB/storage mutation, and infrastructure changes still require explicit approval or a documented project command.
 
 Never expose extra modes such as `/solo`, `/lite`, `orchestrated`, autopilot, parallel-review, or review-mode as public user-facing modes. Treat detailed workflow choice as internal routing inside Agent Flow.
 
 ## Boundary
 
-Default solo work, without the Agent Flow prefix:
+Default solo work, without the Agent Flow invocation marker:
 
 - Do not use this skill.
 - Do not spawn subagents.
 - Do not create Agent Flow run directories.
 - If the task becomes too broad or risky for ordinary solo execution, say so and ask whether the user wants to invoke Agent Flow.
 
-Agent Flow-prefixed work:
+Agent Flow-invoked work:
 
 - Use this skill.
 - Do not use a separate brainstorming flow or `brainstorming` skill. Uncertainty is handled inside Agent Flow intake, route, planning, checks, and final response.
@@ -156,8 +157,8 @@ When subagents are used, workers own their assigned narrow write sets and the ma
 
 ## Core Decision Tree
 
-1. If the task starts with `Agent Flow`, `$agent-flow`, or `agent-flow`, strip the prefix and use this skill.
-2. If the task does not start with an Agent Flow prefix, do not use this skill.
+1. If the task contains `Agent Flow`, `AgentFlow`, `$agent-flow`, or `agent-flow`, strip that marker and use this skill.
+2. If the task does not contain an Agent Flow invocation marker, do not use this skill.
 3. Inside Agent Flow, do not call `brainstorming`; classify the request and choose the smallest internal flow directly.
 4. If the task is trivial, answer or run the command directly within Agent Flow.
 5. Read primary project memory, named task sources, and environment context.

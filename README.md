@@ -4,7 +4,7 @@
 
 ## English
 
-AgentFlow is a Codex skill for scoped agent workflows. Put `Agent Flow` first in the prompt; after that, the orchestrator reads context, checks active project work, switches internal budgets under the hood, decides whether subagents are useful, and requires verification before a final answer.
+AgentFlow is a Codex skill for scoped agent workflows. Put `Agent Flow`, `AgentFlow`, `$agent-flow`, or `agent-flow` anywhere in the prompt; after that, the orchestrator reads context, checks active project work, switches internal budgets under the hood, decides whether subagents are useful, and requires verification before a final answer.
 
 Target: Codex with OpenAI models only. Claude Code, Cursor, Hermes, and other hosts are outside this package scope.
 
@@ -12,15 +12,16 @@ It ships 25 roles and tracks 138 role skill dependencies.
 
 ### Contract
 
-AgentFlow runs only when the user request starts with one of these prefixes:
+AgentFlow runs only when the user request contains one of these invocation markers:
 
 ```text
 Agent Flow <task>
+AgentFlow <task>
 $agent-flow <task>
 agent-flow <task>
 ```
 
-The prefix must be first, and it is enough. Users do not choose budgets or explicitly ask for subagents. The orchestrator decides from context whether the task should stay solo, collect more evidence, create trace artifacts, or delegate work to subagents.
+The marker can appear at the beginning, middle, or end of the prompt. Users do not choose budgets or explicitly ask for subagents. The orchestrator decides from context whether the task should stay solo, collect more evidence, create trace artifacts, or delegate work to subagents.
 
 ### Install
 
@@ -70,7 +71,7 @@ PASS all Agent Flow checks
 
 ### Key Rules
 
-- AgentFlow is not a general preflight. Unprefixed requests stay outside this skill.
+- AgentFlow is not a general preflight. Requests without an invocation marker stay outside this skill.
 - Project `AGENTS.md` files cannot force AgentFlow on.
 - Budget switching is internal; users do not choose workflow depth manually.
 - Dependency Gate is mandatory before new feature work: if another active task may affect the new one, the orchestrator stops and recommends waiting or merging the work into one coordinated run.
@@ -126,7 +127,7 @@ Agent Flow Finish this feature for release. Run architecture, QA, and review gat
 
 ## Russian
 
-AgentFlow - это Codex skill для задач, где нужен управляемый workflow агента. Пользователь ставит `Agent Flow` первым в prompt; дальше оркестратор читает контекст, проверяет активные задачи проекта, под капотом переключает внутренние budgets, решает, нужны ли субагенты, и требует проверку перед финальным ответом.
+AgentFlow - это Codex skill для задач, где нужен управляемый workflow агента. Пользователь пишет `Agent Flow`, `AgentFlow`, `$agent-flow` или `agent-flow` в любой части prompt; дальше оркестратор читает контекст, проверяет активные задачи проекта, под капотом переключает внутренние budgets, решает, нужны ли субагенты, и требует проверку перед финальным ответом.
 
 Поддерживаемая среда: Codex с моделями OpenAI. Claude Code, Cursor, Hermes и другие hosts вне scope этого пакета.
 
@@ -134,15 +135,16 @@ AgentFlow - это Codex skill для задач, где нужен управл
 
 ### Контракт
 
-AgentFlow включается только если запрос пользователя начинается с одного из префиксов:
+AgentFlow включается только если запрос пользователя содержит один из маркеров запуска:
 
 ```text
 Agent Flow <задача>
+AgentFlow <задача>
 $agent-flow <задача>
 agent-flow <задача>
 ```
 
-Префикс должен стоять первым, и этого достаточно. Пользователю не нужно выбирать budgets или явно просить субагентов. Оркестратор сам решает по контексту, оставить задачу solo, собрать больше evidence, создать trace artifacts или делегировать часть работы субагентам.
+Маркер запуска может стоять в начале, середине или конце prompt. Пользователю не нужно выбирать budgets или явно просить субагентов. Оркестратор сам решает по контексту, оставить задачу solo, собрать больше evidence, создать trace artifacts или делегировать часть работы субагентам.
 
 ### Установка
 
@@ -193,7 +195,7 @@ PASS all Agent Flow checks
 ### Главные правила
 
 - AgentFlow не является общим preflight для каждого запроса.
-- Проектный `AGENTS.md` не может включить AgentFlow без префикса пользователя.
+- Проектный `AGENTS.md` не может включить AgentFlow без видимого пользователю маркера запуска в текущем запросе.
 - Переключение budgets работает под капотом; пользователь не выбирает глубину workflow вручную.
 - Dependency Gate обязателен перед новой фичей: если другая активная задача может повлиять на неё, оркестратор останавливает старт и рекомендует дождаться результата или объединить работы в один coordinated run.
 - Статус задачи - жёсткий сигнал завершения: после успешной проверки или product commit закрытая текущая задача должна перейти из `in_progress` в `done`.

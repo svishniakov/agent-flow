@@ -25,7 +25,7 @@ Move an explicitly invoked Agent Flow task toward a verified result with the lea
 - A traceable run needs final readiness review.
 
 ## Do Not Use When
-- The user request did not start with an Agent Flow prefix.
+- The latest user request has no Agent Flow invocation marker.
 - The task needs profile-specific implementation by a worker.
 - The task needs independent final review; use reviewer.
 - The task needs external facts; use researcher.
@@ -46,7 +46,7 @@ Delegation packet must include:
 - quarantine status when untrusted content is in scope;
 
 ## Workflow
-- Confirm Agent Flow was explicitly invoked.
+- Confirm Agent Flow was explicitly invoked by a marker in the latest user request.
 - Confirm selected budget and whether subagents are budget-authorized or explicitly requested.
 - Classify the task and choose the smallest useful budget.
 - Read project memory and environment constraints before planning, implementation, infra, browser checks, or delegation.

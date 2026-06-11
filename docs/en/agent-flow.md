@@ -1,8 +1,8 @@
 # Agent Flow: skill overview
 
-Agent Flow is a Codex skill that helps move a complex task from the user request to a verified result. It does not activate automatically. The user must put one of these prefixes first in the prompt: `Agent Flow`, `$agent-flow`, or `agent-flow`.
+Agent Flow is a Codex skill that helps move a complex task from the user request to a verified result. It does not activate automatically. The user must put one of these invocation markers anywhere in the prompt: `Agent Flow`, `AgentFlow`, `$agent-flow`, or `agent-flow`.
 
-The main idea is simple: the user invokes Agent Flow with one leading prefix, and the orchestrator chooses the right route. It keeps the task bounded, checks active project work for dependencies, gathers the needed context, switches internal budgets under the hood, decides whether subagents are useful, does the work, and verifies the result before the final response.
+The main idea is simple: the user invokes Agent Flow with one explicit marker, and the orchestrator chooses the right route. It keeps the task bounded, checks active project work for dependencies, gathers the needed context, switches internal budgets under the hood, decides whether subagents are useful, does the work, and verifies the result before the final response.
 
 Supported target is Codex with OpenAI models. Claude Code, Cursor, Hermes, and other hosts are outside this package scope.
 
@@ -22,13 +22,14 @@ Agent Flow is useful when a task is larger than one short answer or one mechanic
 
 ## Activation
 
-The skill activates only at the start of the user message:
+The skill activates when the latest user message contains one of these markers:
 
 - `Agent Flow <task>`
+- `AgentFlow <task>`
 - `$agent-flow <task>`
 - `agent-flow <task>`
 
-If the prefix is absent, the request stays outside Agent Flow. Codex then works in normal solo mode, without trace artifacts and without automatic routing through this skill.
+If the marker is absent, the request stays outside Agent Flow. Codex then works in normal solo mode, without trace artifacts and without automatic routing through this skill.
 
 ## Core rules
 
