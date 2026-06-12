@@ -97,6 +97,8 @@ Schema v2 adds the Architecture Contract Gate and requires `budget`. `release` r
 
 When the product or stack matters, the orchestrator writes `architecture_context` in `lane-map.json` with the six Architecture Matrix axes: `product_context`, `application_surface`, `architecture_pattern`, `stack_runtime`, `risk_gates`, and `verification_gates`. `validate-run.py` parses the allowed facet ids from `references/architecture-matrix.md` and checks that every selected facet appears in the architect's `Selected Architecture` section.
 
+Architecture Context Propagation then carries that context through execution: workers declare covered `matrix_facets`, QA covers selected `risk_gates` and `verification_gates`, and reviewer checks every selected facet through `Architecture Matrix Mismatches` and `Contract Drift`.
+
 ### Dependency Gate
 
 When a user starts a new feature while another feature is still `in_progress` or `blocked`, the orchestrator checks project memory before planning. If the active work may change the same files, API, data model, UI flow, tests, deploy path, or acceptance criteria, AgentFlow stops the new session.
@@ -251,6 +253,8 @@ PASS all Agent Flow checks
 Schema v2 добавляет Architecture Contract Gate и требует `budget`. Для `release` и `standard` с двумя или более worker lanes нужно ставить `architecture_contract_required=true`. Критическая `architecture` lane должна пройти с handoff, evidence и обязательными секциями контракта до QA/review. Если `architecture_contract_independent` равен true, нужна реальная subagent lane со spawned trace evidence. Для standard multi-lane работы иногда достаточно scoped role-lane проверки.
 
 Если тип продукта или стек влияет на решение, оркестратор записывает `architecture_context` в `lane-map.json`: `product_context`, `application_surface`, `architecture_pattern`, `stack_runtime`, `risk_gates` и `verification_gates`. `validate-run.py` берёт допустимые facet ids из `references/architecture-matrix.md` и проверяет, что каждый выбранный facet попал в секцию `Selected Architecture`.
+
+Architecture Context Propagation проводит этот контекст через исполнение: workers указывают покрытые `matrix_facets`, QA покрывает выбранные `risk_gates` и `verification_gates`, а reviewer проверяет все выбранные facets через `Architecture Matrix Mismatches` и `Contract Drift`.
 
 ### Dependency Gate
 

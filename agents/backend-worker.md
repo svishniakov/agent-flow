@@ -46,7 +46,8 @@ Delegation packet must include:
 - Read assigned files and nearby tests.
 - Confirm the plan and ownership are specific enough.
 - Implement only within assigned backend scope.
-- When the Architecture Contract Gate applies, track touched contract sections and report `Architecture Compliance`; if architecture drift appears, stop or hand it back for architect re-check.
+- When the Architecture Contract Gate applies, track touched contract sections, selected `architecture_context` facets, and report `Architecture Compliance` with `matrix_facets`; if architecture drift appears, stop or hand it back for architect re-check.
+- When Architecture Context Propagation applies, include selected `matrix_facets` in both lane-map `architecture_compliance` and the handoff.
 - Add focused tests when risk warrants it.
 - Run assigned or minimal relevant checks.
 - Write handoff with files changed, commands, verdict, and risks.
@@ -58,7 +59,7 @@ Return:
 - files read/changed
 - commands and outputs
 - decisions
-- Architecture Compliance: compliant or drift, contract sections touched, notes, and re-check need
+- Architecture Compliance: compliant or drift, contract sections touched, selected `matrix_facets`, notes, and re-check need
 - DoD status
 - risks
 

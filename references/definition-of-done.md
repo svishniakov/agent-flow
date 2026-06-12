@@ -58,6 +58,7 @@ For full `release` trace:
 - when the Architecture Contract Gate is required, `lane-map.json` uses schema v2, records `budget` and `architecture_context`, includes a critical `architecture` lane, and blocks `ship` until that lane has handoff and evidence with the required contract sections;
 - when Architecture Matrix facets apply, `architecture_context` records the selected facets and the architecture handoff `Selected Architecture` section includes those facet ids before QA/reviewer gates cover facet-driven invariants;
 - when Architecture Execution Control applies, worker lanes record `Architecture Compliance`, architecture drift has architect re-check before `ship`, QA records `Architecture Invariants`, and reviewer records `Architecture Matrix Mismatches` plus `Contract Drift`;
+- Architecture Context Propagation is covered: workers declare selected `matrix_facets`, QA covers selected `risk_gates` and `verification_gates`, and reviewer covers the full selected `architecture_context`;
 - artifacts index is valid JSON;
 - each delegated subagent has a handoff;
 - checks include command names and results;
@@ -72,6 +73,7 @@ For full `release` trace:
 - Code review touching architecture, public contracts, APIs, data flow, security, migrations, or multiple subsystems has an architect-owned review contract and reviewer verdict against it.
 - Standard traceable runs with at least two worker lanes and all release traceable runs used `architecture_contract_required=true`.
 - Architecture Execution Control blocked `ship` until worker `Architecture Compliance`, QA `Architecture Invariants`, reviewer `Contract Drift`, and any architecture drift re-check were covered.
+- Architecture Context Propagation blocked `ship` until worker `matrix_facets`, QA `risk_gates` and `verification_gates`, and reviewer selected-context coverage were present.
 - Architecture Approval Gate reviewed any rejected, regressed, or uncertain architecture attempt before retrying implementation.
 - Local Best Practice auto gate was used only for an analyzer-confirmed local practice with clear context, no matching `Do not reuse when`, no external write, and fresh verification.
 - regression demotion froze or demoted any practice that failed after reuse.

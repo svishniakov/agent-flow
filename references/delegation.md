@@ -109,6 +109,13 @@ in `lane-map.json` and write an `Architecture Compliance` handoff section. If a
 worker finds architecture drift, the orchestrator routes the case to architect
 re-check before `ship`; the drift is not closed by worker-only follow-up.
 
+Architecture Context Propagation carries the selected `architecture_context`
+through execution. Workers must set `architecture_compliance.matrix_facets` to
+the selected facets they actually touched and mention those facet ids in
+`Architecture Compliance`. QA covers selected `risk_gates` and
+`verification_gates` in `Architecture Invariants`. Reviewer covers every
+selected facet across `Architecture Matrix Mismatches` and `Contract Drift`.
+
 When worker lanes exist under the Architecture Contract Gate, QA must run after
 the workers and any architect re-check, and its handoff must include
 `Architecture Invariants`. Reviewer must run after QA and write

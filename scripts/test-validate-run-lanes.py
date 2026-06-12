@@ -54,6 +54,7 @@ DEFAULT_ARCHITECTURE_CONTEXT = {
     "risk_gates": ["migrations"],
     "verification_gates": ["unit", "integration"],
 }
+DEFAULT_WORKER_MATRIX_FACETS = ["backend-service", "monolith"]
 OMIT = object()
 
 
@@ -111,6 +112,18 @@ def architecture_context_facets(context: dict[str, Any] | None = None) -> list[s
     return facets
 
 
+def architecture_context_axis_facets(axis: str, context: dict[str, Any] | None = None) -> list[str]:
+    selected_context = context or DEFAULT_ARCHITECTURE_CONTEXT
+    value = selected_context.get(axis, [])
+    if not isinstance(value, list):
+        return []
+    return [facet for facet in value if isinstance(facet, str)]
+
+
+def facet_lines(facets: list[str]) -> str:
+    return "\n".join(f"- `{facet}`" for facet in facets)
+
+
 def architecture_contract_text(
     missing_sections: set[str] | None = None,
     *,
@@ -124,10 +137,40 @@ def architecture_contract_text(
             continue
         body = f"Fixture {section.lower()}."
         if section == "Selected Architecture":
-            facet_lines = "\n".join(f"- `{facet}`" for facet in facets)
-            body = f"Matrix facets:\n{facet_lines}" if facet_lines else "Matrix facets: none."
+            lines = facet_lines(facets)
+            body = f"Matrix facets:\n{lines}" if lines else "Matrix facets: none."
         sections.append(f"## {section}\n\n{body}\n")
     return "# Architecture Contract\n\n" + "\n".join(sections)
+
+
+def default_worker_handoff_bodies(
+    matrix_facets: list[str] | None = None,
+) -> dict[str, str]:
+    facets = DEFAULT_WORKER_MATRIX_FACETS if matrix_facets is None else matrix_facets
+    return {
+        ARCHITECTURE_COMPLIANCE_SECTION: "Matrix facets:\n" + facet_lines(facets),
+    }
+
+
+def default_qa_handoff_bodies(
+    context: dict[str, Any] | None = None,
+) -> dict[str, str]:
+    facets = [
+        *architecture_context_axis_facets("risk_gates", context),
+        *architecture_context_axis_facets("verification_gates", context),
+    ]
+    body = "Covered gates:\n" + facet_lines(facets) if facets else "Covered gates: none."
+    return {ARCHITECTURE_INVARIANTS_SECTION: body}
+
+
+def default_reviewer_handoff_bodies(
+    context: dict[str, Any] | None = None,
+) -> dict[str, str]:
+    facets = architecture_context_facets(context)
+    return {
+        ARCHITECTURE_MATRIX_MISMATCHES_SECTION: "Checked facets:\n" + facet_lines(facets),
+        CONTRACT_DRIFT_SECTION: "No contract drift for selected Architecture Matrix facets.",
+    }
 
 
 def write_run(
@@ -178,8 +221,12 @@ def write_run(
                         encoding="utf-8",
                     )
                 else:
+                    handoff_section_bodies = lane.get("handoff_section_bodies", {})
+                    if not isinstance(handoff_section_bodies, dict):
+                        handoff_section_bodies = {}
                     sections = [
-                        f"## {section}\n\nFixture {section.lower()}.\n"
+                        f"## {section}\n\n"
+                        f"{handoff_section_bodies.get(section, f'Fixture {section.lower()}.')}\n"
                         for section in lane.get("handoff_sections", [])
                     ]
                     path.write_text(
@@ -241,6 +288,7 @@ def lane(
     critical: bool = True,
     wave: int = 3,
     handoff_sections: list[str] | None = None,
+    handoff_section_bodies: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     lane_data = {
         "id": lane_id,
@@ -256,6 +304,8 @@ def lane(
     }
     if handoff_sections is not None:
         lane_data["handoff_sections"] = handoff_sections
+    if handoff_section_bodies is not None:
+        lane_data["handoff_section_bodies"] = handoff_section_bodies
     return lane_data
 
 
@@ -303,12 +353,16 @@ def architecture_compliance(
     *,
     status: str = "compliant",
     contract_sections: list[str] | None = None,
+    matrix_facets: list[str] | None = None,
     notes: str = "Fixture architecture compliance.",
     recheck_lane: str | None = None,
 ) -> dict[str, Any]:
     return {
         "status": status,
         "contract_sections": contract_sections or ["Module Boundaries"],
+        "matrix_facets": list(DEFAULT_WORKER_MATRIX_FACETS)
+        if matrix_facets is None
+        else matrix_facets,
         "notes": notes,
         "recheck_lane": recheck_lane,
     }
@@ -323,6 +377,7 @@ def worker_lane(
     role: str = "typescript-worker",
     architecture_compliance_data: Any = OMIT,
     handoff_sections: list[str] | None = None,
+    handoff_section_bodies: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     lane_data = lane(
         lane_id,
@@ -333,6 +388,9 @@ def worker_lane(
         handoff_sections=handoff_sections
         if handoff_sections is not None
         else [ARCHITECTURE_COMPLIANCE_SECTION],
+        handoff_section_bodies=handoff_section_bodies
+        if handoff_section_bodies is not None
+        else default_worker_handoff_bodies(),
     )
     if architecture_compliance_data is OMIT:
         lane_data["architecture_compliance"] = architecture_compliance()
@@ -346,6 +404,7 @@ def reviewer_lane(
     *,
     wave: int = 4,
     handoff_sections: list[str] | None = None,
+    handoff_section_bodies: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     return lane(
         lane_id,
@@ -353,6 +412,7 @@ def reviewer_lane(
         role="reviewer",
         wave=wave,
         handoff_sections=handoff_sections,
+        handoff_section_bodies=handoff_section_bodies,
     )
 
 
@@ -362,6 +422,7 @@ def qa_lane(
     status: str = "pass",
     wave: int = 3,
     handoff_sections: list[str] | None = None,
+    handoff_section_bodies: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     return lane(
         lane_id,
@@ -370,33 +431,52 @@ def qa_lane(
         role="qa-verifier",
         wave=wave,
         handoff_sections=handoff_sections,
+        handoff_section_bodies=handoff_section_bodies,
     )
 
 
-def qa_control_lane(*, wave: int = 3, handoff_sections: list[str] | None = None) -> dict[str, Any]:
+def qa_control_lane(
+    *,
+    wave: int = 3,
+    handoff_sections: list[str] | None = None,
+    handoff_section_bodies: dict[str, str] | None = None,
+    context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     return qa_lane(
         wave=wave,
         handoff_sections=handoff_sections
         if handoff_sections is not None
         else [ARCHITECTURE_INVARIANTS_SECTION],
+        handoff_section_bodies=handoff_section_bodies
+        if handoff_section_bodies is not None
+        else default_qa_handoff_bodies(context),
     )
 
 
-def reviewer_control_lane(*, wave: int = 4, handoff_sections: list[str] | None = None) -> dict[str, Any]:
+def reviewer_control_lane(
+    *,
+    wave: int = 4,
+    handoff_sections: list[str] | None = None,
+    handoff_section_bodies: dict[str, str] | None = None,
+    context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     return reviewer_lane(
         wave=wave,
         handoff_sections=handoff_sections
         if handoff_sections is not None
         else [ARCHITECTURE_MATRIX_MISMATCHES_SECTION, CONTRACT_DRIFT_SECTION],
+        handoff_section_bodies=handoff_section_bodies
+        if handoff_section_bodies is not None
+        else default_reviewer_handoff_bodies(context),
     )
 
 
-def architecture_control_extra() -> dict[str, Any]:
+def architecture_control_extra(context: dict[str, Any] | None = None) -> dict[str, Any]:
     return {
         "schema_version": 2,
         "budget": "standard",
         "architecture_contract_required": True,
-        "architecture_context": architecture_context(),
+        "architecture_context": context or architecture_context(),
     }
 
 
@@ -832,6 +912,125 @@ def main() -> int:
         )
 
         expect_fail(
+            "worker architecture compliance missing matrix facets fails",
+            write_run(
+                temp / "worker-compliance-missing-matrix-facets",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(
+                        architecture_compliance_data={
+                            key: value
+                            for key, value in architecture_compliance().items()
+                            if key != "matrix_facets"
+                        }
+                    ),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "architecture_compliance.matrix_facets must be a non-empty array",
+        )
+
+        expect_fail(
+            "worker architecture compliance empty matrix facets fail",
+            write_run(
+                temp / "worker-compliance-empty-matrix-facets",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(
+                        architecture_compliance_data=architecture_compliance(matrix_facets=[])
+                    ),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "architecture_compliance.matrix_facets must be a non-empty array",
+        )
+
+        expect_fail(
+            "worker architecture compliance unknown matrix facet fails",
+            write_run(
+                temp / "worker-compliance-unknown-matrix-facet",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(
+                        architecture_compliance_data=architecture_compliance(
+                            matrix_facets=["unknown-facet"]
+                        ),
+                        handoff_section_bodies=default_worker_handoff_bodies(["unknown-facet"]),
+                    ),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "unknown architecture_context facet",
+        )
+
+        expect_fail(
+            "worker architecture compliance unselected matrix facet fails",
+            write_run(
+                temp / "worker-compliance-unselected-matrix-facet",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(
+                        architecture_compliance_data=architecture_compliance(
+                            matrix_facets=["frontend-service"]
+                        ),
+                        handoff_section_bodies=default_worker_handoff_bodies(["frontend-service"]),
+                    ),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "unselected architecture_context facet",
+        )
+
+        expect_fail(
+            "worker architecture compliance handoff missing declared matrix facet fails",
+            write_run(
+                temp / "worker-compliance-handoff-missing-matrix-facet",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(
+                        architecture_compliance_data=architecture_compliance(
+                            matrix_facets=["backend-service", "monolith"]
+                        ),
+                        handoff_section_bodies=default_worker_handoff_bodies(["backend-service"]),
+                    ),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "Architecture Compliance missing Architecture Matrix facet: monolith",
+        )
+
+        expect_pass(
+            "worker architecture compliance selected matrix facets pass",
+            write_run(
+                temp / "worker-compliance-selected-matrix-facets",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(
+                        architecture_compliance_data=architecture_compliance(
+                            matrix_facets=["backend-service", "monolith"]
+                        ),
+                        handoff_section_bodies=default_worker_handoff_bodies(
+                            ["backend-service", "monolith"]
+                        ),
+                    ),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+        )
+
+        expect_fail(
             "worker architecture compliance empty sections fail",
             write_run(
                 temp / "worker-compliance-empty-sections",
@@ -1094,6 +1293,63 @@ def main() -> int:
         )
 
         expect_fail(
+            "qa handoff missing selected risk gate fails",
+            write_run(
+                temp / "qa-missing-risk-gate",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(),
+                    qa_control_lane(
+                        wave=3,
+                        handoff_section_bodies={
+                            ARCHITECTURE_INVARIANTS_SECTION: "Covered gates:\n"
+                            + facet_lines(["unit", "integration"])
+                        },
+                    ),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "Architecture Invariants missing Architecture Matrix facet: migrations",
+        )
+
+        expect_fail(
+            "qa handoff missing selected verification gate fails",
+            write_run(
+                temp / "qa-missing-verification-gate",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(),
+                    qa_control_lane(
+                        wave=3,
+                        handoff_section_bodies={
+                            ARCHITECTURE_INVARIANTS_SECTION: "Covered gates:\n"
+                            + facet_lines(["migrations", "unit"])
+                        },
+                    ),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "Architecture Invariants missing Architecture Matrix facet: integration",
+        )
+
+        empty_gate_context = architecture_context(risk_gates=[], verification_gates=[])
+        expect_pass(
+            "qa propagation allows empty risk and verification axes",
+            write_run(
+                temp / "qa-empty-risk-verification-gates",
+                lanes=[
+                    architecture_lane(selected_facets=architecture_context_facets(empty_gate_context)),
+                    worker_lane(),
+                    qa_control_lane(wave=3, context=empty_gate_context),
+                    reviewer_control_lane(wave=4, context=empty_gate_context),
+                ],
+                lane_map_extra=architecture_control_extra(empty_gate_context),
+            ),
+        )
+
+        expect_fail(
             "ship with worker lanes requires reviewer lane",
             write_run(
                 temp / "worker-no-reviewer",
@@ -1155,11 +1411,76 @@ def main() -> int:
             "handoff missing section: Contract Drift",
         )
 
+        expect_fail(
+            "reviewer handoff missing selected architecture context facet fails",
+            write_run(
+                temp / "reviewer-missing-selected-context-facet",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(
+                        wave=4,
+                        handoff_section_bodies={
+                            ARCHITECTURE_MATRIX_MISMATCHES_SECTION: "Checked facets:\n"
+                            + facet_lines(
+                                [
+                                    "backend-service",
+                                    "monolith",
+                                    "go",
+                                    "migrations",
+                                    "unit",
+                                    "integration",
+                                ]
+                            ),
+                            CONTRACT_DRIFT_SECTION: "No drift for checked facets.",
+                        },
+                    ),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "reviewer handoff missing Architecture Matrix facet: saas-service",
+        )
+
+        expect_pass(
+            "reviewer handoff covers selected architecture context facets",
+            write_run(
+                temp / "reviewer-selected-context-facets",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+        )
+
         expect_pass(
             "schema v1 worker lane does not require architecture compliance",
             write_run(
                 temp / "schema-v1-worker-no-architecture-compliance",
                 lanes=[worker_lane(architecture_compliance_data=None)],
+            ),
+        )
+
+        expect_pass(
+            "schema v2 without architecture contract does not require propagation fields",
+            write_run(
+                temp / "schema-v2-worker-no-propagation-not-required",
+                lanes=[
+                    lane(
+                        "worker-a",
+                        lane_type="implementation",
+                        role="typescript-worker",
+                        wave=2,
+                    )
+                ],
+                lane_map_extra={
+                    "schema_version": 2,
+                    "budget": "standard",
+                    "architecture_contract_required": False,
+                },
             ),
         )
 

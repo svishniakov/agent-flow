@@ -141,6 +141,8 @@ The Architecture Contract Gate is required for release, for `standard` traceable
 
 Read `references/architecture-matrix.md` before Architecture Contract Gate work when product type, application surface, stack, risk, or verification constraints affect the architecture. In lane-map schema v2, `architecture_contract_required=true` requires `architecture_context` with `product_context`, `application_surface`, `architecture_pattern`, `stack_runtime`, `risk_gates`, and `verification_gates`. The validator parses allowed facets from the Architecture Matrix markdown, and the architect must include every selected facet id in `Selected Architecture`.
 
+Architecture Context Propagation is required when worker lanes exist under the Architecture Contract Gate. Workers record `architecture_compliance.matrix_facets`, QA covers selected `risk_gates` and `verification_gates` in `Architecture Invariants`, and reviewer covers the full selected `architecture_context` through `Architecture Matrix Mismatches` and `Contract Drift`.
+
 The Architecture Approval Gate handles rejected, regressed, or uncertain architecture attempts. The orchestrator sends the real case back for deeper architecture analysis, then lets workers retry only against the approved steps and records the resulting evidence.
 
 Model/reasoning upgrade is not the default fix. Escalate model or reasoning only when the resolver trigger is justified by task risk; otherwise improve context, architecture contract, evidence, or verification first.

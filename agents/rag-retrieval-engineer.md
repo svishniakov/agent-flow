@@ -47,7 +47,8 @@ Delegation packet must include:
 - Choose chunking, embedding, indexing, search, reranking, and citation strategy.
 - Define metrics and test datasets.
 - Separate retrieval-owned code from app worker implementation.
-- When the Architecture Contract Gate applies, track touched contract sections and report `Architecture Compliance`; if architecture drift appears, stop or hand it back for architect re-check.
+- When the Architecture Contract Gate applies, track touched contract sections, selected `architecture_context` facets, and report `Architecture Compliance` with `matrix_facets`; if architecture drift appears, stop or hand it back for architect re-check.
+- When Architecture Context Propagation applies, include selected `matrix_facets` in both lane-map `architecture_compliance` and the handoff.
 - Hand off worker-ready contracts.
 
 ## Output Contract
@@ -57,7 +58,7 @@ Return:
 - chunking/indexing strategy
 - evaluation plan
 - implementation handoff
-- Architecture Compliance: compliant or drift, contract sections touched, notes, and re-check need
+- Architecture Compliance: compliant or drift, contract sections touched, selected `matrix_facets`, notes, and re-check need
 - risks and assumptions
 
 ## Hard Rules

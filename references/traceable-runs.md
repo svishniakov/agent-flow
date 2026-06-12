@@ -184,15 +184,22 @@ Schema v2 also enforces Architecture Execution Control when
   optional `recheck_lane`;
 - `architecture_compliance.status` must be `compliant` or `drift`;
 - `contract_sections` must name existing Architecture Contract sections;
+- Architecture Context Propagation requires
+  `architecture_compliance.matrix_facets` as a non-empty selected
+  `architecture_context` subset for each successful worker lane;
 - successful worker handoffs must include `Architecture Compliance`;
+- worker `Architecture Compliance` sections must include every facet id declared
+  in `architecture_compliance.matrix_facets`;
 - `compliant` worker lanes must not set `recheck_lane`;
 - architecture drift blocks `ship` until `recheck_lane` points to a later,
   successful, critical `architecture` lane with contract handoff and evidence;
 - when worker lanes exist, final `ship` requires successful QA and reviewer lanes;
 - QA must pass after workers and any architecture re-check, and QA handoff must
-  include `Architecture Invariants`;
+  include `Architecture Invariants` with every selected `risk_gates` and
+  `verification_gates` facet;
 - reviewer must pass after architecture, workers, and QA, and reviewer handoff
-  must include `Architecture Matrix Mismatches` and `Contract Drift`.
+  must include `Architecture Matrix Mismatches` and `Contract Drift` covering
+  every selected `architecture_context` facet.
 
 For final handoff, `validate-run.py` also requires:
 

@@ -567,15 +567,16 @@ def validate_architecture_context_shape(
     allowed_facets: dict[str, set[str]],
     *,
     required: bool,
-) -> tuple[list[str], list[str]]:
+) -> tuple[dict[str, list[str]], list[str], list[str]]:
     errors: list[str] = []
+    selected_by_axis: dict[str, list[str]] = {axis: [] for axis in ARCHITECTURE_CONTEXT_AXES}
     raw_context = data.get("architecture_context")
     if raw_context is None:
         if required:
             errors.append("lane-map.json field 'architecture_context' is required")
-        return [], errors
+        return selected_by_axis, [], errors
     if not isinstance(raw_context, dict):
-        return [], ["lane-map.json field 'architecture_context' must be an object"]
+        return selected_by_axis, [], ["lane-map.json field 'architecture_context' must be an object"]
 
     expected_axes = set(ARCHITECTURE_CONTEXT_AXES)
     for axis in sorted(set(raw_context) - expected_axes):
@@ -603,11 +604,12 @@ def validate_architecture_context_shape(
                     f"unknown Architecture Matrix facet: {facet}"
                 )
                 continue
+            selected_by_axis[axis].append(facet)
             selected_facets.append(facet)
 
     if required and not selected_facets:
         errors.append("lane-map.json architecture_context must select at least one facet")
-    return selected_facets, errors
+    return selected_by_axis, selected_facets, errors
 
 
 def validate_selected_architecture_facets(path: Path, selected_facets: list[str]) -> list[str]:
@@ -622,6 +624,18 @@ def validate_selected_architecture_facets(path: Path, selected_facets: list[str]
         for facet in selected_facets
         if not contains_facet_id(selected_architecture, facet)
     ]
+
+
+def missing_facets_in_markdown_sections(
+    path: Path,
+    headings: list[str],
+    facets: list[str],
+) -> list[str]:
+    if not path.exists() or not facets:
+        return []
+    text = path.read_text(encoding="utf-8")
+    section_text = "\n".join(markdown_section_text(text, heading) for heading in headings)
+    return [facet for facet in facets if not contains_facet_id(section_text, facet)]
 
 
 def validate_architecture_contract_handoff(path: Path) -> list[str]:
@@ -643,6 +657,9 @@ def missing_markdown_headings(path: Path, headings: list[str]) -> list[str]:
 def validate_architecture_compliance_shape(
     lane: dict,
     label: str,
+    *,
+    selected_matrix_facets: set[str],
+    known_matrix_facets: set[str],
 ) -> tuple[dict | None, list[str]]:
     errors: list[str] = []
     compliance = lane.get("architecture_compliance")
@@ -670,6 +687,35 @@ def validate_architecture_compliance_shape(
                     f"lane-map.json: lane {label} "
                     f"architecture_compliance.contract_sections[{index}] "
                     f"unknown architecture contract section: {section}"
+                )
+
+    matrix_facets = compliance.get("matrix_facets")
+    if not isinstance(matrix_facets, list) or not matrix_facets:
+        errors.append(
+            f"lane-map.json: lane {label} "
+            "architecture_compliance.matrix_facets must be a non-empty array"
+        )
+    else:
+        for index, facet in enumerate(matrix_facets):
+            if not isinstance(facet, str) or not facet.strip():
+                errors.append(
+                    f"lane-map.json: lane {label} "
+                    f"architecture_compliance.matrix_facets[{index}] "
+                    "must be a non-empty string"
+                )
+                continue
+            if facet not in known_matrix_facets:
+                errors.append(
+                    f"lane-map.json: lane {label} "
+                    f"architecture_compliance.matrix_facets[{index}] "
+                    f"unknown architecture_context facet: {facet}"
+                )
+                continue
+            if facet not in selected_matrix_facets:
+                errors.append(
+                    f"lane-map.json: lane {label} "
+                    f"architecture_compliance.matrix_facets[{index}] "
+                    f"unselected architecture_context facet: {facet}"
                 )
 
     notes = compliance.get("notes")
@@ -728,11 +774,22 @@ def validate_lane_map(run_dir: Path) -> list[str]:
         else:
             budget = raw_budget
 
+    architecture_context_by_axis: dict[str, list[str]] = {
+        axis: [] for axis in ARCHITECTURE_CONTEXT_AXES
+    }
     architecture_context_facets: list[str] = []
+    known_matrix_facets: set[str] = set()
     if architecture_contract_required or "architecture_context" in data:
         matrix_facets, matrix_errors = load_architecture_matrix_facets()
         errors.extend(matrix_errors)
-        architecture_context_facets, context_errors = validate_architecture_context_shape(
+        known_matrix_facets = {
+            facet for facets in matrix_facets.values() for facet in facets
+        }
+        (
+            architecture_context_by_axis,
+            architecture_context_facets,
+            context_errors,
+        ) = validate_architecture_context_shape(
             data,
             matrix_facets,
             required=architecture_contract_required,
@@ -869,7 +926,12 @@ def validate_lane_map(run_dir: Path) -> list[str]:
                 worker_wave = None
 
             if architecture_contract_required:
-                compliance, compliance_errors = validate_architecture_compliance_shape(lane, label)
+                compliance, compliance_errors = validate_architecture_compliance_shape(
+                    lane,
+                    label,
+                    selected_matrix_facets=set(architecture_context_facets),
+                    known_matrix_facets=known_matrix_facets,
+                )
                 errors.extend(compliance_errors)
                 if isinstance(handoff, str) and handoff:
                     handoff_path = resolve_run_path(run_dir, handoff)
@@ -878,6 +940,22 @@ def validate_lane_map(run_dir: Path) -> list[str]:
                         [ARCHITECTURE_COMPLIANCE_SECTION],
                     ):
                         errors.append(f"lane-map.json: lane {label} handoff missing section: {section}")
+                    if compliance and isinstance(compliance.get("matrix_facets"), list):
+                        worker_matrix_facets = [
+                            facet
+                            for facet in compliance.get("matrix_facets", [])
+                            if isinstance(facet, str) and facet
+                        ]
+                        for facet in missing_facets_in_markdown_sections(
+                            handoff_path,
+                            [ARCHITECTURE_COMPLIANCE_SECTION],
+                            worker_matrix_facets,
+                        ):
+                            errors.append(
+                                f"lane-map.json: lane {label} "
+                                "Architecture Compliance missing "
+                                f"Architecture Matrix facet: {facet}"
+                            )
                 else:
                     errors.append(
                         f"lane-map.json: lane {label} "
@@ -967,6 +1045,10 @@ def validate_lane_map(run_dir: Path) -> list[str]:
                         break
 
         if successful_worker_lanes:
+            qa_matrix_facets = [
+                *architecture_context_by_axis.get("risk_gates", []),
+                *architecture_context_by_axis.get("verification_gates", []),
+            ]
             for lane_id, _wave, handoff in successful_qa_lanes:
                 if isinstance(handoff, str) and handoff:
                     handoff_path = resolve_run_path(run_dir, handoff)
@@ -975,6 +1057,16 @@ def validate_lane_map(run_dir: Path) -> list[str]:
                         [ARCHITECTURE_INVARIANTS_SECTION],
                     ):
                         errors.append(f"lane-map.json: lane {lane_id} handoff missing section: {section}")
+                    for facet in missing_facets_in_markdown_sections(
+                        handoff_path,
+                        [ARCHITECTURE_INVARIANTS_SECTION],
+                        qa_matrix_facets,
+                    ):
+                        errors.append(
+                            f"lane-map.json: lane {lane_id} "
+                            "Architecture Invariants missing "
+                            f"Architecture Matrix facet: {facet}"
+                        )
 
             for lane_id, _wave, handoff in successful_reviewer_lanes:
                 if isinstance(handoff, str) and handoff:
@@ -984,6 +1076,15 @@ def validate_lane_map(run_dir: Path) -> list[str]:
                         [ARCHITECTURE_MATRIX_MISMATCHES_SECTION, CONTRACT_DRIFT_SECTION],
                     ):
                         errors.append(f"lane-map.json: lane {lane_id} handoff missing section: {section}")
+                    for facet in missing_facets_in_markdown_sections(
+                        handoff_path,
+                        [ARCHITECTURE_MATRIX_MISMATCHES_SECTION, CONTRACT_DRIFT_SECTION],
+                        architecture_context_facets,
+                    ):
+                        errors.append(
+                            f"lane-map.json: lane {lane_id} reviewer handoff "
+                            f"missing Architecture Matrix facet: {facet}"
+                        )
 
         if successful_reviewer_lanes:
             if successful_architecture_waves:

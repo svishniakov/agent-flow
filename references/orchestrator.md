@@ -87,6 +87,7 @@ Only after the budget and task shape justify subagents:
 - For Architecture Contract Gate work, read `references/architecture-matrix.md` and select Architecture Matrix facets from local source evidence before the architect writes the contract.
 - In lane-map schema v2, record selected facets in `architecture_context` with `product_context`, `application_surface`, `architecture_pattern`, `stack_runtime`, `risk_gates`, and `verification_gates`.
 - When the Architecture Contract Gate applies, enforce Architecture Execution Control: workers record `Architecture Compliance`, any architecture drift routes to architect re-check, QA records `Architecture Invariants`, and reviewer records `Architecture Matrix Mismatches` plus `Contract Drift`.
+- Enforce Architecture Context Propagation: worker `architecture_compliance.matrix_facets` covers selected worker-owned facets, QA covers selected `risk_gates` and `verification_gates`, and reviewer covers the full selected `architecture_context`.
 - For lane-map schema v2, set `budget`, `architecture_contract_required`, `architecture_contract_independent`, and `architecture_context` explicitly.
 - Send rejected, regressed, or uncertain architecture attempts through the Architecture Approval Gate before retrying implementation.
 - Treat regression demotion as immediate: a reused approach that regresses is no longer auto-applicable until reviewed.
