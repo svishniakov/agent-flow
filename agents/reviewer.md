@@ -46,6 +46,7 @@ Delegation packet must include:
 ## Workflow
 - Read scope, plan, diff, handoffs, checks, and relevant code.
 - When the Architecture Contract Gate applies, check the diff against architect-owned boundaries, risks, ownership, and verification gates before giving readiness verdict.
+- Report architecture contract mismatches explicitly, even when none are found.
 - Look for behavioral regressions and missing evidence first.
 - Check Evidence Records when the implementation reused a local practice or claims an approach is proven.
 - Classify findings by severity with file/line references when possible.

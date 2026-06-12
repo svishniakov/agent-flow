@@ -38,6 +38,8 @@ REQUIRED_TIMELINE_KEYS = {
 FINAL_VERDICTS = {"ship", "pass-with-risks", "blocked", "fail"}
 AGENT_EXECUTION_MODES = {"subagent", "role-lane"}
 LANE_TYPES = {"architecture", "implementation", "integration", "qa", "review"}
+TRACE_BUDGETS = {"release", "standard"}
+WORKER_LANE_TYPES = {"implementation", "integration"}
 LANE_STATUSES = {
     "planned",
     "spawned",
@@ -58,6 +60,18 @@ COMMIT_HASH_PATTERN = re.compile(r"\b[0-9a-f]{7,40}\b", re.IGNORECASE)
 COMMIT_DECLARATION_PATTERN = re.compile(
     r"(?i)(^\s*(?:[-*]\s*)?(?:product\s+)?commit\s*:|committed\s+as)"
 )
+ARCHITECTURE_CONTRACT_SECTIONS = [
+    "Selected Architecture",
+    "Rejected Alternatives",
+    "Module Boundaries",
+    "Data And State Flow",
+    "Public Contracts",
+    "Worker Ownership",
+    "Forbidden Changes",
+    "QA Gates",
+    "Reviewer Checklist",
+    "Stop Conditions",
+]
 
 
 def detect_mode(run_dir: Path, requested_mode: str) -> str:
@@ -469,6 +483,22 @@ def validate_subagent_lane_trace(run_dir: Path, lane_id: str, role: str) -> list
     return []
 
 
+def has_markdown_heading(text: str, heading: str) -> bool:
+    pattern = re.compile(rf"(?m)^\s{{0,3}}#{{1,6}}\s+{re.escape(heading)}\s*#*\s*$")
+    return bool(pattern.search(text))
+
+
+def validate_architecture_contract_handoff(path: Path) -> list[str]:
+    if not path.exists():
+        return []
+    text = path.read_text(encoding="utf-8")
+    return [
+        f"architecture contract handoff missing section: {section}"
+        for section in ARCHITECTURE_CONTRACT_SECTIONS
+        if not has_markdown_heading(text, section)
+    ]
+
+
 def validate_lane_map(run_dir: Path) -> list[str]:
     lane_map_path = run_dir / "lane-map.json"
     data, errors = load_json(lane_map_path, "lane-map.json")
@@ -492,6 +522,17 @@ def validate_lane_map(run_dir: Path) -> list[str]:
         errors.append("lane-map.json field 'architecture_contract_independent' must be a boolean")
         architecture_contract_independent = False
 
+    budget: str | None = None
+    if schema_version == 2:
+        raw_budget = data.get("budget")
+        if raw_budget is None:
+            errors.append("lane-map.json field 'budget' is required for schema v2")
+        elif raw_budget not in TRACE_BUDGETS:
+            allowed = ", ".join(sorted(TRACE_BUDGETS))
+            errors.append(f"lane-map.json field 'budget' must be one of: {allowed}")
+        else:
+            budget = raw_budget
+
     lanes = data.get("lanes")
     if not isinstance(lanes, list):
         errors.append("lane-map.json field 'lanes' must be an array")
@@ -506,6 +547,7 @@ def validate_lane_map(run_dir: Path) -> list[str]:
     successful_architecture_waves: list[int] = []
     successful_reviewer_lane_ids: list[str] = []
     successful_qa_lanes: list[tuple[str, int]] = []
+    worker_lane_count = 0
 
     for index, lane in enumerate(lanes):
         if not isinstance(lane, dict):
@@ -528,6 +570,8 @@ def validate_lane_map(run_dir: Path) -> list[str]:
         if lane_type not in LANE_TYPES:
             allowed = ", ".join(sorted(LANE_TYPES))
             errors.append(f"lane-map.json: lane {label} invalid type '{lane_type}' (expected one of: {allowed})")
+        elif lane_type in WORKER_LANE_TYPES:
+            worker_lane_count += 1
 
         wave = lane.get("wave")
         if not isinstance(wave, int) or isinstance(wave, bool):
@@ -591,6 +635,10 @@ def validate_lane_map(run_dir: Path) -> list[str]:
                 successful_architecture_lane_ids.append(lane_id)
                 if isinstance(wave, int) and not isinstance(wave, bool):
                     successful_architecture_waves.append(wave)
+                if critical is True and isinstance(handoff, str) and handoff:
+                    contract_path = resolve_run_path(run_dir, handoff)
+                    for contract_error in validate_architecture_contract_handoff(contract_path):
+                        errors.append(f"lane-map.json: lane {label} {contract_error}")
         elif lane_type == "review" and status in SUCCESSFUL_LANE_STATUSES:
             successful_reviewer_lane_ids.append(lane_id)
         elif lane_type == "qa" and status in SUCCESSFUL_LANE_STATUSES:
@@ -619,6 +667,12 @@ def validate_lane_map(run_dir: Path) -> list[str]:
             )
 
     final_verdict = read_single_field(run_dir / "final.md", "Verdict")
+
+    if schema_version == 2:
+        if budget == "standard" and worker_lane_count >= 2 and architecture_contract_required is not True:
+            errors.append("lane-map.json: standard budget with 2 worker lanes requires architecture_contract_required=true")
+        if budget == "release" and architecture_contract_required is not True:
+            errors.append("lane-map.json: release budget requires architecture_contract_required=true")
 
     if architecture_contract_required:
         if not architecture_lane_ids:

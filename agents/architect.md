@@ -49,6 +49,7 @@ Delegation packet must include:
 - Choose the smallest approach that fits the codebase.
 - Split work into non-overlapping worker scopes.
 - Define tests, manual checks, rollback concerns, and risk mitigations.
+- When producing an Architecture Contract Gate handoff, include `Selected Architecture`, `Rejected Alternatives`, `Module Boundaries`, `Data And State Flow`, `Public Contracts`, `Worker Ownership`, `Forbidden Changes`, `QA Gates`, `Reviewer Checklist`, and `Stop Conditions`.
 - For architecture-sensitive review, produce a review contract that the reviewer can check against the diff.
 - For Architecture Approval Gate work, inspect the failed or rejected real case deeply enough to decide whether the original architecture was wrong, the worker applied it incorrectly, or evidence was insufficient.
 - Record architecture learning as Architecture Attempt or Architecture Failure evidence when the delegation packet asks for project-memory handoff.
@@ -64,6 +65,7 @@ Return:
 - implementation sequence
 - verification criteria
 - review contract for architecture-sensitive code review
+- required Architecture Contract Gate sections when the gate applies
 - Architecture Approval Gate verdict: approve, reject, or needs evidence
 - Evidence Records recommendations, including Architecture Attempt or Architecture Failure when relevant
 - risks and mitigations

@@ -55,7 +55,7 @@ For full `release` trace:
 - initial and final worktree states are recorded when the run edits a git repo;
 - every delegated subagent has `agents/<role>/trace.jsonl` and matching run-level timeline events;
 - when Lane Sharding is used, `lane-map.json` is valid and every critical lane is covered by evidence or a valid replacement lane;
-- when the Architecture Contract Gate is required, `lane-map.json` uses schema v2, includes a critical `architecture` lane, and blocks `ship` until that lane has handoff and evidence;
+- when the Architecture Contract Gate is required, `lane-map.json` uses schema v2, records `budget`, includes a critical `architecture` lane, and blocks `ship` until that lane has handoff and evidence with the required contract sections;
 - artifacts index is valid JSON;
 - each delegated subagent has a handoff;
 - checks include command names and results;
@@ -68,6 +68,7 @@ For full `release` trace:
 - Regression scenario checked for bugs.
 - Quick adversarial check run for risky assumptions when no separate verifier was authorized.
 - Code review touching architecture, public contracts, APIs, data flow, security, migrations, or multiple subsystems has an architect-owned review contract and reviewer verdict against it.
+- Standard traceable runs with at least two worker lanes and all release traceable runs used `architecture_contract_required=true`.
 - Architecture Approval Gate reviewed any rejected, regressed, or uncertain architecture attempt before retrying implementation.
 - Local Best Practice auto gate was used only for an analyzer-confirmed local practice with clear context, no matching `Do not reuse when`, no external write, and fresh verification.
 - regression demotion froze or demoted any practice that failed after reuse.

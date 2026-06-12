@@ -136,7 +136,7 @@ The Local Best Practice auto gate allows automatic reuse only when the analyzer 
 
 regression demotion is mandatory. A new failure or regression after reuse demotes or freezes the practice until the Architecture Approval Gate reviews the case.
 
-The Architecture Contract Gate is required for release or architecture-sensitive work that touches public contracts, APIs, data flow, security, migrations, or multiple subsystems. The architect records boundaries, risks, ownership, and verification gates before reviewer readiness verdict.
+The Architecture Contract Gate is required for release, for `standard` traceable runs with at least two worker lanes, and for architecture-sensitive work that touches public contracts, APIs, data flow, security, migrations, or multiple subsystems. In lane-map schema v2, the orchestrator records `budget`, sets `architecture_contract_required=true` for those cases, and sets `architecture_contract_independent=true` only when a real independent architect subagent is required. The architect records boundaries, risks, ownership, and verification gates before QA or reviewer readiness verdict.
 
 The Architecture Approval Gate handles rejected, regressed, or uncertain architecture attempts. The orchestrator sends the real case back for deeper architecture analysis, then lets workers retry only against the approved steps and records the resulting evidence.
 

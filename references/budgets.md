@@ -68,6 +68,7 @@ Rules:
 - orchestrator should consider architect, QA, reviewer, and worker lanes by default;
 - subagents may be skipped only when a concrete reason makes solo safer and sufficient;
 - code review that touches architecture, public contracts, APIs, data flow, security, migrations, or multiple subsystems requires an architect-owned review contract before reviewer verdict;
+- lane-map schema v2 must set `budget=release` and `architecture_contract_required=true`;
 - loops, tournaments, and fan-out work require budget caps and stop conditions;
 - Lane Sharding requires `lane-map.json`; critical lanes must be covered before `ship`;
 - no final `ship` verdict unless acceptance checks passed.

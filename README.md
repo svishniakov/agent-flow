@@ -91,7 +91,7 @@ PASS all Agent Flow checks
 
 For large or risky scopes, the orchestrator can split work into implementation, integration, architecture, QA, and review lanes. For traceable runs, `lane-map.json` is the source of truth. `validate-run.py` blocks `Verdict: ship` if a critical lane lacks evidence or a valid replacement lane.
 
-Schema v2 adds the Architecture Contract Gate. When `architecture_contract_required` is true, a critical `architecture` lane must pass with handoff and evidence before QA/review can close `ship`. If `architecture_contract_independent` is true, that lane must be a real subagent with spawned trace evidence; otherwise a scoped role-lane architecture check may be enough for standard multi-lane work.
+Schema v2 adds the Architecture Contract Gate and requires `budget`. `release` runs and `standard` runs with two or more worker lanes must set `architecture_contract_required=true`. A critical `architecture` lane must pass with handoff, evidence, and required contract sections before QA/review can close `ship`. If `architecture_contract_independent` is true, that lane must be a real subagent with spawned trace evidence; otherwise a scoped role-lane architecture check may be enough for standard multi-lane work.
 
 ### Dependency Gate
 
@@ -241,7 +241,7 @@ PASS all Agent Flow checks
 
 Для больших или рискованных задач оркестратор делит работу на implementation, integration, architecture, QA и review lanes. В traceable runs `lane-map.json` задаёт lanes и их статус. `validate-run.py` блокирует `Verdict: ship`, если critical lane не закрыта evidence или валидной replacement lane.
 
-Schema v2 добавляет Architecture Contract Gate. Если `architecture_contract_required` равен true, критическая `architecture` lane должна пройти с handoff и evidence до того, как QA/review закроют `ship`. Если `architecture_contract_independent` равен true, эта lane должна быть реальным subagent со spawned trace evidence. Для standard multi-lane работы иногда достаточно scoped role-lane архитектурной проверки.
+Schema v2 добавляет Architecture Contract Gate и требует `budget`. Для `release` и `standard` с двумя или более worker lanes нужно ставить `architecture_contract_required=true`. Критическая `architecture` lane должна пройти с handoff, evidence и обязательными секциями контракта до QA/review. Если `architecture_contract_independent` равен true, нужна реальная subagent lane со spawned trace evidence. Для standard multi-lane работы иногда достаточно scoped role-lane проверки.
 
 ### Dependency Gate
 

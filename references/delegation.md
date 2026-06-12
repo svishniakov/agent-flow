@@ -72,7 +72,10 @@ APIs, data flow, security, migrations, or multiple subsystems, add an
 architect-owned review contract before reviewer verdict.
 
 This is the Architecture Contract Gate. In a traceable lane-map, use schema v2
-and a critical `architecture` lane when the contract is required.
+and a critical `architecture` lane when the contract is required. Schema v2
+requires `budget`. `release` always requires the contract, and `standard`
+requires it when the run has two or more worker lanes (`implementation` or
+`integration`).
 
 Required sequence:
 
@@ -84,6 +87,11 @@ Required sequence:
 
 The reviewer stays independent. The architect does not approve the review; the
 architect owns the technical contract that review must check against.
+
+The architecture handoff must include these sections: `Selected Architecture`,
+`Rejected Alternatives`, `Module Boundaries`, `Data And State Flow`, `Public
+Contracts`, `Worker Ownership`, `Forbidden Changes`, `QA Gates`, `Reviewer
+Checklist`, and `Stop Conditions`.
 
 If the architect rejects the proposed approach, do not treat that reject as a
 reason to raise model/reasoning by default. Model/reasoning upgrade is not the default fix.

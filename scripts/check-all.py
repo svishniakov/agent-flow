@@ -33,6 +33,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Local Best Practice auto gate",
         "regression demotion",
         "Model/reasoning upgrade is not the default fix",
+        "standard` traceable runs with at least two worker lanes",
     ],
     "references/definition-of-done.md": [
         "Task Status Completion Gate",
@@ -43,6 +44,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Local Best Practice auto gate",
         "regression demotion",
         "Model/reasoning upgrade is not the default fix",
+        "at least two worker lanes",
     ],
     "references/project-memory-and-env.md": [
         "normalize stale completed sections",
@@ -59,17 +61,22 @@ REQUIRED_RUNTIME_TEXT = {
         "Local Best Practice auto gate",
         "regression demotion",
         "Model/reasoning upgrade is not the default fix",
+        "two or more worker lanes",
     ],
     "references/delegation.md": [
         "Architecture Contract Gate",
         "Architecture Approval Gate",
         "Local Best Practice auto gate",
         "Model/reasoning upgrade is not the default fix",
+        "`budget`",
+        "two or more worker lanes",
     ],
     "references/traceable-runs.md": [
         "`schema_version` is `1` or `2`",
+        "`budget` is required",
         "`architecture`",
         "`architecture_contract_required`",
+        "`Selected Architecture`",
     ],
     "agents/orchestrator.md": [
         "Normalize stale completed `todo.md` sections",
@@ -80,16 +87,23 @@ REQUIRED_RUNTIME_TEXT = {
         "Local Best Practice auto gate",
         "regression demotion",
         "Model/reasoning upgrade is not the default fix",
+        "two or more worker lanes",
     ],
     "agents/architect.md": [
         "Architecture Approval Gate",
         "Architecture Attempt",
         "Architecture Failure",
         "Model/reasoning upgrade is not the default fix",
+        "Selected Architecture",
     ],
     "agents/reviewer.md": [
         "Evidence Records",
         "Architecture Contract Gate",
+        "Report architecture contract mismatches explicitly",
+    ],
+    "agents/qa-verifier.md": [
+        "Architecture Contract Gate",
+        "architecture invariants",
     ],
 }
 

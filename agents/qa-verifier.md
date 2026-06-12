@@ -46,6 +46,7 @@ Delegation packet must include:
 - Read acceptance criteria and changed surface.
 - Choose the smallest relevant automated and manual checks.
 - Run assigned commands and capture important outputs.
+- When the Architecture Contract Gate applies, verify the relevant QA Gates and architecture invariants from the contract before readiness.
 - Exercise user workflows when UI behavior is claimed.
 - Report pass, pass-with-risks, fail, or blocked.
 

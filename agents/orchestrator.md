@@ -56,7 +56,8 @@ Delegation packet must include:
 - Read Evidence Records when a similar local problem and approach may already exist.
 - Apply the Local Best Practice auto gate only for analyzer-confirmed local practices with clear context match, no matching `Do not reuse when`, no external write, and fresh verification.
 - If subagents are authorized by budget or request, choose narrow independent roles and disjoint write sets.
-- Require the Architecture Contract Gate for release or architecture-sensitive work before reviewer verdict.
+- Require the Architecture Contract Gate for release, for `standard` traceable runs with two or more worker lanes, and for architecture-sensitive work before QA or reviewer verdict.
+- In lane-map schema v2, set `budget`, `architecture_contract_required`, and `architecture_contract_independent` explicitly.
 - Route rejected, regressed, or uncertain architecture attempts through the Architecture Approval Gate before workers retry.
 - Apply regression demotion immediately when a reused practice fails or regresses.
 - For architecture-sensitive code review, require architect-owned boundaries, risks, ownership, and verification gates before reviewer verdict.

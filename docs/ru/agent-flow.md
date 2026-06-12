@@ -86,9 +86,11 @@ Timeline фиксирует реальный порядок работы. Есл
 
 ## Lane Sharding
 
-Для больших PRD или релизных задач Agent Flow может разделить работу на lanes: implementation, integration, QA и review. Это внутренний workflow pattern, а не публичный режим для пользователя.
+Для больших PRD или релизных задач Agent Flow может разделить работу на lanes: implementation, integration, architecture, QA и review. Это внутренний workflow pattern, а не публичный режим для пользователя.
 
 В traceable run машинным source of truth становится `lane-map.json`. Markdown-файлы вроде `checks/coverage-matrix.md` остаются удобным summary для человека. Перед финальным handoff `validate-run.py` проверяет `lane-map.json` и не допускает `Verdict: ship`, если critical lane не закрыта evidence или валидной replacement lane.
+
+Schema v2 требует `budget`. Для release runs и standard runs с двумя или более worker lanes нужно ставить `architecture_contract_required=true`. Критическая `architecture` lane должна пройти с handoff, evidence и обязательными секциями контракта до QA или review.
 
 ## Субагенты
 

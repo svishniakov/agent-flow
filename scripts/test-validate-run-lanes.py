@@ -22,6 +22,18 @@ REQUIRED_FILES = [
     "definition-of-done.md",
     "decisions.md",
 ]
+ARCHITECTURE_CONTRACT_SECTIONS = [
+    "Selected Architecture",
+    "Rejected Alternatives",
+    "Module Boundaries",
+    "Data And State Flow",
+    "Public Contracts",
+    "Worker Ownership",
+    "Forbidden Changes",
+    "QA Gates",
+    "Reviewer Checklist",
+    "Stop Conditions",
+]
 
 
 def timeline_event(
@@ -53,6 +65,16 @@ def write_jsonl(path: Path, events: list[dict[str, Any]]) -> None:
         "".join(json.dumps(event, ensure_ascii=False) + "\n" for event in events),
         encoding="utf-8",
     )
+
+
+def architecture_contract_text(missing_sections: set[str] | None = None) -> str:
+    missing = missing_sections or set()
+    sections = [
+        f"## {section}\n\nFixture {section.lower()}.\n"
+        for section in ARCHITECTURE_CONTRACT_SECTIONS
+        if section not in missing
+    ]
+    return "# Architecture Contract\n\n" + "\n".join(sections)
 
 
 def write_run(
@@ -90,7 +112,11 @@ def write_run(
             if isinstance(handoff, str):
                 path = run_dir / handoff
                 path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(f"# {lane['id']} handoff\n", encoding="utf-8")
+                if lane.get("type") == "architecture":
+                    missing = set(lane.get("missing_contract_sections", []))
+                    path.write_text(architecture_contract_text(missing), encoding="utf-8")
+                else:
+                    path.write_text(f"# {lane['id']} handoff\n", encoding="utf-8")
             for evidence in lane.get("evidence", []):
                 if isinstance(evidence, str):
                     path = run_dir / evidence
@@ -263,8 +289,22 @@ def main() -> int:
             write_run(
                 temp / "schema-v2-architecture",
                 lanes=[architecture_lane(), qa_lane()],
+                lane_map_extra={
+                    "schema_version": 2,
+                    "budget": "standard",
+                    "architecture_contract_required": True,
+                },
+            ),
+        )
+
+        expect_fail(
+            "schema v2 requires budget",
+            write_run(
+                temp / "schema-v2-no-budget",
+                lanes=[architecture_lane(), qa_lane()],
                 lane_map_extra={"schema_version": 2, "architecture_contract_required": True},
             ),
+            "lane-map.json field 'budget' is required for schema v2",
         )
 
         expect_pass(
@@ -272,8 +312,56 @@ def main() -> int:
             write_run(
                 temp / "architecture-not-required",
                 lanes=[qa_lane()],
-                lane_map_extra={"schema_version": 2, "architecture_contract_required": False},
+                lane_map_extra={
+                    "schema_version": 2,
+                    "budget": "standard",
+                    "architecture_contract_required": False,
+                },
             ),
+        )
+
+        expect_fail(
+            "standard multi-lane requires architecture contract",
+            write_run(
+                temp / "standard-multi-lane-no-architecture-contract",
+                lanes=[
+                    lane("worker-a", lane_type="implementation", role="typescript-worker", wave=2),
+                    lane("worker-b", lane_type="integration", role="backend-worker", wave=3),
+                ],
+                lane_map_extra={
+                    "schema_version": 2,
+                    "budget": "standard",
+                    "architecture_contract_required": False,
+                },
+            ),
+            "standard budget with 2 worker lanes requires architecture_contract_required=true",
+        )
+
+        expect_pass(
+            "standard single worker lane does not require architecture contract",
+            write_run(
+                temp / "standard-single-worker-no-architecture-contract",
+                lanes=[lane("worker-a", lane_type="implementation", role="typescript-worker", wave=2)],
+                lane_map_extra={
+                    "schema_version": 2,
+                    "budget": "standard",
+                    "architecture_contract_required": False,
+                },
+            ),
+        )
+
+        expect_fail(
+            "release requires architecture contract",
+            write_run(
+                temp / "release-no-architecture-contract",
+                lanes=[qa_lane()],
+                lane_map_extra={
+                    "schema_version": 2,
+                    "budget": "release",
+                    "architecture_contract_required": False,
+                },
+            ),
+            "release budget requires architecture_contract_required=true",
         )
 
         expect_fail(
@@ -281,7 +369,11 @@ def main() -> int:
             write_run(
                 temp / "architecture-required-missing",
                 lanes=[qa_lane()],
-                lane_map_extra={"schema_version": 2, "architecture_contract_required": True},
+                lane_map_extra={
+                    "schema_version": 2,
+                    "budget": "standard",
+                    "architecture_contract_required": True,
+                },
             ),
             "architecture_contract_required requires a critical architecture lane",
         )
@@ -291,7 +383,11 @@ def main() -> int:
             write_run(
                 temp / "architecture-required-not-critical",
                 lanes=[architecture_lane(critical=False), qa_lane()],
-                lane_map_extra={"schema_version": 2, "architecture_contract_required": True},
+                lane_map_extra={
+                    "schema_version": 2,
+                    "budget": "standard",
+                    "architecture_contract_required": True,
+                },
             ),
             "architecture lane must be critical",
         )
@@ -302,7 +398,11 @@ def main() -> int:
                 write_run(
                     temp / f"architecture-{bad_status}",
                     lanes=[architecture_lane(status=bad_status), qa_lane()],
-                    lane_map_extra={"schema_version": 2, "architecture_contract_required": True},
+                    lane_map_extra={
+                        "schema_version": 2,
+                        "budget": "standard",
+                        "architecture_contract_required": True,
+                    },
                 ),
                 "architecture lane must pass before ship",
             )
@@ -319,9 +419,33 @@ def main() -> int:
                     },
                     qa_lane(),
                 ],
-                lane_map_extra={"schema_version": 2, "architecture_contract_required": True},
+                lane_map_extra={
+                    "schema_version": 2,
+                    "budget": "standard",
+                    "architecture_contract_required": True,
+                },
             ),
             "successful critical lane requires handoff",
+        )
+
+        expect_fail(
+            "successful architecture handoff requires contract sections",
+            write_run(
+                temp / "architecture-missing-contract-section",
+                lanes=[
+                    {
+                        **architecture_lane(),
+                        "missing_contract_sections": ["Reviewer Checklist"],
+                    },
+                    qa_lane(),
+                ],
+                lane_map_extra={
+                    "schema_version": 2,
+                    "budget": "standard",
+                    "architecture_contract_required": True,
+                },
+            ),
+            "architecture contract handoff missing section: Reviewer Checklist",
         )
 
         expect_fail(
@@ -329,7 +453,11 @@ def main() -> int:
             write_run(
                 temp / "review-without-architecture",
                 lanes=[reviewer_lane()],
-                lane_map_extra={"schema_version": 2, "architecture_contract_required": True},
+                lane_map_extra={
+                    "schema_version": 2,
+                    "budget": "standard",
+                    "architecture_contract_required": True,
+                },
             ),
             "reviewer lane requires successful architecture contract",
         )
@@ -339,7 +467,11 @@ def main() -> int:
             write_run(
                 temp / "qa-before-architecture",
                 lanes=[architecture_lane(wave=3), qa_lane(wave=2)],
-                lane_map_extra={"schema_version": 2, "architecture_contract_required": True},
+                lane_map_extra={
+                    "schema_version": 2,
+                    "budget": "standard",
+                    "architecture_contract_required": True,
+                },
             ),
             "qa lane must run after architecture lane",
         )
@@ -351,6 +483,7 @@ def main() -> int:
                 lanes=[architecture_lane(execution_mode="role-lane"), qa_lane()],
                 lane_map_extra={
                     "schema_version": 2,
+                    "budget": "standard",
                     "architecture_contract_required": True,
                     "architecture_contract_independent": False,
                 },
@@ -364,6 +497,7 @@ def main() -> int:
                 lanes=[architecture_lane(execution_mode="role-lane"), qa_lane()],
                 lane_map_extra={
                     "schema_version": 2,
+                    "budget": "release",
                     "architecture_contract_required": True,
                     "architecture_contract_independent": True,
                 },
@@ -379,6 +513,7 @@ def main() -> int:
                 trace_events={"architect": [spawned_trace("architect", "architecture-contract")]},
                 lane_map_extra={
                     "schema_version": 2,
+                    "budget": "release",
                     "architecture_contract_required": True,
                     "architecture_contract_independent": True,
                 },

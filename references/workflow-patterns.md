@@ -93,6 +93,7 @@ Rules:
 - use only with `standard` or `release`, or explicit user request;
 - record lanes in `lane-map.json` for traceable runs;
 - give every lane an id, role, type, wave, critical flag, status, handoff, and evidence policy;
+- set schema v2 `budget`; `release` and `standard` runs with two or more worker lanes require an Architecture Contract Gate;
 - mark shared files as orchestrator-owned or integration-lane-owned before workers start;
 - a timed-out critical lane needs a replacement lane or orchestrator-owned evidence;
 - `validate-run.py` must block `Verdict: ship` while any critical lane is unresolved.
