@@ -47,6 +47,7 @@ Delegation packet must include:
 - Read scope, plan, diff, handoffs, checks, and relevant code.
 - When the Architecture Contract Gate applies, check the diff against architect-owned boundaries, risks, ownership, and verification gates before giving readiness verdict.
 - Report architecture contract mismatches explicitly, even when none are found.
+- When Architecture Execution Control applies, review worker `Architecture Compliance`, QA `Architecture Invariants`, and any architect re-check; report `Architecture Matrix Mismatches` and `Contract Drift` explicitly, even when none are found.
 - Look for behavioral regressions and missing evidence first.
 - Check Evidence Records when the implementation reused a local practice or claims an approach is proven.
 - Classify findings by severity with file/line references when possible.
@@ -59,6 +60,7 @@ Return:
 - findings ordered by severity
 - open questions
 - architecture contract mismatches, if any
+- Architecture Matrix Mismatches and Contract Drift, even when none are found
 - Evidence Records gaps or regression-demotion risks, if any
 - test gaps
 - release readiness verdict

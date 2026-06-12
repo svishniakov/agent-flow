@@ -173,6 +173,24 @@ Schema v2 adds the Architecture Contract Gate:
 - reviewer and QA lanes may pass only after the architecture contract passes;
 - when `architecture_contract_independent` is true, the architecture lane must use `subagent` execution with spawned trace evidence.
 
+Schema v2 also enforces Architecture Execution Control when
+`architecture_contract_required=true`:
+
+- successful `implementation` and `integration` lanes must include
+  `architecture_compliance` with `status`, `contract_sections`, `notes`, and
+  optional `recheck_lane`;
+- `architecture_compliance.status` must be `compliant` or `drift`;
+- `contract_sections` must name existing Architecture Contract sections;
+- successful worker handoffs must include `Architecture Compliance`;
+- `compliant` worker lanes must not set `recheck_lane`;
+- architecture drift blocks `ship` until `recheck_lane` points to a later,
+  successful, critical `architecture` lane with contract handoff and evidence;
+- when worker lanes exist, final `ship` requires successful QA and reviewer lanes;
+- QA must pass after workers and any architecture re-check, and QA handoff must
+  include `Architecture Invariants`;
+- reviewer must pass after architecture, workers, and QA, and reviewer handoff
+  must include `Architecture Matrix Mismatches` and `Contract Drift`.
+
 For final handoff, `validate-run.py` also requires:
 
 - exactly one `Verdict:` field in `final.md`;

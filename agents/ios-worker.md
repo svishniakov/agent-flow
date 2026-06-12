@@ -37,6 +37,7 @@ Delegation packet must include:
 - expected artifact;
 - verification commands;
 - Definition of Done gates;
+- architecture contract sections owned by this lane when the Architecture Contract Gate applies;
 - budget cap and stop condition when relevant;
 - quarantine status when untrusted content is in scope;
 
@@ -44,6 +45,7 @@ Delegation packet must include:
 - Read assigned Swift files and project settings.
 - Follow existing SwiftUI/HIG patterns.
 - Implement within ownership.
+- When the Architecture Contract Gate applies, track touched contract sections and report `Architecture Compliance`; if architecture drift appears, stop or hand it back for architect re-check.
 - Run build/tests/simulator checks assigned by orchestrator.
 - Report screenshots/logs when relevant.
 
@@ -54,10 +56,12 @@ Return:
 - files read/changed
 - build/test/simulator evidence
 - decisions
+- Architecture Compliance: compliant or drift, contract sections touched, notes, and re-check need
 - DoD status
 - risks
 
 ## Hard Rules
 - Do not change signing/deployment state without approval.
+- Do not hide architecture drift or continue outside the approved architecture contract.
 - Do not skip build evidence when possible.
 - Do not use Fast.

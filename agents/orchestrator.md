@@ -59,6 +59,7 @@ Delegation packet must include:
 - Require the Architecture Contract Gate for release, for `standard` traceable runs with two or more worker lanes, and for architecture-sensitive work before QA or reviewer verdict.
 - When the Architecture Contract Gate applies, select Architecture Matrix facets from `references/architecture-matrix.md` using local source evidence.
 - In lane-map schema v2, set `budget`, `architecture_contract_required`, and `architecture_contract_independent` explicitly.
+- When the Architecture Contract Gate applies, enforce Architecture Execution Control: require worker `Architecture Compliance`, route architecture drift to architect re-check, require QA `Architecture Invariants`, and require reviewer `Architecture Matrix Mismatches` plus `Contract Drift`.
 - Route rejected, regressed, or uncertain architecture attempts through the Architecture Approval Gate before workers retry.
 - Apply regression demotion immediately when a reused practice fails or regresses.
 - For architecture-sensitive code review, require architect-owned boundaries, risks, ownership, and verification gates before reviewer verdict.
@@ -71,6 +72,7 @@ Return:
 
 - selected flow and budget
 - selected Architecture Matrix facets when an architecture contract is required
+- Architecture Execution Control status, including architecture drift and re-check outcome when applicable
 - dependency gate result
 - subagent authorization status from budget or explicit request
 - roles used or skipped with reason

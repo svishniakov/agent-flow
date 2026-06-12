@@ -99,6 +99,17 @@ The architecture handoff must include these sections: `Selected Architecture`,
 Contracts`, `Worker Ownership`, `Forbidden Changes`, `QA Gates`, `Reviewer
 Checklist`, and `Stop Conditions`.
 
+Architecture Execution Control applies after the contract exists. Successful
+`implementation` and `integration` lanes must record `architecture_compliance`
+in `lane-map.json` and write an `Architecture Compliance` handoff section. If a
+worker finds architecture drift, the orchestrator routes the case to architect
+re-check before `ship`; the drift is not closed by worker-only follow-up.
+
+When worker lanes exist under the Architecture Contract Gate, QA must run after
+the workers and any architect re-check, and its handoff must include
+`Architecture Invariants`. Reviewer must run after QA and write
+`Architecture Matrix Mismatches` and `Contract Drift`.
+
 If the architect rejects the proposed approach, do not treat that reject as a
 reason to raise model/reasoning by default. Model/reasoning upgrade is not the default fix.
 The orchestrator sends the real case through the Architecture

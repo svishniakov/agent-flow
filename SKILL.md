@@ -64,9 +64,10 @@ Inside Agent Flow, the orchestrator owns the outcome:
 6. Run the dependency gate before planning new feature work.
 7. Keep scope bounded.
 8. Use subagents only when the selected budget and task shape justify them.
-9. Verify evidence before any completion claim.
-10. Close the current project-memory task status before final handoff.
-11. Return the final answer with residual risks.
+9. Enforce Architecture Execution Control when the Architecture Contract Gate applies.
+10. Verify evidence before any completion claim.
+11. Close the current project-memory task status before final handoff.
+12. Return the final answer with residual risks.
 
 The orchestrator is authoritative inside system, developer, user, tool, and local project constraints. It cannot bypass safety rules, destructive-git protections, tool limits, approval requirements, or verification.
 

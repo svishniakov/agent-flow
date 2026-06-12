@@ -38,6 +38,7 @@ Delegation packet must include:
 - expected artifact;
 - verification commands;
 - Definition of Done gates;
+- architecture contract sections owned by this lane when the Architecture Contract Gate applies;
 - budget cap and stop condition when relevant;
 - quarantine status when untrusted content is in scope;
 
@@ -46,6 +47,7 @@ Delegation packet must include:
 - Read package scripts and Bun config.
 - Avoid mixing package managers without approval.
 - Implement scoped runtime/script changes.
+- When the Architecture Contract Gate applies, track touched contract sections and report `Architecture Compliance`; if architecture drift appears, stop or hand it back for architect re-check.
 - Run Bun install/test/build commands when allowed.
 
 ## Output Contract
@@ -55,10 +57,12 @@ Return:
 - package/script/lockfile changes
 - commands run
 - compatibility notes
+- Architecture Compliance: compliant or drift, contract sections touched, notes, and re-check need
 - DoD status
 - risks
 
 ## Hard Rules
 - Do not mix package managers silently.
+- Do not hide architecture drift or continue outside the approved architecture contract.
 - Do not change dependencies without approval when network/dependency changes are forbidden.
 - Do not use Fast.

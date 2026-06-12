@@ -34,6 +34,11 @@ ARCHITECTURE_CONTRACT_SECTIONS = [
     "Reviewer Checklist",
     "Stop Conditions",
 ]
+ARCHITECTURE_COMPLIANCE_SECTION = "Architecture Compliance"
+ARCHITECTURE_INVARIANTS_SECTION = "Architecture Invariants"
+ARCHITECTURE_MATRIX_MISMATCHES_SECTION = "Architecture Matrix Mismatches"
+CONTRACT_DRIFT_SECTION = "Contract Drift"
+OMIT = object()
 
 
 def timeline_event(
@@ -116,7 +121,14 @@ def write_run(
                     missing = set(lane.get("missing_contract_sections", []))
                     path.write_text(architecture_contract_text(missing), encoding="utf-8")
                 else:
-                    path.write_text(f"# {lane['id']} handoff\n", encoding="utf-8")
+                    sections = [
+                        f"## {section}\n\nFixture {section.lower()}.\n"
+                        for section in lane.get("handoff_sections", [])
+                    ]
+                    path.write_text(
+                        f"# {lane['id']} handoff\n\n" + "\n".join(sections),
+                        encoding="utf-8",
+                    )
             for evidence in lane.get("evidence", []):
                 if isinstance(evidence, str):
                     path = run_dir / evidence
@@ -171,8 +183,9 @@ def lane(
     role: str = "qa-verifier",
     critical: bool = True,
     wave: int = 3,
+    handoff_sections: list[str] | None = None,
 ) -> dict[str, Any]:
-    return {
+    lane_data = {
         "id": lane_id,
         "type": lane_type,
         "role": role,
@@ -184,6 +197,9 @@ def lane(
         "evidence": [f"checks/{lane_id}.md"] if status in {"pass", "pass-with-risks"} else [],
         "replacement": replacement,
     }
+    if handoff_sections is not None:
+        lane_data["handoff_sections"] = handoff_sections
+    return lane_data
 
 
 def spawned_trace(role: str, lane_id: str) -> dict[str, Any]:
@@ -222,12 +238,104 @@ def architecture_lane(
     )
 
 
-def reviewer_lane(lane_id: str = "review-contract", *, wave: int = 4) -> dict[str, Any]:
-    return lane(lane_id, lane_type="review", role="reviewer", wave=wave)
+def architecture_compliance(
+    *,
+    status: str = "compliant",
+    contract_sections: list[str] | None = None,
+    notes: str = "Fixture architecture compliance.",
+    recheck_lane: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "status": status,
+        "contract_sections": contract_sections or ["Module Boundaries"],
+        "notes": notes,
+        "recheck_lane": recheck_lane,
+    }
 
 
-def qa_lane(lane_id: str = "qa-behavior", *, status: str = "pass", wave: int = 3) -> dict[str, Any]:
-    return lane(lane_id, status=status, lane_type="qa", role="qa-verifier", wave=wave)
+def worker_lane(
+    lane_id: str = "worker-a",
+    *,
+    status: str = "pass",
+    wave: int = 2,
+    lane_type: str = "implementation",
+    role: str = "typescript-worker",
+    architecture_compliance_data: Any = OMIT,
+    handoff_sections: list[str] | None = None,
+) -> dict[str, Any]:
+    lane_data = lane(
+        lane_id,
+        status=status,
+        lane_type=lane_type,
+        role=role,
+        wave=wave,
+        handoff_sections=handoff_sections
+        if handoff_sections is not None
+        else [ARCHITECTURE_COMPLIANCE_SECTION],
+    )
+    if architecture_compliance_data is OMIT:
+        lane_data["architecture_compliance"] = architecture_compliance()
+    elif architecture_compliance_data is not None:
+        lane_data["architecture_compliance"] = architecture_compliance_data
+    return lane_data
+
+
+def reviewer_lane(
+    lane_id: str = "review-contract",
+    *,
+    wave: int = 4,
+    handoff_sections: list[str] | None = None,
+) -> dict[str, Any]:
+    return lane(
+        lane_id,
+        lane_type="review",
+        role="reviewer",
+        wave=wave,
+        handoff_sections=handoff_sections,
+    )
+
+
+def qa_lane(
+    lane_id: str = "qa-behavior",
+    *,
+    status: str = "pass",
+    wave: int = 3,
+    handoff_sections: list[str] | None = None,
+) -> dict[str, Any]:
+    return lane(
+        lane_id,
+        status=status,
+        lane_type="qa",
+        role="qa-verifier",
+        wave=wave,
+        handoff_sections=handoff_sections,
+    )
+
+
+def qa_control_lane(*, wave: int = 3, handoff_sections: list[str] | None = None) -> dict[str, Any]:
+    return qa_lane(
+        wave=wave,
+        handoff_sections=handoff_sections
+        if handoff_sections is not None
+        else [ARCHITECTURE_INVARIANTS_SECTION],
+    )
+
+
+def reviewer_control_lane(*, wave: int = 4, handoff_sections: list[str] | None = None) -> dict[str, Any]:
+    return reviewer_lane(
+        wave=wave,
+        handoff_sections=handoff_sections
+        if handoff_sections is not None
+        else [ARCHITECTURE_MATRIX_MISMATCHES_SECTION, CONTRACT_DRIFT_SECTION],
+    )
+
+
+def architecture_control_extra() -> dict[str, Any]:
+    return {
+        "schema_version": 2,
+        "budget": "standard",
+        "architecture_contract_required": True,
+    }
 
 
 def main() -> int:
@@ -517,6 +625,385 @@ def main() -> int:
                     "architecture_contract_required": True,
                     "architecture_contract_independent": True,
                 },
+            ),
+        )
+
+        expect_fail(
+            "worker without architecture compliance fails",
+            write_run(
+                temp / "worker-no-architecture-compliance",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(architecture_compliance_data=None),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "lane worker-a missing architecture_compliance",
+        )
+
+        expect_fail(
+            "worker handoff without architecture compliance section fails",
+            write_run(
+                temp / "worker-no-compliance-section",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(handoff_sections=[]),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "handoff missing section: Architecture Compliance",
+        )
+
+        expect_fail(
+            "worker architecture compliance invalid status fails",
+            write_run(
+                temp / "worker-compliance-invalid-status",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(
+                        architecture_compliance_data=architecture_compliance(status="unknown")
+                    ),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "invalid architecture_compliance.status",
+        )
+
+        expect_fail(
+            "worker architecture compliance empty sections fail",
+            write_run(
+                temp / "worker-compliance-empty-sections",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(
+                        architecture_compliance_data={
+                            **architecture_compliance(),
+                            "contract_sections": [],
+                        }
+                    ),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "architecture_compliance.contract_sections must be a non-empty array",
+        )
+
+        expect_fail(
+            "worker architecture compliance unknown section fails",
+            write_run(
+                temp / "worker-compliance-unknown-section",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(
+                        architecture_compliance_data=architecture_compliance(
+                            contract_sections=["Unknown Section"]
+                        )
+                    ),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "unknown architecture contract section",
+        )
+
+        expect_fail(
+            "worker architecture compliance empty notes fail",
+            write_run(
+                temp / "worker-compliance-empty-notes",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(
+                        architecture_compliance_data=architecture_compliance(notes="")
+                    ),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "architecture_compliance.notes must be a non-empty string",
+        )
+
+        expect_fail(
+            "compliant worker cannot set recheck lane",
+            write_run(
+                temp / "worker-compliant-with-recheck",
+                lanes=[
+                    architecture_lane(),
+                    architecture_lane("architecture-recheck", wave=3),
+                    worker_lane(
+                        architecture_compliance_data=architecture_compliance(
+                            recheck_lane="architecture-recheck"
+                        )
+                    ),
+                    qa_control_lane(wave=4),
+                    reviewer_control_lane(wave=5),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "compliant architecture_compliance must not set recheck_lane",
+        )
+
+        expect_fail(
+            "drift without recheck lane fails",
+            write_run(
+                temp / "worker-drift-no-recheck",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(
+                        architecture_compliance_data=architecture_compliance(status="drift")
+                    ),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "architecture drift requires recheck_lane",
+        )
+
+        expect_fail(
+            "drift with missing recheck lane fails",
+            write_run(
+                temp / "worker-drift-missing-recheck",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(
+                        architecture_compliance_data=architecture_compliance(
+                            status="drift",
+                            recheck_lane="architecture-recheck",
+                        )
+                    ),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "recheck_lane not found",
+        )
+
+        expect_fail(
+            "drift with non-architecture recheck lane fails",
+            write_run(
+                temp / "worker-drift-non-architecture-recheck",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(
+                        architecture_compliance_data=architecture_compliance(
+                            status="drift",
+                            recheck_lane="qa-behavior",
+                        )
+                    ),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "recheck_lane must reference an architecture lane",
+        )
+
+        expect_fail(
+            "drift with non-critical recheck lane fails",
+            write_run(
+                temp / "worker-drift-non-critical-recheck",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(
+                        architecture_compliance_data=architecture_compliance(
+                            status="drift",
+                            recheck_lane="architecture-recheck",
+                        )
+                    ),
+                    architecture_lane("architecture-recheck", critical=False, wave=3),
+                    qa_control_lane(wave=4),
+                    reviewer_control_lane(wave=5),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "recheck_lane must be critical",
+        )
+
+        expect_fail(
+            "drift with failed recheck lane fails",
+            write_run(
+                temp / "worker-drift-failed-recheck",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(
+                        architecture_compliance_data=architecture_compliance(
+                            status="drift",
+                            recheck_lane="architecture-recheck",
+                        )
+                    ),
+                    architecture_lane("architecture-recheck", status="fail", wave=3),
+                    qa_control_lane(wave=4),
+                    reviewer_control_lane(wave=5),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "recheck_lane must pass",
+        )
+
+        expect_fail(
+            "drift recheck must run after worker lane",
+            write_run(
+                temp / "worker-drift-recheck-too-early",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(
+                        wave=2,
+                        architecture_compliance_data=architecture_compliance(
+                            status="drift",
+                            recheck_lane="architecture-recheck",
+                        ),
+                    ),
+                    architecture_lane("architecture-recheck", wave=2),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "recheck_lane must run after drifting worker lane",
+        )
+
+        expect_pass(
+            "drift with later architecture recheck passes",
+            write_run(
+                temp / "worker-drift-with-recheck",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(
+                        wave=2,
+                        architecture_compliance_data=architecture_compliance(
+                            status="drift",
+                            recheck_lane="architecture-recheck",
+                        ),
+                    ),
+                    architecture_lane("architecture-recheck", wave=3),
+                    qa_control_lane(wave=4),
+                    reviewer_control_lane(wave=5),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+        )
+
+        expect_fail(
+            "ship with worker lanes requires qa lane",
+            write_run(
+                temp / "worker-no-qa",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "final Verdict ship requires successful qa lane",
+        )
+
+        expect_fail(
+            "qa must run after worker lanes",
+            write_run(
+                temp / "qa-before-worker",
+                lanes=[
+                    architecture_lane(),
+                    qa_control_lane(wave=2),
+                    worker_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "qa lane must run after worker lanes",
+        )
+
+        expect_fail(
+            "qa handoff requires architecture invariants section",
+            write_run(
+                temp / "qa-no-architecture-invariants",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(),
+                    qa_control_lane(wave=3, handoff_sections=[]),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "handoff missing section: Architecture Invariants",
+        )
+
+        expect_fail(
+            "ship with worker lanes requires reviewer lane",
+            write_run(
+                temp / "worker-no-reviewer",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(),
+                    qa_control_lane(wave=3),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "final Verdict ship requires successful reviewer lane",
+        )
+
+        expect_fail(
+            "reviewer must run after qa lane",
+            write_run(
+                temp / "reviewer-before-qa",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(wave=2),
+                    reviewer_control_lane(wave=3),
+                    qa_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "reviewer lane must run after qa lane",
+        )
+
+        expect_fail(
+            "reviewer handoff requires architecture matrix mismatches section",
+            write_run(
+                temp / "reviewer-no-matrix-mismatches",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4, handoff_sections=[CONTRACT_DRIFT_SECTION]),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "handoff missing section: Architecture Matrix Mismatches",
+        )
+
+        expect_fail(
+            "reviewer handoff requires contract drift section",
+            write_run(
+                temp / "reviewer-no-contract-drift",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(
+                        wave=4,
+                        handoff_sections=[ARCHITECTURE_MATRIX_MISMATCHES_SECTION],
+                    ),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "handoff missing section: Contract Drift",
+        )
+
+        expect_pass(
+            "schema v1 worker lane does not require architecture compliance",
+            write_run(
+                temp / "schema-v1-worker-no-architecture-compliance",
+                lanes=[worker_lane(architecture_compliance_data=None)],
             ),
         )
 

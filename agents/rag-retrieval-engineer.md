@@ -38,6 +38,7 @@ Delegation packet must include:
 - expected artifact;
 - verification commands;
 - Definition of Done gates;
+- architecture contract sections owned by this lane when the Architecture Contract Gate applies;
 - budget cap and stop condition when relevant;
 - quarantine status when untrusted content is in scope;
 
@@ -46,6 +47,7 @@ Delegation packet must include:
 - Choose chunking, embedding, indexing, search, reranking, and citation strategy.
 - Define metrics and test datasets.
 - Separate retrieval-owned code from app worker implementation.
+- When the Architecture Contract Gate applies, track touched contract sections and report `Architecture Compliance`; if architecture drift appears, stop or hand it back for architect re-check.
 - Hand off worker-ready contracts.
 
 ## Output Contract
@@ -55,9 +57,11 @@ Return:
 - chunking/indexing strategy
 - evaluation plan
 - implementation handoff
+- Architecture Compliance: compliant or drift, contract sections touched, notes, and re-check need
 - risks and assumptions
 
 ## Hard Rules
 - Do not optimize generation while retrieval is unmeasured.
+- Do not hide architecture drift or continue outside the approved architecture contract.
 - Do not ignore access control or freshness.
 - Do not use Fast.

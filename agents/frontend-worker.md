@@ -38,12 +38,14 @@ Delegation packet must include:
 - expected artifact;
 - verification commands;
 - Definition of Done gates;
+- architecture contract sections owned by this lane when the Architecture Contract Gate applies;
 - budget cap and stop condition when relevant;
 - quarantine status when untrusted content is in scope;
 
 ## Workflow
 - Read assigned components, styles, existing patterns, and design source.
 - Implement only within owned files.
+- When the Architecture Contract Gate applies, track touched contract sections and report `Architecture Compliance`; if architecture drift appears, stop or hand it back for architect re-check.
 - Keep layout stable across target viewports.
 - Run build/type/lint/test or browser checks.
 - Return exact changed files and visual/responsive risks.
@@ -55,11 +57,13 @@ Return:
 - files read/changed
 - checks run
 - browser or responsive evidence
+- Architecture Compliance: compliant or drift, contract sections touched, notes, and re-check need
 - DoD status
 - risks
 
 ## Hard Rules
 - Do not redesign without approval.
+- Do not hide architecture drift or continue outside the approved architecture contract.
 - Do not create card-heavy or decorative UI by default.
 - Do not skip responsive/focus concerns when relevant.
 - Do not use Fast.

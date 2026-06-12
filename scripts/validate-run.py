@@ -72,6 +72,12 @@ ARCHITECTURE_CONTRACT_SECTIONS = [
     "Reviewer Checklist",
     "Stop Conditions",
 ]
+ARCHITECTURE_CONTRACT_SECTION_SET = set(ARCHITECTURE_CONTRACT_SECTIONS)
+ARCHITECTURE_COMPLIANCE_STATUSES = {"compliant", "drift"}
+ARCHITECTURE_COMPLIANCE_SECTION = "Architecture Compliance"
+ARCHITECTURE_INVARIANTS_SECTION = "Architecture Invariants"
+ARCHITECTURE_MATRIX_MISMATCHES_SECTION = "Architecture Matrix Mismatches"
+CONTRACT_DRIFT_SECTION = "Contract Drift"
 
 
 def detect_mode(run_dir: Path, requested_mode: str) -> str:
@@ -491,12 +497,71 @@ def has_markdown_heading(text: str, heading: str) -> bool:
 def validate_architecture_contract_handoff(path: Path) -> list[str]:
     if not path.exists():
         return []
-    text = path.read_text(encoding="utf-8")
     return [
         f"architecture contract handoff missing section: {section}"
-        for section in ARCHITECTURE_CONTRACT_SECTIONS
-        if not has_markdown_heading(text, section)
+        for section in missing_markdown_headings(path, ARCHITECTURE_CONTRACT_SECTIONS)
     ]
+
+
+def missing_markdown_headings(path: Path, headings: list[str]) -> list[str]:
+    if not path.exists():
+        return []
+    text = path.read_text(encoding="utf-8")
+    return [heading for heading in headings if not has_markdown_heading(text, heading)]
+
+
+def validate_architecture_compliance_shape(
+    lane: dict,
+    label: str,
+) -> tuple[dict | None, list[str]]:
+    errors: list[str] = []
+    compliance = lane.get("architecture_compliance")
+    if not isinstance(compliance, dict):
+        return None, [f"lane-map.json: lane {label} missing architecture_compliance"]
+
+    status = compliance.get("status")
+    if status not in ARCHITECTURE_COMPLIANCE_STATUSES:
+        allowed = ", ".join(sorted(ARCHITECTURE_COMPLIANCE_STATUSES))
+        errors.append(
+            f"lane-map.json: lane {label} invalid architecture_compliance.status "
+            f"'{status}' (expected one of: {allowed})"
+        )
+
+    contract_sections = compliance.get("contract_sections")
+    if not isinstance(contract_sections, list) or not contract_sections:
+        errors.append(
+            f"lane-map.json: lane {label} "
+            "architecture_compliance.contract_sections must be a non-empty array"
+        )
+    else:
+        for index, section in enumerate(contract_sections):
+            if not isinstance(section, str) or section not in ARCHITECTURE_CONTRACT_SECTION_SET:
+                errors.append(
+                    f"lane-map.json: lane {label} "
+                    f"architecture_compliance.contract_sections[{index}] "
+                    f"unknown architecture contract section: {section}"
+                )
+
+    notes = compliance.get("notes")
+    if not isinstance(notes, str) or not notes.strip():
+        errors.append(
+            f"lane-map.json: lane {label} "
+            "architecture_compliance.notes must be a non-empty string"
+        )
+
+    recheck_lane = compliance.get("recheck_lane")
+    if recheck_lane is not None and (not isinstance(recheck_lane, str) or not recheck_lane):
+        errors.append(
+            f"lane-map.json: lane {label} "
+            "architecture_compliance.recheck_lane must be null or a non-empty string"
+        )
+    if status == "compliant" and isinstance(recheck_lane, str) and recheck_lane:
+        errors.append(
+            f"lane-map.json: lane {label} compliant architecture_compliance "
+            "must not set recheck_lane"
+        )
+
+    return compliance, errors
 
 
 def validate_lane_map(run_dir: Path) -> list[str]:
@@ -546,7 +611,10 @@ def validate_lane_map(run_dir: Path) -> list[str]:
     successful_architecture_lane_ids: list[str] = []
     successful_architecture_waves: list[int] = []
     successful_reviewer_lane_ids: list[str] = []
-    successful_qa_lanes: list[tuple[str, int]] = []
+    successful_reviewer_lanes: list[tuple[str, int, str | None]] = []
+    successful_qa_lanes: list[tuple[str, int, str | None]] = []
+    successful_worker_lanes: list[tuple[str, int, str | None]] = []
+    drifting_worker_lanes: list[tuple[str, int | None, str | None]] = []
     worker_lane_count = 0
 
     for index, lane in enumerate(lanes):
@@ -641,9 +709,42 @@ def validate_lane_map(run_dir: Path) -> list[str]:
                         errors.append(f"lane-map.json: lane {label} {contract_error}")
         elif lane_type == "review" and status in SUCCESSFUL_LANE_STATUSES:
             successful_reviewer_lane_ids.append(lane_id)
+            if isinstance(wave, int) and not isinstance(wave, bool):
+                successful_reviewer_lanes.append((lane_id, wave, handoff))
         elif lane_type == "qa" and status in SUCCESSFUL_LANE_STATUSES:
             if isinstance(wave, int) and not isinstance(wave, bool):
-                successful_qa_lanes.append((lane_id, wave))
+                successful_qa_lanes.append((lane_id, wave, handoff))
+        elif lane_type in WORKER_LANE_TYPES and status in SUCCESSFUL_LANE_STATUSES:
+            if isinstance(wave, int) and not isinstance(wave, bool):
+                successful_worker_lanes.append((lane_id, wave, handoff))
+                worker_wave: int | None = wave
+            else:
+                worker_wave = None
+
+            if architecture_contract_required:
+                compliance, compliance_errors = validate_architecture_compliance_shape(lane, label)
+                errors.extend(compliance_errors)
+                if isinstance(handoff, str) and handoff:
+                    handoff_path = resolve_run_path(run_dir, handoff)
+                    for section in missing_markdown_headings(
+                        handoff_path,
+                        [ARCHITECTURE_COMPLIANCE_SECTION],
+                    ):
+                        errors.append(f"lane-map.json: lane {label} handoff missing section: {section}")
+                else:
+                    errors.append(
+                        f"lane-map.json: lane {label} "
+                        "successful worker lane requires handoff for architecture compliance"
+                    )
+                if compliance and compliance.get("status") == "drift":
+                    recheck_lane = compliance.get("recheck_lane")
+                    drifting_worker_lanes.append(
+                        (
+                            lane_id,
+                            worker_wave,
+                            recheck_lane if isinstance(recheck_lane, str) and recheck_lane else None,
+                        )
+                    )
 
     for lane_id, lane in lane_by_id.items():
         if lane.get("critical") is not True:
@@ -707,10 +808,92 @@ def validate_lane_map(run_dir: Path) -> list[str]:
                 errors.append("lane-map.json: qa lane must run after architecture lane")
             else:
                 architecture_wave = max(successful_architecture_waves)
-                for lane_id, wave in successful_qa_lanes:
+                for lane_id, wave, _handoff in successful_qa_lanes:
                     if wave <= architecture_wave:
                         errors.append("lane-map.json: qa lane must run after architecture lane")
                         break
+            if successful_worker_lanes:
+                worker_wave = max(wave for _lane_id, wave, _handoff in successful_worker_lanes)
+                for lane_id, wave, _handoff in successful_qa_lanes:
+                    if wave <= worker_wave:
+                        errors.append("lane-map.json: qa lane must run after worker lanes")
+                        break
+
+        if successful_worker_lanes:
+            for lane_id, _wave, handoff in successful_qa_lanes:
+                if isinstance(handoff, str) and handoff:
+                    handoff_path = resolve_run_path(run_dir, handoff)
+                    for section in missing_markdown_headings(
+                        handoff_path,
+                        [ARCHITECTURE_INVARIANTS_SECTION],
+                    ):
+                        errors.append(f"lane-map.json: lane {lane_id} handoff missing section: {section}")
+
+            for lane_id, _wave, handoff in successful_reviewer_lanes:
+                if isinstance(handoff, str) and handoff:
+                    handoff_path = resolve_run_path(run_dir, handoff)
+                    for section in missing_markdown_headings(
+                        handoff_path,
+                        [ARCHITECTURE_MATRIX_MISMATCHES_SECTION, CONTRACT_DRIFT_SECTION],
+                    ):
+                        errors.append(f"lane-map.json: lane {lane_id} handoff missing section: {section}")
+
+        if successful_reviewer_lanes:
+            if successful_architecture_waves:
+                architecture_wave = max(successful_architecture_waves)
+                for lane_id, wave, _handoff in successful_reviewer_lanes:
+                    if wave <= architecture_wave:
+                        errors.append("lane-map.json: reviewer lane must run after architecture lane")
+                        break
+            if successful_worker_lanes:
+                worker_wave = max(wave for _lane_id, wave, _handoff in successful_worker_lanes)
+                for lane_id, wave, _handoff in successful_reviewer_lanes:
+                    if wave <= worker_wave:
+                        errors.append("lane-map.json: reviewer lane must run after worker lanes")
+                        break
+            if successful_qa_lanes:
+                qa_wave = max(wave for _lane_id, wave, _handoff in successful_qa_lanes)
+                for lane_id, wave, _handoff in successful_reviewer_lanes:
+                    if wave <= qa_wave:
+                        errors.append("lane-map.json: reviewer lane must run after qa lane")
+                        break
+
+        if final_verdict == "ship" and successful_worker_lanes:
+            if not successful_qa_lanes:
+                errors.append("lane-map.json: final Verdict ship requires successful qa lane")
+            if not successful_reviewer_lanes:
+                errors.append("lane-map.json: final Verdict ship requires successful reviewer lane")
+            for lane_id, worker_wave, recheck_lane_id in drifting_worker_lanes:
+                if not recheck_lane_id:
+                    errors.append(f"lane-map.json: lane {lane_id} architecture drift requires recheck_lane")
+                    continue
+
+                recheck_lane = lane_by_id.get(recheck_lane_id)
+                if recheck_lane is None:
+                    errors.append(f"lane-map.json: lane {lane_id} recheck_lane not found: {recheck_lane_id}")
+                    continue
+                if recheck_lane.get("type") != "architecture":
+                    errors.append(
+                        f"lane-map.json: lane {lane_id} "
+                        "recheck_lane must reference an architecture lane"
+                    )
+                    continue
+                if recheck_lane.get("critical") is not True:
+                    errors.append(f"lane-map.json: lane {lane_id} recheck_lane must be critical")
+                recheck_status = normalized_status_by_id.get(recheck_lane_id)
+                if recheck_status not in SUCCESSFUL_LANE_STATUSES:
+                    errors.append(f"lane-map.json: lane {lane_id} recheck_lane must pass")
+                recheck_wave = recheck_lane.get("wave")
+                if (
+                    worker_wave is not None
+                    and isinstance(recheck_wave, int)
+                    and not isinstance(recheck_wave, bool)
+                    and recheck_wave <= worker_wave
+                ):
+                    errors.append(
+                        f"lane-map.json: lane {lane_id} "
+                        "recheck_lane must run after drifting worker lane"
+                    )
 
     if final_verdict == "ship":
         for lane_id, lane in lane_by_id.items():

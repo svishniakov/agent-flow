@@ -47,6 +47,7 @@ Delegation packet must include:
 - Choose the smallest relevant automated and manual checks.
 - Run assigned commands and capture important outputs.
 - When the Architecture Contract Gate applies, verify the relevant QA Gates and architecture invariants from the contract before readiness.
+- When Architecture Execution Control applies, run after worker lanes and any architect re-check; record `Architecture Invariants` with covered boundaries, public contracts, forbidden changes, and unverified areas.
 - Exercise user workflows when UI behavior is claimed.
 - Report pass, pass-with-risks, fail, or blocked.
 
@@ -56,6 +57,7 @@ Return:
 - checks run
 - important outputs
 - scenario coverage
+- Architecture Invariants coverage when architecture contract is required
 - verdict
 - unverified areas
 - next action
