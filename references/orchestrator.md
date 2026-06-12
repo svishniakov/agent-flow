@@ -84,6 +84,7 @@ Only after the budget and task shape justify subagents:
 - Local Best Practice auto gate may apply an analyzer-confirmed practice automatically only when context match is clear, `Do not reuse when` does not match, the action is not an external write, and fresh verification evidence exists.
 - Prefer narrow delegation over broad role chains.
 - Use the Architecture Contract Gate for release, for `standard` traceable runs with two or more worker lanes, and for architecture-sensitive work before QA or reviewer verdict.
+- For Architecture Contract Gate work, read `references/architecture-matrix.md` and select Architecture Matrix facets from local source evidence before the architect writes the contract.
 - For lane-map schema v2, set `budget`, `architecture_contract_required`, and `architecture_contract_independent` explicitly.
 - Send rejected, regressed, or uncertain architecture attempts through the Architecture Approval Gate before retrying implementation.
 - Treat regression demotion as immediate: a reused approach that regresses is no longer auto-applicable until reviewed.

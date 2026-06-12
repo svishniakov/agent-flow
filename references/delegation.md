@@ -88,6 +88,12 @@ Required sequence:
 The reviewer stays independent. The architect does not approve the review; the
 architect owns the technical contract that review must check against.
 
+When product, stack, or application type affects the contract, the orchestrator
+selects Architecture Matrix facets from `references/architecture-matrix.md`.
+The architect must cite those facets in `Selected Architecture` and convert
+their constraints into concrete boundaries, forbidden changes, QA gates, and
+reviewer checklist items.
+
 The architecture handoff must include these sections: `Selected Architecture`,
 `Rejected Alternatives`, `Module Boundaries`, `Data And State Flow`, `Public
 Contracts`, `Worker Ownership`, `Forbidden Changes`, `QA Gates`, `Reviewer

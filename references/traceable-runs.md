@@ -166,6 +166,7 @@ Schema v2 adds the Architecture Contract Gate:
 - `standard` runs with two or more worker lanes (`implementation` or `integration`) require `architecture_contract_required=true`;
 - `release` runs require `architecture_contract_required=true`;
 - when `architecture_contract_required` is true, a critical `architecture` lane must exist;
+- when Architecture Matrix facets apply, the architecture handoff cites selected facets from `references/architecture-matrix.md`;
 - final `ship` requires a successful architecture lane with handoff and evidence;
 - the successful architecture handoff must include these headings: `Selected Architecture`, `Rejected Alternatives`, `Module Boundaries`, `Data And State Flow`, `Public Contracts`, `Worker Ownership`, `Forbidden Changes`, `QA Gates`, `Reviewer Checklist`, and `Stop Conditions`;
 - failed, blocked, or timed-out architecture lanes block `ship`;

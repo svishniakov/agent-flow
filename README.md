@@ -63,6 +63,7 @@ PASS all Agent Flow checks
 | `SKILL.md` | Codex skill entrypoint and invocation contract |
 | `agents/*.md` | 25 bundled role prompts |
 | `agents/agent-identities.json` | stable role identities for traces and handoffs |
+| `references/architecture-matrix.md` | reusable architecture matrix facets for product, surface, stack, risk, and verification context |
 | `references/role-catalog.md` | role lifecycle, use cases, exclusions, overlap notes |
 | `registries/agent-skills.json` | metadata for role skill dependencies |
 | `scripts/check-all.py` | repository validation suite |
@@ -81,6 +82,7 @@ PASS all Agent Flow checks
 - Local Best Practice auto gate can reuse a learned approach only after analyzer confirmation, clear context match, no matching `Do not reuse when`, no external write, and fresh verification.
 - A failed or regressed reuse demotes or freezes the practice until architecture review resolves it.
 - Model/reasoning upgrade is not the default fix for a rejected approach; the orchestrator improves context, architecture, evidence, or verification first.
+- Architecture Matrix makes the architecture contract context-specific when product type, application surface, stack, risk, or verification constraints matter.
 - Subagents no longer need an explicit user request; the orchestrator turns them on when they add real review, QA, research, or parallel implementation value.
 - `.agent-work/tasks/` is local project memory.
 - `.agent-work/runs/` is used only for traceable work.
@@ -92,6 +94,8 @@ PASS all Agent Flow checks
 For large or risky scopes, the orchestrator can split work into implementation, integration, architecture, QA, and review lanes. For traceable runs, `lane-map.json` is the source of truth. `validate-run.py` blocks `Verdict: ship` if a critical lane lacks evidence or a valid replacement lane.
 
 Schema v2 adds the Architecture Contract Gate and requires `budget`. `release` runs and `standard` runs with two or more worker lanes must set `architecture_contract_required=true`. A critical `architecture` lane must pass with handoff, evidence, and required contract sections before QA/review can close `ship`. If `architecture_contract_independent` is true, that lane must be a real subagent with spawned trace evidence; otherwise a scoped role-lane architecture check may be enough for standard multi-lane work.
+
+When the product or stack matters, the orchestrator selects Architecture Matrix facets from `references/architecture-matrix.md` before the architecture lane writes its contract. The architect records those facets and turns their constraints into module boundaries, forbidden changes, QA gates, and reviewer checklist items.
 
 ### Dependency Gate
 
@@ -144,6 +148,7 @@ Agent Flow Finish this feature for release. Run architecture, QA, and review gat
 ### Useful Links
 
 - [Role catalog](references/role-catalog.md)
+- [Architecture Matrix](references/architecture-matrix.md)
 - [Subagent policy](references/subagents.md)
 - [Delegation rules](references/delegation.md)
 - [Traceable runs](references/traceable-runs.md)
@@ -213,6 +218,7 @@ PASS all Agent Flow checks
 | `SKILL.md` | точка входа skill и правило запуска |
 | `agents/*.md` | 25 встроенных prompts ролей |
 | `agents/agent-identities.json` | стабильные identities ролей для trace и handoff |
+| `references/architecture-matrix.md` | переиспользуемая Architecture Matrix по типу продукта, приложению, стеку, рискам и проверкам |
 | `references/role-catalog.md` | сценарии ролей, ограничения и пересечения |
 | `registries/agent-skills.json` | metadata зависимостей role skills |
 | `scripts/check-all.py` | полный набор проверок репозитория |
@@ -231,6 +237,7 @@ PASS all Agent Flow checks
 - Local Best Practice auto gate переиспользует подход только после подтверждения analyzer, ясного совпадения контекста, отсутствия совпадения с `Do not reuse when`, отсутствия внешней записи и свежей проверки.
 - Если переиспользованный подход дал failure или regression, practice демотируется или замораживается до архитектурного разбора.
 - Rejected-подход не лечится автоматическим model/reasoning upgrade: сначала оркестратор улучшает контекст, архитектуру, evidence или verification.
+- Architecture Matrix уточняет архитектурный контракт по типу продукта, приложению, стеку, рискам и проверкам.
 - Субагенты больше не требуют явной просьбы пользователя; оркестратор включает их, когда они дают реальную пользу для review, QA, research или параллельной реализации.
 - `.agent-work/tasks/` - локальная проектная память.
 - `.agent-work/runs/` используется только для traceable work.
@@ -242,6 +249,8 @@ PASS all Agent Flow checks
 Для больших или рискованных задач оркестратор делит работу на implementation, integration, architecture, QA и review lanes. В traceable runs `lane-map.json` задаёт lanes и их статус. `validate-run.py` блокирует `Verdict: ship`, если critical lane не закрыта evidence или валидной replacement lane.
 
 Schema v2 добавляет Architecture Contract Gate и требует `budget`. Для `release` и `standard` с двумя или более worker lanes нужно ставить `architecture_contract_required=true`. Критическая `architecture` lane должна пройти с handoff, evidence и обязательными секциями контракта до QA/review. Если `architecture_contract_independent` равен true, нужна реальная subagent lane со spawned trace evidence. Для standard multi-lane работы иногда достаточно scoped role-lane проверки.
+
+Если тип продукта или стек влияет на решение, оркестратор выбирает аспекты Architecture Matrix в `references/architecture-matrix.md` до работы architecture lane. Архитектор фиксирует эти аспекты и превращает их ограничения в границы модулей, запреты, QA gates и checklist для reviewer.
 
 ### Dependency Gate
 
@@ -294,6 +303,7 @@ Agent Flow Finish this feature for release. Run architecture, QA, and review gat
 ### Ссылки
 
 - [Role catalog](references/role-catalog.md)
+- [Architecture Matrix](references/architecture-matrix.md)
 - [Subagent policy](references/subagents.md)
 - [Delegation rules](references/delegation.md)
 - [Traceable runs](references/traceable-runs.md)

@@ -56,6 +56,7 @@ For full `release` trace:
 - every delegated subagent has `agents/<role>/trace.jsonl` and matching run-level timeline events;
 - when Lane Sharding is used, `lane-map.json` is valid and every critical lane is covered by evidence or a valid replacement lane;
 - when the Architecture Contract Gate is required, `lane-map.json` uses schema v2, records `budget`, includes a critical `architecture` lane, and blocks `ship` until that lane has handoff and evidence with the required contract sections;
+- when Architecture Matrix facets apply, the architecture handoff records selected facets and the QA/reviewer gates cover facet-driven invariants;
 - artifacts index is valid JSON;
 - each delegated subagent has a handoff;
 - checks include command names and results;

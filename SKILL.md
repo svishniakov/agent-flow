@@ -138,6 +138,8 @@ regression demotion is mandatory. A new failure or regression after reuse demote
 
 The Architecture Contract Gate is required for release, for `standard` traceable runs with at least two worker lanes, and for architecture-sensitive work that touches public contracts, APIs, data flow, security, migrations, or multiple subsystems. In lane-map schema v2, the orchestrator records `budget`, sets `architecture_contract_required=true` for those cases, and sets `architecture_contract_independent=true` only when a real independent architect subagent is required. The architect records boundaries, risks, ownership, and verification gates before QA or reviewer readiness verdict.
 
+Read `references/architecture-matrix.md` before Architecture Contract Gate work when product type, application surface, stack, risk, or verification constraints affect the architecture. The orchestrator selects Architecture Matrix facets from local source evidence, then the architect writes the contract against those facets.
+
 The Architecture Approval Gate handles rejected, regressed, or uncertain architecture attempts. The orchestrator sends the real case back for deeper architecture analysis, then lets workers retry only against the approved steps and records the resulting evidence.
 
 Model/reasoning upgrade is not the default fix. Escalate model or reasoning only when the resolver trigger is justified by task risk; otherwise improve context, architecture contract, evidence, or verification first.
@@ -305,3 +307,4 @@ Scripts support the workflow; they do not replace engineering judgment.
 - `references/design-flow.md`: UI/design-specific route and gates.
 - `references/ai-slop-gate.md`: AI slop review route, subagent, and related skills.
 - `references/automation-patterns.md`: manual-to-automation promotion pattern.
+- `references/architecture-matrix.md`: reusable architecture matrix facets for product, surface, stack, risk, and verification context.

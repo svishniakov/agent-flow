@@ -17,6 +17,7 @@ Agent Flow is useful when a task is larger than one short answer or one mechanic
 - avoid touching infrastructure without need;
 - separate ordinary solo work from tasks with trace artifacts;
 - prepare a delegation packet for subagents when the task shape justifies delegation;
+- apply Architecture Matrix facets when product type, application surface, stack, risk, or verification constraints change the architecture contract;
 - keep evidence: checks, handoffs, timeline, risks, and final status;
 - avoid claiming the work is done without fresh verification.
 
@@ -91,6 +92,8 @@ For large PRDs or release work, Agent Flow can split work into implementation, i
 In a traceable run, `lane-map.json` becomes the machine-readable source of truth. Markdown files such as `checks/coverage-matrix.md` remain human-readable summaries. Before final handoff, `validate-run.py` checks `lane-map.json` and rejects `Verdict: ship` when a critical lane has no evidence or valid replacement lane.
 
 Schema v2 requires `budget`. Release runs and standard runs with two or more worker lanes must set `architecture_contract_required=true`. The critical `architecture` lane must pass with handoff, evidence, and the required contract sections before QA or review can pass.
+
+When product or stack constraints matter, the orchestrator selects Architecture Matrix facets from `references/architecture-matrix.md` before the architecture lane writes its contract. The architect cites those facets and turns their constraints into concrete boundaries, forbidden changes, QA gates, and reviewer checklist items.
 
 ## Subagents
 

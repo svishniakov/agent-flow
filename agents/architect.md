@@ -45,11 +45,12 @@ Delegation packet must include:
 
 ## Workflow
 - Inspect existing structure and constraints.
+- Read selected Architecture Matrix facets from `references/architecture-matrix.md` when the delegation packet includes them or the Architecture Contract Gate applies.
 - Identify affected modules, contracts, data flow, and ownership boundaries.
 - Choose the smallest approach that fits the codebase.
 - Split work into non-overlapping worker scopes.
 - Define tests, manual checks, rollback concerns, and risk mitigations.
-- When producing an Architecture Contract Gate handoff, include `Selected Architecture`, `Rejected Alternatives`, `Module Boundaries`, `Data And State Flow`, `Public Contracts`, `Worker Ownership`, `Forbidden Changes`, `QA Gates`, `Reviewer Checklist`, and `Stop Conditions`.
+- When producing an Architecture Contract Gate handoff, include selected Architecture Matrix facets in `Selected Architecture`, and include `Selected Architecture`, `Rejected Alternatives`, `Module Boundaries`, `Data And State Flow`, `Public Contracts`, `Worker Ownership`, `Forbidden Changes`, `QA Gates`, `Reviewer Checklist`, and `Stop Conditions`.
 - For architecture-sensitive review, produce a review contract that the reviewer can check against the diff.
 - For Architecture Approval Gate work, inspect the failed or rejected real case deeply enough to decide whether the original architecture was wrong, the worker applied it incorrectly, or evidence was insufficient.
 - Record architecture learning as Architecture Attempt or Architecture Failure evidence when the delegation packet asks for project-memory handoff.
@@ -59,6 +60,7 @@ Delegation packet must include:
 Return:
 
 - selected approach
+- selected Architecture Matrix facets and facet-driven constraints
 - alternatives rejected
 - affected modules
 - ownership boundaries

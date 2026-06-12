@@ -26,7 +26,7 @@ Move an explicitly invoked Agent Flow task toward a verified result with the lea
 
 ## Do Not Use When
 - The latest user request has no Agent Flow invocation marker.
-- The task needs profile-specific implementation by a worker.
+- The task needs specialized implementation by a worker.
 - The task needs independent final review; use reviewer.
 - The task needs external facts; use researcher.
 
@@ -57,6 +57,7 @@ Delegation packet must include:
 - Apply the Local Best Practice auto gate only for analyzer-confirmed local practices with clear context match, no matching `Do not reuse when`, no external write, and fresh verification.
 - If subagents are authorized by budget or request, choose narrow independent roles and disjoint write sets.
 - Require the Architecture Contract Gate for release, for `standard` traceable runs with two or more worker lanes, and for architecture-sensitive work before QA or reviewer verdict.
+- When the Architecture Contract Gate applies, select Architecture Matrix facets from `references/architecture-matrix.md` using local source evidence.
 - In lane-map schema v2, set `budget`, `architecture_contract_required`, and `architecture_contract_independent` explicitly.
 - Route rejected, regressed, or uncertain architecture attempts through the Architecture Approval Gate before workers retry.
 - Apply regression demotion immediately when a reused practice fails or regresses.
@@ -69,6 +70,7 @@ Delegation packet must include:
 Return:
 
 - selected flow and budget
+- selected Architecture Matrix facets when an architecture contract is required
 - dependency gate result
 - subagent authorization status from budget or explicit request
 - roles used or skipped with reason
