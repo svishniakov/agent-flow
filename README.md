@@ -66,6 +66,7 @@ PASS all Agent Flow checks
 | `references/role-catalog.md` | role lifecycle, use cases, exclusions, overlap notes |
 | `registries/agent-skills.json` | metadata for role skill dependencies |
 | `scripts/check-all.py` | repository validation suite |
+| `scripts/analyze-evidence-records.py` | Evidence Records analyzer for local learning |
 | `scripts/resolve-agent-config.py` | model/reasoning resolver for `spawn_agent` |
 | `scripts/validate-run.py` | traceable run and lane-map validator |
 
@@ -76,6 +77,10 @@ PASS all Agent Flow checks
 - Budget switching is internal; users do not choose workflow depth manually.
 - Dependency Gate is mandatory before new feature work: if another active task may affect the new one, the orchestrator stops and recommends waiting or merging the work into one coordinated run.
 - Task status is a hard completion signal: after successful verification or product commit, a completed current task must move from `in_progress` to `done`.
+- Evidence Records in `implementation-notes.md` are structured local learning data, not free-form notes.
+- Local Best Practice auto gate can reuse a learned approach only after analyzer confirmation, clear context match, no matching `Do not reuse when`, no external write, and fresh verification.
+- A failed or regressed reuse demotes or freezes the practice until architecture review resolves it.
+- Model/reasoning upgrade is not the default fix for a rejected approach; the orchestrator improves context, architecture, evidence, or verification first.
 - Subagents no longer need an explicit user request; the orchestrator turns them on when they add real review, QA, research, or parallel implementation value.
 - `.agent-work/tasks/` is local project memory.
 - `.agent-work/runs/` is used only for traceable work.
@@ -84,7 +89,9 @@ PASS all Agent Flow checks
 
 ### Large Scopes
 
-For large or risky scopes, the orchestrator can split work into implementation, integration, QA, and review lanes. For traceable runs, `lane-map.json` is the source of truth. `validate-run.py` blocks `Verdict: ship` if a critical lane lacks evidence or a valid replacement lane. Architecture-sensitive code review must be checked against an architect-owned review contract before reviewer readiness verdict.
+For large or risky scopes, the orchestrator can split work into implementation, integration, architecture, QA, and review lanes. For traceable runs, `lane-map.json` is the source of truth. `validate-run.py` blocks `Verdict: ship` if a critical lane lacks evidence or a valid replacement lane.
+
+Schema v2 adds the Architecture Contract Gate. When `architecture_contract_required` is true, a critical `architecture` lane must pass with handoff and evidence before QA/review can close `ship`. If `architecture_contract_independent` is true, that lane must be a real subagent with spawned trace evidence; otherwise a scoped role-lane architecture check may be enough for standard multi-lane work.
 
 ### Dependency Gate
 
@@ -93,6 +100,26 @@ When a user starts a new feature while another feature is still `in_progress` or
 Before blocking, AgentFlow checks for stale completed task sections. If an `in_progress` section has all checklist items checked, verification recorded, and no blocker, the orchestrator closes it as `done` first. If evidence is missing, the gate treats it as `uncertain` and asks to verify or close it before new work.
 
 The warning names the active task, explains the risk in practical terms, and recommends waiting for the active feature to finish. The user can still continue by explicitly accepting the risk, or can merge both pieces of work into one coordinated AgentFlow run.
+
+### Evidence Records
+
+AgentFlow can learn from local project history through `## Evidence Records` in `implementation-notes.md`. Records are grouped by exact `Problem class + Approach`, then counted as `success`, `failure`, `regression`, `rejected`, or `unknown`. Architecture and orchestration attempts are counted separately so worker failures do not hide architecture failures.
+
+Promotion is conservative:
+
+- `1 success` -> `Observed`;
+- `2 success` -> `Candidate Practice`;
+- success count reaches the clean threshold, default `3`, -> `Local Best Practice`;
+- repeated failures or rejects -> `Anti-pattern`.
+
+Unknown outcomes are reported as incomplete, not as promotion evidence. Missing reuse boundaries block promotion. A Local Best Practice can be auto-applied only through the auto gate; the analyzer never edits the notes file.
+
+Run the analyzer directly when needed:
+
+```bash
+python3 scripts/analyze-evidence-records.py --json
+python3 scripts/analyze-evidence-records.py --fail-on-invalid
+```
 
 ### Examples
 
@@ -189,16 +216,21 @@ PASS all Agent Flow checks
 | `references/role-catalog.md` | жизненный цикл ролей, сценарии, исключения и пересечения |
 | `registries/agent-skills.json` | metadata для зависимостей role skills |
 | `scripts/check-all.py` | полный набор проверок репозитория |
+| `scripts/analyze-evidence-records.py` | analyzer для Evidence Records и локального обучения |
 | `scripts/resolve-agent-config.py` | resolver model/reasoning для `spawn_agent` |
 | `scripts/validate-run.py` | validator traceable runs и lane-map |
 
 ### Главные правила
 
-- AgentFlow не является общим preflight для каждого запроса.
+- AgentFlow - не общий preflight для каждого запроса.
 - Проектный `AGENTS.md` не может включить AgentFlow без видимого пользователю маркера запуска в текущем запросе.
 - Переключение budgets работает под капотом; пользователь не выбирает глубину workflow вручную.
 - Dependency Gate обязателен перед новой фичей: если другая активная задача может повлиять на неё, оркестратор останавливает старт и рекомендует дождаться результата или объединить работы в один coordinated run.
 - Статус задачи - жёсткий сигнал завершения: после успешной проверки или product commit закрытая текущая задача должна перейти из `in_progress` в `done`.
+- Evidence Records в `implementation-notes.md` - структурированные данные для локального обучения, а не свободные заметки.
+- Local Best Practice auto gate может переиспользовать подход только после подтверждения analyzer, ясного совпадения контекста, отсутствия совпадения с `Do not reuse when`, отсутствия внешней записи и свежей проверки.
+- Если переиспользованный подход дал failure или regression, practice демотируется или замораживается до архитектурного разбора.
+- Model/reasoning upgrade не считается дефолтным исправлением rejected-подхода: сначала оркестратор улучшает контекст, архитектуру, evidence или verification.
 - Субагенты больше не требуют явной просьбы пользователя; оркестратор включает их, когда они дают реальную пользу для review, QA, research или параллельной реализации.
 - `.agent-work/tasks/` - локальная проектная память.
 - `.agent-work/runs/` используется только для traceable work.
@@ -207,7 +239,9 @@ PASS all Agent Flow checks
 
 ### Большие задачи
 
-Для больших или рискованных задач оркестратор может разделить работу на implementation, integration, QA и review lanes. Для traceable runs source of truth - `lane-map.json`. `validate-run.py` блокирует `Verdict: ship`, если critical lane не закрыта evidence или валидной replacement lane. Architecture-sensitive code review проверяется against architect-owned review contract до reviewer verdict о готовности.
+Для больших или рискованных задач оркестратор может разделить работу на implementation, integration, architecture, QA и review lanes. Для traceable runs главный источник - `lane-map.json`. `validate-run.py` блокирует `Verdict: ship`, если critical lane не закрыта evidence или валидной replacement lane.
+
+Schema v2 добавляет Architecture Contract Gate. Если `architecture_contract_required` равен true, критическая `architecture` lane должна пройти с handoff и evidence до того, как QA/review смогут закрыть `ship`. Если `architecture_contract_independent` равен true, эта lane должна быть реальным subagent со spawned trace evidence; иначе для standard multi-lane работы может хватить scoped role-lane архитектурной проверки.
 
 ### Dependency Gate
 
@@ -216,6 +250,26 @@ PASS all Agent Flow checks
 Перед блокировкой AgentFlow проверяет, нет ли stale завершённых секций. Если у секции `in_progress` отмечены все пункты checklist, записана проверка и нет blocker, оркестратор сначала закрывает её как `done`. Если evidence не хватает, gate считает секцию `uncertain` и просит проверить или закрыть её перед новой работой.
 
 Предупреждение называет активную задачу, объясняет практический риск и рекомендует дождаться завершения текущей фичи. Пользователь может явно принять риск и продолжить или объединить обе работы в один coordinated AgentFlow run.
+
+### Evidence Records
+
+AgentFlow может учиться на локальной истории проекта через `## Evidence Records` в `implementation-notes.md`. Записи группируются по точной паре `Problem class + Approach`, затем считаются как `success`, `failure`, `regression`, `rejected` или `unknown`. Architecture и orchestration attempts считаются отдельно, чтобы worker failures не маскировали архитектурные failures.
+
+Promotion работает осторожно:
+
+- `1 success` -> `Observed`;
+- `2 success` -> `Candidate Practice`;
+- число success достигает чистого threshold, по умолчанию `3`, -> `Local Best Practice`;
+- повторные failures или rejects -> `Anti-pattern`.
+
+Unknown outcomes попадают в incomplete, но не продвигают practice. Если не заполнены reuse boundaries, promotion блокируется. Local Best Practice можно применить автоматически только через auto gate; analyzer не редактирует notes file.
+
+Analyzer можно запустить напрямую:
+
+```bash
+python3 scripts/analyze-evidence-records.py --json
+python3 scripts/analyze-evidence-records.py --fail-on-invalid
+```
 
 ### Примеры
 

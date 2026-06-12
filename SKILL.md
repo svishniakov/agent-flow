@@ -126,6 +126,22 @@ If infra is unavailable, report a blocker instead of creating a parallel stack.
 
 Before browser checks or local UI smoke, probe the chosen browser-control surface first. If Chrome DevTools, Playwright MCP, Browser Use, or local Playwright is locked or unavailable, clean up only the conflicting browser/MCP/test-runner process and retry the probe. Do not stop or reset project infra while fixing browser tooling.
 
+## Evidence And Architecture Learning Gate
+
+When `implementation-notes.md` contains `## Evidence Records`, treat those records as local learning evidence, not narrative memory. Use the analyzer before applying a repeated approach automatically.
+
+Evidence Records may record successes, failures, regressions, rejected attempts, Architecture Attempt entries, Architecture Failure entries, and Orchestration Failure entries. Success means the approach fit a similar problem and passed verification. Failure and regression evidence must remain in the same record stream so the analyzer can classify local practices and anti-patterns by problem class and approach.
+
+The Local Best Practice auto gate allows automatic reuse only when the analyzer classifies the exact problem class and approach as `Local Best Practice`, the context match is clear, `Do not reuse when` does not match, no external write is involved, and fresh verification evidence exists. It never auto-applies observed or candidate practices.
+
+regression demotion is mandatory. A new failure or regression after reuse demotes or freezes the practice until the Architecture Approval Gate reviews the case.
+
+The Architecture Contract Gate is required for release or architecture-sensitive work that touches public contracts, APIs, data flow, security, migrations, or multiple subsystems. The architect records boundaries, risks, ownership, and verification gates before reviewer readiness verdict.
+
+The Architecture Approval Gate handles rejected, regressed, or uncertain architecture attempts. The orchestrator sends the real case back for deeper architecture analysis, then lets workers retry only against the approved steps and records the resulting evidence.
+
+Model/reasoning upgrade is not the default fix. Escalate model or reasoning only when the resolver trigger is justified by task risk; otherwise improve context, architecture contract, evidence, or verification first.
+
 ## Subagent Tool Discovery
 
 Discover subagent tools only after the Agent Flow budget is selected and one of these is true:

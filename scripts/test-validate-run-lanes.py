@@ -61,6 +61,7 @@ def write_run(
     verdict: str = "ship",
     lanes: list[dict[str, Any]] | None = None,
     trace_events: dict[str, list[dict[str, Any]]] | None = None,
+    lane_map_extra: dict[str, Any] | None = None,
 ) -> Path:
     run_dir = root / "run"
     (run_dir / "handoffs").mkdir(parents=True)
@@ -96,8 +97,10 @@ def write_run(
                     path.parent.mkdir(parents=True, exist_ok=True)
                     path.write_text(f"# {lane['id']} evidence\n", encoding="utf-8")
 
+        lane_map = {"schema_version": 1, "lanes": lanes}
+        lane_map.update(lane_map_extra or {})
         (run_dir / "lane-map.json").write_text(
-            json.dumps({"schema_version": 1, "lanes": lanes}, ensure_ascii=False, indent=2) + "\n",
+            json.dumps(lane_map, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
 
@@ -138,13 +141,17 @@ def lane(
     status: str = "pass",
     execution_mode: str = "role-lane",
     replacement: str | None = None,
+    lane_type: str = "qa",
+    role: str = "qa-verifier",
+    critical: bool = True,
+    wave: int = 3,
 ) -> dict[str, Any]:
     return {
         "id": lane_id,
-        "type": "qa",
-        "role": "qa-verifier",
-        "wave": 3,
-        "critical": True,
+        "type": lane_type,
+        "role": role,
+        "wave": wave,
+        "critical": critical,
         "execution_mode": execution_mode,
         "status": status,
         "handoff": f"handoffs/{lane_id}.md" if status in {"pass", "pass-with-risks"} else None,
@@ -168,6 +175,33 @@ def spawned_trace(role: str, lane_id: str) -> dict[str, Any]:
         wave=3,
         critical=True,
     )
+
+
+def architecture_lane(
+    lane_id: str = "architecture-contract",
+    *,
+    status: str = "pass",
+    execution_mode: str = "role-lane",
+    critical: bool = True,
+    wave: int = 1,
+) -> dict[str, Any]:
+    return lane(
+        lane_id,
+        status=status,
+        execution_mode=execution_mode,
+        lane_type="architecture",
+        role="architect",
+        critical=critical,
+        wave=wave,
+    )
+
+
+def reviewer_lane(lane_id: str = "review-contract", *, wave: int = 4) -> dict[str, Any]:
+    return lane(lane_id, lane_type="review", role="reviewer", wave=wave)
+
+
+def qa_lane(lane_id: str = "qa-behavior", *, status: str = "pass", wave: int = 3) -> dict[str, Any]:
+    return lane(lane_id, status=status, lane_type="qa", role="qa-verifier", wave=wave)
 
 
 def main() -> int:
@@ -217,6 +251,138 @@ def main() -> int:
         expect_pass(
             "role lane does not require codex thread",
             write_run(temp / "role-lane", lanes=[lane("qa-pii")]),
+        )
+
+        expect_pass(
+            "schema v1 remains valid",
+            write_run(temp / "schema-v1", lanes=[lane("qa-schema-v1")]),
+        )
+
+        expect_pass(
+            "schema v2 accepts architecture lane",
+            write_run(
+                temp / "schema-v2-architecture",
+                lanes=[architecture_lane(), qa_lane()],
+                lane_map_extra={"schema_version": 2, "architecture_contract_required": True},
+            ),
+        )
+
+        expect_pass(
+            "architecture contract false does not require architecture lane",
+            write_run(
+                temp / "architecture-not-required",
+                lanes=[qa_lane()],
+                lane_map_extra={"schema_version": 2, "architecture_contract_required": False},
+            ),
+        )
+
+        expect_fail(
+            "architecture contract required without architecture lane",
+            write_run(
+                temp / "architecture-required-missing",
+                lanes=[qa_lane()],
+                lane_map_extra={"schema_version": 2, "architecture_contract_required": True},
+            ),
+            "architecture_contract_required requires a critical architecture lane",
+        )
+
+        expect_fail(
+            "required architecture lane must be critical",
+            write_run(
+                temp / "architecture-required-not-critical",
+                lanes=[architecture_lane(critical=False), qa_lane()],
+                lane_map_extra={"schema_version": 2, "architecture_contract_required": True},
+            ),
+            "architecture lane must be critical",
+        )
+
+        for bad_status in ["fail", "blocked", "timed-out"]:
+            expect_fail(
+                f"required architecture lane status {bad_status} blocks ship",
+                write_run(
+                    temp / f"architecture-{bad_status}",
+                    lanes=[architecture_lane(status=bad_status), qa_lane()],
+                    lane_map_extra={"schema_version": 2, "architecture_contract_required": True},
+                ),
+                "architecture lane must pass before ship",
+            )
+
+        expect_fail(
+            "successful architecture lane requires evidence",
+            write_run(
+                temp / "architecture-success-no-evidence",
+                lanes=[
+                    {
+                        **architecture_lane(),
+                        "handoff": None,
+                        "evidence": [],
+                    },
+                    qa_lane(),
+                ],
+                lane_map_extra={"schema_version": 2, "architecture_contract_required": True},
+            ),
+            "successful critical lane requires handoff",
+        )
+
+        expect_fail(
+            "reviewer lane without architecture contract fails when required",
+            write_run(
+                temp / "review-without-architecture",
+                lanes=[reviewer_lane()],
+                lane_map_extra={"schema_version": 2, "architecture_contract_required": True},
+            ),
+            "reviewer lane requires successful architecture contract",
+        )
+
+        expect_fail(
+            "qa evidence cannot pass before architecture lane",
+            write_run(
+                temp / "qa-before-architecture",
+                lanes=[architecture_lane(wave=3), qa_lane(wave=2)],
+                lane_map_extra={"schema_version": 2, "architecture_contract_required": True},
+            ),
+            "qa lane must run after architecture lane",
+        )
+
+        expect_pass(
+            "standard multi-lane role-lane architecture fallback allowed",
+            write_run(
+                temp / "architecture-role-lane-fallback",
+                lanes=[architecture_lane(execution_mode="role-lane"), qa_lane()],
+                lane_map_extra={
+                    "schema_version": 2,
+                    "architecture_contract_required": True,
+                    "architecture_contract_independent": False,
+                },
+            ),
+        )
+
+        expect_fail(
+            "release independent architecture cannot silently downgrade to role lane",
+            write_run(
+                temp / "architecture-independent-role-lane",
+                lanes=[architecture_lane(execution_mode="role-lane"), qa_lane()],
+                lane_map_extra={
+                    "schema_version": 2,
+                    "architecture_contract_required": True,
+                    "architecture_contract_independent": True,
+                },
+            ),
+            "independent architecture contract requires subagent execution",
+        )
+
+        expect_pass(
+            "independent architecture subagent lane passes with spawned trace",
+            write_run(
+                temp / "architecture-independent-subagent",
+                lanes=[architecture_lane(execution_mode="subagent"), qa_lane()],
+                trace_events={"architect": [spawned_trace("architect", "architecture-contract")]},
+                lane_map_extra={
+                    "schema_version": 2,
+                    "architecture_contract_required": True,
+                    "architecture_contract_independent": True,
+                },
+            ),
         )
 
     print("PASS validate-run lane fixture tests")

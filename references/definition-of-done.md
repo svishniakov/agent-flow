@@ -22,6 +22,8 @@ Before final handoff for repo tasks:
 - add confirmed lessons to `.agent-work/tasks/lessons.md`;
 - record important decisions, tradeoffs, constraints, evidence links, and follow-up in `.agent-work/tasks/implementation-notes.md` when global criteria make notes relevant.
 
+When a task creates reusable process evidence, record it under `## Evidence Records` instead of burying it in prose. Evidence Records cover success, failure, regression, rejected, Architecture Attempt, Architecture Failure, and Orchestration Failure cases so local learning can compare problem class plus approach.
+
 ## Task Status Completion Gate
 
 Before final handoff for any repo task, audit the current `.agent-work/tasks/todo.md` section:
@@ -53,6 +55,7 @@ For full `release` trace:
 - initial and final worktree states are recorded when the run edits a git repo;
 - every delegated subagent has `agents/<role>/trace.jsonl` and matching run-level timeline events;
 - when Lane Sharding is used, `lane-map.json` is valid and every critical lane is covered by evidence or a valid replacement lane;
+- when the Architecture Contract Gate is required, `lane-map.json` uses schema v2, includes a critical `architecture` lane, and blocks `ship` until that lane has handoff and evidence;
 - artifacts index is valid JSON;
 - each delegated subagent has a handoff;
 - checks include command names and results;
@@ -65,6 +68,10 @@ For full `release` trace:
 - Regression scenario checked for bugs.
 - Quick adversarial check run for risky assumptions when no separate verifier was authorized.
 - Code review touching architecture, public contracts, APIs, data flow, security, migrations, or multiple subsystems has an architect-owned review contract and reviewer verdict against it.
+- Architecture Approval Gate reviewed any rejected, regressed, or uncertain architecture attempt before retrying implementation.
+- Local Best Practice auto gate was used only for an analyzer-confirmed local practice with clear context, no matching `Do not reuse when`, no external write, and fresh verification.
+- regression demotion froze or demoted any practice that failed after reuse.
+- Model/reasoning upgrade is not the default fix; context, architecture contract, evidence, and verification must be improved before escalating cost.
 - No unrelated refactor.
 - No dead code, fake tests, or generic abstraction.
 - No user changes reverted.
@@ -113,3 +120,5 @@ For full `release` trace:
 ## Evidence Rule
 
 Do not say work is complete, fixed, passing, or ready without fresh verification evidence.
+
+Evidence Records do not replace verification. They make repeated decisions auditable and allow local practices to promote, demote, or become anti-patterns based on observed outcomes.

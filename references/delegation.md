@@ -71,6 +71,9 @@ For code review or release readiness that touches architecture, public contracts
 APIs, data flow, security, migrations, or multiple subsystems, add an
 architect-owned review contract before reviewer verdict.
 
+This is the Architecture Contract Gate. In a traceable lane-map, use schema v2
+and a critical `architecture` lane when the contract is required.
+
 Required sequence:
 
 1. `architect` records affected boundaries, risks, ownership, and verification gates.
@@ -81,6 +84,19 @@ Required sequence:
 
 The reviewer stays independent. The architect does not approve the review; the
 architect owns the technical contract that review must check against.
+
+If the architect rejects the proposed approach, do not treat that reject as a
+reason to raise model/reasoning by default. Model/reasoning upgrade is not the default fix.
+The orchestrator sends the real case through the Architecture
+Approval Gate: request deeper architecture analysis, produce revised steps,
+let workers retry only inside the approved contract, then record the outcome as
+Evidence Records. A regression after reuse triggers regression demotion and
+freezes automatic application until the Architecture Approval Gate resolves it.
+
+The Local Best Practice auto gate belongs to orchestration, not to a worker.
+Workers may cite matching Evidence Records, but automatic reuse requires an
+analyzer-confirmed `Local Best Practice`, clear context match, no matching
+`Do not reuse when`, no external write, and fresh verification evidence.
 
 Use disjoint write sets when multiple workers run in parallel. Tell every worker:
 
@@ -124,7 +140,7 @@ Every packet includes:
 When Lane Sharding is used, every delegated lane gets:
 
 - `lane_id`: stable id such as `qa-live-feed`;
-- `type`: `implementation`, `integration`, `qa`, or `review`;
+- `type`: `architecture`, `implementation`, `integration`, `qa`, or `review`;
 - `wave`: execution wave number;
 - `critical`: whether the lane blocks `Verdict: ship`;
 - owned read set and write set;

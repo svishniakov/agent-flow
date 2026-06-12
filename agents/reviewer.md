@@ -45,8 +45,9 @@ Delegation packet must include:
 
 ## Workflow
 - Read scope, plan, diff, handoffs, checks, and relevant code.
-- When an architect-owned review contract exists, check the diff against its boundaries, risks, ownership, and verification gates before giving readiness verdict.
+- When the Architecture Contract Gate applies, check the diff against architect-owned boundaries, risks, ownership, and verification gates before giving readiness verdict.
 - Look for behavioral regressions and missing evidence first.
+- Check Evidence Records when the implementation reused a local practice or claims an approach is proven.
 - Classify findings by severity with file/line references when possible.
 - Check user-facing or public artifacts for AI-slop evidence.
 - Return approval only when risks are acceptable.
@@ -57,6 +58,7 @@ Return:
 - findings ordered by severity
 - open questions
 - architecture contract mismatches, if any
+- Evidence Records gaps or regression-demotion risks, if any
 - test gaps
 - release readiness verdict
 - residual risks

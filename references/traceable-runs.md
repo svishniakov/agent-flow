@@ -148,14 +148,25 @@ Validation remains backward compatible with no-subagent runs: `agents/` is not r
 
 If `lane-map.json` exists, validation also checks the Lane Sharding contract:
 
-- `schema_version` is `1` and `lanes` is an array;
+- `schema_version` is `1` or `2` and `lanes` is an array;
 - lane ids are unique;
 - lane type, execution mode, and status use allowed values;
+- allowed lane types include `architecture`, `implementation`, `integration`, `qa`, and `review`;
 - successful critical lanes point to existing handoff and evidence artifacts;
 - a timed-out critical lane points to an existing replacement lane whose status is `pass` or `pass-with-risks`;
 - a `subagent` lane with active or successful status has a matching spawned trace event with `codex_thread_id`;
 - `role-lane` entries do not require a `codex_thread_id`;
 - `Verdict: ship` is rejected while any critical lane is unresolved, failed, blocked, or missing replacement evidence.
+
+Schema v2 adds the Architecture Contract Gate:
+
+- `architecture_contract_required` is a boolean;
+- `architecture_contract_independent` is a boolean when present;
+- when `architecture_contract_required` is true, a critical `architecture` lane must exist;
+- final `ship` requires a successful architecture lane with handoff and evidence;
+- failed, blocked, or timed-out architecture lanes block `ship`;
+- reviewer and QA lanes may pass only after the architecture contract passes;
+- when `architecture_contract_independent` is true, the architecture lane must use `subagent` execution with spawned trace evidence.
 
 For final handoff, `validate-run.py` also requires:
 

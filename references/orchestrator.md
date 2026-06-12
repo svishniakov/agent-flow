@@ -80,7 +80,13 @@ Only after the budget and task shape justify subagents:
 - Use workflow patterns as internal recipes only when they strengthen routing or verification.
 - Treat unclear Agent Flow scope as intake and routing work, not as a reason to launch brainstorming.
 - Treat uncertain dependency overlap as a stop condition, not as a warning to ignore.
+- Use Evidence Records from `implementation-notes.md` as local learning input when a similar problem and approach appear again.
+- Local Best Practice auto gate may apply an analyzer-confirmed practice automatically only when context match is clear, `Do not reuse when` does not match, the action is not an external write, and fresh verification evidence exists.
 - Prefer narrow delegation over broad role chains.
+- Use the Architecture Contract Gate for release or architecture-sensitive work before reviewer verdict.
+- Send rejected, regressed, or uncertain architecture attempts through the Architecture Approval Gate before retrying implementation.
+- Treat regression demotion as immediate: a reused approach that regresses is no longer auto-applicable until reviewed.
+- Model/reasoning upgrade is not the default fix; improve context, architecture analysis, evidence, or verification before escalating model cost.
 - For code review touching architecture, public contracts, APIs, data flow, security, migrations, or multiple subsystems, require an architect-owned review contract before reviewer verdict.
 - Prefer existing project patterns over new abstractions.
 - Prefer direct verification evidence over narrative.
@@ -122,12 +128,13 @@ Before final answer:
 1. Check latest user message.
 2. Verify changed files and command outputs.
 3. Confirm trace artifacts only if used.
-4. If product changes must be committed, create the product commit after checks and before final trace closure. Do not include `.agent-work/` in the product commit unless the user explicitly requested it.
-5. Run the Task Status Completion Gate for the current `.agent-work/tasks/todo.md` section. If the checklist is complete, verification is recorded, no blocker remains, and the requested commit succeeded, set `Status: done`; otherwise record the missing item and keep `Status: in_progress` or `Status: blocked`.
-6. If a trace timeline exists and a product commit was created, append an orchestrator `stage=commit` event with the commit hash.
-7. Compare the initial worktree snapshot with current `git status --short`.
-8. In `final.md`, record run-owned changes, product commit hash when applicable, pre-existing dirty files left untouched, and pre-existing dirty files touched by the run.
-9. If a trace timeline exists, append the final orchestrator event after `final.md` records the verdict and commit hash.
-10. Run final trace validation.
-11. Record residual risks.
-12. Keep final answer short and evidence-based.
+4. If `implementation-notes.md` gained Evidence Records, run or account for the evidence analyzer before relying on a learned practice.
+5. If product changes must be committed, create the product commit after checks and before final trace closure. Do not include `.agent-work/` in the product commit unless the user explicitly requested it.
+6. Run the Task Status Completion Gate for the current `.agent-work/tasks/todo.md` section. If the checklist is complete, verification is recorded, no blocker remains, and the requested commit succeeded, set `Status: done`; otherwise record the missing item and keep `Status: in_progress` or `Status: blocked`.
+7. If a trace timeline exists and a product commit was created, append an orchestrator `stage=commit` event with the commit hash.
+8. Compare the initial worktree snapshot with current `git status --short`.
+9. In `final.md`, record run-owned changes, product commit hash when applicable, pre-existing dirty files left untouched, and pre-existing dirty files touched by the run.
+10. If a trace timeline exists, append the final orchestrator event after `final.md` records the verdict and commit hash.
+11. Run final trace validation.
+12. Record residual risks.
+13. Keep final answer short and evidence-based.

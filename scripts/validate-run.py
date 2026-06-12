@@ -37,7 +37,7 @@ REQUIRED_TIMELINE_KEYS = {
 }
 FINAL_VERDICTS = {"ship", "pass-with-risks", "blocked", "fail"}
 AGENT_EXECUTION_MODES = {"subagent", "role-lane"}
-LANE_TYPES = {"implementation", "integration", "qa", "review"}
+LANE_TYPES = {"architecture", "implementation", "integration", "qa", "review"}
 LANE_STATUSES = {
     "planned",
     "spawned",
@@ -479,8 +479,18 @@ def validate_lane_map(run_dir: Path) -> list[str]:
         return ["lane-map.json must be a JSON object"]
 
     schema_version = data.get("schema_version")
-    if schema_version != 1:
-        errors.append("lane-map.json field 'schema_version' must be 1")
+    if schema_version not in {1, 2}:
+        errors.append("lane-map.json field 'schema_version' must be 1 or 2")
+
+    architecture_contract_required = data.get("architecture_contract_required", False)
+    if not isinstance(architecture_contract_required, bool):
+        errors.append("lane-map.json field 'architecture_contract_required' must be a boolean")
+        architecture_contract_required = False
+
+    architecture_contract_independent = data.get("architecture_contract_independent", False)
+    if not isinstance(architecture_contract_independent, bool):
+        errors.append("lane-map.json field 'architecture_contract_independent' must be a boolean")
+        architecture_contract_independent = False
 
     lanes = data.get("lanes")
     if not isinstance(lanes, list):
@@ -490,6 +500,12 @@ def validate_lane_map(run_dir: Path) -> list[str]:
     lane_ids: set[str] = set()
     lane_by_id: dict[str, dict] = {}
     normalized_status_by_id: dict[str, str] = {}
+    architecture_lane_ids: list[str] = []
+    critical_architecture_lane_ids: list[str] = []
+    successful_architecture_lane_ids: list[str] = []
+    successful_architecture_waves: list[int] = []
+    successful_reviewer_lane_ids: list[str] = []
+    successful_qa_lanes: list[tuple[str, int]] = []
 
     for index, lane in enumerate(lanes):
         if not isinstance(lane, dict):
@@ -567,6 +583,20 @@ def validate_lane_map(run_dir: Path) -> list[str]:
         ):
             errors.extend(validate_subagent_lane_trace(run_dir, lane_id, role))
 
+        if lane_type == "architecture":
+            architecture_lane_ids.append(lane_id)
+            if critical is True:
+                critical_architecture_lane_ids.append(lane_id)
+            if status in SUCCESSFUL_LANE_STATUSES:
+                successful_architecture_lane_ids.append(lane_id)
+                if isinstance(wave, int) and not isinstance(wave, bool):
+                    successful_architecture_waves.append(wave)
+        elif lane_type == "review" and status in SUCCESSFUL_LANE_STATUSES:
+            successful_reviewer_lane_ids.append(lane_id)
+        elif lane_type == "qa" and status in SUCCESSFUL_LANE_STATUSES:
+            if isinstance(wave, int) and not isinstance(wave, bool):
+                successful_qa_lanes.append((lane_id, wave))
+
     for lane_id, lane in lane_by_id.items():
         if lane.get("critical") is not True:
             continue
@@ -589,6 +619,45 @@ def validate_lane_map(run_dir: Path) -> list[str]:
             )
 
     final_verdict = read_single_field(run_dir / "final.md", "Verdict")
+
+    if architecture_contract_required:
+        if not architecture_lane_ids:
+            errors.append(
+                "lane-map.json: architecture_contract_required requires a critical architecture lane"
+            )
+        elif not critical_architecture_lane_ids:
+            errors.append("lane-map.json: architecture lane must be critical")
+
+        if final_verdict == "ship":
+            blocked_architecture_lane_ids = [
+                lane_id
+                for lane_id in critical_architecture_lane_ids
+                if normalized_status_by_id.get(lane_id) in {"fail", "blocked", "timed-out"}
+            ]
+            if blocked_architecture_lane_ids or not successful_architecture_lane_ids:
+                errors.append("lane-map.json: architecture lane must pass before ship")
+
+        if architecture_contract_independent:
+            for lane_id in successful_architecture_lane_ids:
+                lane = lane_by_id[lane_id]
+                if normalize_execution_mode(lane.get("execution_mode")) != "subagent":
+                    errors.append(
+                        "lane-map.json: independent architecture contract requires subagent execution"
+                    )
+
+        if successful_reviewer_lane_ids and not successful_architecture_lane_ids:
+            errors.append("lane-map.json: reviewer lane requires successful architecture contract")
+
+        if successful_qa_lanes:
+            if not successful_architecture_waves:
+                errors.append("lane-map.json: qa lane must run after architecture lane")
+            else:
+                architecture_wave = max(successful_architecture_waves)
+                for lane_id, wave in successful_qa_lanes:
+                    if wave <= architecture_wave:
+                        errors.append("lane-map.json: qa lane must run after architecture lane")
+                        break
+
     if final_verdict == "ship":
         for lane_id, lane in lane_by_id.items():
             if lane.get("critical") is not True:

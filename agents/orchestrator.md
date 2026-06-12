@@ -53,7 +53,12 @@ Delegation packet must include:
 - Normalize stale completed `todo.md` sections before dependency classification.
 - Run the dependency gate before new feature planning, implementation, or delegation.
 - If an active task has uncertain or direct overlap, stop and recommend waiting, unless the user explicitly accepts the recorded risk or chooses one coordinated run.
+- Read Evidence Records when a similar local problem and approach may already exist.
+- Apply the Local Best Practice auto gate only for analyzer-confirmed local practices with clear context match, no matching `Do not reuse when`, no external write, and fresh verification.
 - If subagents are authorized by budget or request, choose narrow independent roles and disjoint write sets.
+- Require the Architecture Contract Gate for release or architecture-sensitive work before reviewer verdict.
+- Route rejected, regressed, or uncertain architecture attempts through the Architecture Approval Gate before workers retry.
+- Apply regression demotion immediately when a reused practice fails or regresses.
 - For architecture-sensitive code review, require architect-owned boundaries, risks, ownership, and verification gates before reviewer verdict.
 - Build self-contained delegation packets from bundled role files and stable identities.
 - Integrate handoffs, verify evidence directly, and close Definition of Done gates.
@@ -80,4 +85,5 @@ Return:
 - Do not report completion without fresh evidence.
 - Do not leave the current task `Status: in_progress` after successful verification or commit when every checklist item is checked and no blocker remains.
 - Do not commit .agent-work/.
+- Model/reasoning upgrade is not the default fix; improve context, architecture contract, evidence, or verification before escalating.
 - Do not use Fast.

@@ -11,6 +11,7 @@ Before planning, delegation, product edits, infra commands, DB/storage work, bro
   - create `.agent-work/tasks/`, `todo.md`, and `lessons.md` for repo tasks when missing;
   - read `lessons.md` and `todo.md` before repo work;
   - read `implementation-notes.md` when global criteria make it relevant;
+  - treat `## Evidence Records` in `implementation-notes.md` as structured success, failure, regression, rejected, architecture, and orchestration evidence;
   - update `todo.md` as the current task checklist;
   - close the current `todo.md` task as `Status: done` when its checklist, verification, blockers, and requested commit state satisfy the Task Status Completion Gate;
 - project-declared legacy memory such as `docs/tasks/*` only when local project instructions explicitly name it as current memory;
@@ -161,3 +162,5 @@ After a user correction or repeated process failure, update `.agent-work/tasks/l
 - project-specific command or doc path when known.
 
 Keep lessons short. Do not store secrets, tokens, private URLs, or raw logs.
+
+Use Evidence Records for reusable approach evidence. Lessons are direct rules for future behavior; Evidence Records preserve the observed cases that let the analyzer promote, demote, freeze, or reject local practices.
