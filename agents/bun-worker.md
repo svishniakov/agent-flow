@@ -47,6 +47,7 @@ Delegation packet must include:
 - Read package scripts and Bun config.
 - Avoid mixing package managers without approval.
 - Implement scoped runtime/script changes.
+- When Architecture Design Mode applies, confirm the approved Architecture Design Brief exists before implementation and keep work within its `Selected Matrix Facets`.
 - When the Architecture Contract Gate applies, track touched contract sections, selected `architecture_context` facets, and report `Architecture Compliance` with `matrix_facets`; if architecture drift appears, stop or hand it back for architect re-check.
 - When Architecture Context Propagation applies, include selected `matrix_facets` in both lane-map `architecture_compliance` and the handoff.
 - Run Bun install/test/build commands when allowed.
@@ -58,6 +59,7 @@ Return:
 - package/script/lockfile changes
 - commands run
 - compatibility notes
+- Architecture Design Brief constraints followed when Architecture Design Mode applies
 - Architecture Compliance: compliant or drift, contract sections touched, selected `matrix_facets`, notes, and re-check need
 - DoD status
 - risks

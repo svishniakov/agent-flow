@@ -34,6 +34,18 @@ ARCHITECTURE_CONTRACT_SECTIONS = [
     "Reviewer Checklist",
     "Stop Conditions",
 ]
+ARCHITECTURE_DESIGN_BRIEF_SECTIONS = [
+    "Problem Shape",
+    "Selected Matrix Facets",
+    "System Boundaries",
+    "Data And State Model",
+    "Public Interfaces",
+    "Execution Plan",
+    "Risk Model",
+    "Verification Strategy",
+    "Open Questions",
+    "Decision",
+]
 ARCHITECTURE_COMPLIANCE_SECTION = "Architecture Compliance"
 ARCHITECTURE_INVARIANTS_SECTION = "Architecture Invariants"
 ARCHITECTURE_MATRIX_MISMATCHES_SECTION = "Architecture Matrix Mismatches"
@@ -56,6 +68,7 @@ DEFAULT_ARCHITECTURE_CONTEXT = {
 }
 DEFAULT_WORKER_MATRIX_FACETS = ["backend-service", "monolith"]
 OMIT = object()
+DEFAULT = object()
 
 
 def timeline_event(
@@ -143,6 +156,36 @@ def architecture_contract_text(
     return "# Architecture Contract\n\n" + "\n".join(sections)
 
 
+def architecture_design_brief_text(
+    missing_sections: set[str] | None = None,
+    *,
+    selected_facets: list[str] | None = None,
+    decision_status: str | None = "approved",
+    extra_decision_statuses: list[str] | None = None,
+    section_overrides: dict[str, str] | None = None,
+) -> str:
+    missing = missing_sections or set()
+    facets = architecture_context_facets() if selected_facets is None else selected_facets
+    overrides = section_overrides or {}
+    sections = []
+    for section in ARCHITECTURE_DESIGN_BRIEF_SECTIONS:
+        if section in missing:
+            continue
+        body = overrides.get(section, f"Fixture {section.lower()}.")
+        if section == "Selected Matrix Facets" and section not in overrides:
+            lines = facet_lines(facets)
+            body = f"Matrix facets:\n{lines}" if lines else "Matrix facets: none."
+        if section == "Decision" and section not in overrides:
+            lines = []
+            if decision_status is not None:
+                lines.append(f"Status: {decision_status}")
+            for status in extra_decision_statuses or []:
+                lines.append(f"Status: {status}")
+            body = "\n".join(lines) if lines else "Fixture decision without status."
+        sections.append(f"## {section}\n\n{body}\n")
+    return "# Architecture Design Brief\n\n" + "\n".join(sections)
+
+
 def default_worker_handoff_bodies(
     matrix_facets: list[str] | None = None,
 ) -> dict[str, str]:
@@ -220,6 +263,40 @@ def write_run(
                         ),
                         encoding="utf-8",
                     )
+                    design_brief = lane.get("architecture_design_brief")
+                    if (
+                        isinstance(design_brief, str)
+                        and design_brief
+                        and lane.get("create_architecture_design_brief", True)
+                    ):
+                        design_path = run_dir / design_brief
+                        design_path.parent.mkdir(parents=True, exist_ok=True)
+                        design_missing = set(lane.get("missing_design_brief_sections", []))
+                        design_selected_facets = lane.get("design_brief_selected_facets")
+                        if (
+                            design_selected_facets is not None
+                            and not isinstance(design_selected_facets, list)
+                        ):
+                            design_selected_facets = []
+                        design_text = lane.get("architecture_design_brief_text")
+                        if not isinstance(design_text, str):
+                            extra_statuses = lane.get("extra_design_brief_decision_statuses")
+                            if not isinstance(extra_statuses, list):
+                                extra_statuses = None
+                            section_overrides = lane.get("design_brief_section_overrides")
+                            if not isinstance(section_overrides, dict):
+                                section_overrides = None
+                            design_text = architecture_design_brief_text(
+                                design_missing,
+                                selected_facets=design_selected_facets,
+                                decision_status=lane.get(
+                                    "design_brief_decision_status",
+                                    "approved",
+                                ),
+                                extra_decision_statuses=extra_statuses,
+                                section_overrides=section_overrides,
+                            )
+                        design_path.write_text(design_text, encoding="utf-8")
                 else:
                     handoff_section_bodies = lane.get("handoff_section_bodies", {})
                     if not isinstance(handoff_section_bodies, dict):
@@ -275,6 +352,17 @@ def expect_fail(name: str, run_dir: Path, needle: str) -> None:
     output = result.stdout + result.stderr
     if needle not in output:
         raise AssertionError(f"{name} missing '{needle}'\nOutput:\n{output}")
+
+
+def expect_fail_without(name: str, run_dir: Path, needle: str, forbidden: str) -> None:
+    result = validate(run_dir)
+    if result.returncode == 0:
+        raise AssertionError(f"{name} expected fail")
+    output = result.stdout + result.stderr
+    if needle not in output:
+        raise AssertionError(f"{name} missing '{needle}'\nOutput:\n{output}")
+    if forbidden in output:
+        raise AssertionError(f"{name} unexpectedly contained '{forbidden}'\nOutput:\n{output}")
 
 
 def lane(
@@ -334,6 +422,14 @@ def architecture_lane(
     critical: bool = True,
     wave: int = 1,
     selected_facets: list[str] | None = None,
+    architecture_design_brief: Any = DEFAULT,
+    create_architecture_design_brief: bool = True,
+    design_selected_facets: list[str] | None = None,
+    design_decision_status: str | None = "approved",
+    extra_design_decision_statuses: list[str] | None = None,
+    missing_design_sections: list[str] | None = None,
+    design_section_overrides: dict[str, str] | None = None,
+    design_text: str | None = None,
 ) -> dict[str, Any]:
     lane_data = lane(
         lane_id,
@@ -346,6 +442,24 @@ def architecture_lane(
     )
     if selected_facets is not None:
         lane_data["architecture_selected_facets"] = selected_facets
+    if architecture_design_brief is DEFAULT:
+        if status in {"pass", "pass-with-risks"}:
+            lane_data["architecture_design_brief"] = f"handoffs/{lane_id}-design.md"
+    elif architecture_design_brief is not OMIT:
+        lane_data["architecture_design_brief"] = architecture_design_brief
+    if "architecture_design_brief" in lane_data:
+        lane_data["create_architecture_design_brief"] = create_architecture_design_brief
+        if design_selected_facets is not None:
+            lane_data["design_brief_selected_facets"] = design_selected_facets
+        lane_data["design_brief_decision_status"] = design_decision_status
+        if extra_design_decision_statuses is not None:
+            lane_data["extra_design_brief_decision_statuses"] = extra_design_decision_statuses
+        if missing_design_sections is not None:
+            lane_data["missing_design_brief_sections"] = missing_design_sections
+        if design_section_overrides is not None:
+            lane_data["design_brief_section_overrides"] = design_section_overrides
+        if design_text is not None:
+            lane_data["architecture_design_brief_text"] = design_text
     return lane_data
 
 
@@ -665,6 +779,533 @@ def main() -> int:
             write_run(
                 temp / "architecture-context-valid",
                 lanes=[architecture_lane(), qa_lane()],
+                lane_map_extra=architecture_control_extra(),
+            ),
+        )
+
+        expect_pass(
+            "schema v1 architecture lane does not require design brief",
+            write_run(
+                temp / "schema-v1-architecture-no-design-brief",
+                lanes=[architecture_lane(architecture_design_brief=OMIT)],
+            ),
+        )
+
+        expect_pass(
+            "schema v2 without architecture contract does not require design brief",
+            write_run(
+                temp / "schema-v2-architecture-no-design-brief-not-required",
+                lanes=[architecture_lane(architecture_design_brief=OMIT), qa_lane()],
+                lane_map_extra={
+                    "schema_version": 2,
+                    "budget": "standard",
+                    "architecture_contract_required": False,
+                },
+            ),
+        )
+
+        expect_fail(
+            "architecture design brief is required",
+            write_run(
+                temp / "architecture-design-brief-missing",
+                lanes=[architecture_lane(architecture_design_brief=OMIT), qa_lane()],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "missing architecture_design_brief",
+        )
+
+        for bad_value_name, bad_value in [
+            ("null", None),
+            ("empty", ""),
+            ("array", ["handoffs/architecture-design.md"]),
+            ("object", {"path": "handoffs/architecture-design.md"}),
+            ("number", 12),
+        ]:
+            expect_fail(
+                f"architecture design brief {bad_value_name} path fails",
+                write_run(
+                    temp / f"architecture-design-brief-{bad_value_name}",
+                    lanes=[
+                        architecture_lane(architecture_design_brief=bad_value),
+                        qa_lane(),
+                    ],
+                    lane_map_extra=architecture_control_extra(),
+                ),
+                "architecture_design_brief must be a non-empty string",
+            )
+
+        expect_fail(
+            "architecture design brief missing file fails",
+            write_run(
+                temp / "architecture-design-brief-missing-file",
+                lanes=[
+                    architecture_lane(
+                        architecture_design_brief="handoffs/missing-design.md",
+                        create_architecture_design_brief=False,
+                    ),
+                    qa_lane(),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "architecture_design_brief not found",
+        )
+
+        expect_pass(
+            "architecture design brief custom run relative path passes",
+            write_run(
+                temp / "architecture-design-brief-custom-path",
+                lanes=[
+                    architecture_lane(
+                        architecture_design_brief="artifacts/architecture/design.md",
+                    ),
+                    qa_lane(),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+        )
+
+        for missing_section in ARCHITECTURE_DESIGN_BRIEF_SECTIONS:
+            expect_fail(
+                f"architecture design brief missing {missing_section} section fails",
+                write_run(
+                    temp / f"architecture-design-brief-missing-{missing_section.lower().replace(' ', '-')}",
+                    lanes=[
+                        architecture_lane(missing_design_sections=[missing_section]),
+                        qa_lane(),
+                    ],
+                    lane_map_extra=architecture_control_extra(),
+                ),
+                f"architecture design brief missing section: {missing_section}",
+            )
+
+        expect_fail(
+            "architecture design brief wrong heading text fails",
+            write_run(
+                temp / "architecture-design-brief-wrong-heading",
+                lanes=[
+                    architecture_lane(
+                        design_text=architecture_design_brief_text(
+                            {"Problem Shape"},
+                        )
+                        + "\n## Problem Shapes\n\nWrong heading text.\n",
+                    ),
+                    qa_lane(),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "architecture design brief missing section: Problem Shape",
+        )
+
+        expect_fail(
+            "architecture design brief plain text section title fails",
+            write_run(
+                temp / "architecture-design-brief-plain-text-heading",
+                lanes=[
+                    architecture_lane(
+                        design_text=architecture_design_brief_text(
+                            {"Problem Shape"},
+                        )
+                        + "\nProblem Shape\n\nPlain text title.\n",
+                    ),
+                    qa_lane(),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "architecture design brief missing section: Problem Shape",
+        )
+
+        expect_pass(
+            "architecture design brief nested markdown headings pass",
+            write_run(
+                temp / "architecture-design-brief-nested-headings",
+                lanes=[
+                    architecture_lane(
+                        design_text=architecture_design_brief_text().replace("## ", "### "),
+                    ),
+                    qa_lane(),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+        )
+
+        for missing_facet in architecture_context_facets():
+            expect_fail(
+                f"architecture design brief missing facet {missing_facet} fails",
+                write_run(
+                    temp / f"architecture-design-brief-missing-facet-{missing_facet}",
+                    lanes=[
+                        architecture_lane(
+                            design_selected_facets=[
+                                facet
+                                for facet in architecture_context_facets()
+                                if facet != missing_facet
+                            ],
+                        ),
+                        qa_lane(),
+                    ],
+                    lane_map_extra=architecture_control_extra(),
+                ),
+                f"Selected Matrix Facets missing Architecture Matrix facet: {missing_facet}",
+            )
+
+        expect_fail(
+            "architecture design brief partial matrix facet does not pass",
+            write_run(
+                temp / "architecture-design-brief-partial-facet",
+                lanes=[
+                    architecture_lane(
+                        design_section_overrides={
+                            "Selected Matrix Facets": "Matrix facets:\n"
+                            + facet_lines(
+                                [
+                                    "saas-service",
+                                    "backend-service",
+                                    "monolith",
+                                    "golang",
+                                    "migrations",
+                                    "unit",
+                                    "integration",
+                                ]
+                            )
+                        },
+                    ),
+                    qa_lane(),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "Selected Matrix Facets missing Architecture Matrix facet: go",
+        )
+
+        design_empty_gate_context = architecture_context(risk_gates=[], verification_gates=[])
+        expect_pass(
+            "architecture design brief allows empty risk and verification axes",
+            write_run(
+                temp / "architecture-design-brief-empty-risk-verification",
+                lanes=[
+                    architecture_lane(
+                        selected_facets=architecture_context_facets(design_empty_gate_context),
+                        design_selected_facets=architecture_context_facets(
+                            design_empty_gate_context
+                        ),
+                    ),
+                    worker_lane(),
+                    qa_control_lane(wave=3, context=design_empty_gate_context),
+                    reviewer_control_lane(wave=4, context=design_empty_gate_context),
+                ],
+                lane_map_extra=architecture_control_extra(design_empty_gate_context),
+            ),
+        )
+
+        expect_fail(
+            "architecture design brief missing decision status fails",
+            write_run(
+                temp / "architecture-design-brief-missing-decision-status",
+                lanes=[
+                    architecture_lane(design_decision_status=None),
+                    qa_lane(),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "Architecture Design Brief Decision must contain exactly one Status line",
+        )
+
+        expect_fail(
+            "architecture design brief unknown decision status fails",
+            write_run(
+                temp / "architecture-design-brief-unknown-decision-status",
+                lanes=[
+                    architecture_lane(design_decision_status="pending"),
+                    qa_lane(),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "invalid Architecture Design Brief Decision status",
+        )
+
+        expect_fail(
+            "architecture design brief multiple decision statuses fail",
+            write_run(
+                temp / "architecture-design-brief-multiple-decision-statuses",
+                lanes=[
+                    architecture_lane(
+                        design_decision_status="approved",
+                        extra_design_decision_statuses=["rejected"],
+                    ),
+                    qa_lane(),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "Architecture Design Brief Decision must contain exactly one Status line",
+        )
+
+        expect_fail(
+            "architecture design brief status outside decision does not count",
+            write_run(
+                temp / "architecture-design-brief-status-outside-decision",
+                lanes=[
+                    architecture_lane(
+                        design_section_overrides={
+                            "Problem Shape": "Status: approved\nFixture problem.",
+                            "Decision": "Decision text without status.",
+                        },
+                    ),
+                    qa_lane(),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "Architecture Design Brief Decision must contain exactly one Status line",
+        )
+
+        expect_fail(
+            "architecture design brief decision status is case sensitive",
+            write_run(
+                temp / "architecture-design-brief-decision-case",
+                lanes=[
+                    architecture_lane(design_decision_status="Approved"),
+                    qa_lane(),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "invalid Architecture Design Brief Decision status",
+        )
+
+        expect_fail(
+            "architecture design brief decision status spacing is canonical",
+            write_run(
+                temp / "architecture-design-brief-decision-spacing",
+                lanes=[
+                    architecture_lane(
+                        design_section_overrides={
+                            "Decision": "Status : approved",
+                        },
+                    ),
+                    qa_lane(),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "Architecture Design Brief Decision must contain exactly one Status line",
+        )
+
+        for verdict in ["ship", "pass-with-risks"]:
+            expect_fail(
+                f"positive verdict {verdict} requires approved architecture design brief",
+                write_run(
+                    temp / f"architecture-design-brief-needs-revision-{verdict}",
+                    verdict=verdict,
+                    lanes=[
+                        architecture_lane(design_decision_status="needs-revision"),
+                        qa_lane(),
+                    ],
+                    lane_map_extra=architecture_control_extra(),
+                ),
+                "positive final Verdict requires approved Architecture Design Brief",
+            )
+            expect_fail(
+                f"positive verdict {verdict} rejects rejected architecture design brief",
+                write_run(
+                    temp / f"architecture-design-brief-rejected-{verdict}",
+                    verdict=verdict,
+                    lanes=[
+                        architecture_lane(design_decision_status="rejected"),
+                        qa_lane(),
+                    ],
+                    lane_map_extra=architecture_control_extra(),
+                ),
+                "positive final Verdict requires approved Architecture Design Brief",
+            )
+
+        for verdict in ["blocked", "fail"]:
+            expect_pass(
+                f"non-positive verdict {verdict} allows needs-revision design brief",
+                write_run(
+                    temp / f"architecture-design-brief-needs-revision-{verdict}",
+                    verdict=verdict,
+                    lanes=[
+                        architecture_lane(design_decision_status="needs-revision"),
+                        qa_lane(),
+                    ],
+                    lane_map_extra=architecture_control_extra(),
+                ),
+            )
+            expect_pass(
+                f"non-positive verdict {verdict} allows rejected design brief",
+                write_run(
+                    temp / f"architecture-design-brief-rejected-{verdict}",
+                    verdict=verdict,
+                    lanes=[
+                        architecture_lane(design_decision_status="rejected"),
+                        qa_lane(),
+                    ],
+                    lane_map_extra=architecture_control_extra(),
+                ),
+            )
+
+        expect_pass(
+            "architecture pass-with-risks lane passes with approved design brief",
+            write_run(
+                temp / "architecture-pass-with-risks-approved-design",
+                lanes=[
+                    architecture_lane(status="pass-with-risks"),
+                    qa_lane(),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+        )
+
+        expect_fail(
+            "architecture pass-with-risks lane fails positive verdict without approved design",
+            write_run(
+                temp / "architecture-pass-with-risks-rejected-design",
+                lanes=[
+                    architecture_lane(
+                        status="pass-with-risks",
+                        design_decision_status="rejected",
+                    ),
+                    qa_lane(),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "positive final Verdict requires approved Architecture Design Brief",
+        )
+
+        expect_fail_without(
+            "failed architecture lane without design brief does not emit design brief error",
+            write_run(
+                temp / "architecture-failed-without-design-brief",
+                lanes=[
+                    architecture_lane(
+                        status="fail",
+                        architecture_design_brief=OMIT,
+                    ),
+                    qa_lane(),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "architecture lane must pass before ship",
+            "architecture_design_brief",
+        )
+
+        expect_fail_without(
+            "non-critical architecture lane without design brief does not satisfy gate",
+            write_run(
+                temp / "architecture-non-critical-without-design-brief",
+                lanes=[
+                    architecture_lane(
+                        critical=False,
+                        architecture_design_brief=OMIT,
+                    ),
+                    qa_lane(),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "architecture lane must be critical",
+            "architecture_design_brief",
+        )
+
+        expect_fail(
+            "worker must run after approved architecture design brief",
+            write_run(
+                temp / "worker-before-approved-design-brief",
+                lanes=[
+                    architecture_lane(wave=2),
+                    worker_lane(wave=2),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "worker lane must run after approved Architecture Design Brief",
+        )
+
+        expect_pass(
+            "worker after approved architecture design brief passes",
+            write_run(
+                temp / "worker-after-approved-design-brief",
+                lanes=[
+                    architecture_lane(wave=1),
+                    worker_lane(wave=2),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+        )
+
+        expect_fail(
+            "all workers must run after approved architecture design brief",
+            write_run(
+                temp / "multiple-workers-one-before-approved-design-brief",
+                lanes=[
+                    architecture_lane(wave=2),
+                    worker_lane("worker-a", wave=3),
+                    worker_lane("worker-b", lane_type="integration", role="backend-worker", wave=2),
+                    qa_control_lane(wave=4),
+                    reviewer_control_lane(wave=5),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "worker lane must run after approved Architecture Design Brief",
+        )
+
+        expect_fail(
+            "later approved recheck does not approve earlier worker retroactively",
+            write_run(
+                temp / "later-approved-recheck-does-not-approve-earlier-worker",
+                lanes=[
+                    architecture_lane(wave=1, design_decision_status="needs-revision"),
+                    worker_lane(wave=2),
+                    architecture_lane("architecture-recheck", wave=3),
+                    qa_control_lane(wave=4),
+                    reviewer_control_lane(wave=5),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "worker lane must run after approved Architecture Design Brief",
+        )
+
+        expect_fail(
+            "architecture recheck requires design brief",
+            write_run(
+                temp / "architecture-recheck-missing-design-brief",
+                lanes=[
+                    architecture_lane(wave=1),
+                    worker_lane(
+                        wave=2,
+                        architecture_compliance_data=architecture_compliance(
+                            status="drift",
+                            recheck_lane="architecture-recheck",
+                        ),
+                    ),
+                    architecture_lane(
+                        "architecture-recheck",
+                        wave=3,
+                        architecture_design_brief=OMIT,
+                    ),
+                    qa_control_lane(wave=4),
+                    reviewer_control_lane(wave=5),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "missing architecture_design_brief",
+        )
+
+        expect_pass(
+            "initial approved design and later architecture recheck pass",
+            write_run(
+                temp / "architecture-design-brief-with-later-recheck",
+                lanes=[
+                    architecture_lane(wave=1),
+                    worker_lane(
+                        wave=2,
+                        architecture_compliance_data=architecture_compliance(
+                            status="drift",
+                            recheck_lane="architecture-recheck",
+                        ),
+                    ),
+                    architecture_lane("architecture-recheck", wave=3),
+                    qa_control_lane(wave=4),
+                    reviewer_control_lane(wave=5),
+                ],
                 lane_map_extra=architecture_control_extra(),
             ),
         )

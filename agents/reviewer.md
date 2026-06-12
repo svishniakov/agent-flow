@@ -45,6 +45,7 @@ Delegation packet must include:
 
 ## Workflow
 - Read scope, plan, diff, handoffs, checks, and relevant code.
+- When Architecture Design Mode applies, check the diff against the approved Architecture Design Brief before accepting `ship` or `pass-with-risks`.
 - When the Architecture Contract Gate applies, check the diff against architect-owned boundaries, risks, ownership, verification gates, and selected `architecture_context` before giving readiness verdict.
 - Report architecture contract mismatches explicitly, even when none are found.
 - When Architecture Context Propagation applies, cover every selected `architecture_context` facet across `Architecture Matrix Mismatches` and `Contract Drift`.
@@ -61,6 +62,7 @@ Return:
 - findings ordered by severity
 - open questions
 - architecture contract mismatches, if any
+- Architecture Design Brief mismatches, if any
 - Architecture Matrix Mismatches and Contract Drift, even when none are found
 - full selected `architecture_context` coverage, mismatches, or unverified facets
 - Evidence Records gaps or regression-demotion risks, if any

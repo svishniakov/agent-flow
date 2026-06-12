@@ -169,6 +169,11 @@ Schema v2 adds the Architecture Contract Gate:
 - when `architecture_contract_required` is true, `architecture_context` is required and must include `product_context`, `application_surface`, `architecture_pattern`, `stack_runtime`, `risk_gates`, and `verification_gates`;
 - each `architecture_context` axis is an array, at least one facet must be selected across all axes, and every facet id must exist under the matching axis in `references/architecture-matrix.md`;
 - `validate-run.py` parses allowed Architecture Matrix facets from the markdown source of truth, not from duplicated constants;
+- Architecture Design Mode runs before implementation when `architecture_contract_required=true`;
+- every successful critical `architecture` lane must set `architecture_design_brief` to an existing Architecture Design Brief;
+- the Architecture Design Brief must include `Problem Shape`, `Selected Matrix Facets`, `System Boundaries`, `Data And State Model`, `Public Interfaces`, `Execution Plan`, `Risk Model`, `Verification Strategy`, `Open Questions`, and `Decision`;
+- `Selected Matrix Facets` must include every selected `architecture_context` facet id, and `Decision` must contain exactly one canonical status line: `Status: approved`, `Status: needs-revision`, or `Status: rejected`;
+- final `ship` and `pass-with-risks` require `Status: approved`, and successful worker lanes must run after an approved Architecture Design Brief;
 - the architecture handoff `Selected Architecture` section must include every selected `architecture_context` facet id;
 - final `ship` requires a successful architecture lane with handoff and evidence;
 - the successful architecture handoff must include these headings: `Selected Architecture`, `Rejected Alternatives`, `Module Boundaries`, `Data And State Flow`, `Public Contracts`, `Worker Ownership`, `Forbidden Changes`, `QA Gates`, `Reviewer Checklist`, and `Stop Conditions`;

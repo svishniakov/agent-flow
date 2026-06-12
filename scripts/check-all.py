@@ -21,6 +21,19 @@ PRODUCT_SEARCH_PATHS = [
     "registries",
 ]
 
+ARCHITECTURE_DESIGN_CORE_GUARD_TERMS = [
+    "Architecture Design Mode",
+    "Architecture Design Brief",
+    "architecture_design_brief",
+    "Selected Matrix Facets",
+    "Status: approved",
+]
+ARCHITECTURE_DESIGN_ROLE_GUARD_TERMS = [
+    "Architecture Design Mode",
+    "Architecture Design Brief",
+    "Selected Matrix Facets",
+]
+
 REQUIRED_RUNTIME_TEXT = {
     "SKILL.md": [
         "anywhere in the latest user request",
@@ -29,6 +42,7 @@ REQUIRED_RUNTIME_TEXT = {
         "task status normalization pass",
         "Evidence Records",
         "Architecture Contract Gate",
+        *ARCHITECTURE_DESIGN_CORE_GUARD_TERMS,
         "Architecture Matrix",
         "architecture_context",
         "product_context",
@@ -51,6 +65,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Status: done",
         "Evidence Records",
         "Architecture Contract Gate",
+        *ARCHITECTURE_DESIGN_CORE_GUARD_TERMS,
         "Architecture Matrix",
         "architecture_context",
         "Architecture Context Propagation",
@@ -77,6 +92,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Task Status Completion Gate",
         "Evidence Records",
         "Architecture Contract Gate",
+        *ARCHITECTURE_DESIGN_CORE_GUARD_TERMS,
         "Architecture Matrix",
         "architecture_context",
         "product_context",
@@ -100,6 +116,7 @@ REQUIRED_RUNTIME_TEXT = {
     ],
     "references/delegation.md": [
         "Architecture Contract Gate",
+        *ARCHITECTURE_DESIGN_CORE_GUARD_TERMS,
         "Architecture Matrix",
         "architecture_context",
         "product_context",
@@ -126,6 +143,7 @@ REQUIRED_RUNTIME_TEXT = {
         "`budget` is required",
         "`architecture`",
         "`architecture_contract_required`",
+        *ARCHITECTURE_DESIGN_CORE_GUARD_TERMS,
         "`Selected Architecture`",
         "Architecture Matrix",
         "architecture_context",
@@ -235,6 +253,7 @@ REQUIRED_RUNTIME_TEXT = {
         "project-memory task status",
         "Evidence Records",
         "Architecture Contract Gate",
+        *ARCHITECTURE_DESIGN_CORE_GUARD_TERMS,
         "Architecture Matrix",
         "architecture_context",
         "Architecture Context Propagation",
@@ -257,6 +276,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Failure",
         "Model/reasoning upgrade is not the default fix",
         "Selected Architecture",
+        *ARCHITECTURE_DESIGN_CORE_GUARD_TERMS,
         "Architecture Matrix",
         "architecture_context",
         "Architecture Context Propagation",
@@ -267,6 +287,8 @@ REQUIRED_RUNTIME_TEXT = {
     "agents/reviewer.md": [
         "Evidence Records",
         "Architecture Contract Gate",
+        "Architecture Design Mode",
+        "Architecture Design Brief",
         "Architecture Execution Control",
         "architecture_context",
         "Architecture Context Propagation",
@@ -276,6 +298,8 @@ REQUIRED_RUNTIME_TEXT = {
     ],
     "agents/qa-verifier.md": [
         "Architecture Contract Gate",
+        "Architecture Design Mode",
+        "Architecture Design Brief",
         "Architecture Execution Control",
         "architecture invariants",
         "architecture_context",
@@ -284,54 +308,66 @@ REQUIRED_RUNTIME_TEXT = {
     ],
     "agents/backend-worker.md": [
         "Architecture Compliance",
+        *ARCHITECTURE_DESIGN_ROLE_GUARD_TERMS,
         "Architecture Context Propagation",
         "matrix_facets",
         "architecture drift",
     ],
     "agents/frontend-worker.md": [
         "Architecture Compliance",
+        *ARCHITECTURE_DESIGN_ROLE_GUARD_TERMS,
         "Architecture Context Propagation",
         "matrix_facets",
         "architecture drift",
     ],
     "agents/typescript-worker.md": [
         "Architecture Compliance",
+        *ARCHITECTURE_DESIGN_ROLE_GUARD_TERMS,
         "Architecture Context Propagation",
         "matrix_facets",
         "architecture drift",
     ],
     "agents/bun-worker.md": [
         "Architecture Compliance",
+        *ARCHITECTURE_DESIGN_ROLE_GUARD_TERMS,
         "Architecture Context Propagation",
         "matrix_facets",
         "architecture drift",
     ],
     "agents/python-worker.md": [
         "Architecture Compliance",
+        *ARCHITECTURE_DESIGN_ROLE_GUARD_TERMS,
         "Architecture Context Propagation",
         "matrix_facets",
         "architecture drift",
     ],
     "agents/golang-worker.md": [
         "Architecture Compliance",
+        *ARCHITECTURE_DESIGN_ROLE_GUARD_TERMS,
         "Architecture Context Propagation",
         "matrix_facets",
         "architecture drift",
     ],
     "agents/ios-worker.md": [
         "Architecture Compliance",
+        *ARCHITECTURE_DESIGN_ROLE_GUARD_TERMS,
         "Architecture Context Propagation",
         "matrix_facets",
         "architecture drift",
     ],
     "agents/rag-retrieval-engineer.md": [
         "Architecture Compliance",
+        *ARCHITECTURE_DESIGN_ROLE_GUARD_TERMS,
         "Architecture Context Propagation",
         "matrix_facets",
         "architecture drift",
     ],
     "scripts/validate-run.py": [
         "architecture_compliance",
+        "architecture_design_brief",
+        "Architecture Design Brief",
+        "Selected Matrix Facets",
+        "Status: approved",
         "matrix_facets",
         "architecture_context",
         "ARCHITECTURE_MATRIX_PATH",

@@ -36,6 +36,7 @@ REQUIRED_TIMELINE_KEYS = {
     "next_step",
 }
 FINAL_VERDICTS = {"ship", "pass-with-risks", "blocked", "fail"}
+POSITIVE_FINAL_VERDICTS = {"ship", "pass-with-risks"}
 AGENT_EXECUTION_MODES = {"subagent", "role-lane"}
 LANE_TYPES = {"architecture", "implementation", "integration", "qa", "review"}
 TRACE_BUDGETS = {"release", "standard"}
@@ -72,7 +73,27 @@ ARCHITECTURE_CONTRACT_SECTIONS = [
     "Reviewer Checklist",
     "Stop Conditions",
 ]
+ARCHITECTURE_DESIGN_BRIEF_SECTIONS = [
+    "Problem Shape",
+    "Selected Matrix Facets",
+    "System Boundaries",
+    "Data And State Model",
+    "Public Interfaces",
+    "Execution Plan",
+    "Risk Model",
+    "Verification Strategy",
+    "Open Questions",
+    "Decision",
+]
 ARCHITECTURE_CONTRACT_SECTION_SET = set(ARCHITECTURE_CONTRACT_SECTIONS)
+ARCHITECTURE_DESIGN_DECISION_STATUSES = {"approved", "needs-revision", "rejected"}
+ARCHITECTURE_DESIGN_DECISION_STATUS_LINES = {
+    "Status: approved": "approved",
+    "Status: needs-revision": "needs-revision",
+    "Status: rejected": "rejected",
+}
+ARCHITECTURE_DESIGN_DECISION_SECTION = "Decision"
+ARCHITECTURE_DESIGN_MATRIX_SECTION = "Selected Matrix Facets"
 ARCHITECTURE_COMPLIANCE_STATUSES = {"compliant", "drift"}
 ARCHITECTURE_COMPLIANCE_SECTION = "Architecture Compliance"
 ARCHITECTURE_INVARIANTS_SECTION = "Architecture Invariants"
@@ -638,6 +659,53 @@ def missing_facets_in_markdown_sections(
     return [facet for facet in facets if not contains_facet_id(section_text, facet)]
 
 
+def parse_architecture_design_decision(path: Path) -> tuple[str | None, list[str]]:
+    text = path.read_text(encoding="utf-8")
+    decision_text = markdown_section_text(text, ARCHITECTURE_DESIGN_DECISION_SECTION)
+    status_lines = [
+        line.strip()
+        for line in decision_text.splitlines()
+        if line.strip().startswith("Status:")
+    ]
+    if len(status_lines) != 1:
+        return None, ["Architecture Design Brief Decision must contain exactly one Status line"]
+
+    status_line = status_lines[0]
+    status = ARCHITECTURE_DESIGN_DECISION_STATUS_LINES.get(status_line)
+    if status is None:
+        raw_status = status_line.removeprefix("Status:").strip() or status_line
+        return None, [f"invalid Architecture Design Brief Decision status: {raw_status}"]
+    return status, []
+
+
+def validate_architecture_design_brief(
+    path: Path,
+    selected_facets: list[str],
+) -> tuple[str | None, list[str]]:
+    errors: list[str] = []
+    missing_sections = missing_markdown_headings(path, ARCHITECTURE_DESIGN_BRIEF_SECTIONS)
+    errors.extend(
+        f"architecture design brief missing section: {section}"
+        for section in missing_sections
+    )
+
+    if ARCHITECTURE_DESIGN_MATRIX_SECTION not in missing_sections:
+        errors.extend(
+            f"Selected Matrix Facets missing Architecture Matrix facet: {facet}"
+            for facet in missing_facets_in_markdown_sections(
+                path,
+                [ARCHITECTURE_DESIGN_MATRIX_SECTION],
+                selected_facets,
+            )
+        )
+
+    decision_status: str | None = None
+    if ARCHITECTURE_DESIGN_DECISION_SECTION not in missing_sections:
+        decision_status, decision_errors = parse_architecture_design_decision(path)
+        errors.extend(decision_errors)
+    return decision_status, errors
+
+
 def validate_architecture_contract_handoff(path: Path) -> list[str]:
     if not path.exists():
         return []
@@ -808,6 +876,8 @@ def validate_lane_map(run_dir: Path) -> list[str]:
     critical_architecture_lane_ids: list[str] = []
     successful_architecture_lane_ids: list[str] = []
     successful_architecture_waves: list[int] = []
+    approved_architecture_design_waves: list[int] = []
+    not_approved_architecture_design_lane_ids: list[str] = []
     successful_reviewer_lane_ids: list[str] = []
     successful_reviewer_lanes: list[tuple[str, int, str | None]] = []
     successful_qa_lanes: list[tuple[str, int, str | None]] = []
@@ -901,6 +971,40 @@ def validate_lane_map(run_dir: Path) -> list[str]:
                 successful_architecture_lane_ids.append(lane_id)
                 if isinstance(wave, int) and not isinstance(wave, bool):
                     successful_architecture_waves.append(wave)
+                if architecture_contract_required and critical is True:
+                    if "architecture_design_brief" not in lane:
+                        errors.append(
+                            f"lane-map.json: lane {label} missing architecture_design_brief"
+                        )
+                    else:
+                        design_brief = lane.get("architecture_design_brief")
+                        if not isinstance(design_brief, str) or not design_brief:
+                            errors.append(
+                                f"lane-map.json: lane {label} "
+                                "architecture_design_brief must be a non-empty string"
+                            )
+                        else:
+                            design_brief_path = resolve_run_path(run_dir, design_brief)
+                            if not design_brief_path.exists():
+                                errors.append(
+                                    f"lane-map.json: lane {label} "
+                                    f"architecture_design_brief not found: {design_brief}"
+                                )
+                            else:
+                                decision_status, design_errors = validate_architecture_design_brief(
+                                    design_brief_path,
+                                    architecture_context_facets,
+                                )
+                                for design_error in design_errors:
+                                    errors.append(
+                                        f"lane-map.json: lane {label} {design_error}"
+                                    )
+                                if not design_errors:
+                                    if decision_status == "approved":
+                                        if isinstance(wave, int) and not isinstance(wave, bool):
+                                            approved_architecture_design_waves.append(wave)
+                                    elif decision_status in ARCHITECTURE_DESIGN_DECISION_STATUSES:
+                                        not_approved_architecture_design_lane_ids.append(lane_id)
                 if critical is True and isinstance(handoff, str) and handoff:
                     contract_path = resolve_run_path(run_dir, handoff)
                     for contract_error in validate_architecture_contract_handoff(contract_path):
@@ -1017,6 +1121,18 @@ def validate_lane_map(run_dir: Path) -> list[str]:
             if blocked_architecture_lane_ids or not successful_architecture_lane_ids:
                 errors.append("lane-map.json: architecture lane must pass before ship")
 
+        if (
+            final_verdict in POSITIVE_FINAL_VERDICTS
+            and (
+                not approved_architecture_design_waves
+                or not_approved_architecture_design_lane_ids
+            )
+        ):
+            errors.append(
+                "lane-map.json: positive final Verdict requires approved "
+                "Architecture Design Brief"
+            )
+
         if architecture_contract_independent:
             for lane_id in successful_architecture_lane_ids:
                 lane = lane_by_id[lane_id]
@@ -1045,6 +1161,12 @@ def validate_lane_map(run_dir: Path) -> list[str]:
                         break
 
         if successful_worker_lanes:
+            for lane_id, wave, _handoff in successful_worker_lanes:
+                if not any(design_wave < wave for design_wave in approved_architecture_design_waves):
+                    errors.append(
+                        f"lane-map.json: lane {lane_id} worker lane must run after "
+                        "approved Architecture Design Brief"
+                    )
             qa_matrix_facets = [
                 *architecture_context_by_axis.get("risk_gates", []),
                 *architecture_context_by_axis.get("verification_gates", []),

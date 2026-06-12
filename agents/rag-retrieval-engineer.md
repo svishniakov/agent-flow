@@ -47,6 +47,7 @@ Delegation packet must include:
 - Choose chunking, embedding, indexing, search, reranking, and citation strategy.
 - Define metrics and test datasets.
 - Separate retrieval-owned code from app worker implementation.
+- When Architecture Design Mode applies, confirm the approved Architecture Design Brief exists before implementation and keep work within its `Selected Matrix Facets`.
 - When the Architecture Contract Gate applies, track touched contract sections, selected `architecture_context` facets, and report `Architecture Compliance` with `matrix_facets`; if architecture drift appears, stop or hand it back for architect re-check.
 - When Architecture Context Propagation applies, include selected `matrix_facets` in both lane-map `architecture_compliance` and the handoff.
 - Hand off worker-ready contracts.
@@ -58,6 +59,7 @@ Return:
 - chunking/indexing strategy
 - evaluation plan
 - implementation handoff
+- Architecture Design Brief constraints followed when Architecture Design Mode applies
 - Architecture Compliance: compliant or drift, contract sections touched, selected `matrix_facets`, notes, and re-check need
 - risks and assumptions
 

@@ -60,6 +60,7 @@ Delegation packet must include:
 - When the Architecture Contract Gate applies, select Architecture Matrix facets from `references/architecture-matrix.md` using local source evidence.
 - In lane-map schema v2, set `budget`, `architecture_contract_required`, `architecture_contract_independent`, and `architecture_context` explicitly.
 - When `architecture_contract_required=true`, write all six `architecture_context` axes: `product_context`, `application_surface`, `architecture_pattern`, `stack_runtime`, `risk_gates`, and `verification_gates`.
+- Enforce Architecture Design Mode before implementation: require `architecture_design_brief`, an Architecture Design Brief, `Selected Matrix Facets`, and `Status: approved` before worker lanes and before `ship` or `pass-with-risks`.
 - When the Architecture Contract Gate applies, enforce Architecture Execution Control: require worker `Architecture Compliance`, route architecture drift to architect re-check, require QA `Architecture Invariants`, and require reviewer `Architecture Matrix Mismatches` plus `Contract Drift`.
 - Enforce Architecture Context Propagation: workers declare selected `matrix_facets`, QA covers selected `risk_gates` and `verification_gates`, and reviewer covers the full selected `architecture_context`.
 - Route rejected, regressed, or uncertain architecture attempts through the Architecture Approval Gate before workers retry.
@@ -75,6 +76,7 @@ Return:
 - selected flow and budget
 - selected Architecture Matrix facets when an architecture contract is required
 - `architecture_context` recorded in lane-map schema v2 when an architecture contract is required
+- Architecture Design Mode status, including `architecture_design_brief`, `Selected Matrix Facets`, and `Status: approved`
 - Architecture Execution Control status, including architecture drift and re-check outcome when applicable
 - Architecture Context Propagation status for worker `matrix_facets`, QA gates, and reviewer coverage
 - dependency gate result

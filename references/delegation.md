@@ -98,6 +98,13 @@ architect must cite every selected facet id in `Selected Architecture` and
 convert the constraints into concrete boundaries, forbidden changes, QA gates,
 and reviewer checklist items.
 
+Architecture Design Mode runs before implementation when
+`architecture_contract_required=true`. The architecture lane must record
+`architecture_design_brief`, an Architecture Design Brief with `Selected Matrix Facets`,
+a `Decision` section, and `Status: approved` before worker lanes start.
+`ship` and `pass-with-risks` stay blocked while the brief is missing,
+needs-revision, or rejected.
+
 The architecture handoff must include these sections: `Selected Architecture`,
 `Rejected Alternatives`, `Module Boundaries`, `Data And State Flow`, `Public
 Contracts`, `Worker Ownership`, `Forbidden Changes`, `QA Gates`, `Reviewer

@@ -95,6 +95,8 @@ For large or risky scopes, the orchestrator can split work into implementation, 
 
 Schema v2 adds the Architecture Contract Gate and requires `budget`. `release` runs and `standard` runs with two or more worker lanes must set `architecture_contract_required=true`. A critical `architecture` lane must pass with handoff, evidence, and required contract sections before QA/review can close `ship`. If `architecture_contract_independent` is true, that lane must be a real subagent with spawned trace evidence; otherwise a scoped role-lane architecture check may be enough for standard multi-lane work.
 
+Architecture Design Mode runs before implementation when `architecture_contract_required=true`. Every successful critical `architecture` lane must set `architecture_design_brief` to an Architecture Design Brief with `Selected Matrix Facets` and `Status: approved`; `validate-run.py` blocks `ship` and `pass-with-risks` without an approved brief, and worker lanes must run after it.
+
 When the product or stack matters, the orchestrator writes `architecture_context` in `lane-map.json` with the six Architecture Matrix axes: `product_context`, `application_surface`, `architecture_pattern`, `stack_runtime`, `risk_gates`, and `verification_gates`. `validate-run.py` parses the allowed facet ids from `references/architecture-matrix.md` and checks that every selected facet appears in the architect's `Selected Architecture` section.
 
 Architecture Context Propagation then carries that context through execution: workers declare covered `matrix_facets`, QA covers selected `risk_gates` and `verification_gates`, and reviewer checks every selected facet through `Architecture Matrix Mismatches` and `Contract Drift`.
@@ -251,6 +253,8 @@ PASS all Agent Flow checks
 Для больших или рискованных задач оркестратор делит работу на implementation, integration, architecture, QA и review lanes. В traceable runs `lane-map.json` задаёт lanes и их статус. `validate-run.py` блокирует `Verdict: ship`, если critical lane не закрыта evidence или валидной replacement lane.
 
 Schema v2 добавляет Architecture Contract Gate и требует `budget`. Для `release` и `standard` с двумя или более worker lanes нужно ставить `architecture_contract_required=true`. Критическая `architecture` lane должна пройти с handoff, evidence и обязательными секциями контракта до QA/review. Если `architecture_contract_independent` равен true, нужна реальная subagent lane со spawned trace evidence. Для standard multi-lane работы иногда достаточно scoped role-lane проверки.
+
+Architecture Design Mode запускается до реализации, когда `architecture_contract_required=true`. Каждая успешная критическая `architecture` lane указывает `architecture_design_brief` на Architecture Design Brief с `Selected Matrix Facets` и `Status: approved`; `validate-run.py` блокирует `ship` и `pass-with-risks` без approved brief, а worker lanes стартуют только после него.
 
 Если тип продукта или стек влияет на решение, оркестратор записывает `architecture_context` в `lane-map.json`: `product_context`, `application_surface`, `architecture_pattern`, `stack_runtime`, `risk_gates` и `verification_gates`. `validate-run.py` берёт допустимые facet ids из `references/architecture-matrix.md` и проверяет, что каждый выбранный facet попал в секцию `Selected Architecture`.
 
