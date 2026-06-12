@@ -64,12 +64,15 @@ PASS all Agent Flow checks
 | `agents/*.md` | 25 bundled role prompts |
 | `agents/agent-identities.json` | stable role identities for traces and handoffs |
 | `references/architecture-matrix.md` | reusable architecture matrix facets for product, surface, stack, risk, and verification context |
+| `references/architecture-capability-router.md` | Architecture Capability Router and Soft Skill Binding contract |
 | `references/role-catalog.md` | role lifecycle, use cases, exclusions, overlap notes |
 | `registries/agent-skills.json` | metadata for role skill dependencies |
+| `registries/architecture-capabilities.json` | capability routing from Matrix facets to soft skill bindings |
 | `scripts/check-all.py` | repository validation suite |
 | `scripts/analyze-evidence-records.py` | Evidence Records analyzer for local learning |
 | `scripts/resolve-agent-config.py` | model/reasoning resolver for `spawn_agent` |
 | `scripts/validate-run.py` | traceable run and lane-map validator |
+| `scripts/validate-architecture-capabilities.py` | Architecture Capability Router registry validator |
 
 ### Key Rules
 
@@ -223,12 +226,15 @@ PASS all Agent Flow checks
 | `agents/*.md` | 25 встроенных prompts ролей |
 | `agents/agent-identities.json` | стабильные identities ролей для trace и handoff |
 | `references/architecture-matrix.md` | переиспользуемая Architecture Matrix по типу продукта, приложению, стеку, рискам и проверкам |
+| `references/architecture-capability-router.md` | Architecture Capability Router и Soft Skill Binding |
 | `references/role-catalog.md` | сценарии ролей, ограничения и пересечения |
 | `registries/agent-skills.json` | metadata зависимостей role skills |
+| `registries/architecture-capabilities.json` | routing capabilities от Matrix facets к мягким skill-связям |
 | `scripts/check-all.py` | полный набор проверок репозитория |
 | `scripts/analyze-evidence-records.py` | analyzer для Evidence Records и локального обучения |
 | `scripts/resolve-agent-config.py` | resolver model/reasoning для `spawn_agent` |
 | `scripts/validate-run.py` | validator traceable runs и lane-map |
+| `scripts/validate-architecture-capabilities.py` | validator Architecture Capability Router registry |
 
 ### Главные правила
 

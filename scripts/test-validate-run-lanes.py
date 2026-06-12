@@ -66,6 +66,11 @@ DEFAULT_ARCHITECTURE_CONTEXT = {
     "risk_gates": ["migrations"],
     "verification_gates": ["unit", "integration"],
 }
+DEFAULT_ARCHITECTURE_CAPABILITIES = [
+    "saas-platform-architecture",
+    "go-backend-service-architecture",
+    "modular-monolith-architecture",
+]
 DEFAULT_WORKER_MATRIX_FACETS = ["backend-service", "monolith"]
 OMIT = object()
 DEFAULT = object()
@@ -137,13 +142,31 @@ def facet_lines(facets: list[str]) -> str:
     return "\n".join(f"- `{facet}`" for facet in facets)
 
 
+def architecture_capabilities(
+    selected: Any = DEFAULT,
+    notes: Any = "Selected capabilities cover the fixture architecture context.",
+) -> dict[str, Any]:
+    return {
+        "selected": list(DEFAULT_ARCHITECTURE_CAPABILITIES)
+        if selected is DEFAULT
+        else selected,
+        "notes": notes,
+    }
+
+
 def architecture_contract_text(
     missing_sections: set[str] | None = None,
     *,
     selected_facets: list[str] | None = None,
+    selected_capabilities: list[str] | None = None,
 ) -> str:
     missing = missing_sections or set()
     facets = architecture_context_facets() if selected_facets is None else selected_facets
+    capabilities = (
+        DEFAULT_ARCHITECTURE_CAPABILITIES
+        if selected_capabilities is None
+        else selected_capabilities
+    )
     sections = []
     for section in ARCHITECTURE_CONTRACT_SECTIONS:
         if section in missing:
@@ -151,7 +174,13 @@ def architecture_contract_text(
         body = f"Fixture {section.lower()}."
         if section == "Selected Architecture":
             lines = facet_lines(facets)
-            body = f"Matrix facets:\n{lines}" if lines else "Matrix facets: none."
+            capability_lines = facet_lines(capabilities)
+            body = (
+                "Matrix facets:\n"
+                f"{lines if lines else '- none'}\n\n"
+                "Architecture capabilities:\n"
+                f"{capability_lines if capability_lines else '- none'}"
+            )
         sections.append(f"## {section}\n\n{body}\n")
     return "# Architecture Contract\n\n" + "\n".join(sections)
 
@@ -163,9 +192,15 @@ def architecture_design_brief_text(
     decision_status: str | None = "approved",
     extra_decision_statuses: list[str] | None = None,
     section_overrides: dict[str, str] | None = None,
+    selected_capabilities: list[str] | None = None,
 ) -> str:
     missing = missing_sections or set()
     facets = architecture_context_facets() if selected_facets is None else selected_facets
+    capabilities = (
+        DEFAULT_ARCHITECTURE_CAPABILITIES
+        if selected_capabilities is None
+        else selected_capabilities
+    )
     overrides = section_overrides or {}
     sections = []
     for section in ARCHITECTURE_DESIGN_BRIEF_SECTIONS:
@@ -175,6 +210,13 @@ def architecture_design_brief_text(
         if section == "Selected Matrix Facets" and section not in overrides:
             lines = facet_lines(facets)
             body = f"Matrix facets:\n{lines}" if lines else "Matrix facets: none."
+        if section == "Execution Plan" and section not in overrides:
+            lines = facet_lines(capabilities)
+            body = (
+                "Architecture capabilities:\n"
+                f"{lines if lines else '- none'}\n\n"
+                "Fixture execution plan."
+            )
         if section == "Decision" and section not in overrides:
             lines = []
             if decision_status is not None:
@@ -208,11 +250,21 @@ def default_qa_handoff_bodies(
 
 def default_reviewer_handoff_bodies(
     context: dict[str, Any] | None = None,
+    capabilities: list[str] | None = None,
 ) -> dict[str, str]:
     facets = architecture_context_facets(context)
+    selected_capabilities = DEFAULT_ARCHITECTURE_CAPABILITIES if capabilities is None else capabilities
     return {
-        ARCHITECTURE_MATRIX_MISMATCHES_SECTION: "Checked facets:\n" + facet_lines(facets),
-        CONTRACT_DRIFT_SECTION: "No contract drift for selected Architecture Matrix facets.",
+        ARCHITECTURE_MATRIX_MISMATCHES_SECTION: (
+            "Checked facets:\n"
+            + facet_lines(facets)
+            + "\n\nChecked capabilities:\n"
+            + facet_lines(selected_capabilities)
+        ),
+        CONTRACT_DRIFT_SECTION: (
+            "No contract drift for selected Architecture Matrix facets and "
+            "architecture capabilities."
+        ),
     }
 
 
@@ -256,10 +308,17 @@ def write_run(
                     selected_facets = lane.get("architecture_selected_facets")
                     if selected_facets is not None and not isinstance(selected_facets, list):
                         selected_facets = []
+                    selected_capabilities = lane.get("architecture_selected_capabilities")
+                    if (
+                        selected_capabilities is not None
+                        and not isinstance(selected_capabilities, list)
+                    ):
+                        selected_capabilities = []
                     path.write_text(
                         architecture_contract_text(
                             missing,
                             selected_facets=selected_facets,
+                            selected_capabilities=selected_capabilities,
                         ),
                         encoding="utf-8",
                     )
@@ -278,6 +337,14 @@ def write_run(
                             and not isinstance(design_selected_facets, list)
                         ):
                             design_selected_facets = []
+                        design_selected_capabilities = lane.get(
+                            "design_brief_selected_capabilities"
+                        )
+                        if (
+                            design_selected_capabilities is not None
+                            and not isinstance(design_selected_capabilities, list)
+                        ):
+                            design_selected_capabilities = []
                         design_text = lane.get("architecture_design_brief_text")
                         if not isinstance(design_text, str):
                             extra_statuses = lane.get("extra_design_brief_decision_statuses")
@@ -289,6 +356,7 @@ def write_run(
                             design_text = architecture_design_brief_text(
                                 design_missing,
                                 selected_facets=design_selected_facets,
+                                selected_capabilities=design_selected_capabilities,
                                 decision_status=lane.get(
                                     "design_brief_decision_status",
                                     "approved",
@@ -430,6 +498,8 @@ def architecture_lane(
     missing_design_sections: list[str] | None = None,
     design_section_overrides: dict[str, str] | None = None,
     design_text: str | None = None,
+    selected_capabilities: list[str] | None = None,
+    design_selected_capabilities: list[str] | None = None,
 ) -> dict[str, Any]:
     lane_data = lane(
         lane_id,
@@ -442,6 +512,8 @@ def architecture_lane(
     )
     if selected_facets is not None:
         lane_data["architecture_selected_facets"] = selected_facets
+    if selected_capabilities is not None:
+        lane_data["architecture_selected_capabilities"] = selected_capabilities
     if architecture_design_brief is DEFAULT:
         if status in {"pass", "pass-with-risks"}:
             lane_data["architecture_design_brief"] = f"handoffs/{lane_id}-design.md"
@@ -451,6 +523,8 @@ def architecture_lane(
         lane_data["create_architecture_design_brief"] = create_architecture_design_brief
         if design_selected_facets is not None:
             lane_data["design_brief_selected_facets"] = design_selected_facets
+        if design_selected_capabilities is not None:
+            lane_data["design_brief_selected_capabilities"] = design_selected_capabilities
         lane_data["design_brief_decision_status"] = design_decision_status
         if extra_design_decision_statuses is not None:
             lane_data["extra_design_brief_decision_statuses"] = extra_design_decision_statuses
@@ -573,6 +647,7 @@ def reviewer_control_lane(
     handoff_sections: list[str] | None = None,
     handoff_section_bodies: dict[str, str] | None = None,
     context: dict[str, Any] | None = None,
+    capabilities: list[str] | None = None,
 ) -> dict[str, Any]:
     return reviewer_lane(
         wave=wave,
@@ -581,17 +656,25 @@ def reviewer_control_lane(
         else [ARCHITECTURE_MATRIX_MISMATCHES_SECTION, CONTRACT_DRIFT_SECTION],
         handoff_section_bodies=handoff_section_bodies
         if handoff_section_bodies is not None
-        else default_reviewer_handoff_bodies(context),
+        else default_reviewer_handoff_bodies(context, capabilities),
     )
 
 
-def architecture_control_extra(context: dict[str, Any] | None = None) -> dict[str, Any]:
-    return {
+def architecture_control_extra(
+    context: dict[str, Any] | None = None,
+    capabilities: Any = DEFAULT,
+) -> dict[str, Any]:
+    extra = {
         "schema_version": 2,
         "budget": "standard",
         "architecture_contract_required": True,
         "architecture_context": context or architecture_context(),
     }
+    if capabilities is DEFAULT:
+        extra["architecture_capabilities"] = architecture_capabilities()
+    elif capabilities is not OMIT:
+        extra["architecture_capabilities"] = capabilities
+    return extra
 
 
 def main() -> int:
@@ -780,6 +863,148 @@ def main() -> int:
                 temp / "architecture-context-valid",
                 lanes=[architecture_lane(), qa_lane()],
                 lane_map_extra=architecture_control_extra(),
+            ),
+        )
+
+        expect_fail(
+            "architecture capabilities are required when architecture contract is required",
+            write_run(
+                temp / "architecture-capabilities-missing",
+                lanes=[architecture_lane(), qa_lane()],
+                lane_map_extra=architecture_control_extra(capabilities=OMIT),
+            ),
+            "lane-map.json field 'architecture_capabilities' is required",
+        )
+
+        expect_fail(
+            "architecture capabilities must be an object",
+            write_run(
+                temp / "architecture-capabilities-not-object",
+                lanes=[architecture_lane(), qa_lane()],
+                lane_map_extra=architecture_control_extra(capabilities=[]),
+            ),
+            "lane-map.json field 'architecture_capabilities' must be an object",
+        )
+
+        expect_fail(
+            "architecture capabilities selected must be non-empty",
+            write_run(
+                temp / "architecture-capabilities-selected-empty",
+                lanes=[
+                    architecture_lane(
+                        selected_capabilities=[],
+                        design_selected_capabilities=[],
+                    ),
+                    qa_lane(),
+                ],
+                lane_map_extra=architecture_control_extra(
+                    capabilities=architecture_capabilities(selected=[]),
+                ),
+            ),
+            "lane-map.json architecture_capabilities.selected must be a non-empty array",
+        )
+
+        expect_fail(
+            "architecture capabilities notes must be non-empty",
+            write_run(
+                temp / "architecture-capabilities-notes-empty",
+                lanes=[architecture_lane(), qa_lane()],
+                lane_map_extra=architecture_control_extra(
+                    capabilities=architecture_capabilities(notes=""),
+                ),
+            ),
+            "lane-map.json architecture_capabilities.notes must be a non-empty string",
+        )
+
+        expect_fail(
+            "unknown architecture capability fails",
+            write_run(
+                temp / "architecture-capabilities-unknown",
+                lanes=[
+                    architecture_lane(
+                        selected_capabilities=["unknown-capability"],
+                        design_selected_capabilities=["unknown-capability"],
+                    ),
+                    qa_lane(),
+                ],
+                lane_map_extra=architecture_control_extra(
+                    capabilities=architecture_capabilities(
+                        selected=["unknown-capability"],
+                    ),
+                ),
+            ),
+            "unknown architecture capability: unknown-capability",
+        )
+
+        expect_fail(
+            "selected matrix facet must be covered by architecture capabilities",
+            write_run(
+                temp / "architecture-capabilities-missing-facet-coverage",
+                lanes=[
+                    architecture_lane(
+                        selected_capabilities=["saas-platform-architecture"],
+                        design_selected_capabilities=["saas-platform-architecture"],
+                    ),
+                    qa_lane(),
+                ],
+                lane_map_extra=architecture_control_extra(
+                    capabilities=architecture_capabilities(
+                        selected=["saas-platform-architecture"],
+                    ),
+                ),
+            ),
+            "architecture_capabilities do not cover Architecture Matrix facet: backend-service",
+        )
+
+        expect_fail(
+            "architecture design brief execution plan must include selected capabilities",
+            write_run(
+                temp / "architecture-capabilities-design-brief-missing",
+                lanes=[
+                    architecture_lane(
+                        design_section_overrides={
+                            "Execution Plan": (
+                                "Architecture capabilities:\n"
+                                "- `saas-platform-architecture`\n"
+                                "- `go-backend-service-architecture`\n"
+                            ),
+                        },
+                    ),
+                    qa_lane(),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "Execution Plan missing architecture capability: modular-monolith-architecture",
+        )
+
+        expect_fail(
+            "architecture contract selected architecture must include selected capabilities",
+            write_run(
+                temp / "architecture-capabilities-contract-missing",
+                lanes=[
+                    architecture_lane(
+                        selected_capabilities=[
+                            "saas-platform-architecture",
+                            "go-backend-service-architecture",
+                        ],
+                    ),
+                    qa_lane(),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "Selected Architecture missing architecture capability: modular-monolith-architecture",
+        )
+
+        expect_pass(
+            "schema v2 without architecture contract does not require architecture capabilities",
+            write_run(
+                temp / "schema-v2-no-contract-no-architecture-capabilities",
+                lanes=[architecture_lane(architecture_design_brief=OMIT), qa_lane()],
+                lane_map_extra={
+                    "schema_version": 2,
+                    "budget": "standard",
+                    "architecture_contract_required": False,
+                },
             ),
         )
 
@@ -2095,6 +2320,31 @@ def main() -> int:
                 ],
                 lane_map_extra=architecture_control_extra(),
             ),
+        )
+
+        expect_fail(
+            "reviewer handoff must include selected architecture capabilities",
+            write_run(
+                temp / "reviewer-capability-coverage-missing",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(
+                        wave=4,
+                        handoff_section_bodies={
+                            ARCHITECTURE_MATRIX_MISMATCHES_SECTION: (
+                                "Checked capabilities:\n"
+                                "- `saas-platform-architecture`\n"
+                                "- `go-backend-service-architecture`\n"
+                            ),
+                            CONTRACT_DRIFT_SECTION: "No drift for covered capabilities.",
+                        },
+                    ),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "reviewer handoff missing architecture capability: modular-monolith-architecture",
         )
 
         expect_pass(

@@ -98,10 +98,19 @@ architect must cite every selected facet id in `Selected Architecture` and
 convert the constraints into concrete boundaries, forbidden changes, QA gates,
 and reviewer checklist items.
 
+Architecture Capability Router runs after Matrix selection. The orchestrator
+selects the smallest `architecture_capabilities` set from
+`registries/architecture-capabilities.json` that covers selected
+`architecture_context` facets. The Architecture Design Brief `Execution Plan`
+and Architecture Contract `Selected Architecture` must cite every selected
+capability id. `recommended_skills` use Soft Skill Binding: registry checks
+validate the links, but missing skills are not runtime proof and do not block
+`validate-run.py`.
+
 Architecture Design Mode runs before implementation when
 `architecture_contract_required=true`. The architecture lane must record
 `architecture_design_brief`, an Architecture Design Brief with `Selected Matrix Facets`,
-a `Decision` section, and `Status: approved` before worker lanes start.
+a `Decision` section, selected `architecture_capabilities`, and `Status: approved` before worker lanes start.
 `ship` and `pass-with-risks` stay blocked while the brief is missing,
 needs-revision, or rejected.
 
@@ -121,7 +130,8 @@ through execution. Workers must set `architecture_compliance.matrix_facets` to
 the selected facets they actually touched and mention those facet ids in
 `Architecture Compliance`. QA covers selected `risk_gates` and
 `verification_gates` in `Architecture Invariants`. Reviewer covers every
-selected facet across `Architecture Matrix Mismatches` and `Contract Drift`.
+selected facet and selected capability id across `Architecture Matrix
+Mismatches` and `Contract Drift`.
 
 When worker lanes exist under the Architecture Contract Gate, QA must run after
 the workers and any architect re-check, and its handoff must include

@@ -46,12 +46,13 @@ Delegation packet must include:
 ## Workflow
 - Inspect existing structure and constraints.
 - Read selected Architecture Matrix facets from `architecture_context` when the delegation packet includes it or the Architecture Contract Gate applies.
+- Read selected Architecture Capability Router ids from `architecture_capabilities`; use them as capability constraints, not as project profiles or Matrix facets.
 - Identify affected modules, contracts, data flow, and ownership boundaries.
 - Choose the smallest approach that fits the codebase.
 - Split work into non-overlapping worker scopes.
 - Define tests, manual checks, rollback concerns, and risk mitigations.
-- When Architecture Design Mode applies, write an Architecture Design Brief before implementation and have the lane record `architecture_design_brief` with `Selected Matrix Facets`, `Decision`, and `Status: approved` before workers start.
-- When producing an Architecture Contract Gate handoff, include every selected `architecture_context` facet id in `Selected Architecture`, and include `Selected Architecture`, `Rejected Alternatives`, `Module Boundaries`, `Data And State Flow`, `Public Contracts`, `Worker Ownership`, `Forbidden Changes`, `QA Gates`, `Reviewer Checklist`, and `Stop Conditions`.
+- When Architecture Design Mode applies, write an Architecture Design Brief before implementation and have the lane record `architecture_design_brief` with `Selected Matrix Facets`, `Execution Plan`, `Decision`, and `Status: approved` before workers start. `Execution Plan` must include every selected `architecture_capabilities` id.
+- When producing an Architecture Contract Gate handoff, include every selected `architecture_context` facet id and `architecture_capabilities` id in `Selected Architecture`, and include `Selected Architecture`, `Rejected Alternatives`, `Module Boundaries`, `Data And State Flow`, `Public Contracts`, `Worker Ownership`, `Forbidden Changes`, `QA Gates`, `Reviewer Checklist`, and `Stop Conditions`.
 - Architecture Context Propagation depends on this handoff: make selected facets concrete enough for workers, QA, and reviewer to cite later.
 - For Architecture Execution Control, perform architect re-check when a worker reports architecture drift; either confirm the original contract still holds, revise the contract, or reject the drifted implementation path before `ship`.
 - For architecture-sensitive review, produce a review contract that the reviewer can check against the diff.
@@ -66,6 +67,7 @@ Return:
 - Architecture Design Brief path, selected facets, and `Status: approved` when Architecture Design Mode applies
 - selected Architecture Matrix facets and facet-driven constraints
 - selected `architecture_context` axes and facet ids
+- selected `architecture_capabilities`, capability-driven constraints, and Soft Skill Binding `recommended_skills` gaps when relevant
 - alternatives rejected
 - affected modules
 - ownership boundaries

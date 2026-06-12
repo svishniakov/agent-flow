@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate Agent Flow traceable run completeness before final handoff."""
+"""Validate Agent Flow traceable runs, lanes, and Architecture Capability Router gates."""
 
 from __future__ import annotations
 
@@ -8,6 +8,12 @@ import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
+
+from architecture_capabilities import (
+    ARCHITECTURE_CAPABILITY_REGISTRY_PATH,
+    validate_architecture_capabilities_shape,
+    validate_architecture_capability_registry,
+)
 
 
 FULL_REQUIRED_FILES = [
@@ -93,6 +99,7 @@ ARCHITECTURE_DESIGN_DECISION_STATUS_LINES = {
     "Status: rejected": "rejected",
 }
 ARCHITECTURE_DESIGN_DECISION_SECTION = "Decision"
+ARCHITECTURE_DESIGN_EXECUTION_PLAN_SECTION = "Execution Plan"
 ARCHITECTURE_DESIGN_MATRIX_SECTION = "Selected Matrix Facets"
 ARCHITECTURE_COMPLIANCE_STATUSES = {"compliant", "drift"}
 ARCHITECTURE_COMPLIANCE_SECTION = "Architecture Compliance"
@@ -647,6 +654,23 @@ def validate_selected_architecture_facets(path: Path, selected_facets: list[str]
     ]
 
 
+def validate_selected_architecture_capabilities(
+    path: Path,
+    selected_capabilities: list[str],
+) -> list[str]:
+    if not path.exists() or not selected_capabilities:
+        return []
+    selected_architecture = markdown_section_text(
+        path.read_text(encoding="utf-8"),
+        "Selected Architecture",
+    )
+    return [
+        f"Selected Architecture missing architecture capability: {capability}"
+        for capability in selected_capabilities
+        if not contains_facet_id(selected_architecture, capability)
+    ]
+
+
 def missing_facets_in_markdown_sections(
     path: Path,
     headings: list[str],
@@ -657,6 +681,22 @@ def missing_facets_in_markdown_sections(
     text = path.read_text(encoding="utf-8")
     section_text = "\n".join(markdown_section_text(text, heading) for heading in headings)
     return [facet for facet in facets if not contains_facet_id(section_text, facet)]
+
+
+def missing_capabilities_in_markdown_sections(
+    path: Path,
+    headings: list[str],
+    capabilities: list[str],
+) -> list[str]:
+    if not path.exists() or not capabilities:
+        return []
+    text = path.read_text(encoding="utf-8")
+    section_text = "\n".join(markdown_section_text(text, heading) for heading in headings)
+    return [
+        capability
+        for capability in capabilities
+        if not contains_facet_id(section_text, capability)
+    ]
 
 
 def parse_architecture_design_decision(path: Path) -> tuple[str | None, list[str]]:
@@ -681,6 +721,7 @@ def parse_architecture_design_decision(path: Path) -> tuple[str | None, list[str
 def validate_architecture_design_brief(
     path: Path,
     selected_facets: list[str],
+    selected_capabilities: list[str],
 ) -> tuple[str | None, list[str]]:
     errors: list[str] = []
     missing_sections = missing_markdown_headings(path, ARCHITECTURE_DESIGN_BRIEF_SECTIONS)
@@ -696,6 +737,16 @@ def validate_architecture_design_brief(
                 path,
                 [ARCHITECTURE_DESIGN_MATRIX_SECTION],
                 selected_facets,
+            )
+        )
+
+    if ARCHITECTURE_DESIGN_EXECUTION_PLAN_SECTION not in missing_sections:
+        errors.extend(
+            f"Execution Plan missing architecture capability: {capability}"
+            for capability in missing_capabilities_in_markdown_sections(
+                path,
+                [ARCHITECTURE_DESIGN_EXECUTION_PLAN_SECTION],
+                selected_capabilities,
             )
         )
 
@@ -846,6 +897,7 @@ def validate_lane_map(run_dir: Path) -> list[str]:
         axis: [] for axis in ARCHITECTURE_CONTEXT_AXES
     }
     architecture_context_facets: list[str] = []
+    architecture_capabilities: list[str] = []
     known_matrix_facets: set[str] = set()
     if architecture_contract_required or "architecture_context" in data:
         matrix_facets, matrix_errors = load_architecture_matrix_facets()
@@ -863,6 +915,21 @@ def validate_lane_map(run_dir: Path) -> list[str]:
             required=architecture_contract_required,
         )
         errors.extend(context_errors)
+
+    if architecture_contract_required or "architecture_capabilities" in data:
+        capabilities_by_id, capability_registry_errors = validate_architecture_capability_registry(
+            ARCHITECTURE_CAPABILITY_REGISTRY_PATH,
+            validate_skills=False,
+            require_full_matrix_coverage=False,
+        )
+        errors.extend(capability_registry_errors)
+        architecture_capabilities, capability_errors = validate_architecture_capabilities_shape(
+            data,
+            capabilities_by_id,
+            architecture_context_facets,
+            required=architecture_contract_required,
+        )
+        errors.extend(capability_errors)
 
     lanes = data.get("lanes")
     if not isinstance(lanes, list):
@@ -994,6 +1061,7 @@ def validate_lane_map(run_dir: Path) -> list[str]:
                                 decision_status, design_errors = validate_architecture_design_brief(
                                     design_brief_path,
                                     architecture_context_facets,
+                                    architecture_capabilities,
                                 )
                                 for design_error in design_errors:
                                     errors.append(
@@ -1015,6 +1083,11 @@ def validate_lane_map(run_dir: Path) -> list[str]:
                             architecture_context_facets,
                         ):
                             errors.append(f"lane-map.json: lane {label} {facet_error}")
+                        for capability_error in validate_selected_architecture_capabilities(
+                            contract_path,
+                            architecture_capabilities,
+                        ):
+                            errors.append(f"lane-map.json: lane {label} {capability_error}")
         elif lane_type == "review" and status in SUCCESSFUL_LANE_STATUSES:
             successful_reviewer_lane_ids.append(lane_id)
             if isinstance(wave, int) and not isinstance(wave, bool):
@@ -1206,6 +1279,15 @@ def validate_lane_map(run_dir: Path) -> list[str]:
                         errors.append(
                             f"lane-map.json: lane {lane_id} reviewer handoff "
                             f"missing Architecture Matrix facet: {facet}"
+                        )
+                    for capability in missing_capabilities_in_markdown_sections(
+                        handoff_path,
+                        [ARCHITECTURE_MATRIX_MISMATCHES_SECTION, CONTRACT_DRIFT_SECTION],
+                        architecture_capabilities,
+                    ):
+                        errors.append(
+                            f"lane-map.json: lane {lane_id} reviewer handoff "
+                            f"missing architecture capability: {capability}"
                         )
 
         if successful_reviewer_lanes:

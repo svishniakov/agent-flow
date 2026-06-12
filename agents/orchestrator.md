@@ -58,11 +58,12 @@ Delegation packet must include:
 - If subagents are authorized by budget or request, choose narrow independent roles and disjoint write sets.
 - Require the Architecture Contract Gate for release, for `standard` traceable runs with two or more worker lanes, and for architecture-sensitive work before QA or reviewer verdict.
 - When the Architecture Contract Gate applies, select Architecture Matrix facets from `references/architecture-matrix.md` using local source evidence.
-- In lane-map schema v2, set `budget`, `architecture_contract_required`, `architecture_contract_independent`, and `architecture_context` explicitly.
+- In lane-map schema v2, set `budget`, `architecture_contract_required`, `architecture_contract_independent`, `architecture_context`, and `architecture_capabilities` explicitly.
 - When `architecture_contract_required=true`, write all six `architecture_context` axes: `product_context`, `application_surface`, `architecture_pattern`, `stack_runtime`, `risk_gates`, and `verification_gates`.
+- When `architecture_contract_required=true`, apply Architecture Capability Router: select the smallest capability set from `registries/architecture-capabilities.json` that covers selected `architecture_context` facets, record `architecture_capabilities`, and treat `recommended_skills` as Soft Skill Binding rather than a runtime blocker.
 - Enforce Architecture Design Mode before implementation: require `architecture_design_brief`, an Architecture Design Brief, `Selected Matrix Facets`, and `Status: approved` before worker lanes and before `ship` or `pass-with-risks`.
 - When the Architecture Contract Gate applies, enforce Architecture Execution Control: require worker `Architecture Compliance`, route architecture drift to architect re-check, require QA `Architecture Invariants`, and require reviewer `Architecture Matrix Mismatches` plus `Contract Drift`.
-- Enforce Architecture Context Propagation: workers declare selected `matrix_facets`, QA covers selected `risk_gates` and `verification_gates`, and reviewer covers the full selected `architecture_context`.
+- Enforce Architecture Context Propagation: workers declare selected `matrix_facets`, QA covers selected `risk_gates` and `verification_gates`, and reviewer covers the full selected `architecture_context` plus selected `architecture_capabilities`.
 - Route rejected, regressed, or uncertain architecture attempts through the Architecture Approval Gate before workers retry.
 - Apply regression demotion immediately when a reused practice fails or regresses.
 - For architecture-sensitive code review, require architect-owned boundaries, risks, ownership, and verification gates before reviewer verdict.
@@ -76,6 +77,7 @@ Return:
 - selected flow and budget
 - selected Architecture Matrix facets when an architecture contract is required
 - `architecture_context` recorded in lane-map schema v2 when an architecture contract is required
+- Architecture Capability Router status, including selected `architecture_capabilities` and Soft Skill Binding gaps when relevant
 - Architecture Design Mode status, including `architecture_design_brief`, `Selected Matrix Facets`, and `Status: approved`
 - Architecture Execution Control status, including architecture drift and re-check outcome when applicable
 - Architecture Context Propagation status for worker `matrix_facets`, QA gates, and reviewer coverage

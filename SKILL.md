@@ -143,6 +143,8 @@ Architecture Design Mode runs before implementation when `architecture_contract_
 
 Read `references/architecture-matrix.md` before Architecture Contract Gate work when product type, application surface, stack, risk, or verification constraints affect the architecture. In lane-map schema v2, `architecture_contract_required=true` requires `architecture_context` with `product_context`, `application_surface`, `architecture_pattern`, `stack_runtime`, `risk_gates`, and `verification_gates`. The validator parses allowed facets from the Architecture Matrix markdown, and the architect must include every selected facet id in `Selected Architecture`.
 
+Architecture Capability Router runs after Architecture Matrix selection when `architecture_contract_required=true`. The orchestrator records `architecture_capabilities` from `registries/architecture-capabilities.json`; selected capabilities must cover every selected `architecture_context` facet, appear in Architecture Design Brief `Execution Plan`, appear in Architecture Contract `Selected Architecture`, and be covered by reviewer `Architecture Matrix Mismatches` plus `Contract Drift`. Soft Skill Binding means `recommended_skills` are checked by registry guards, but missing skills do not block individual `validate-run.py` runtime validation.
+
 Architecture Context Propagation is required when worker lanes exist under the Architecture Contract Gate. Workers record `architecture_compliance.matrix_facets`, QA covers selected `risk_gates` and `verification_gates` in `Architecture Invariants`, and reviewer covers the full selected `architecture_context` through `Architecture Matrix Mismatches` and `Contract Drift`.
 
 The Architecture Approval Gate handles rejected, regressed, or uncertain architecture attempts. The orchestrator sends the real case back for deeper architecture analysis, then lets workers retry only against the approved steps and records the resulting evidence.
@@ -295,6 +297,7 @@ Optional helper scripts live in `scripts/`:
 - `append-timeline.py`: append one JSONL timeline event.
 - `record-agent-trace.py`: append one subagent or role-lane event to both run and role traces.
 - `validate-run.py`: check run completeness before final handoff.
+- `validate-architecture-capabilities.py`: check Architecture Capability Router registry and Soft Skill Binding links.
 
 Scripts support the workflow; they do not replace engineering judgment.
 
@@ -313,3 +316,4 @@ Scripts support the workflow; they do not replace engineering judgment.
 - `references/ai-slop-gate.md`: AI slop review route, subagent, and related skills.
 - `references/automation-patterns.md`: manual-to-automation promotion pattern.
 - `references/architecture-matrix.md`: reusable architecture matrix facets for product, surface, stack, risk, and verification context.
+- `references/architecture-capability-router.md`: Architecture Capability Router and Soft Skill Binding contract.

@@ -55,11 +55,12 @@ For full `release` trace:
 - initial and final worktree states are recorded when the run edits a git repo;
 - every delegated subagent has `agents/<role>/trace.jsonl` and matching run-level timeline events;
 - when Lane Sharding is used, `lane-map.json` is valid and every critical lane is covered by evidence or a valid replacement lane;
-- when the Architecture Contract Gate is required, `lane-map.json` uses schema v2, records `budget` and `architecture_context`, includes a critical `architecture` lane, and blocks `ship` until that lane has handoff and evidence with the required contract sections;
+- when the Architecture Contract Gate is required, `lane-map.json` uses schema v2, records `budget`, `architecture_context`, and `architecture_capabilities`, includes a critical `architecture` lane, and blocks `ship` until that lane has handoff and evidence with the required contract sections;
 - Architecture Design Mode is covered: every successful critical `architecture` lane records `architecture_design_brief`, the Architecture Design Brief includes `Selected Matrix Facets`, and `Decision` contains `Status: approved` before any positive final verdict;
 - when Architecture Matrix facets apply, `architecture_context` records the selected facets and the architecture handoff `Selected Architecture` section includes those facet ids before QA/reviewer gates cover facet-driven invariants;
+- Architecture Capability Router is covered: selected `architecture_capabilities` from `registries/architecture-capabilities.json` cover selected Matrix facets, Architecture Design Brief `Execution Plan` includes the capability ids, Architecture Contract `Selected Architecture` includes them, and Soft Skill Binding handles `recommended_skills` through registry checks;
 - when Architecture Execution Control applies, worker lanes record `Architecture Compliance`, architecture drift has architect re-check before `ship`, QA records `Architecture Invariants`, and reviewer records `Architecture Matrix Mismatches` plus `Contract Drift`;
-- Architecture Context Propagation is covered: workers declare selected `matrix_facets`, QA covers selected `risk_gates` and `verification_gates`, and reviewer covers the full selected `architecture_context`;
+- Architecture Context Propagation is covered: workers declare selected `matrix_facets`, QA covers selected `risk_gates` and `verification_gates`, and reviewer covers the full selected `architecture_context` plus selected `architecture_capabilities`;
 - artifacts index is valid JSON;
 - each delegated subagent has a handoff;
 - checks include command names and results;
@@ -75,7 +76,7 @@ For full `release` trace:
 - Standard traceable runs with at least two worker lanes and all release traceable runs used `architecture_contract_required=true`.
 - Architecture Design Mode blocked `ship` and `pass-with-risks` until an Architecture Design Brief had `Status: approved` and worker lanes ran after it.
 - Architecture Execution Control blocked `ship` until worker `Architecture Compliance`, QA `Architecture Invariants`, reviewer `Contract Drift`, and any architecture drift re-check were covered.
-- Architecture Context Propagation blocked `ship` until worker `matrix_facets`, QA `risk_gates` and `verification_gates`, and reviewer selected-context coverage were present.
+- Architecture Context Propagation blocked `ship` until worker `matrix_facets`, QA `risk_gates` and `verification_gates`, reviewer selected-context coverage, and selected `architecture_capabilities` coverage were present.
 - Architecture Approval Gate reviewed any rejected, regressed, or uncertain architecture attempt before retrying implementation.
 - Local Best Practice auto gate was used only for an analyzer-confirmed local practice with clear context, no matching `Do not reuse when`, no external write, and fresh verification.
 - regression demotion froze or demoted any practice that failed after reuse.

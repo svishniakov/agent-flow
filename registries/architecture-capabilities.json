@@ -1,0 +1,675 @@
+{
+  "version": 1,
+  "description": "Canonical registry for Architecture Capability Router. Skills are soft bindings and do not become Architecture Matrix facets.",
+  "capabilities": [
+    {
+      "id": "saas-platform-architecture",
+      "matrix_facets": [
+        "saas-service",
+        "tenant-isolation",
+        "subscription-entitlements",
+        "auth-permissions"
+      ],
+      "recommended_skills": [
+        "chief-architect",
+        "system-design-doc",
+        "architecture-decision-records"
+      ],
+      "contract_sections": [
+        "Selected Architecture",
+        "Module Boundaries",
+        "Public Contracts",
+        "QA Gates",
+        "Reviewer Checklist",
+        "Stop Conditions"
+      ]
+    },
+    {
+      "id": "go-backend-service-architecture",
+      "matrix_facets": [
+        "backend-service",
+        "go",
+        "migrations",
+        "unit",
+        "integration"
+      ],
+      "recommended_skills": [
+        "golang-code-style",
+        "golang-lint",
+        "golang-modernize",
+        "sql-queries",
+        "test-scenarios"
+      ],
+      "contract_sections": [
+        "Selected Architecture",
+        "Module Boundaries",
+        "Data And State Flow",
+        "Public Contracts",
+        "QA Gates"
+      ]
+    },
+    {
+      "id": "backend-service-architecture",
+      "matrix_facets": [
+        "backend-service",
+        "api-contract",
+        "unit",
+        "integration"
+      ],
+      "recommended_skills": [
+        "application-quality-assurance",
+        "sql-queries",
+        "test-scenarios"
+      ],
+      "contract_sections": [
+        "Module Boundaries",
+        "Data And State Flow",
+        "Public Contracts",
+        "QA Gates"
+      ]
+    },
+    {
+      "id": "frontend-service-architecture",
+      "matrix_facets": [
+        "frontend-service",
+        "react-vite-astro",
+        "web-app-shell",
+        "frontend-build",
+        "browser-smoke",
+        "accessibility",
+        "visual-design-source-comparison"
+      ],
+      "recommended_skills": [
+        "build-web-apps:frontend-skill",
+        "build-web-apps:react-best-practices",
+        "build-web-apps:web-design-guidelines",
+        "frontend-responsive-ui",
+        "accessibility"
+      ],
+      "contract_sections": [
+        "Selected Architecture",
+        "Module Boundaries",
+        "Public Contracts",
+        "QA Gates",
+        "Reviewer Checklist"
+      ]
+    },
+    {
+      "id": "full-stack-service-architecture",
+      "matrix_facets": [
+        "full-stack-service",
+        "monorepo-split",
+        "client-server-contract-drift",
+        "full-stack-flow",
+        "api-contract"
+      ],
+      "recommended_skills": [
+        "build-web-apps:react-best-practices",
+        "playwright-e2e-testing",
+        "test-scenarios"
+      ],
+      "contract_sections": [
+        "Module Boundaries",
+        "Public Contracts",
+        "Worker Ownership",
+        "QA Gates",
+        "Reviewer Checklist"
+      ]
+    },
+    {
+      "id": "public-landing-architecture",
+      "matrix_facets": [
+        "landing",
+        "server-rendered-web",
+        "public-web-consent",
+        "landing-seo-performance",
+        "design-source-lock",
+        "visual-design-source-comparison"
+      ],
+      "recommended_skills": [
+        "build-web-apps:web-design-guidelines",
+        "frontend-design",
+        "accessibility"
+      ],
+      "contract_sections": [
+        "Selected Architecture",
+        "Forbidden Changes",
+        "QA Gates",
+        "Reviewer Checklist"
+      ]
+    },
+    {
+      "id": "backoffice-operations-architecture",
+      "matrix_facets": [
+        "backoffice-ui",
+        "auth-permissions",
+        "client-server-contract-drift",
+        "accessibility"
+      ],
+      "recommended_skills": [
+        "frontend-ui-ux-engineer",
+        "application-quality-assurance",
+        "test-scenarios"
+      ],
+      "contract_sections": [
+        "Module Boundaries",
+        "Public Contracts",
+        "Forbidden Changes",
+        "QA Gates"
+      ]
+    },
+    {
+      "id": "mobile-app-architecture",
+      "matrix_facets": [
+        "mobile-app",
+        "mobile-layered-app",
+        "simulator-device",
+        "accessibility"
+      ],
+      "recommended_skills": [
+        "build-ios-apps:swiftui-ui-patterns",
+        "build-ios-apps:swiftui-view-refactor",
+        "apple-hig-designer",
+        "apple-ui-designer"
+      ],
+      "contract_sections": [
+        "Selected Architecture",
+        "Module Boundaries",
+        "Data And State Flow",
+        "QA Gates"
+      ]
+    },
+    {
+      "id": "desktop-app-architecture",
+      "matrix_facets": [
+        "desktop-app",
+        "desktop-shell-app",
+        "local-private-files",
+        "local-first-storage"
+      ],
+      "recommended_skills": [
+        "build-ios-apps:swiftui-ui-patterns",
+        "build-ios-apps:swiftui-view-refactor"
+      ],
+      "contract_sections": [
+        "Module Boundaries",
+        "Data And State Flow",
+        "Forbidden Changes",
+        "QA Gates"
+      ]
+    },
+    {
+      "id": "apple-platform-architecture",
+      "matrix_facets": [
+        "swiftui-appkit",
+        "mobile-layered-app",
+        "desktop-shell-app",
+        "simulator-device"
+      ],
+      "recommended_skills": [
+        "build-ios-apps:swiftui-ui-patterns",
+        "build-ios-apps:swiftui-view-refactor",
+        "apple-hig-designer",
+        "apple-ui-designer"
+      ],
+      "contract_sections": [
+        "Module Boundaries",
+        "Data And State Flow",
+        "QA Gates"
+      ]
+    },
+    {
+      "id": "browser-extension-runtime-architecture",
+      "matrix_facets": [
+        "browser-extension",
+        "browser-extension-architecture",
+        "browser-extension-mv3",
+        "browser-extension-permissions",
+        "browser-extension-smoke"
+      ],
+      "recommended_skills": [
+        "browser-debugging",
+        "browser-use",
+        "playwright-e2e-testing"
+      ],
+      "contract_sections": [
+        "Selected Architecture",
+        "Module Boundaries",
+        "Public Contracts",
+        "Forbidden Changes",
+        "QA Gates"
+      ]
+    },
+    {
+      "id": "embedded-mini-app-architecture",
+      "matrix_facets": [
+        "embedded-mini-app",
+        "hosted-mini-app",
+        "messenger-commerce",
+        "payments",
+        "auth-permissions"
+      ],
+      "recommended_skills": [
+        "build-web-apps:frontend-skill",
+        "build-web-apps:stripe-best-practices",
+        "test-scenarios"
+      ],
+      "contract_sections": [
+        "Public Contracts",
+        "Data And State Flow",
+        "Forbidden Changes",
+        "QA Gates"
+      ]
+    },
+    {
+      "id": "social-community-architecture",
+      "matrix_facets": [
+        "social-community-surface",
+        "social-feed-graph",
+        "pii-secrets",
+        "auth-permissions",
+        "accessibility"
+      ],
+      "recommended_skills": [
+        "application-quality-assurance",
+        "test-scenarios",
+        "accessibility"
+      ],
+      "contract_sections": [
+        "Module Boundaries",
+        "Data And State Flow",
+        "Forbidden Changes",
+        "QA Gates"
+      ]
+    },
+    {
+      "id": "iot-fleet-architecture",
+      "matrix_facets": [
+        "iot-device-fleet",
+        "iot-edge-cloud",
+        "event-ingestion",
+        "event-delivery-replay"
+      ],
+      "recommended_skills": [
+        "system-design-doc",
+        "pre-mortem",
+        "test-scenarios"
+      ],
+      "contract_sections": [
+        "Module Boundaries",
+        "Data And State Flow",
+        "Public Contracts",
+        "QA Gates"
+      ]
+    },
+    {
+      "id": "modular-monolith-architecture",
+      "matrix_facets": [
+        "monolith",
+        "module-boundary-erosion",
+        "module-boundary-regression",
+        "migrations"
+      ],
+      "recommended_skills": [
+        "chief-architect",
+        "improve-codebase-architecture",
+        "architecture-decision-records"
+      ],
+      "contract_sections": [
+        "Module Boundaries",
+        "Worker Ownership",
+        "Forbidden Changes",
+        "QA Gates",
+        "Reviewer Checklist"
+      ]
+    },
+    {
+      "id": "microservices-architecture",
+      "matrix_facets": [
+        "microservices",
+        "distributed-consistency",
+        "service-contract",
+        "release-deploy"
+      ],
+      "recommended_skills": [
+        "chief-architect",
+        "system-design-doc",
+        "pre-mortem"
+      ],
+      "contract_sections": [
+        "Module Boundaries",
+        "Data And State Flow",
+        "Public Contracts",
+        "QA Gates",
+        "Stop Conditions"
+      ]
+    },
+    {
+      "id": "event-platform-architecture",
+      "matrix_facets": [
+        "event-driven-architecture",
+        "event-sourcing",
+        "event-ingestion",
+        "event-messaging-runtime",
+        "event-delivery-replay",
+        "event-broker-contract",
+        "event-replay-projection"
+      ],
+      "recommended_skills": [
+        "kafka-development",
+        "kafka-producer-consumer",
+        "bullmq-specialist",
+        "queue-job-processor"
+      ],
+      "contract_sections": [
+        "Data And State Flow",
+        "Public Contracts",
+        "Forbidden Changes",
+        "QA Gates",
+        "Stop Conditions"
+      ]
+    },
+    {
+      "id": "queue-worker-architecture",
+      "matrix_facets": [
+        "multi-runtime-service",
+        "typescript-bun",
+        "node-express",
+        "event-messaging-runtime"
+      ],
+      "recommended_skills": [
+        "bullmq-specialist",
+        "queue-job-processor",
+        "bun",
+        "bun-dev"
+      ],
+      "contract_sections": [
+        "Module Boundaries",
+        "Data And State Flow",
+        "Public Contracts",
+        "QA Gates"
+      ]
+    },
+    {
+      "id": "workflow-runtime-architecture",
+      "matrix_facets": [
+        "workflow-automation",
+        "workflow-engine",
+        "graph-workflow-runtime"
+      ],
+      "recommended_skills": [
+        "chief-architect",
+        "system-design-doc",
+        "test-scenarios"
+      ],
+      "contract_sections": [
+        "Selected Architecture",
+        "Data And State Flow",
+        "Public Contracts",
+        "Worker Ownership",
+        "QA Gates"
+      ]
+    },
+    {
+      "id": "adapter-integration-architecture",
+      "matrix_facets": [
+        "adapter-integration",
+        "service-contract",
+        "integration"
+      ],
+      "recommended_skills": [
+        "system-design-doc",
+        "test-scenarios",
+        "application-quality-assurance"
+      ],
+      "contract_sections": [
+        "Module Boundaries",
+        "Public Contracts",
+        "Forbidden Changes",
+        "QA Gates"
+      ]
+    },
+    {
+      "id": "document-evidence-architecture",
+      "matrix_facets": [
+        "document-ai",
+        "rag-evidence-pipeline",
+        "evidence-source-integrity",
+        "retrieval-evidence-benchmark"
+      ],
+      "recommended_skills": [
+        "rag-implementation",
+        "rag-retrieval",
+        "evaluate-rag",
+        "chunking-strategy",
+        "embedding-strategies",
+        "hybrid-search-implementation",
+        "knowledge-graph-builder",
+        "graphrag-patterns"
+      ],
+      "contract_sections": [
+        "Data And State Flow",
+        "Public Contracts",
+        "Forbidden Changes",
+        "QA Gates",
+        "Reviewer Checklist"
+      ]
+    },
+    {
+      "id": "fintech-ledger-architecture",
+      "matrix_facets": [
+        "fintech",
+        "financial-data-integrity",
+        "payments",
+        "migration-schema"
+      ],
+      "recommended_skills": [
+        "build-web-apps:stripe-best-practices",
+        "sql-queries",
+        "application-quality-assurance"
+      ],
+      "contract_sections": [
+        "Data And State Flow",
+        "Public Contracts",
+        "Forbidden Changes",
+        "QA Gates",
+        "Stop Conditions"
+      ]
+    },
+    {
+      "id": "crypto-payment-architecture",
+      "matrix_facets": [
+        "crypto-payments",
+        "wallet-payment-surface",
+        "blockchain-payment-adapter",
+        "smart-contract-boundary",
+        "blockchain-runtime",
+        "custody-key-management",
+        "chain-finality-confirmations",
+        "token-contract-integrity",
+        "crypto-fee-liquidity",
+        "wallet-signing-smoke",
+        "testnet-transaction-lifecycle",
+        "smart-contract-interface",
+        "custody-secrets-review",
+        "fee-resource-simulation"
+      ],
+      "recommended_skills": [
+        "system-design-doc",
+        "pre-mortem",
+        "test-scenarios"
+      ],
+      "contract_sections": [
+        "Data And State Flow",
+        "Public Contracts",
+        "Forbidden Changes",
+        "QA Gates",
+        "Stop Conditions"
+      ]
+    },
+    {
+      "id": "crypto-ops-architecture",
+      "matrix_facets": [
+        "crypto-ops-console",
+        "chain-indexer-reconciliation",
+        "rpc-indexer-drift",
+        "crypto-compliance-controls",
+        "chain-reconciliation-replay"
+      ],
+      "recommended_skills": [
+        "system-design-doc",
+        "pre-mortem",
+        "application-quality-assurance"
+      ],
+      "contract_sections": [
+        "Data And State Flow",
+        "Public Contracts",
+        "Forbidden Changes",
+        "QA Gates",
+        "Reviewer Checklist"
+      ]
+    },
+    {
+      "id": "developer-tooling-architecture",
+      "matrix_facets": [
+        "developer-tooling",
+        "multi-runtime-service",
+        "local-private-files"
+      ],
+      "recommended_skills": [
+        "github:github",
+        "test-scenarios",
+        "application-quality-assurance"
+      ],
+      "contract_sections": [
+        "Module Boundaries",
+        "Public Contracts",
+        "Forbidden Changes",
+        "QA Gates"
+      ]
+    },
+    {
+      "id": "child-safety-learning-architecture",
+      "matrix_facets": [
+        "child-education",
+        "child-safety",
+        "accessibility",
+        "local-first-storage",
+        "simulator-device"
+      ],
+      "recommended_skills": [
+        "accessibility",
+        "apple-hig-designer",
+        "test-scenarios"
+      ],
+      "contract_sections": [
+        "Selected Architecture",
+        "Forbidden Changes",
+        "QA Gates",
+        "Reviewer Checklist",
+        "Stop Conditions"
+      ]
+    },
+    {
+      "id": "agent-orchestration-architecture",
+      "matrix_facets": [
+        "agent-orchestration",
+        "graph-workflow-runtime",
+        "adapter-integration",
+        "evidence-source-integrity"
+      ],
+      "recommended_skills": [
+        "ai-agents-architect",
+        "agent-governance",
+        "architecture-decision-records"
+      ],
+      "contract_sections": [
+        "Selected Architecture",
+        "Module Boundaries",
+        "Public Contracts",
+        "Worker Ownership",
+        "QA Gates"
+      ]
+    },
+    {
+      "id": "release-migration-architecture",
+      "matrix_facets": [
+        "release-deploy",
+        "migrations",
+        "migration-schema"
+      ],
+      "recommended_skills": [
+        "pre-mortem",
+        "test-scenarios",
+        "release-notes"
+      ],
+      "contract_sections": [
+        "Forbidden Changes",
+        "QA Gates",
+        "Reviewer Checklist",
+        "Stop Conditions"
+      ]
+    },
+    {
+      "id": "security-privacy-architecture",
+      "matrix_facets": [
+        "pii-secrets",
+        "auth-permissions",
+        "tenant-isolation"
+      ],
+      "recommended_skills": [
+        "pre-mortem",
+        "application-quality-assurance",
+        "test-scenarios"
+      ],
+      "contract_sections": [
+        "Module Boundaries",
+        "Forbidden Changes",
+        "QA Gates",
+        "Reviewer Checklist",
+        "Stop Conditions"
+      ]
+    },
+    {
+      "id": "design-source-architecture",
+      "matrix_facets": [
+        "design-source-lock",
+        "visual-design-source-comparison",
+        "accessibility"
+      ],
+      "recommended_skills": [
+        "extract-design-system",
+        "figma:figma-use",
+        "accessibility"
+      ],
+      "contract_sections": [
+        "Selected Architecture",
+        "Forbidden Changes",
+        "QA Gates",
+        "Reviewer Checklist"
+      ]
+    },
+    {
+      "id": "typescript-runtime-architecture",
+      "matrix_facets": [
+        "typescript-bun",
+        "node-express",
+        "api-contract",
+        "unit",
+        "integration"
+      ],
+      "recommended_skills": [
+        "bun",
+        "bun-dev",
+        "build-web-apps:react-best-practices",
+        "humanize-ts",
+        "test-scenarios"
+      ],
+      "contract_sections": [
+        "Module Boundaries",
+        "Public Contracts",
+        "QA Gates"
+      ]
+    }
+  ]
+}

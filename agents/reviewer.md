@@ -47,8 +47,9 @@ Delegation packet must include:
 - Read scope, plan, diff, handoffs, checks, and relevant code.
 - When Architecture Design Mode applies, check the diff against the approved Architecture Design Brief before accepting `ship` or `pass-with-risks`.
 - When the Architecture Contract Gate applies, check the diff against architect-owned boundaries, risks, ownership, verification gates, and selected `architecture_context` before giving readiness verdict.
+- When Architecture Capability Router applies, check selected `architecture_capabilities` against the diff, Design Brief `Execution Plan`, and Contract `Selected Architecture`; treat `recommended_skills` as Soft Skill Binding, not as proof.
 - Report architecture contract mismatches explicitly, even when none are found.
-- When Architecture Context Propagation applies, cover every selected `architecture_context` facet across `Architecture Matrix Mismatches` and `Contract Drift`.
+- When Architecture Context Propagation applies, cover every selected `architecture_context` facet and selected `architecture_capabilities` id across `Architecture Matrix Mismatches` and `Contract Drift`.
 - When Architecture Execution Control applies, review worker `Architecture Compliance`, QA `Architecture Invariants`, and any architect re-check; report `Architecture Matrix Mismatches` and `Contract Drift` explicitly, even when none are found.
 - Look for behavioral regressions and missing evidence first.
 - Check Evidence Records when the implementation reused a local practice or claims an approach is proven.
@@ -65,6 +66,7 @@ Return:
 - Architecture Design Brief mismatches, if any
 - Architecture Matrix Mismatches and Contract Drift, even when none are found
 - full selected `architecture_context` coverage, mismatches, or unverified facets
+- full selected `architecture_capabilities` coverage, mismatches, or unverified capability constraints
 - Evidence Records gaps or regression-demotion risks, if any
 - test gaps
 - release readiness verdict
