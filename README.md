@@ -154,15 +154,15 @@ Agent Flow Finish this feature for release. Run architecture, QA, and review gat
 
 ## Russian
 
-AgentFlow - это Codex skill для задач, где нужен управляемый workflow агента. Пользователь пишет `Agent Flow`, `AgentFlow`, `$agent-flow` или `agent-flow` в любой части prompt; дальше оркестратор читает контекст, проверяет активные задачи проекта, под капотом переключает внутренние budgets, решает, нужны ли субагенты, и требует проверку перед финальным ответом.
+AgentFlow - Codex skill для задач, где агенту нужен управляемый workflow: контекст, проектная память, делегация и проверка результата. Добавьте `Agent Flow`, `AgentFlow`, `$agent-flow` или `agent-flow` в любую часть промпта. После этого оркестратор читает контекст, проверяет активную работу, выбирает глубину выполнения, решает, нужны ли субагенты, и не завершает задачу без verification.
 
-Поддерживаемая среда: Codex с моделями OpenAI. Claude Code, Cursor, Hermes и другие hosts вне scope этого пакета.
+Пакет рассчитан на Codex и модели OpenAI. Claude Code, Cursor, Hermes и другие hosts не поддерживаются.
 
-В комплекте 25 ролей и 138 зависимостей role skills.
+В репозитории есть 25 ролей и 138 зависимостей role skills.
 
 ### Контракт
 
-AgentFlow включается только если запрос пользователя содержит один из маркеров запуска:
+AgentFlow включается только если запрос содержит один из маркеров:
 
 ```text
 Agent Flow <задача>
@@ -171,7 +171,7 @@ $agent-flow <задача>
 agent-flow <задача>
 ```
 
-Маркер запуска может стоять в начале, середине или конце prompt. Пользователю не нужно выбирать budgets или явно просить субагентов. Оркестратор сам решает по контексту, оставить задачу solo, собрать больше evidence, создать trace artifacts или делегировать часть работы субагентам.
+Маркер запуска может стоять в любой части промпта. Пользователю не нужно выбирать budgets или отдельно просить субагентов. Оркестратор по контексту решает: выполнить задачу solo, собрать evidence, создать trace artifacts или делегировать часть работы.
 
 ### Установка
 
@@ -180,7 +180,7 @@ git clone https://github.com/svishniakov/agent-flow.git ~/.codex/skills/agent-fl
 python3 ~/.codex/skills/agent-flow/scripts/check-agent-deps.py --post-install
 ```
 
-`--post-install` показывает missing role skills и рекомендует набор `core`. Тихой установки нет.
+`--post-install` показывает missing role skills и рекомендует набор `core`. Автоматической установки без подтверждения нет.
 
 ### Обновление
 
@@ -189,7 +189,7 @@ python3 ~/.codex/skills/agent-flow/scripts/update-agent-flow-skill.py --dry-run
 python3 ~/.codex/skills/agent-flow/scripts/update-agent-flow-skill.py
 ```
 
-Updater делает `fetch` из `origin`, показывает dirty state и обновляет только clean checkout через fast-forward. Если локальные правки или divergent commits нужно отбросить, передайте явный `--overwrite`.
+Скрипт обновления выполняет `fetch` из `origin`, показывает состояние checkout и обновляет только clean checkout через fast-forward. Чтобы отбросить локальные правки или divergent commits, нужен явный `--overwrite`.
 
 ### Проверки
 
@@ -208,13 +208,13 @@ PASS all Agent Flow checks
 
 ### Что внутри
 
-| Путь | Назначение |
+| Файл | Назначение |
 | --- | --- |
-| `SKILL.md` | entrypoint скилла и контракт включения |
-| `agents/*.md` | 25 встроенных role prompts |
-| `agents/agent-identities.json` | стабильные identity ролей для trace и handoff |
-| `references/role-catalog.md` | жизненный цикл ролей, сценарии, исключения и пересечения |
-| `registries/agent-skills.json` | metadata для зависимостей role skills |
+| `SKILL.md` | точка входа skill и правило запуска |
+| `agents/*.md` | 25 встроенных prompts ролей |
+| `agents/agent-identities.json` | стабильные identities ролей для trace и handoff |
+| `references/role-catalog.md` | сценарии ролей, ограничения и пересечения |
+| `registries/agent-skills.json` | metadata зависимостей role skills |
 | `scripts/check-all.py` | полный набор проверок репозитория |
 | `scripts/analyze-evidence-records.py` | analyzer для Evidence Records и локального обучения |
 | `scripts/resolve-agent-config.py` | resolver model/reasoning для `spawn_agent` |
@@ -222,15 +222,15 @@ PASS all Agent Flow checks
 
 ### Главные правила
 
-- AgentFlow - не общий preflight для каждого запроса.
+- AgentFlow - не общий preflight для всех запросов.
 - Проектный `AGENTS.md` не может включить AgentFlow без видимого пользователю маркера запуска в текущем запросе.
-- Переключение budgets работает под капотом; пользователь не выбирает глубину workflow вручную.
-- Dependency Gate обязателен перед новой фичей: если другая активная задача может повлиять на неё, оркестратор останавливает старт и рекомендует дождаться результата или объединить работы в один coordinated run.
-- Статус задачи - жёсткий сигнал завершения: после успешной проверки или product commit закрытая текущая задача должна перейти из `in_progress` в `done`.
+- Budget выбирает оркестратор; пользователь не управляет глубиной workflow вручную.
+- Dependency Gate обязателен перед новой фичей: если другая активная задача может повлиять на неё, оркестратор останавливает старт и предлагает дождаться результата или объединить работы в один coordinated run.
+- Статус задачи - обязательный сигнал завершения: после успешной проверки или product commit закрытая текущая задача должна перейти из `in_progress` в `done`.
 - Evidence Records в `implementation-notes.md` - структурированные данные для локального обучения, а не свободные заметки.
-- Local Best Practice auto gate может переиспользовать подход только после подтверждения analyzer, ясного совпадения контекста, отсутствия совпадения с `Do not reuse when`, отсутствия внешней записи и свежей проверки.
+- Local Best Practice auto gate переиспользует подход только после подтверждения analyzer, ясного совпадения контекста, отсутствия совпадения с `Do not reuse when`, отсутствия внешней записи и свежей проверки.
 - Если переиспользованный подход дал failure или regression, practice демотируется или замораживается до архитектурного разбора.
-- Model/reasoning upgrade не считается дефолтным исправлением rejected-подхода: сначала оркестратор улучшает контекст, архитектуру, evidence или verification.
+- Rejected-подход не лечится автоматическим model/reasoning upgrade: сначала оркестратор улучшает контекст, архитектуру, evidence или verification.
 - Субагенты больше не требуют явной просьбы пользователя; оркестратор включает их, когда они дают реальную пользу для review, QA, research или параллельной реализации.
 - `.agent-work/tasks/` - локальная проектная память.
 - `.agent-work/runs/` используется только для traceable work.
@@ -239,30 +239,30 @@ PASS all Agent Flow checks
 
 ### Большие задачи
 
-Для больших или рискованных задач оркестратор может разделить работу на implementation, integration, architecture, QA и review lanes. Для traceable runs главный источник - `lane-map.json`. `validate-run.py` блокирует `Verdict: ship`, если critical lane не закрыта evidence или валидной replacement lane.
+Для больших или рискованных задач оркестратор делит работу на implementation, integration, architecture, QA и review lanes. В traceable runs `lane-map.json` задаёт lanes и их статус. `validate-run.py` блокирует `Verdict: ship`, если critical lane не закрыта evidence или валидной replacement lane.
 
-Schema v2 добавляет Architecture Contract Gate. Если `architecture_contract_required` равен true, критическая `architecture` lane должна пройти с handoff и evidence до того, как QA/review смогут закрыть `ship`. Если `architecture_contract_independent` равен true, эта lane должна быть реальным subagent со spawned trace evidence; иначе для standard multi-lane работы может хватить scoped role-lane архитектурной проверки.
+Schema v2 добавляет Architecture Contract Gate. Если `architecture_contract_required` равен true, критическая `architecture` lane должна пройти с handoff и evidence до того, как QA/review закроют `ship`. Если `architecture_contract_independent` равен true, эта lane должна быть реальным subagent со spawned trace evidence. Для standard multi-lane работы иногда достаточно scoped role-lane архитектурной проверки.
 
 ### Dependency Gate
 
-Когда пользователь запускает новую фичу, а в проекте уже есть задача со статусом `in_progress` или `blocked`, оркестратор сначала смотрит проектную память. Если активная работа может поменять те же файлы, API, модель данных, UI flow, тесты, deploy path или критерии приёмки, AgentFlow останавливает новую сессию.
+Когда пользователь запускает новую фичу, а в проекте уже есть задача со статусом `in_progress` или `blocked`, оркестратор сначала смотрит проектную память. Если активная работа затрагивает те же файлы, API, модель данных, UI flow, тесты, deploy path или критерии приёмки, AgentFlow останавливает новую сессию.
 
 Перед блокировкой AgentFlow проверяет, нет ли stale завершённых секций. Если у секции `in_progress` отмечены все пункты checklist, записана проверка и нет blocker, оркестратор сначала закрывает её как `done`. Если evidence не хватает, gate считает секцию `uncertain` и просит проверить или закрыть её перед новой работой.
 
-Предупреждение называет активную задачу, объясняет практический риск и рекомендует дождаться завершения текущей фичи. Пользователь может явно принять риск и продолжить или объединить обе работы в один coordinated AgentFlow run.
+Предупреждение называет активную задачу, объясняет риск и предлагает дождаться её завершения. Пользователь может принять риск и продолжить или объединить обе работы в один coordinated AgentFlow run.
 
 ### Evidence Records
 
-AgentFlow может учиться на локальной истории проекта через `## Evidence Records` в `implementation-notes.md`. Записи группируются по точной паре `Problem class + Approach`, затем считаются как `success`, `failure`, `regression`, `rejected` или `unknown`. Architecture и orchestration attempts считаются отдельно, чтобы worker failures не маскировали архитектурные failures.
+AgentFlow учится на локальной истории проекта через `## Evidence Records` в `implementation-notes.md`. Записи группируются по точной паре `Problem class + Approach`, затем считаются как `success`, `failure`, `regression`, `rejected` или `unknown`. Architecture и orchestration attempts считаются отдельно, чтобы worker failures не скрывали архитектурные failures.
 
 Promotion работает осторожно:
 
 - `1 success` -> `Observed`;
 - `2 success` -> `Candidate Practice`;
-- число success достигает чистого threshold, по умолчанию `3`, -> `Local Best Practice`;
+- success достигает threshold без failures/regressions, по умолчанию `3`, -> `Local Best Practice`;
 - повторные failures или rejects -> `Anti-pattern`.
 
-Unknown outcomes попадают в incomplete, но не продвигают practice. Если не заполнены reuse boundaries, promotion блокируется. Local Best Practice можно применить автоматически только через auto gate; analyzer не редактирует notes file.
+Unknown outcomes попадают в incomplete, но не продвигают practice. Без reuse boundaries promotion блокируется. Local Best Practice применяется автоматически только через auto gate; analyzer не редактирует notes file.
 
 Analyzer можно запустить напрямую:
 
