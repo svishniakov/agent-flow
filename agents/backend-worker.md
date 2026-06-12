@@ -49,6 +49,7 @@ Delegation packet must include:
 - When Architecture Design Mode applies, confirm the approved Architecture Design Brief exists before implementation and keep work within its `Selected Matrix Facets`.
 - When the Architecture Contract Gate applies, track touched contract sections, selected `architecture_context` facets, and report `Architecture Compliance` with `matrix_facets`; if architecture drift appears, stop or hand it back for architect re-check.
 - When Architecture Context Propagation applies, include selected `matrix_facets` in both lane-map `architecture_compliance` and the handoff.
+- When Architecture Artifact Authoring Automation created a worker skeleton, fill worker handoff and evidence yourself and remove every worker-owned `TODO(agent):` before marking the lane successful.
 - Add focused tests when risk warrants it.
 - Run assigned or minimal relevant checks.
 - Write handoff with files changed, commands, verdict, and risks.
@@ -61,6 +62,7 @@ Return:
 - commands and outputs
 - decisions
 - Architecture Design Brief constraints followed when Architecture Design Mode applies
+- Architecture Artifact Authoring Automation status for worker-owned `TODO(agent):` placeholders
 - Architecture Compliance: compliant or drift, contract sections touched, selected `matrix_facets`, notes, and re-check need
 - DoD status
 - risks

@@ -65,6 +65,7 @@ PASS all Agent Flow checks
 | `agents/agent-identities.json` | stable role identities for traces and handoffs |
 | `references/architecture-matrix.md` | reusable architecture matrix facets for product, surface, stack, risk, and verification context |
 | `references/architecture-capability-router.md` | Architecture Capability Router and Soft Skill Binding contract |
+| `references/architecture-artifact-authoring.md` | Architecture Artifact Authoring Automation for agent-filled architecture templates |
 | `references/role-catalog.md` | role lifecycle, use cases, exclusions, overlap notes |
 | `registries/agent-skills.json` | metadata for role skill dependencies |
 | `registries/architecture-capabilities.json` | capability routing from Matrix facets to soft skill bindings |
@@ -99,6 +100,8 @@ For large or risky scopes, the orchestrator can split work into implementation, 
 Schema v2 adds the Architecture Contract Gate and requires `budget`. `release` runs and `standard` runs with two or more worker lanes must set `architecture_contract_required=true`. A critical `architecture` lane must pass with handoff, evidence, and required contract sections before QA/review can close `ship`. If `architecture_contract_independent` is true, that lane must be a real subagent with spawned trace evidence; otherwise a scoped role-lane architecture check may be enough for standard multi-lane work.
 
 Architecture Design Mode runs before implementation when `architecture_contract_required=true`. Every successful critical `architecture` lane must set `architecture_design_brief` to an Architecture Design Brief with `Selected Matrix Facets` and `Status: approved`; `validate-run.py` blocks `ship` and `pass-with-risks` without an approved brief, and worker lanes must run after it.
+
+Architecture Artifact Authoring Automation lets `init-run.py --architecture-gate` create agent-authored skeleton artifacts for design, contract, worker, QA, reviewer, and evidence files. Agents must replace every `TODO(agent):` placeholder themselves; `validate-run.py` blocks `ship` and `pass-with-risks` while any architecture artifact still contains that marker.
 
 When the product or stack matters, the orchestrator writes `architecture_context` in `lane-map.json` with the six Architecture Matrix axes: `product_context`, `application_surface`, `architecture_pattern`, `stack_runtime`, `risk_gates`, and `verification_gates`. `validate-run.py` parses the allowed facet ids from `references/architecture-matrix.md` and checks that every selected facet appears in the architect's `Selected Architecture` section.
 
@@ -261,6 +264,8 @@ PASS all Agent Flow checks
 Schema v2 добавляет Architecture Contract Gate и требует `budget`. Для `release` и `standard` с двумя или более worker lanes нужно ставить `architecture_contract_required=true`. Критическая `architecture` lane должна пройти с handoff, evidence и обязательными секциями контракта до QA/review. Если `architecture_contract_independent` равен true, нужна реальная subagent lane со spawned trace evidence. Для standard multi-lane работы иногда достаточно scoped role-lane проверки.
 
 Architecture Design Mode запускается до реализации, когда `architecture_contract_required=true`. Каждая успешная критическая `architecture` lane указывает `architecture_design_brief` на Architecture Design Brief с `Selected Matrix Facets` и `Status: approved`; `validate-run.py` блокирует `ship` и `pass-with-risks` без approved brief, а worker lanes стартуют только после него.
+
+Architecture Artifact Authoring Automation запускает `init-run.py --architecture-gate`, который создаёт заготовки архитектурных artifacts: design brief, contract, worker/QA/reviewer handoffs и evidence files. Эти artifacts заполняют агенты: они сами убирают каждый `TODO(agent):`. `validate-run.py` блокирует `ship` и `pass-with-risks`, пока маркер остаётся в любом архитектурном artifact.
 
 Если тип продукта или стек влияет на решение, оркестратор записывает `architecture_context` в `lane-map.json`: `product_context`, `application_surface`, `architecture_pattern`, `stack_runtime`, `risk_gates` и `verification_gates`. `validate-run.py` берёт допустимые facet ids из `references/architecture-matrix.md` и проверяет, что каждый выбранный facet попал в секцию `Selected Architecture`.
 

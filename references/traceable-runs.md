@@ -173,6 +173,9 @@ Schema v2 adds the Architecture Contract Gate:
 - selected `architecture_capabilities` must exist in `registries/architecture-capabilities.json` and must cover every selected `architecture_context` facet;
 - Architecture Capability Router uses Soft Skill Binding: registry `recommended_skills` are checked by `validate-architecture-capabilities.py`, but do not block individual runtime validation;
 - Architecture Design Mode runs before implementation when `architecture_contract_required=true`;
+- Architecture Artifact Authoring Automation can initialize the run with `init-run.py --architecture-gate`, creating agent-authored templates for Architecture Design Brief, Architecture Contract, worker, QA, reviewer, and evidence artifacts;
+- generated templates use the exact placeholder marker `TODO(agent):`, and agents must replace it themselves instead of asking the human to fill the artifacts;
+- positive final verdicts, `ship` and `pass-with-risks`, are blocked while any architecture artifact referenced from `lane-map.json` still contains `TODO(agent):`;
 - every successful critical `architecture` lane must set `architecture_design_brief` to an existing Architecture Design Brief;
 - the Architecture Design Brief must include `Problem Shape`, `Selected Matrix Facets`, `System Boundaries`, `Data And State Model`, `Public Interfaces`, `Execution Plan`, `Risk Model`, `Verification Strategy`, `Open Questions`, and `Decision`;
 - `Selected Matrix Facets` must include every selected `architecture_context` facet id, and `Decision` must contain exactly one canonical status line: `Status: approved`, `Status: needs-revision`, or `Status: rejected`;

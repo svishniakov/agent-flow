@@ -407,6 +407,13 @@ def validate(run_dir: Path) -> subprocess.CompletedProcess[str]:
     )
 
 
+def add_agent_placeholder(run_dir: Path, relative_path: str) -> Path:
+    path = run_dir / relative_path
+    existing = path.read_text(encoding="utf-8") if path.exists() else ""
+    path.write_text(existing + "\nTODO(agent): finish architecture artifact.\n", encoding="utf-8")
+    return run_dir
+
+
 def expect_pass(name: str, run_dir: Path) -> None:
     result = validate(run_dir)
     if result.returncode != 0:
@@ -1530,6 +1537,169 @@ def main() -> int:
                     architecture_lane("architecture-recheck", wave=3),
                     qa_control_lane(wave=4),
                     reviewer_control_lane(wave=5),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+        )
+
+        expect_fail(
+            "positive verdict with TODO agent in design brief fails",
+            add_agent_placeholder(
+                write_run(
+                    temp / "placeholder-design-brief",
+                    lanes=[
+                        architecture_lane(),
+                        worker_lane(),
+                        qa_control_lane(wave=3),
+                        reviewer_control_lane(wave=4),
+                    ],
+                    lane_map_extra=architecture_control_extra(),
+                ),
+                "handoffs/architecture-contract-design.md",
+            ),
+            "TODO(agent):",
+        )
+
+        expect_fail(
+            "positive verdict with TODO agent in contract handoff fails",
+            add_agent_placeholder(
+                write_run(
+                    temp / "placeholder-contract",
+                    lanes=[
+                        architecture_lane(),
+                        worker_lane(),
+                        qa_control_lane(wave=3),
+                        reviewer_control_lane(wave=4),
+                    ],
+                    lane_map_extra=architecture_control_extra(),
+                ),
+                "handoffs/architecture-contract.md",
+            ),
+            "TODO(agent):",
+        )
+
+        expect_fail(
+            "positive verdict with TODO agent in worker handoff fails",
+            add_agent_placeholder(
+                write_run(
+                    temp / "placeholder-worker",
+                    lanes=[
+                        architecture_lane(),
+                        worker_lane(),
+                        qa_control_lane(wave=3),
+                        reviewer_control_lane(wave=4),
+                    ],
+                    lane_map_extra=architecture_control_extra(),
+                ),
+                "handoffs/worker-a.md",
+            ),
+            "TODO(agent):",
+        )
+
+        expect_fail(
+            "positive verdict with TODO agent in QA handoff fails",
+            add_agent_placeholder(
+                write_run(
+                    temp / "placeholder-qa",
+                    lanes=[
+                        architecture_lane(),
+                        worker_lane(),
+                        qa_control_lane(wave=3),
+                        reviewer_control_lane(wave=4),
+                    ],
+                    lane_map_extra=architecture_control_extra(),
+                ),
+                "handoffs/qa-behavior.md",
+            ),
+            "TODO(agent):",
+        )
+
+        expect_fail(
+            "positive verdict with TODO agent in reviewer handoff fails",
+            add_agent_placeholder(
+                write_run(
+                    temp / "placeholder-reviewer",
+                    lanes=[
+                        architecture_lane(),
+                        worker_lane(),
+                        qa_control_lane(wave=3),
+                        reviewer_control_lane(wave=4),
+                    ],
+                    lane_map_extra=architecture_control_extra(),
+                ),
+                "handoffs/review-contract.md",
+            ),
+            "TODO(agent):",
+        )
+
+        expect_fail(
+            "positive verdict with TODO agent in evidence fails",
+            add_agent_placeholder(
+                write_run(
+                    temp / "placeholder-evidence",
+                    lanes=[
+                        architecture_lane(),
+                        worker_lane(),
+                        qa_control_lane(wave=3),
+                        reviewer_control_lane(wave=4),
+                    ],
+                    lane_map_extra=architecture_control_extra(),
+                ),
+                "checks/worker-a.md",
+            ),
+            "TODO(agent):",
+        )
+
+        expect_pass(
+            "blocked verdict allows TODO agent placeholders",
+            add_agent_placeholder(
+                write_run(
+                    temp / "placeholder-blocked",
+                    verdict="blocked",
+                    lanes=[
+                        architecture_lane(),
+                        worker_lane(),
+                        qa_control_lane(wave=3),
+                        reviewer_control_lane(wave=4),
+                    ],
+                    lane_map_extra=architecture_control_extra(),
+                ),
+                "handoffs/architecture-contract-design.md",
+            ),
+        )
+
+        expect_pass(
+            "schema v2 without architecture contract ignores TODO agent placeholders",
+            add_agent_placeholder(
+                write_run(
+                    temp / "placeholder-not-required",
+                    lanes=[
+                        lane(
+                            "worker-a",
+                            lane_type="implementation",
+                            role="typescript-worker",
+                            wave=2,
+                        )
+                    ],
+                    lane_map_extra={
+                        "schema_version": 2,
+                        "budget": "standard",
+                        "architecture_contract_required": False,
+                    },
+                ),
+                "handoffs/worker-a.md",
+            ),
+        )
+
+        expect_pass(
+            "fully authored architecture artifacts pass",
+            write_run(
+                temp / "fully-authored-architecture-artifacts",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
                 ],
                 lane_map_extra=architecture_control_extra(),
             ),

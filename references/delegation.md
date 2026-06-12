@@ -114,6 +114,14 @@ a `Decision` section, selected `architecture_capabilities`, and `Status: approve
 `ship` and `pass-with-risks` stay blocked while the brief is missing,
 needs-revision, or rejected.
 
+Architecture Artifact Authoring Automation starts with `init-run.py
+--architecture-gate`, which creates agent-authored skeleton artifacts for the
+Architecture Design Brief, Architecture Contract, worker handoffs, QA handoff,
+reviewer handoff, and evidence files. Roles fill their own artifacts and remove
+every `TODO(agent):` marker; no role asks the human to write these sections
+manually. `validate-run.py` blocks `ship` and `pass-with-risks` while any
+referenced architecture artifact still contains `TODO(agent):`.
+
 The architecture handoff must include these sections: `Selected Architecture`,
 `Rejected Alternatives`, `Module Boundaries`, `Data And State Flow`, `Public
 Contracts`, `Worker Ownership`, `Forbidden Changes`, `QA Gates`, `Reviewer

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate Agent Flow traceable runs, lanes, and Architecture Capability Router gates."""
+"""Validate traceable runs, Architecture Capability Router, and Architecture Artifact Authoring Automation gates."""
 
 from __future__ import annotations
 
@@ -43,6 +43,7 @@ REQUIRED_TIMELINE_KEYS = {
 }
 FINAL_VERDICTS = {"ship", "pass-with-risks", "blocked", "fail"}
 POSITIVE_FINAL_VERDICTS = {"ship", "pass-with-risks"}
+AGENT_TODO_PLACEHOLDER = "TODO(agent):"
 AGENT_EXECUTION_MODES = {"subagent", "role-lane"}
 LANE_TYPES = {"architecture", "implementation", "integration", "qa", "review"}
 TRACE_BUDGETS = {"release", "standard"}
@@ -499,6 +500,43 @@ def validate_lane_path_list(run_dir: Path, paths: object, label: str, field: str
         if not resolve_run_path(run_dir, path).exists():
             errors.append(f"lane-map.json: lane {label} {field}[{index}] not found: {path}")
     return result
+
+
+def lane_artifact_references(lanes: list[object]) -> list[str]:
+    references: list[str] = []
+    seen: set[str] = set()
+    for lane in lanes:
+        if not isinstance(lane, dict):
+            continue
+        handoff = lane.get("handoff")
+        if isinstance(handoff, str) and handoff and handoff not in seen:
+            references.append(handoff)
+            seen.add(handoff)
+        evidence = lane.get("evidence")
+        if isinstance(evidence, list):
+            for path in evidence:
+                if isinstance(path, str) and path and path not in seen:
+                    references.append(path)
+                    seen.add(path)
+        design_brief = lane.get("architecture_design_brief")
+        if isinstance(design_brief, str) and design_brief and design_brief not in seen:
+            references.append(design_brief)
+            seen.add(design_brief)
+    return references
+
+
+def validate_no_agent_placeholders(run_dir: Path, lanes: list[object]) -> list[str]:
+    errors: list[str] = []
+    for reference in lane_artifact_references(lanes):
+        path = resolve_run_path(run_dir, reference)
+        if not path.exists() or not path.is_file():
+            continue
+        if AGENT_TODO_PLACEHOLDER in path.read_text(encoding="utf-8"):
+            errors.append(
+                "lane-map.json: positive final Verdict blocked by "
+                f"{AGENT_TODO_PLACEHOLDER} in {reference}"
+            )
+    return errors
 
 
 def load_lane_trace_events(run_dir: Path, role: str, lane_id: str) -> tuple[list[dict], list[str]]:
@@ -1178,6 +1216,9 @@ def validate_lane_map(run_dir: Path) -> list[str]:
             errors.append("lane-map.json: release budget requires architecture_contract_required=true")
 
     if architecture_contract_required:
+        if final_verdict in POSITIVE_FINAL_VERDICTS:
+            errors.extend(validate_no_agent_placeholders(run_dir, lanes))
+
         if not architecture_lane_ids:
             errors.append(
                 "lane-map.json: architecture_contract_required requires a critical architecture lane"

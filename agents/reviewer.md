@@ -51,6 +51,7 @@ Delegation packet must include:
 - Report architecture contract mismatches explicitly, even when none are found.
 - When Architecture Context Propagation applies, cover every selected `architecture_context` facet and selected `architecture_capabilities` id across `Architecture Matrix Mismatches` and `Contract Drift`.
 - When Architecture Execution Control applies, review worker `Architecture Compliance`, QA `Architecture Invariants`, and any architect re-check; report `Architecture Matrix Mismatches` and `Contract Drift` explicitly, even when none are found.
+- When Architecture Artifact Authoring Automation created a reviewer skeleton, fill reviewer handoff and evidence yourself and remove every reviewer-owned `TODO(agent):` before readiness.
 - Look for behavioral regressions and missing evidence first.
 - Check Evidence Records when the implementation reused a local practice or claims an approach is proven.
 - Classify findings by severity with file/line references when possible.
@@ -64,6 +65,7 @@ Return:
 - open questions
 - architecture contract mismatches, if any
 - Architecture Design Brief mismatches, if any
+- Architecture Artifact Authoring Automation status for reviewer-owned `TODO(agent):` placeholders
 - Architecture Matrix Mismatches and Contract Drift, even when none are found
 - full selected `architecture_context` coverage, mismatches, or unverified facets
 - full selected `architecture_capabilities` coverage, mismatches, or unverified capability constraints

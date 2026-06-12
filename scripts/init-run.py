@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create an Agent Flow traceable run skeleton."""
+"""Create Agent Flow traceable run skeletons, including Architecture Artifact Authoring Automation."""
 
 from __future__ import annotations
 
@@ -8,6 +8,13 @@ import json
 import re
 from datetime import datetime
 from pathlib import Path
+
+from architecture_capabilities import (
+    ARCHITECTURE_CONTEXT_AXES,
+    load_matrix_facets,
+    validate_architecture_capabilities_shape,
+    validate_architecture_capability_registry,
+)
 
 
 RUN_FILES = {
@@ -23,6 +30,9 @@ LANE_MAP = {
     "schema_version": 1,
     "lanes": [],
 }
+AGENT_TODO_PLACEHOLDER = "TODO(agent):"
+TRACE_BUDGETS = {"standard", "release"}
+WORKER_LANE_TYPES = {"implementation", "integration"}
 COVERAGE_MATRIX = """# Coverage Matrix
 
 Use this file as the human-readable coverage summary for Lane Sharding runs.
@@ -38,6 +48,435 @@ def slugify(value: str) -> str:
     return slug[:80] or "agent-flow-run"
 
 
+def kebab_id(value: str) -> str:
+    return slugify(value).replace("_", "-")
+
+
+def markdown_id_list(values: list[str]) -> str:
+    if not values:
+        return "- none"
+    return "\n".join(f"- `{value}`" for value in values)
+
+
+def selected_context_facets(context: dict[str, list[str]]) -> list[str]:
+    facets: list[str] = []
+    for axis in ARCHITECTURE_CONTEXT_AXES:
+        facets.extend(context.get(axis, []))
+    return facets
+
+
+def parse_architecture_context(parser: argparse.ArgumentParser, raw_value: str | None) -> dict[str, list[str]]:
+    if raw_value is None:
+        parser.error("--architecture-gate requires --architecture-context-json")
+
+    source = raw_value
+    candidate_path = Path(raw_value).expanduser()
+    if candidate_path.exists():
+        source = candidate_path.read_text(encoding="utf-8")
+
+    try:
+        data = json.loads(source)
+    except json.JSONDecodeError as exc:
+        parser.error(f"--architecture-context-json invalid JSON: {exc}")
+
+    if not isinstance(data, dict):
+        parser.error("--architecture-context-json must be a JSON object")
+
+    matrix_facets, matrix_errors = load_matrix_facets()
+    if matrix_errors:
+        parser.error("; ".join(matrix_errors))
+
+    expected_axes = set(ARCHITECTURE_CONTEXT_AXES)
+    for axis in sorted(set(data) - expected_axes):
+        parser.error(f"architecture_context unknown axis: {axis}")
+
+    context: dict[str, list[str]] = {}
+    selected_facets: list[str] = []
+    for axis in ARCHITECTURE_CONTEXT_AXES:
+        if axis not in data:
+            parser.error(f"architecture_context missing axis: {axis}")
+        value = data[axis]
+        if not isinstance(value, list):
+            parser.error(f"architecture_context.{axis} must be an array")
+
+        axis_facets: list[str] = []
+        for index, facet in enumerate(value):
+            if not isinstance(facet, str) or not facet.strip():
+                parser.error(f"architecture_context.{axis}[{index}] must be a non-empty string")
+            if facet not in matrix_facets.get(axis, set()):
+                parser.error(f"architecture_context.{axis}[{index}] unknown Architecture Matrix facet: {facet}")
+            axis_facets.append(facet)
+            selected_facets.append(facet)
+        context[axis] = axis_facets
+
+    if not selected_facets:
+        parser.error("architecture_context must select at least one facet")
+    return context
+
+
+def parse_architecture_capabilities(
+    parser: argparse.ArgumentParser,
+    raw_value: str | None,
+    context: dict[str, list[str]],
+) -> list[str]:
+    if raw_value is None:
+        parser.error("--architecture-gate requires --architecture-capabilities")
+
+    selected = [item.strip() for item in raw_value.split(",") if item.strip()]
+    capabilities_by_id, registry_errors = validate_architecture_capability_registry(
+        validate_skills=False,
+        require_full_matrix_coverage=False,
+    )
+    if registry_errors:
+        parser.error("; ".join(registry_errors))
+
+    selected_capabilities, capability_errors = validate_architecture_capabilities_shape(
+        {
+            "architecture_capabilities": {
+                "selected": selected,
+                "notes": "Generated architecture capability routing.",
+            }
+        },
+        capabilities_by_id,
+        selected_context_facets(context),
+        required=True,
+    )
+    if capability_errors:
+        parser.error("; ".join(capability_errors))
+    return selected_capabilities
+
+
+def parse_worker_lanes(parser: argparse.ArgumentParser, raw_values: list[str]) -> list[dict[str, str]]:
+    workers: list[dict[str, str]] = []
+    seen_ids: set[str] = set()
+    for raw_value in raw_values:
+        parts = raw_value.split(":")
+        if len(parts) != 3 or not all(part.strip() for part in parts):
+            parser.error("--worker-lane must use lane-id:type:role")
+        lane_id, lane_type, role = (part.strip() for part in parts)
+        lane_id = kebab_id(lane_id)
+        if lane_type not in WORKER_LANE_TYPES:
+            allowed = ", ".join(sorted(WORKER_LANE_TYPES))
+            parser.error(f"--worker-lane type must be one of: {allowed}")
+        if lane_id in seen_ids:
+            parser.error(f"duplicate --worker-lane id: {lane_id}")
+        seen_ids.add(lane_id)
+        workers.append({"id": lane_id, "type": lane_type, "role": role})
+    return workers
+
+
+def architecture_design_template(
+    context: dict[str, list[str]],
+    capabilities: list[str],
+) -> str:
+    selected_facets = selected_context_facets(context)
+    return f"""# Architecture Design Brief
+
+Selected Architecture Matrix facets:
+{markdown_id_list(selected_facets)}
+
+Selected architecture capabilities:
+{markdown_id_list(capabilities)}
+
+## Problem Shape
+
+{AGENT_TODO_PLACEHOLDER} Describe the product problem, scope, and constraints for this run.
+
+## Selected Matrix Facets
+
+{markdown_id_list(selected_facets)}
+
+{AGENT_TODO_PLACEHOLDER} Explain why these Matrix facets are the active design context.
+
+## System Boundaries
+
+{AGENT_TODO_PLACEHOLDER} Define in-scope systems, out-of-scope systems, and ownership boundaries.
+
+## Data And State Model
+
+{AGENT_TODO_PLACEHOLDER} Describe data ownership, state transitions, persistence, queues, caches, and migrations.
+
+## Public Interfaces
+
+{AGENT_TODO_PLACEHOLDER} List APIs, events, UI contracts, external providers, schemas, and compatibility rules.
+
+## Execution Plan
+
+Architecture capabilities:
+{markdown_id_list(capabilities)}
+
+{AGENT_TODO_PLACEHOLDER} Convert the selected capabilities into implementation lanes and sequencing.
+
+## Risk Model
+
+{AGENT_TODO_PLACEHOLDER} Name security, privacy, data, release, and product risks with mitigations.
+
+## Verification Strategy
+
+{AGENT_TODO_PLACEHOLDER} Map risks and verification gates to concrete checks.
+
+## Open Questions
+
+{AGENT_TODO_PLACEHOLDER} List unresolved decisions, owner, and stop condition for each question.
+
+## Decision
+
+Status: needs-revision
+
+{AGENT_TODO_PLACEHOLDER} Replace with the final design decision before workers start.
+"""
+
+
+def architecture_contract_template(
+    context: dict[str, list[str]],
+    capabilities: list[str],
+    workers: list[dict[str, str]],
+) -> str:
+    selected_facets = selected_context_facets(context)
+    worker_lines = [f"- `{worker['id']}` owns {worker['type']} work as `{worker['role']}`." for worker in workers]
+    return f"""# Architecture Contract
+
+## Selected Architecture
+
+Architecture Matrix facets:
+{markdown_id_list(selected_facets)}
+
+Architecture capabilities:
+{markdown_id_list(capabilities)}
+
+{AGENT_TODO_PLACEHOLDER} State the selected architecture and why it fits this run.
+
+## Rejected Alternatives
+
+{AGENT_TODO_PLACEHOLDER} Record rejected designs and the concrete reason each was rejected.
+
+## Module Boundaries
+
+{AGENT_TODO_PLACEHOLDER} Define module, package, service, UI, and integration boundaries.
+
+## Data And State Flow
+
+{AGENT_TODO_PLACEHOLDER} Define data flow, state ownership, events, queues, persistence, and rollback rules.
+
+## Public Contracts
+
+{AGENT_TODO_PLACEHOLDER} Define API, event, schema, UI, provider, and compatibility contracts.
+
+## Worker Ownership
+
+{chr(10).join(worker_lines) if worker_lines else '- no worker lanes generated'}
+
+{AGENT_TODO_PLACEHOLDER} Assign exact files, modules, and boundaries to each lane.
+
+## Forbidden Changes
+
+{AGENT_TODO_PLACEHOLDER} List changes workers must not make without architect re-check.
+
+## QA Gates
+
+{AGENT_TODO_PLACEHOLDER} Define mandatory behavior, architecture, risk, and verification checks.
+
+## Reviewer Checklist
+
+{AGENT_TODO_PLACEHOLDER} List architecture invariants the reviewer must confirm.
+
+## Stop Conditions
+
+{AGENT_TODO_PLACEHOLDER} Define drift, ambiguity, failing check, and external-risk conditions that stop ship.
+"""
+
+
+def worker_handoff_template(
+    worker: dict[str, str],
+    context: dict[str, list[str]],
+    capabilities: list[str],
+) -> str:
+    selected_facets = selected_context_facets(context)
+    return f"""# {worker['id']} Handoff
+
+## Architecture Compliance
+
+Selected Matrix facets available to this worker:
+{markdown_id_list(selected_facets)}
+
+Selected architecture capabilities:
+{markdown_id_list(capabilities)}
+
+{AGENT_TODO_PLACEHOLDER} Record actual touched facets, contract sections, compliance status, drift, and evidence.
+"""
+
+
+def qa_handoff_template(context: dict[str, list[str]]) -> str:
+    gates = [
+        *context.get("risk_gates", []),
+        *context.get("verification_gates", []),
+    ]
+    return f"""# QA Behavior Handoff
+
+## Architecture Invariants
+
+Selected risk and verification gates:
+{markdown_id_list(gates)}
+
+{AGENT_TODO_PLACEHOLDER} Verify behavior plus architecture invariants for the selected gates.
+"""
+
+
+def reviewer_handoff_template(context: dict[str, list[str]], capabilities: list[str]) -> str:
+    selected_facets = selected_context_facets(context)
+    return f"""# Review Contract Handoff
+
+## Architecture Matrix Mismatches
+
+Selected Matrix facets:
+{markdown_id_list(selected_facets)}
+
+Selected architecture capabilities:
+{markdown_id_list(capabilities)}
+
+{AGENT_TODO_PLACEHOLDER} Report any implementation mismatch for every selected facet and capability.
+
+## Contract Drift
+
+Selected Matrix facets:
+{markdown_id_list(selected_facets)}
+
+Selected architecture capabilities:
+{markdown_id_list(capabilities)}
+
+{AGENT_TODO_PLACEHOLDER} Report no drift or name the exact drift and required architect re-check.
+"""
+
+
+def check_template(title: str) -> str:
+    return f"""# {title}
+
+{AGENT_TODO_PLACEHOLDER} Record command, result, artifact path, and owner.
+"""
+
+
+def architecture_gate_lane_map(
+    budget: str,
+    context: dict[str, list[str]],
+    capabilities: list[str],
+    workers: list[dict[str, str]],
+) -> dict:
+    lanes = [
+        {
+            "id": "architecture-contract",
+            "type": "architecture",
+            "role": "architect",
+            "wave": 1,
+            "critical": True,
+            "execution_mode": "role-lane",
+            "status": "planned",
+            "handoff": "handoffs/architecture-contract.md",
+            "evidence": ["checks/architecture-contract.md"],
+            "replacement": None,
+            "architecture_design_brief": "handoffs/architecture-design.md",
+        }
+    ]
+    lanes.extend(
+        {
+            "id": worker["id"],
+            "type": worker["type"],
+            "role": worker["role"],
+            "wave": 2,
+            "critical": True,
+            "execution_mode": "role-lane",
+            "status": "planned",
+            "handoff": f"handoffs/{worker['id']}.md",
+            "evidence": [f"checks/{worker['id']}.md"],
+            "replacement": None,
+        }
+        for worker in workers
+    )
+    lanes.extend(
+        [
+            {
+                "id": "qa-behavior",
+                "type": "qa",
+                "role": "qa-verifier",
+                "wave": 3,
+                "critical": True,
+                "execution_mode": "role-lane",
+                "status": "planned",
+                "handoff": "handoffs/qa-behavior.md",
+                "evidence": ["checks/qa-behavior.md"],
+                "replacement": None,
+            },
+            {
+                "id": "review-contract",
+                "type": "review",
+                "role": "reviewer",
+                "wave": 4,
+                "critical": True,
+                "execution_mode": "role-lane",
+                "status": "planned",
+                "handoff": "handoffs/review-contract.md",
+                "evidence": ["checks/review-contract.md"],
+                "replacement": None,
+            },
+        ]
+    )
+    return {
+        "schema_version": 2,
+        "budget": budget,
+        "architecture_contract_required": True,
+        "architecture_contract_independent": False,
+        "architecture_context": context,
+        "architecture_capabilities": {
+            "selected": capabilities,
+            "notes": "Generated from Architecture Matrix context; orchestrator must refine before implementation.",
+        },
+        "lanes": lanes,
+    }
+
+
+def write_if_missing(path: Path, content: str) -> None:
+    if not path.exists():
+        path.write_text(content, encoding="utf-8")
+
+
+def write_architecture_gate_artifacts(
+    run_dir: Path,
+    context: dict[str, list[str]],
+    capabilities: list[str],
+    workers: list[dict[str, str]],
+) -> None:
+    write_if_missing(
+        run_dir / "handoffs" / "architecture-design.md",
+        architecture_design_template(context, capabilities),
+    )
+    write_if_missing(
+        run_dir / "handoffs" / "architecture-contract.md",
+        architecture_contract_template(context, capabilities, workers),
+    )
+    write_if_missing(
+        run_dir / "checks" / "architecture-contract.md",
+        check_template("Architecture Contract Evidence"),
+    )
+    for worker in workers:
+        write_if_missing(
+            run_dir / "handoffs" / f"{worker['id']}.md",
+            worker_handoff_template(worker, context, capabilities),
+        )
+        write_if_missing(
+            run_dir / "checks" / f"{worker['id']}.md",
+            check_template(f"{worker['id']} Evidence"),
+        )
+    write_if_missing(run_dir / "handoffs" / "qa-behavior.md", qa_handoff_template(context))
+    write_if_missing(run_dir / "checks" / "qa-behavior.md", check_template("QA Behavior Evidence"))
+    write_if_missing(
+        run_dir / "handoffs" / "review-contract.md",
+        reviewer_handoff_template(context, capabilities),
+    )
+    write_if_missing(
+        run_dir / "checks" / "review-contract.md",
+        check_template("Review Contract Evidence"),
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo", required=True, help="Project repo path.")
@@ -45,7 +484,33 @@ def main() -> int:
     parser.add_argument("--date", help="YYYY-MM-DD. Defaults to local date.")
     parser.add_argument("--reuse", action="store_true", help="Reuse an existing run directory.")
     parser.add_argument("--with-lanes", action="store_true", help="Create Lane Sharding skeleton artifacts.")
+    parser.add_argument("--architecture-gate", action="store_true", help="Create Architecture Artifact Authoring Automation skeleton.")
+    parser.add_argument("--budget", choices=sorted(TRACE_BUDGETS), help="Trace budget for schema v2 architecture runs.")
+    parser.add_argument("--architecture-context-json", help="Architecture Matrix context JSON object or file path.")
+    parser.add_argument("--architecture-capabilities", help="Comma-separated Architecture Capability Router ids.")
+    parser.add_argument(
+        "--worker-lane",
+        action="append",
+        default=[],
+        help="Worker lane in lane-id:type:role form. Type must be implementation or integration.",
+    )
     args = parser.parse_args()
+
+    architecture_context: dict[str, list[str]] | None = None
+    architecture_capabilities: list[str] = []
+    worker_lanes: list[dict[str, str]] = []
+    if args.architecture_gate:
+        if not args.with_lanes:
+            parser.error("--architecture-gate requires --with-lanes")
+        if args.budget is None:
+            parser.error("--architecture-gate requires --budget")
+        architecture_context = parse_architecture_context(parser, args.architecture_context_json)
+        architecture_capabilities = parse_architecture_capabilities(
+            parser,
+            args.architecture_capabilities,
+            architecture_context,
+        )
+        worker_lanes = parse_worker_lanes(parser, args.worker_lane)
 
     repo = Path(args.repo).expanduser().resolve()
     date = args.date or datetime.now().astimezone().strftime("%Y-%m-%d")
@@ -70,10 +535,27 @@ def main() -> int:
     if args.with_lanes:
         lane_map = run_dir / "lane-map.json"
         if not lane_map.exists():
-            lane_map.write_text(json.dumps(LANE_MAP, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            lane_map_data = (
+                architecture_gate_lane_map(
+                    args.budget,
+                    architecture_context,
+                    architecture_capabilities,
+                    worker_lanes,
+                )
+                if args.architecture_gate and architecture_context is not None and args.budget is not None
+                else LANE_MAP
+            )
+            lane_map.write_text(json.dumps(lane_map_data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         coverage_matrix = run_dir / "checks" / "coverage-matrix.md"
         if not coverage_matrix.exists():
             coverage_matrix.write_text(COVERAGE_MATRIX, encoding="utf-8")
+        if args.architecture_gate and architecture_context is not None:
+            write_architecture_gate_artifacts(
+                run_dir,
+                architecture_context,
+                architecture_capabilities,
+                worker_lanes,
+            )
 
     timeline = run_dir / "timeline.jsonl"
     if not timeline.exists():

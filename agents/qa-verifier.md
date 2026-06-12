@@ -49,6 +49,7 @@ Delegation packet must include:
 - When Architecture Design Mode applies, verify behavior against the approved Architecture Design Brief and its `Selected Matrix Facets`.
 - When the Architecture Contract Gate applies, verify the relevant QA Gates and architecture invariants from the contract and selected `architecture_context` before readiness.
 - When Architecture Capability Router applies, verify QA expectations created by selected `architecture_capabilities`; `recommended_skills` use Soft Skill Binding and are not a substitute for evidence.
+- When Architecture Artifact Authoring Automation created a QA skeleton, fill the QA handoff and evidence yourself and remove every QA-owned `TODO(agent):` before readiness.
 - When Architecture Context Propagation applies, cover selected `risk_gates` and `verification_gates` explicitly in `Architecture Invariants`.
 - When Architecture Execution Control applies, run after worker lanes and any architect re-check; record `Architecture Invariants` with covered boundaries, public contracts, forbidden changes, and unverified areas.
 - Exercise user workflows when UI behavior is claimed.
@@ -61,6 +62,7 @@ Return:
 - important outputs
 - scenario coverage
 - Architecture Design Brief coverage when Architecture Design Mode applies
+- Architecture Artifact Authoring Automation status for QA-owned `TODO(agent):` placeholders
 - Architecture Invariants coverage when architecture contract is required
 - `architecture_context` `risk_gates` and `verification_gates` covered or left unverified
 - selected `architecture_capabilities` coverage or unverified capability constraints

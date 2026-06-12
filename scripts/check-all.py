@@ -39,6 +39,15 @@ ARCHITECTURE_CAPABILITY_GUARD_TERMS = [
     "Soft Skill Binding",
     "recommended_skills",
 ]
+ARCHITECTURE_AUTHORING_GUARD_TERMS = [
+    "Architecture Artifact Authoring Automation",
+    "TODO(agent):",
+    "--architecture-gate",
+]
+ARCHITECTURE_AUTHORING_ROLE_GUARD_TERMS = [
+    "Architecture Artifact Authoring Automation",
+    "TODO(agent):",
+]
 
 REQUIRED_RUNTIME_TEXT = {
     "SKILL.md": [
@@ -49,6 +58,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Evidence Records",
         "Architecture Contract Gate",
         *ARCHITECTURE_DESIGN_CORE_GUARD_TERMS,
+        *ARCHITECTURE_AUTHORING_GUARD_TERMS,
         "Architecture Matrix",
         "architecture_context",
         "product_context",
@@ -73,6 +83,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Evidence Records",
         "Architecture Contract Gate",
         *ARCHITECTURE_DESIGN_CORE_GUARD_TERMS,
+        *ARCHITECTURE_AUTHORING_GUARD_TERMS,
         "Architecture Matrix",
         "architecture_context",
         *ARCHITECTURE_CAPABILITY_GUARD_TERMS,
@@ -101,6 +112,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Evidence Records",
         "Architecture Contract Gate",
         *ARCHITECTURE_DESIGN_CORE_GUARD_TERMS,
+        *ARCHITECTURE_AUTHORING_GUARD_TERMS,
         "Architecture Matrix",
         "architecture_context",
         "product_context",
@@ -126,6 +138,7 @@ REQUIRED_RUNTIME_TEXT = {
     "references/delegation.md": [
         "Architecture Contract Gate",
         *ARCHITECTURE_DESIGN_CORE_GUARD_TERMS,
+        *ARCHITECTURE_AUTHORING_GUARD_TERMS,
         "Architecture Matrix",
         "architecture_context",
         "product_context",
@@ -154,6 +167,7 @@ REQUIRED_RUNTIME_TEXT = {
         "`architecture`",
         "`architecture_contract_required`",
         *ARCHITECTURE_DESIGN_CORE_GUARD_TERMS,
+        *ARCHITECTURE_AUTHORING_GUARD_TERMS,
         "`Selected Architecture`",
         "Architecture Matrix",
         "architecture_context",
@@ -271,6 +285,17 @@ REQUIRED_RUNTIME_TEXT = {
         "Contract Drift",
         "do not add skill hints",
     ],
+    "references/architecture-artifact-authoring.md": [
+        *ARCHITECTURE_AUTHORING_GUARD_TERMS,
+        "agent-authored",
+        "Architecture Design Brief",
+        "Architecture Contract",
+        "Architecture Compliance",
+        "Architecture Invariants",
+        "Architecture Matrix Mismatches",
+        "Contract Drift",
+        "No role should ask the human",
+    ],
     "registries/architecture-capabilities.json": [
         "saas-platform-architecture",
         "go-backend-service-architecture",
@@ -287,6 +312,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Evidence Records",
         "Architecture Contract Gate",
         *ARCHITECTURE_DESIGN_CORE_GUARD_TERMS,
+        *ARCHITECTURE_AUTHORING_GUARD_TERMS,
         "Architecture Matrix",
         "architecture_context",
         *ARCHITECTURE_CAPABILITY_GUARD_TERMS,
@@ -311,6 +337,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Model/reasoning upgrade is not the default fix",
         "Selected Architecture",
         *ARCHITECTURE_DESIGN_CORE_GUARD_TERMS,
+        *ARCHITECTURE_AUTHORING_ROLE_GUARD_TERMS,
         "Architecture Matrix",
         "architecture_context",
         *ARCHITECTURE_CAPABILITY_GUARD_TERMS,
@@ -324,6 +351,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Contract Gate",
         "Architecture Design Mode",
         "Architecture Design Brief",
+        *ARCHITECTURE_AUTHORING_ROLE_GUARD_TERMS,
         "Architecture Execution Control",
         "architecture_context",
         *ARCHITECTURE_CAPABILITY_GUARD_TERMS,
@@ -336,6 +364,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Contract Gate",
         "Architecture Design Mode",
         "Architecture Design Brief",
+        *ARCHITECTURE_AUTHORING_ROLE_GUARD_TERMS,
         "Architecture Execution Control",
         "architecture invariants",
         "architecture_context",
@@ -346,6 +375,7 @@ REQUIRED_RUNTIME_TEXT = {
     "agents/backend-worker.md": [
         "Architecture Compliance",
         *ARCHITECTURE_DESIGN_ROLE_GUARD_TERMS,
+        *ARCHITECTURE_AUTHORING_ROLE_GUARD_TERMS,
         "Architecture Context Propagation",
         "matrix_facets",
         "architecture drift",
@@ -353,6 +383,7 @@ REQUIRED_RUNTIME_TEXT = {
     "agents/frontend-worker.md": [
         "Architecture Compliance",
         *ARCHITECTURE_DESIGN_ROLE_GUARD_TERMS,
+        *ARCHITECTURE_AUTHORING_ROLE_GUARD_TERMS,
         "Architecture Context Propagation",
         "matrix_facets",
         "architecture drift",
@@ -360,6 +391,7 @@ REQUIRED_RUNTIME_TEXT = {
     "agents/typescript-worker.md": [
         "Architecture Compliance",
         *ARCHITECTURE_DESIGN_ROLE_GUARD_TERMS,
+        *ARCHITECTURE_AUTHORING_ROLE_GUARD_TERMS,
         "Architecture Context Propagation",
         "matrix_facets",
         "architecture drift",
@@ -367,6 +399,7 @@ REQUIRED_RUNTIME_TEXT = {
     "agents/bun-worker.md": [
         "Architecture Compliance",
         *ARCHITECTURE_DESIGN_ROLE_GUARD_TERMS,
+        *ARCHITECTURE_AUTHORING_ROLE_GUARD_TERMS,
         "Architecture Context Propagation",
         "matrix_facets",
         "architecture drift",
@@ -374,6 +407,7 @@ REQUIRED_RUNTIME_TEXT = {
     "agents/python-worker.md": [
         "Architecture Compliance",
         *ARCHITECTURE_DESIGN_ROLE_GUARD_TERMS,
+        *ARCHITECTURE_AUTHORING_ROLE_GUARD_TERMS,
         "Architecture Context Propagation",
         "matrix_facets",
         "architecture drift",
@@ -381,6 +415,7 @@ REQUIRED_RUNTIME_TEXT = {
     "agents/golang-worker.md": [
         "Architecture Compliance",
         *ARCHITECTURE_DESIGN_ROLE_GUARD_TERMS,
+        *ARCHITECTURE_AUTHORING_ROLE_GUARD_TERMS,
         "Architecture Context Propagation",
         "matrix_facets",
         "architecture drift",
@@ -388,6 +423,7 @@ REQUIRED_RUNTIME_TEXT = {
     "agents/ios-worker.md": [
         "Architecture Compliance",
         *ARCHITECTURE_DESIGN_ROLE_GUARD_TERMS,
+        *ARCHITECTURE_AUTHORING_ROLE_GUARD_TERMS,
         "Architecture Context Propagation",
         "matrix_facets",
         "architecture drift",
@@ -395,6 +431,7 @@ REQUIRED_RUNTIME_TEXT = {
     "agents/rag-retrieval-engineer.md": [
         "Architecture Compliance",
         *ARCHITECTURE_DESIGN_ROLE_GUARD_TERMS,
+        *ARCHITECTURE_AUTHORING_ROLE_GUARD_TERMS,
         "Architecture Context Propagation",
         "matrix_facets",
         "architecture drift",
@@ -403,6 +440,7 @@ REQUIRED_RUNTIME_TEXT = {
         "architecture_compliance",
         "architecture_design_brief",
         "Architecture Design Brief",
+        *ARCHITECTURE_AUTHORING_ROLE_GUARD_TERMS,
         "architecture_capabilities",
         "Architecture Capability Router",
         "Selected Matrix Facets",
@@ -428,6 +466,23 @@ REQUIRED_RUNTIME_TEXT = {
         "recommended_skills",
         "matrix_facets",
         "contract_sections",
+    ],
+    "scripts/init-run.py": [
+        *ARCHITECTURE_AUTHORING_GUARD_TERMS,
+        "architecture_context",
+        "architecture_capabilities",
+        "Architecture Design Brief",
+        "Architecture Contract",
+        "Architecture Compliance",
+        "Architecture Invariants",
+        "Architecture Matrix Mismatches",
+        "Contract Drift",
+    ],
+    "scripts/test-init-run.py": [
+        *ARCHITECTURE_AUTHORING_GUARD_TERMS,
+        "generated pending run",
+        "unknown architecture capability",
+        "malformed worker lane",
     ],
     "scripts/validate-architecture-capabilities.py": [
         "Architecture Capability Router",
@@ -545,6 +600,7 @@ def main() -> int:
         ("architecture capability registry fixtures", [sys.executable, "scripts/test-validate-architecture-capabilities.py"]),
         ("architecture capability registry validation", [sys.executable, "scripts/validate-architecture-capabilities.py"]),
         ("validate-run CLI", [sys.executable, "scripts/validate-run.py", "--help"]),
+        ("init-run fixtures", [sys.executable, "scripts/test-init-run.py"]),
         ("evidence record analyzer fixtures", [sys.executable, "scripts/test-analyze-evidence-records.py"]),
         ("lane fixture tests", [sys.executable, "scripts/test-validate-run-lanes.py"]),
         ("git diff hygiene", ["git", "diff", "--check"]),
