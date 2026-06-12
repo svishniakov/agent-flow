@@ -85,8 +85,9 @@ Only after the budget and task shape justify subagents:
 - Prefer narrow delegation over broad role chains.
 - Use the Architecture Contract Gate for release, for `standard` traceable runs with two or more worker lanes, and for architecture-sensitive work before QA or reviewer verdict.
 - For Architecture Contract Gate work, read `references/architecture-matrix.md` and select Architecture Matrix facets from local source evidence before the architect writes the contract.
+- In lane-map schema v2, record selected facets in `architecture_context` with `product_context`, `application_surface`, `architecture_pattern`, `stack_runtime`, `risk_gates`, and `verification_gates`.
 - When the Architecture Contract Gate applies, enforce Architecture Execution Control: workers record `Architecture Compliance`, any architecture drift routes to architect re-check, QA records `Architecture Invariants`, and reviewer records `Architecture Matrix Mismatches` plus `Contract Drift`.
-- For lane-map schema v2, set `budget`, `architecture_contract_required`, and `architecture_contract_independent` explicitly.
+- For lane-map schema v2, set `budget`, `architecture_contract_required`, `architecture_contract_independent`, and `architecture_context` explicitly.
 - Send rejected, regressed, or uncertain architecture attempts through the Architecture Approval Gate before retrying implementation.
 - Treat regression demotion as immediate: a reused approach that regresses is no longer auto-applicable until reviewed.
 - Model/reasoning upgrade is not the default fix; improve context, architecture analysis, evidence, or verification before escalating model cost.

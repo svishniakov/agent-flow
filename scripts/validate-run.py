@@ -78,6 +78,17 @@ ARCHITECTURE_COMPLIANCE_SECTION = "Architecture Compliance"
 ARCHITECTURE_INVARIANTS_SECTION = "Architecture Invariants"
 ARCHITECTURE_MATRIX_MISMATCHES_SECTION = "Architecture Matrix Mismatches"
 CONTRACT_DRIFT_SECTION = "Contract Drift"
+ARCHITECTURE_CONTEXT_AXES = {
+    "product_context": "Product Context",
+    "application_surface": "Application Surface",
+    "architecture_pattern": "Architecture Pattern",
+    "stack_runtime": "Stack Runtime",
+    "risk_gates": "Risk Gates",
+    "verification_gates": "Verification Gates",
+}
+ARCHITECTURE_MATRIX_PATH = Path(__file__).resolve().parents[1] / "references" / "architecture-matrix.md"
+MATRIX_FACET_PATTERN = re.compile(r"^\s*-\s+`([^`]+)`\s*:")
+MARKDOWN_HEADING_PATTERN = re.compile(r"^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$")
 
 
 def detect_mode(run_dir: Path, requested_mode: str) -> str:
@@ -494,6 +505,125 @@ def has_markdown_heading(text: str, heading: str) -> bool:
     return bool(pattern.search(text))
 
 
+def markdown_section_text(text: str, heading: str) -> str:
+    lines = text.splitlines()
+    section_lines: list[str] = []
+    in_section = False
+    section_level = 0
+
+    for line in lines:
+        match = MARKDOWN_HEADING_PATTERN.match(line)
+        if match:
+            level = len(match.group(1))
+            title = match.group(2).strip()
+            if in_section and level <= section_level:
+                break
+            if title == heading:
+                in_section = True
+                section_level = level
+                continue
+        if in_section:
+            section_lines.append(line)
+
+    return "\n".join(section_lines).strip()
+
+
+def contains_facet_id(text: str, facet: str) -> bool:
+    pattern = re.compile(rf"(?<![A-Za-z0-9_-]){re.escape(facet)}(?![A-Za-z0-9_-])")
+    return bool(pattern.search(text))
+
+
+def load_architecture_matrix_facets() -> tuple[dict[str, set[str]], list[str]]:
+    facets = {axis: set() for axis in ARCHITECTURE_CONTEXT_AXES}
+    if not ARCHITECTURE_MATRIX_PATH.exists():
+        return facets, [f"Architecture Matrix not found: {ARCHITECTURE_MATRIX_PATH}"]
+
+    heading_to_axis = {
+        heading: axis for axis, heading in ARCHITECTURE_CONTEXT_AXES.items()
+    }
+    current_axis: str | None = None
+    for line in ARCHITECTURE_MATRIX_PATH.read_text(encoding="utf-8").splitlines():
+        heading_match = MARKDOWN_HEADING_PATTERN.match(line)
+        if heading_match:
+            level = len(heading_match.group(1))
+            heading = heading_match.group(2).strip()
+            current_axis = heading_to_axis.get(heading) if level == 3 else None
+            continue
+        if current_axis is None:
+            continue
+        facet_match = MATRIX_FACET_PATTERN.match(line)
+        if facet_match:
+            facets[current_axis].add(facet_match.group(1))
+
+    errors = []
+    for axis, heading in ARCHITECTURE_CONTEXT_AXES.items():
+        if not facets[axis]:
+            errors.append(f"Architecture Matrix section '{heading}' has no facet ids")
+    return facets, errors
+
+
+def validate_architecture_context_shape(
+    data: dict,
+    allowed_facets: dict[str, set[str]],
+    *,
+    required: bool,
+) -> tuple[list[str], list[str]]:
+    errors: list[str] = []
+    raw_context = data.get("architecture_context")
+    if raw_context is None:
+        if required:
+            errors.append("lane-map.json field 'architecture_context' is required")
+        return [], errors
+    if not isinstance(raw_context, dict):
+        return [], ["lane-map.json field 'architecture_context' must be an object"]
+
+    expected_axes = set(ARCHITECTURE_CONTEXT_AXES)
+    for axis in sorted(set(raw_context) - expected_axes):
+        errors.append(f"lane-map.json architecture_context unknown axis: {axis}")
+
+    selected_facets: list[str] = []
+    for axis in ARCHITECTURE_CONTEXT_AXES:
+        if axis not in raw_context:
+            errors.append(f"lane-map.json architecture_context missing axis: {axis}")
+            continue
+        value = raw_context[axis]
+        if not isinstance(value, list):
+            errors.append(f"lane-map.json architecture_context.{axis} must be an array")
+            continue
+        for index, facet in enumerate(value):
+            if not isinstance(facet, str) or not facet.strip():
+                errors.append(
+                    f"lane-map.json architecture_context.{axis}[{index}] "
+                    "must be a non-empty string"
+                )
+                continue
+            if facet not in allowed_facets.get(axis, set()):
+                errors.append(
+                    f"lane-map.json architecture_context.{axis}[{index}] "
+                    f"unknown Architecture Matrix facet: {facet}"
+                )
+                continue
+            selected_facets.append(facet)
+
+    if required and not selected_facets:
+        errors.append("lane-map.json architecture_context must select at least one facet")
+    return selected_facets, errors
+
+
+def validate_selected_architecture_facets(path: Path, selected_facets: list[str]) -> list[str]:
+    if not path.exists() or not selected_facets:
+        return []
+    selected_architecture = markdown_section_text(
+        path.read_text(encoding="utf-8"),
+        "Selected Architecture",
+    )
+    return [
+        f"Selected Architecture missing Architecture Matrix facet: {facet}"
+        for facet in selected_facets
+        if not contains_facet_id(selected_architecture, facet)
+    ]
+
+
 def validate_architecture_contract_handoff(path: Path) -> list[str]:
     if not path.exists():
         return []
@@ -597,6 +727,17 @@ def validate_lane_map(run_dir: Path) -> list[str]:
             errors.append(f"lane-map.json field 'budget' must be one of: {allowed}")
         else:
             budget = raw_budget
+
+    architecture_context_facets: list[str] = []
+    if architecture_contract_required or "architecture_context" in data:
+        matrix_facets, matrix_errors = load_architecture_matrix_facets()
+        errors.extend(matrix_errors)
+        architecture_context_facets, context_errors = validate_architecture_context_shape(
+            data,
+            matrix_facets,
+            required=architecture_contract_required,
+        )
+        errors.extend(context_errors)
 
     lanes = data.get("lanes")
     if not isinstance(lanes, list):
@@ -707,6 +848,12 @@ def validate_lane_map(run_dir: Path) -> list[str]:
                     contract_path = resolve_run_path(run_dir, handoff)
                     for contract_error in validate_architecture_contract_handoff(contract_path):
                         errors.append(f"lane-map.json: lane {label} {contract_error}")
+                    if architecture_contract_required:
+                        for facet_error in validate_selected_architecture_facets(
+                            contract_path,
+                            architecture_context_facets,
+                        ):
+                            errors.append(f"lane-map.json: lane {label} {facet_error}")
         elif lane_type == "review" and status in SUCCESSFUL_LANE_STATUSES:
             successful_reviewer_lane_ids.append(lane_id)
             if isinstance(wave, int) and not isinstance(wave, bool):

@@ -35,6 +35,25 @@ Architecture handoffs should include:
 - facet-driven invariants in `Forbidden Changes`, `QA Gates`, `Reviewer
   Checklist`, and `Stop Conditions`.
 
+Traceable schema v2 records selected facets in `lane-map.json`:
+
+```json
+"architecture_context": {
+  "product_context": ["saas-service"],
+  "application_surface": ["backend-service"],
+  "architecture_pattern": ["monolith"],
+  "stack_runtime": ["go"],
+  "risk_gates": ["migrations"],
+  "verification_gates": ["unit", "integration"]
+}
+```
+
+When `architecture_contract_required=true`, all six axes are present. Axes may
+be empty arrays only when they add no constraints, but the whole context must
+select at least one facet. `validate-run.py` parses the allowed facet ids from
+this markdown file and checks that each selected facet appears in the
+architecture handoff `Selected Architecture` section.
+
 ## Matrix Axes
 
 ### Product Context
@@ -347,5 +366,6 @@ also record:
   contract-interface fixtures, reconciliation replay, custody/secrets review,
   and fee/resource simulation when those facets are selected.
 
-The matrix does not change `lane-map.json` schema. It makes the Architecture
-Contract specific enough for workers, QA, and reviewer to enforce.
+The matrix makes the Architecture Contract specific enough for workers, QA, and
+reviewer to enforce, and schema v2 makes the selected context machine-checkable
+through `architecture_context`.

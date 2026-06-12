@@ -95,7 +95,7 @@ For large or risky scopes, the orchestrator can split work into implementation, 
 
 Schema v2 adds the Architecture Contract Gate and requires `budget`. `release` runs and `standard` runs with two or more worker lanes must set `architecture_contract_required=true`. A critical `architecture` lane must pass with handoff, evidence, and required contract sections before QA/review can close `ship`. If `architecture_contract_independent` is true, that lane must be a real subagent with spawned trace evidence; otherwise a scoped role-lane architecture check may be enough for standard multi-lane work.
 
-When the product or stack matters, the orchestrator selects Architecture Matrix facets from `references/architecture-matrix.md` before the architecture lane writes its contract. The architect records those facets and turns their constraints into module boundaries, forbidden changes, QA gates, and reviewer checklist items.
+When the product or stack matters, the orchestrator writes `architecture_context` in `lane-map.json` with the six Architecture Matrix axes: `product_context`, `application_surface`, `architecture_pattern`, `stack_runtime`, `risk_gates`, and `verification_gates`. `validate-run.py` parses the allowed facet ids from `references/architecture-matrix.md` and checks that every selected facet appears in the architect's `Selected Architecture` section.
 
 ### Dependency Gate
 
@@ -250,7 +250,7 @@ PASS all Agent Flow checks
 
 Schema v2 добавляет Architecture Contract Gate и требует `budget`. Для `release` и `standard` с двумя или более worker lanes нужно ставить `architecture_contract_required=true`. Критическая `architecture` lane должна пройти с handoff, evidence и обязательными секциями контракта до QA/review. Если `architecture_contract_independent` равен true, нужна реальная subagent lane со spawned trace evidence. Для standard multi-lane работы иногда достаточно scoped role-lane проверки.
 
-Если тип продукта или стек влияет на решение, оркестратор выбирает аспекты Architecture Matrix в `references/architecture-matrix.md` до работы architecture lane. Архитектор фиксирует эти аспекты и превращает их ограничения в границы модулей, запреты, QA gates и checklist для reviewer.
+Если тип продукта или стек влияет на решение, оркестратор записывает `architecture_context` в `lane-map.json`: `product_context`, `application_surface`, `architecture_pattern`, `stack_runtime`, `risk_gates` и `verification_gates`. `validate-run.py` берёт допустимые facet ids из `references/architecture-matrix.md` и проверяет, что каждый выбранный facet попал в секцию `Selected Architecture`.
 
 ### Dependency Gate
 

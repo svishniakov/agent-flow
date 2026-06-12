@@ -89,10 +89,14 @@ The reviewer stays independent. The architect does not approve the review; the
 architect owns the technical contract that review must check against.
 
 When product, stack, or application type affects the contract, the orchestrator
-selects Architecture Matrix facets from `references/architecture-matrix.md`.
-The architect must cite those facets in `Selected Architecture` and convert
-their constraints into concrete boundaries, forbidden changes, QA gates, and
-reviewer checklist items.
+selects Architecture Matrix facets from `references/architecture-matrix.md` and
+records them as `architecture_context` in `lane-map.json`. The context uses six
+axes: `product_context`, `application_surface`, `architecture_pattern`,
+`stack_runtime`, `risk_gates`, and `verification_gates`. `validate-run.py`
+parses allowed facets from the markdown Matrix and rejects unknown ids. The
+architect must cite every selected facet id in `Selected Architecture` and
+convert the constraints into concrete boundaries, forbidden changes, QA gates,
+and reviewer checklist items.
 
 The architecture handoff must include these sections: `Selected Architecture`,
 `Rejected Alternatives`, `Module Boundaries`, `Data And State Flow`, `Public

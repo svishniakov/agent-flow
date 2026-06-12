@@ -166,7 +166,10 @@ Schema v2 adds the Architecture Contract Gate:
 - `standard` runs with two or more worker lanes (`implementation` or `integration`) require `architecture_contract_required=true`;
 - `release` runs require `architecture_contract_required=true`;
 - when `architecture_contract_required` is true, a critical `architecture` lane must exist;
-- when Architecture Matrix facets apply, the architecture handoff cites selected facets from `references/architecture-matrix.md`;
+- when `architecture_contract_required` is true, `architecture_context` is required and must include `product_context`, `application_surface`, `architecture_pattern`, `stack_runtime`, `risk_gates`, and `verification_gates`;
+- each `architecture_context` axis is an array, at least one facet must be selected across all axes, and every facet id must exist under the matching axis in `references/architecture-matrix.md`;
+- `validate-run.py` parses allowed Architecture Matrix facets from the markdown source of truth, not from duplicated constants;
+- the architecture handoff `Selected Architecture` section must include every selected `architecture_context` facet id;
 - final `ship` requires a successful architecture lane with handoff and evidence;
 - the successful architecture handoff must include these headings: `Selected Architecture`, `Rejected Alternatives`, `Module Boundaries`, `Data And State Flow`, `Public Contracts`, `Worker Ownership`, `Forbidden Changes`, `QA Gates`, `Reviewer Checklist`, and `Stop Conditions`;
 - failed, blocked, or timed-out architecture lanes block `ship`;

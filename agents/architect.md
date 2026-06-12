@@ -45,12 +45,12 @@ Delegation packet must include:
 
 ## Workflow
 - Inspect existing structure and constraints.
-- Read selected Architecture Matrix facets from `references/architecture-matrix.md` when the delegation packet includes them or the Architecture Contract Gate applies.
+- Read selected Architecture Matrix facets from `architecture_context` when the delegation packet includes it or the Architecture Contract Gate applies.
 - Identify affected modules, contracts, data flow, and ownership boundaries.
 - Choose the smallest approach that fits the codebase.
 - Split work into non-overlapping worker scopes.
 - Define tests, manual checks, rollback concerns, and risk mitigations.
-- When producing an Architecture Contract Gate handoff, include selected Architecture Matrix facets in `Selected Architecture`, and include `Selected Architecture`, `Rejected Alternatives`, `Module Boundaries`, `Data And State Flow`, `Public Contracts`, `Worker Ownership`, `Forbidden Changes`, `QA Gates`, `Reviewer Checklist`, and `Stop Conditions`.
+- When producing an Architecture Contract Gate handoff, include every selected `architecture_context` facet id in `Selected Architecture`, and include `Selected Architecture`, `Rejected Alternatives`, `Module Boundaries`, `Data And State Flow`, `Public Contracts`, `Worker Ownership`, `Forbidden Changes`, `QA Gates`, `Reviewer Checklist`, and `Stop Conditions`.
 - For Architecture Execution Control, perform architect re-check when a worker reports architecture drift; either confirm the original contract still holds, revise the contract, or reject the drifted implementation path before `ship`.
 - For architecture-sensitive review, produce a review contract that the reviewer can check against the diff.
 - For Architecture Approval Gate work, inspect the failed or rejected real case deeply enough to decide whether the original architecture was wrong, the worker applied it incorrectly, or evidence was insufficient.
@@ -62,6 +62,7 @@ Return:
 
 - selected approach
 - selected Architecture Matrix facets and facet-driven constraints
+- selected `architecture_context` axes and facet ids
 - alternatives rejected
 - affected modules
 - ownership boundaries

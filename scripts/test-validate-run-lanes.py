@@ -38,6 +38,22 @@ ARCHITECTURE_COMPLIANCE_SECTION = "Architecture Compliance"
 ARCHITECTURE_INVARIANTS_SECTION = "Architecture Invariants"
 ARCHITECTURE_MATRIX_MISMATCHES_SECTION = "Architecture Matrix Mismatches"
 CONTRACT_DRIFT_SECTION = "Contract Drift"
+ARCHITECTURE_CONTEXT_AXES = [
+    "product_context",
+    "application_surface",
+    "architecture_pattern",
+    "stack_runtime",
+    "risk_gates",
+    "verification_gates",
+]
+DEFAULT_ARCHITECTURE_CONTEXT = {
+    "product_context": ["saas-service"],
+    "application_surface": ["backend-service"],
+    "architecture_pattern": ["monolith"],
+    "stack_runtime": ["go"],
+    "risk_gates": ["migrations"],
+    "verification_gates": ["unit", "integration"],
+}
 OMIT = object()
 
 
@@ -72,13 +88,45 @@ def write_jsonl(path: Path, events: list[dict[str, Any]]) -> None:
     )
 
 
-def architecture_contract_text(missing_sections: set[str] | None = None) -> str:
+def architecture_context(**overrides: Any) -> dict[str, Any]:
+    context = {
+        axis: list(facets)
+        for axis, facets in DEFAULT_ARCHITECTURE_CONTEXT.items()
+    }
+    for axis, value in overrides.items():
+        if value is OMIT:
+            context.pop(axis, None)
+        else:
+            context[axis] = value
+    return context
+
+
+def architecture_context_facets(context: dict[str, Any] | None = None) -> list[str]:
+    selected_context = context or DEFAULT_ARCHITECTURE_CONTEXT
+    facets: list[str] = []
+    for axis in ARCHITECTURE_CONTEXT_AXES:
+        value = selected_context.get(axis, [])
+        if isinstance(value, list):
+            facets.extend(facet for facet in value if isinstance(facet, str))
+    return facets
+
+
+def architecture_contract_text(
+    missing_sections: set[str] | None = None,
+    *,
+    selected_facets: list[str] | None = None,
+) -> str:
     missing = missing_sections or set()
-    sections = [
-        f"## {section}\n\nFixture {section.lower()}.\n"
-        for section in ARCHITECTURE_CONTRACT_SECTIONS
-        if section not in missing
-    ]
+    facets = architecture_context_facets() if selected_facets is None else selected_facets
+    sections = []
+    for section in ARCHITECTURE_CONTRACT_SECTIONS:
+        if section in missing:
+            continue
+        body = f"Fixture {section.lower()}."
+        if section == "Selected Architecture":
+            facet_lines = "\n".join(f"- `{facet}`" for facet in facets)
+            body = f"Matrix facets:\n{facet_lines}" if facet_lines else "Matrix facets: none."
+        sections.append(f"## {section}\n\n{body}\n")
     return "# Architecture Contract\n\n" + "\n".join(sections)
 
 
@@ -119,7 +167,16 @@ def write_run(
                 path.parent.mkdir(parents=True, exist_ok=True)
                 if lane.get("type") == "architecture":
                     missing = set(lane.get("missing_contract_sections", []))
-                    path.write_text(architecture_contract_text(missing), encoding="utf-8")
+                    selected_facets = lane.get("architecture_selected_facets")
+                    if selected_facets is not None and not isinstance(selected_facets, list):
+                        selected_facets = []
+                    path.write_text(
+                        architecture_contract_text(
+                            missing,
+                            selected_facets=selected_facets,
+                        ),
+                        encoding="utf-8",
+                    )
                 else:
                     sections = [
                         f"## {section}\n\nFixture {section.lower()}.\n"
@@ -226,8 +283,9 @@ def architecture_lane(
     execution_mode: str = "role-lane",
     critical: bool = True,
     wave: int = 1,
+    selected_facets: list[str] | None = None,
 ) -> dict[str, Any]:
-    return lane(
+    lane_data = lane(
         lane_id,
         status=status,
         execution_mode=execution_mode,
@@ -236,6 +294,9 @@ def architecture_lane(
         critical=critical,
         wave=wave,
     )
+    if selected_facets is not None:
+        lane_data["architecture_selected_facets"] = selected_facets
+    return lane_data
 
 
 def architecture_compliance(
@@ -335,6 +396,7 @@ def architecture_control_extra() -> dict[str, Any]:
         "schema_version": 2,
         "budget": "standard",
         "architecture_contract_required": True,
+        "architecture_context": architecture_context(),
     }
 
 
@@ -397,11 +459,133 @@ def main() -> int:
             write_run(
                 temp / "schema-v2-architecture",
                 lanes=[architecture_lane(), qa_lane()],
+                lane_map_extra=architecture_control_extra(),
+            ),
+        )
+
+        expect_fail(
+            "architecture context is required when architecture contract is required",
+            write_run(
+                temp / "architecture-context-missing",
+                lanes=[architecture_lane(), qa_lane()],
                 lane_map_extra={
                     "schema_version": 2,
                     "budget": "standard",
                     "architecture_contract_required": True,
                 },
+            ),
+            "lane-map.json field 'architecture_context' is required",
+        )
+
+        expect_fail(
+            "architecture context missing axis fails",
+            write_run(
+                temp / "architecture-context-missing-axis",
+                lanes=[architecture_lane(), qa_lane()],
+                lane_map_extra={
+                    **architecture_control_extra(),
+                    "architecture_context": architecture_context(verification_gates=OMIT),
+                },
+            ),
+            "lane-map.json architecture_context missing axis: verification_gates",
+        )
+
+        expect_fail(
+            "architecture context unknown axis fails",
+            write_run(
+                temp / "architecture-context-unknown-axis",
+                lanes=[architecture_lane(), qa_lane()],
+                lane_map_extra={
+                    **architecture_control_extra(),
+                    "architecture_context": {
+                        **architecture_context(),
+                        "unknown_axis": [],
+                    },
+                },
+            ),
+            "lane-map.json architecture_context unknown axis: unknown_axis",
+        )
+
+        expect_fail(
+            "architecture context axis must be array",
+            write_run(
+                temp / "architecture-context-axis-not-array",
+                lanes=[architecture_lane(), qa_lane()],
+                lane_map_extra={
+                    **architecture_control_extra(),
+                    "architecture_context": architecture_context(product_context="saas-service"),
+                },
+            ),
+            "lane-map.json architecture_context.product_context must be an array",
+        )
+
+        expect_fail(
+            "architecture context cannot be empty across all axes",
+            write_run(
+                temp / "architecture-context-empty",
+                lanes=[architecture_lane(selected_facets=[]), qa_lane()],
+                lane_map_extra={
+                    **architecture_control_extra(),
+                    "architecture_context": {axis: [] for axis in ARCHITECTURE_CONTEXT_AXES},
+                },
+            ),
+            "lane-map.json architecture_context must select at least one facet",
+        )
+
+        expect_fail(
+            "architecture context unknown facet fails",
+            write_run(
+                temp / "architecture-context-unknown-facet",
+                lanes=[architecture_lane(), qa_lane()],
+                lane_map_extra={
+                    **architecture_control_extra(),
+                    "architecture_context": architecture_context(product_context=["unknown-product"]),
+                },
+            ),
+            "unknown Architecture Matrix facet",
+        )
+
+        expect_fail(
+            "architecture context facet from wrong axis fails",
+            write_run(
+                temp / "architecture-context-wrong-axis",
+                lanes=[architecture_lane(), qa_lane()],
+                lane_map_extra={
+                    **architecture_control_extra(),
+                    "architecture_context": architecture_context(product_context=["backend-service"]),
+                },
+            ),
+            "unknown Architecture Matrix facet",
+        )
+
+        expect_fail(
+            "selected architecture must include selected matrix facets",
+            write_run(
+                temp / "architecture-context-selected-facet-missing",
+                lanes=[
+                    architecture_lane(
+                        selected_facets=[
+                            "saas-service",
+                            "monolith",
+                            "go",
+                            "migrations",
+                            "unit",
+                            "integration",
+                        ]
+                    ),
+                    qa_lane(),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "Selected Architecture missing Architecture Matrix facet: backend-service",
+        )
+
+        expect_pass(
+            "architecture context with selected facets passes",
+            write_run(
+                temp / "architecture-context-valid",
+                lanes=[architecture_lane(), qa_lane()],
+                lane_map_extra=architecture_control_extra(),
             ),
         )
 
@@ -410,7 +594,11 @@ def main() -> int:
             write_run(
                 temp / "schema-v2-no-budget",
                 lanes=[architecture_lane(), qa_lane()],
-                lane_map_extra={"schema_version": 2, "architecture_contract_required": True},
+                lane_map_extra={
+                    "schema_version": 2,
+                    "architecture_contract_required": True,
+                    "architecture_context": architecture_context(),
+                },
             ),
             "lane-map.json field 'budget' is required for schema v2",
         )
@@ -477,11 +665,7 @@ def main() -> int:
             write_run(
                 temp / "architecture-required-missing",
                 lanes=[qa_lane()],
-                lane_map_extra={
-                    "schema_version": 2,
-                    "budget": "standard",
-                    "architecture_contract_required": True,
-                },
+                lane_map_extra=architecture_control_extra(),
             ),
             "architecture_contract_required requires a critical architecture lane",
         )
@@ -491,11 +675,7 @@ def main() -> int:
             write_run(
                 temp / "architecture-required-not-critical",
                 lanes=[architecture_lane(critical=False), qa_lane()],
-                lane_map_extra={
-                    "schema_version": 2,
-                    "budget": "standard",
-                    "architecture_contract_required": True,
-                },
+                lane_map_extra=architecture_control_extra(),
             ),
             "architecture lane must be critical",
         )
@@ -506,11 +686,7 @@ def main() -> int:
                 write_run(
                     temp / f"architecture-{bad_status}",
                     lanes=[architecture_lane(status=bad_status), qa_lane()],
-                    lane_map_extra={
-                        "schema_version": 2,
-                        "budget": "standard",
-                        "architecture_contract_required": True,
-                    },
+                    lane_map_extra=architecture_control_extra(),
                 ),
                 "architecture lane must pass before ship",
             )
@@ -527,11 +703,7 @@ def main() -> int:
                     },
                     qa_lane(),
                 ],
-                lane_map_extra={
-                    "schema_version": 2,
-                    "budget": "standard",
-                    "architecture_contract_required": True,
-                },
+                lane_map_extra=architecture_control_extra(),
             ),
             "successful critical lane requires handoff",
         )
@@ -547,11 +719,7 @@ def main() -> int:
                     },
                     qa_lane(),
                 ],
-                lane_map_extra={
-                    "schema_version": 2,
-                    "budget": "standard",
-                    "architecture_contract_required": True,
-                },
+                lane_map_extra=architecture_control_extra(),
             ),
             "architecture contract handoff missing section: Reviewer Checklist",
         )
@@ -561,11 +729,7 @@ def main() -> int:
             write_run(
                 temp / "review-without-architecture",
                 lanes=[reviewer_lane()],
-                lane_map_extra={
-                    "schema_version": 2,
-                    "budget": "standard",
-                    "architecture_contract_required": True,
-                },
+                lane_map_extra=architecture_control_extra(),
             ),
             "reviewer lane requires successful architecture contract",
         )
@@ -575,11 +739,7 @@ def main() -> int:
             write_run(
                 temp / "qa-before-architecture",
                 lanes=[architecture_lane(wave=3), qa_lane(wave=2)],
-                lane_map_extra={
-                    "schema_version": 2,
-                    "budget": "standard",
-                    "architecture_contract_required": True,
-                },
+                lane_map_extra=architecture_control_extra(),
             ),
             "qa lane must run after architecture lane",
         )
@@ -590,9 +750,7 @@ def main() -> int:
                 temp / "architecture-role-lane-fallback",
                 lanes=[architecture_lane(execution_mode="role-lane"), qa_lane()],
                 lane_map_extra={
-                    "schema_version": 2,
-                    "budget": "standard",
-                    "architecture_contract_required": True,
+                    **architecture_control_extra(),
                     "architecture_contract_independent": False,
                 },
             ),
@@ -604,9 +762,8 @@ def main() -> int:
                 temp / "architecture-independent-role-lane",
                 lanes=[architecture_lane(execution_mode="role-lane"), qa_lane()],
                 lane_map_extra={
-                    "schema_version": 2,
+                    **architecture_control_extra(),
                     "budget": "release",
-                    "architecture_contract_required": True,
                     "architecture_contract_independent": True,
                 },
             ),
@@ -620,9 +777,8 @@ def main() -> int:
                 lanes=[architecture_lane(execution_mode="subagent"), qa_lane()],
                 trace_events={"architect": [spawned_trace("architect", "architecture-contract")]},
                 lane_map_extra={
-                    "schema_version": 2,
+                    **architecture_control_extra(),
                     "budget": "release",
-                    "architecture_contract_required": True,
                     "architecture_contract_independent": True,
                 },
             ),

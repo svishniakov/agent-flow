@@ -55,8 +55,8 @@ For full `release` trace:
 - initial and final worktree states are recorded when the run edits a git repo;
 - every delegated subagent has `agents/<role>/trace.jsonl` and matching run-level timeline events;
 - when Lane Sharding is used, `lane-map.json` is valid and every critical lane is covered by evidence or a valid replacement lane;
-- when the Architecture Contract Gate is required, `lane-map.json` uses schema v2, records `budget`, includes a critical `architecture` lane, and blocks `ship` until that lane has handoff and evidence with the required contract sections;
-- when Architecture Matrix facets apply, the architecture handoff records selected facets and the QA/reviewer gates cover facet-driven invariants;
+- when the Architecture Contract Gate is required, `lane-map.json` uses schema v2, records `budget` and `architecture_context`, includes a critical `architecture` lane, and blocks `ship` until that lane has handoff and evidence with the required contract sections;
+- when Architecture Matrix facets apply, `architecture_context` records the selected facets and the architecture handoff `Selected Architecture` section includes those facet ids before QA/reviewer gates cover facet-driven invariants;
 - when Architecture Execution Control applies, worker lanes record `Architecture Compliance`, architecture drift has architect re-check before `ship`, QA records `Architecture Invariants`, and reviewer records `Architecture Matrix Mismatches` plus `Contract Drift`;
 - artifacts index is valid JSON;
 - each delegated subagent has a handoff;
