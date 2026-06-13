@@ -227,6 +227,24 @@ Mitigation Gate applies to every traceable run with `Verdict: pass-with-risks`:
 - when `lane-map.json` exists, `detected_by` and `owner_lane` must reference existing lane ids;
 - when `lane-map.json` exists, a successful reviewer lane must include `Risk Mitigation Review` and every risk id.
 
+Resolution Gate follows Mitigation Gate for every traceable run with `Verdict: pass-with-risks`:
+
+- `risk-resolutions.json` is required at the run root;
+- `risk-resolutions.json` must use `version=1` and a non-empty `resolutions` array;
+- every resolution `risk_id` must match an identified risk from `risk-mitigations.json`;
+- every identified risk must have exactly one resolution record for `pass-with-risks`;
+- resolution status must be `fixed`, `mitigated`, or `contained` for `pass-with-risks`;
+- `unresolved` is allowed only for `blocked` or `fail`;
+- `resolution_type` must be one of `code-change`, `test-added`, `evidence-added`, `scope-contained`, `architecture-recheck`, `config-change`, `docs-corrected`, or `not-resolved`;
+- each resolution records non-empty `owner_lane`, `resolution`, `evidence`, `verification`, `verified_by`, and `reviewed_by`;
+- every evidence path must exist;
+- `final.md` must include `Risk Resolutions` and every risk id;
+- when `lane-map.json` exists, `owner_lane`, `verified_by`, and `reviewed_by` must reference existing lane ids;
+- when `lane-map.json` exists, `verified_by` must be a successful QA lane and `reviewed_by` must be a successful review lane;
+- when lane waves are present, the order is `owner_lane <= verified_by <= reviewed_by`;
+- when `lane-map.json` exists, QA handoff must include `Risk Resolution Verification` and every risk id;
+- when `lane-map.json` exists, reviewer handoff must include `Risk Resolution Review` and every risk id.
+
 For final handoff, `validate-run.py` also requires:
 
 - exactly one `Verdict:` field in `final.md`;

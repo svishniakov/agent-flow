@@ -147,7 +147,15 @@ keeps concrete `problem`, `impact`, `affected_scope`, evidence, and
 `next_gate=resolution`. QA supplies evidence for the identified risk. The final
 handoff lists every id in `Risk Mitigations`. Reviewer writes
 `Risk Mitigation Review` and confirms that every risk id is visible in the final handoff.
-Resolution is a later gate, not part of this step.
+
+Resolution Gate follows Mitigation Gate before `pass-with-risks`. The
+orchestrator writes `risk-resolutions.json` with one record per identified
+risk. The owner lane records the concrete action in `resolution`, chooses
+`resolution_type`, attaches evidence, and sets the status to `fixed`,
+`mitigated`, or `contained`. QA writes `Risk Resolution Verification` and
+mentions every risk id. Reviewer writes `Risk Resolution Review`, checks every
+risk id, verifies that `final.md` includes `Risk Resolutions`, and confirms
+that `unresolved` does not appear in a positive final verdict.
 
 When worker lanes exist under the Architecture Contract Gate, QA must run after
 the workers and any architect re-check, and its handoff must include

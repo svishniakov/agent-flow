@@ -83,6 +83,7 @@ PASS all Agent Flow checks
 - Dependency Gate is mandatory before new feature work: if another active task may affect the new one, the orchestrator stops and recommends waiting or merging the work into one coordinated run.
 - Task status is a hard completion signal: after successful verification or product commit, a completed current task must move from `in_progress` to `done`.
 - Mitigation Gate is required for `pass-with-risks`: `risk-mitigations.json`, `Risk Mitigations`, and reviewer `Risk Mitigation Review` must identify every risk and set `next_gate=resolution`.
+- Resolution Gate is required after Mitigation Gate for `pass-with-risks`: `risk-resolutions.json`, `Risk Resolutions`, QA `Risk Resolution Verification`, and reviewer `Risk Resolution Review` must show what was done now and close each risk as `fixed`, `mitigated`, or `contained`.
 - Evidence Records in `implementation-notes.md` are structured local learning data, not free-form notes.
 - Local Best Practice auto gate can reuse a learned approach only after analyzer confirmation, clear context match, no matching `Do not reuse when`, no external write, and fresh verification.
 - A failed or regressed reuse demotes or freezes the practice until architecture review resolves it.
@@ -109,6 +110,8 @@ When the product or stack matters, the orchestrator writes `architecture_context
 Architecture Context Propagation then carries that context through execution: workers declare covered `matrix_facets`, QA covers selected `risk_gates` and `verification_gates`, and reviewer checks every selected facet through `Architecture Matrix Mismatches` and `Contract Drift`.
 
 Mitigation Gate applies to every traceable run that ends with `Verdict: pass-with-risks`. The run must include `risk-mitigations.json` with at least one `identified` risk, concrete `problem`, `impact`, `affected_scope`, evidence, and `next_gate=resolution`. `final.md` must include `Risk Mitigations` and every risk id. When `lane-map.json` exists, a successful reviewer lane must include `Risk Mitigation Review` and every risk id.
+
+Resolution Gate follows Mitigation Gate for every `Verdict: pass-with-risks`. The run must include `risk-resolutions.json`; every identified risk must have a resolution record with `resolution_type`, concrete action, evidence, verification, and status `fixed`, `mitigated`, or `contained`. `final.md` must include `Risk Resolutions` and every risk id. When `lane-map.json` exists, QA writes `Risk Resolution Verification`, reviewer writes `Risk Resolution Review`, and both cover every resolved risk id. `unresolved` is allowed only for `blocked` or `fail`.
 
 ### Dependency Gate
 
@@ -250,6 +253,7 @@ PASS all Agent Flow checks
 - Dependency Gate обязателен перед новой фичей: если другая активная задача может повлиять на неё, оркестратор останавливает старт и предлагает дождаться результата или объединить работы в один coordinated run.
 - Статус задачи - обязательный сигнал завершения: после успешной проверки или product commit закрытая текущая задача должна перейти из `in_progress` в `done`.
 - Mitigation Gate обязателен для `pass-with-risks`: `risk-mitigations.json`, `Risk Mitigations` и reviewer `Risk Mitigation Review` должны идентифицировать каждый риск и указать `next_gate=resolution`.
+- Resolution Gate обязателен после Mitigation Gate для `pass-with-risks`: `risk-resolutions.json`, `Risk Resolutions`, QA `Risk Resolution Verification` и reviewer `Risk Resolution Review` показывают, что агент сделал сейчас, и закрывают каждый риск как `fixed`, `mitigated` или `contained`.
 - Evidence Records в `implementation-notes.md` - структурированные данные для локального обучения, а не свободные заметки.
 - Local Best Practice auto gate переиспользует подход только после подтверждения analyzer, ясного совпадения контекста, отсутствия совпадения с `Do not reuse when`, отсутствия внешней записи и свежей проверки.
 - Если переиспользованный подход дал failure или regression, practice демотируется или замораживается до архитектурного разбора.
@@ -276,6 +280,8 @@ Architecture Artifact Authoring Automation запускает `init-run.py --arc
 Architecture Context Propagation проводит этот контекст через исполнение: workers указывают покрытые `matrix_facets`, QA покрывает выбранные `risk_gates` и `verification_gates`, а reviewer проверяет все выбранные facets через `Architecture Matrix Mismatches` и `Contract Drift`.
 
 Mitigation Gate применяется к каждому traceable run с `Verdict: pass-with-risks`. В run должен быть `risk-mitigations.json` минимум с одним `identified` риском, конкретными `problem`, `impact`, `affected_scope`, evidence и `next_gate=resolution`. `final.md` содержит секцию `Risk Mitigations` и каждый risk id. Если есть `lane-map.json`, успешная reviewer lane пишет `Risk Mitigation Review` и покрывает каждый risk id.
+
+Resolution Gate идёт сразу после Mitigation Gate для каждого `Verdict: pass-with-risks`. В run должен быть `risk-resolutions.json`; каждый identified risk получает resolution record с `resolution_type`, сделанным действием, evidence, verification и статусом `fixed`, `mitigated` или `contained`. `final.md` содержит `Risk Resolutions` и каждый risk id. Если есть `lane-map.json`, QA пишет `Risk Resolution Verification`, reviewer пишет `Risk Resolution Review`, и обе секции покрывают каждый resolved risk id. `unresolved` допустим только для `blocked` или `fail`.
 
 ### Dependency Gate
 

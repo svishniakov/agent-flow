@@ -53,6 +53,7 @@ Delegation packet must include:
 - When Architecture Context Propagation applies, cover selected `risk_gates` and `verification_gates` explicitly in `Architecture Invariants`.
 - When Architecture Execution Control applies, run after worker lanes and any architect re-check; record `Architecture Invariants` with covered boundaries, public contracts, forbidden changes, and unverified areas.
 - When Mitigation Gate applies, provide concrete evidence for each `identified` risk, make sure the final `Risk Mitigations` section can cite that evidence, and keep the risk pointed to `next_gate=resolution`; do not claim it is resolved in this gate.
+- When Resolution Gate applies, verify the action recorded in `risk-resolutions.json`: write `Risk Resolution Verification`, mention every risk id, check evidence paths, confirm `resolution_type`, make sure final `Risk Resolutions` and reviewer `Risk Resolution Review` can cover the same ids, and reject `pass-with-risks` if any record is `unresolved` instead of `fixed`, `mitigated`, or `contained`.
 - Exercise user workflows when UI behavior is claimed.
 - Report pass, pass-with-risks, fail, or blocked.
 
@@ -68,6 +69,7 @@ Return:
 - `architecture_context` `risk_gates` and `verification_gates` covered or left unverified
 - selected `architecture_capabilities` coverage or unverified capability constraints
 - Mitigation Gate evidence for `risk-mitigations.json`, including `identified` risk ids, evidence paths, `Risk Mitigations`, and reviewer `Risk Mitigation Review` inputs
+- Resolution Gate evidence for `risk-resolutions.json`, including `Risk Resolution Verification`, risk ids, `resolution_type`, verification proof, and whether each status is `fixed`, `mitigated`, `contained`, or `unresolved`
 - verdict
 - unverified areas
 - next action

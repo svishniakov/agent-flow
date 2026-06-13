@@ -111,6 +111,10 @@ CONTRACT_DRIFT_SECTION = "Contract Drift"
 RISK_MITIGATIONS_PATH = "risk-mitigations.json"
 RISK_MITIGATIONS_SECTION = "Risk Mitigations"
 RISK_MITIGATION_REVIEW_SECTION = "Risk Mitigation Review"
+RISK_RESOLUTIONS_PATH = "risk-resolutions.json"
+RISK_RESOLUTIONS_SECTION = "Risk Resolutions"
+RISK_RESOLUTION_VERIFICATION_SECTION = "Risk Resolution Verification"
+RISK_RESOLUTION_REVIEW_SECTION = "Risk Resolution Review"
 RISK_MITIGATION_STATUS = "identified"
 RISK_MITIGATION_NEXT_GATE = "resolution"
 RISK_MITIGATION_CATEGORIES = {
@@ -136,6 +140,29 @@ RISK_MITIGATION_REQUIRED_FIELDS = [
     "evidence",
     "next_gate",
     "owner_lane",
+]
+RISK_RESOLUTION_STATUSES = {"fixed", "mitigated", "contained", "unresolved"}
+RISK_RESOLUTION_PASS_STATUSES = {"fixed", "mitigated", "contained"}
+RISK_RESOLUTION_TYPES = {
+    "code-change",
+    "test-added",
+    "evidence-added",
+    "scope-contained",
+    "architecture-recheck",
+    "config-change",
+    "docs-corrected",
+    "not-resolved",
+}
+RISK_RESOLUTION_REQUIRED_FIELDS = [
+    "risk_id",
+    "status",
+    "resolution_type",
+    "owner_lane",
+    "resolution",
+    "evidence",
+    "verification",
+    "verified_by",
+    "reviewed_by",
 ]
 ARCHITECTURE_CONTEXT_AXES = {
     "product_context": "Product Context",
@@ -669,10 +696,135 @@ def validate_risk_mitigations(
     return parsed_risks, errors
 
 
+def validate_risk_resolution_text_field(resolution: dict, field: str, label: str) -> list[str]:
+    value = resolution.get(field)
+    if not isinstance(value, str) or not value.strip():
+        return [f"{RISK_RESOLUTIONS_PATH} {label}.{field} must be a non-empty string"]
+    return []
+
+
+def validate_risk_resolution_evidence(run_dir: Path, value: object, label: str) -> list[str]:
+    errors: list[str] = []
+    if not isinstance(value, list) or not value:
+        return [f"{RISK_RESOLUTIONS_PATH} {label}.evidence must be a non-empty array"]
+    for index, path in enumerate(value):
+        if not isinstance(path, str) or not path:
+            errors.append(
+                f"{RISK_RESOLUTIONS_PATH} {label}.evidence[{index}] must be a non-empty string"
+            )
+            continue
+        if not resolve_run_path(run_dir, path).exists():
+            errors.append(
+                f"{RISK_RESOLUTIONS_PATH} {label}.evidence[{index}] not found: {path}"
+            )
+    return errors
+
+
+def validate_risk_resolutions(
+    run_dir: Path,
+    final_verdict: str | None,
+    mitigation_risks: list[dict],
+) -> tuple[list[dict], list[str]]:
+    path = run_dir / RISK_RESOLUTIONS_PATH
+    required = final_verdict == "pass-with-risks"
+    if not path.exists():
+        if required:
+            return [], [f"{RISK_RESOLUTIONS_PATH} is required for Verdict: pass-with-risks"]
+        return [], []
+
+    data, load_errors = load_json(path, RISK_RESOLUTIONS_PATH)
+    if load_errors:
+        return [], load_errors
+    if not isinstance(data, dict):
+        return [], [f"{RISK_RESOLUTIONS_PATH} must be a JSON object"]
+
+    errors: list[str] = []
+    if data.get("version") != 1:
+        errors.append(f"{RISK_RESOLUTIONS_PATH} field 'version' must be 1")
+
+    resolutions = data.get("resolutions")
+    if not isinstance(resolutions, list) or not resolutions:
+        errors.append(f"{RISK_RESOLUTIONS_PATH} field 'resolutions' must be a non-empty array")
+        return [], errors
+
+    mitigation_ids = set(risk_mitigation_ids(mitigation_risks))
+    parsed_resolutions: list[dict] = []
+    seen_ids: set[str] = set()
+    for index, resolution in enumerate(resolutions):
+        label = f"resolutions[{index}]"
+        if not isinstance(resolution, dict):
+            errors.append(f"{RISK_RESOLUTIONS_PATH} {label} must be an object")
+            continue
+
+        for field in RISK_RESOLUTION_REQUIRED_FIELDS:
+            if field not in resolution:
+                errors.append(f"{RISK_RESOLUTIONS_PATH} {label} missing field: {field}")
+
+        current_id = risk_id(resolution.get("risk_id"))
+        if current_id is None:
+            errors.append(f"{RISK_RESOLUTIONS_PATH} {label}.risk_id must be a non-empty string")
+        elif current_id in seen_ids:
+            errors.append(f"{RISK_RESOLUTIONS_PATH} duplicate risk_id: {current_id}")
+        else:
+            seen_ids.add(current_id)
+            if mitigation_ids and current_id not in mitigation_ids:
+                errors.append(
+                    f"{RISK_RESOLUTIONS_PATH} {label}.risk_id unknown risk: {current_id}"
+                )
+
+        status = resolution.get("status")
+        if status not in RISK_RESOLUTION_STATUSES:
+            allowed = ", ".join(sorted(RISK_RESOLUTION_STATUSES))
+            errors.append(
+                f"{RISK_RESOLUTIONS_PATH} {label}.status invalid "
+                f"(expected one of: {allowed})"
+            )
+        elif final_verdict == "pass-with-risks" and status not in RISK_RESOLUTION_PASS_STATUSES:
+            errors.append(
+                f"{RISK_RESOLUTIONS_PATH} {label}.status {status} is not allowed "
+                "for Verdict: pass-with-risks"
+            )
+        elif status == "unresolved" and final_verdict not in {"blocked", "fail"}:
+            errors.append(
+                f"{RISK_RESOLUTIONS_PATH} {label}.status unresolved is allowed only "
+                "for Verdict: blocked or fail"
+            )
+
+        resolution_type = resolution.get("resolution_type")
+        if resolution_type not in RISK_RESOLUTION_TYPES:
+            allowed = ", ".join(sorted(RISK_RESOLUTION_TYPES))
+            errors.append(
+                f"{RISK_RESOLUTIONS_PATH} {label}.resolution_type invalid "
+                f"(expected one of: {allowed})"
+            )
+
+        for field in ["owner_lane", "resolution", "verification", "verified_by", "reviewed_by"]:
+            errors.extend(validate_risk_resolution_text_field(resolution, field, label))
+
+        errors.extend(validate_risk_resolution_evidence(run_dir, resolution.get("evidence"), label))
+        parsed_resolutions.append(resolution)
+
+    if final_verdict == "pass-with-risks":
+        for mitigation_id in risk_mitigation_ids(mitigation_risks):
+            if mitigation_id not in seen_ids:
+                errors.append(f"{RISK_RESOLUTIONS_PATH} missing resolution for risk id: {mitigation_id}")
+
+    return parsed_resolutions, errors
+
+
 def risk_mitigation_ids(risks: list[dict]) -> list[str]:
     ids: list[str] = []
     for risk in risks:
         current_id = risk_id(risk.get("id"))
+        if current_id is not None:
+            ids.append(current_id)
+    return ids
+
+
+def risk_resolution_ids(resolutions: list[dict]) -> list[str]:
+    ids: list[str] = []
+    for resolution in resolutions:
+        current_id = risk_id(resolution.get("risk_id"))
         if current_id is not None:
             ids.append(current_id)
     return ids
@@ -694,6 +846,22 @@ def validate_final_risk_mitigation_coverage(final_path: Path, risk_ids: list[str
     ]
 
 
+def validate_final_risk_resolution_coverage(final_path: Path, risk_ids: list[str]) -> list[str]:
+    if not final_path.exists() or not final_path.is_file():
+        return []
+
+    missing = missing_markdown_headings(final_path, [RISK_RESOLUTIONS_SECTION])
+    if missing:
+        return [f"final.md missing section: {section}" for section in missing]
+
+    section_text = markdown_section_text(final_path.read_text(encoding="utf-8"), RISK_RESOLUTIONS_SECTION)
+    return [
+        f"final.md Risk Resolutions missing risk id: {risk_id_value}"
+        for risk_id_value in risk_ids
+        if not contains_facet_id(section_text, risk_id_value)
+    ]
+
+
 def validate_risk_mitigation_lane_references(
     risks: list[dict],
     lane_ids: set[str],
@@ -707,6 +875,77 @@ def validate_risk_mitigation_lane_references(
                 errors.append(
                     f"{RISK_MITIGATIONS_PATH} {label}.{field} lane not found: {value}"
                 )
+    return errors
+
+
+def lane_wave(lane: dict | None) -> int | None:
+    if not lane:
+        return None
+    wave = lane.get("wave")
+    if isinstance(wave, int) and not isinstance(wave, bool):
+        return wave
+    return None
+
+
+def validate_risk_resolution_lane_references(
+    resolutions: list[dict],
+    lane_by_id: dict[str, dict],
+    normalized_status_by_id: dict[str, str],
+) -> list[str]:
+    errors: list[str] = []
+    for index, resolution in enumerate(resolutions):
+        label = f"resolutions[{index}]"
+        owner_lane_id = resolution.get("owner_lane")
+        verified_by_id = resolution.get("verified_by")
+        reviewed_by_id = resolution.get("reviewed_by")
+
+        owner_lane = None
+        verified_by_lane = None
+        reviewed_by_lane = None
+
+        if isinstance(owner_lane_id, str) and owner_lane_id:
+            owner_lane = lane_by_id.get(owner_lane_id)
+            if owner_lane is None:
+                errors.append(
+                    f"{RISK_RESOLUTIONS_PATH} {label}.owner_lane lane not found: {owner_lane_id}"
+                )
+        if isinstance(verified_by_id, str) and verified_by_id:
+            verified_by_lane = lane_by_id.get(verified_by_id)
+            if verified_by_lane is None:
+                errors.append(
+                    f"{RISK_RESOLUTIONS_PATH} {label}.verified_by lane not found: {verified_by_id}"
+                )
+            elif (
+                verified_by_lane.get("type") != "qa"
+                or normalized_status_by_id.get(verified_by_id) not in SUCCESSFUL_LANE_STATUSES
+            ):
+                errors.append(
+                    f"{RISK_RESOLUTIONS_PATH} {label}.verified_by must reference "
+                    f"a successful qa lane: {verified_by_id}"
+                )
+        if isinstance(reviewed_by_id, str) and reviewed_by_id:
+            reviewed_by_lane = lane_by_id.get(reviewed_by_id)
+            if reviewed_by_lane is None:
+                errors.append(
+                    f"{RISK_RESOLUTIONS_PATH} {label}.reviewed_by lane not found: {reviewed_by_id}"
+                )
+            elif (
+                reviewed_by_lane.get("type") != "review"
+                or normalized_status_by_id.get(reviewed_by_id) not in SUCCESSFUL_LANE_STATUSES
+            ):
+                errors.append(
+                    f"{RISK_RESOLUTIONS_PATH} {label}.reviewed_by must reference "
+                    f"a successful review lane: {reviewed_by_id}"
+                )
+
+        owner_wave = lane_wave(owner_lane)
+        verified_wave = lane_wave(verified_by_lane)
+        reviewed_wave = lane_wave(reviewed_by_lane)
+        if owner_wave is not None and verified_wave is not None and owner_wave > verified_wave:
+            errors.append(f"{RISK_RESOLUTIONS_PATH} {label} owner_lane must not run after verified_by")
+        if verified_wave is not None and reviewed_wave is not None and verified_wave > reviewed_wave:
+            errors.append(f"{RISK_RESOLUTIONS_PATH} {label} verified_by must not run after reviewed_by")
+
     return errors
 
 
@@ -1068,7 +1307,11 @@ def validate_architecture_compliance_shape(
     return compliance, errors
 
 
-def validate_lane_map(run_dir: Path, mitigation_risks: list[dict] | None = None) -> list[str]:
+def validate_lane_map(
+    run_dir: Path,
+    mitigation_risks: list[dict] | None = None,
+    resolution_records: list[dict] | None = None,
+) -> list[str]:
     lane_map_path = run_dir / "lane-map.json"
     data, errors = load_json(lane_map_path, "lane-map.json")
     if errors or data is None:
@@ -1162,6 +1405,8 @@ def validate_lane_map(run_dir: Path, mitigation_risks: list[dict] | None = None)
     worker_lane_count = 0
     mitigation_risks = mitigation_risks or []
     mitigation_risk_ids = risk_mitigation_ids(mitigation_risks)
+    resolution_records = resolution_records or []
+    resolution_risk_ids = risk_resolution_ids(resolution_records)
 
     for index, lane in enumerate(lanes):
         if not isinstance(lane, dict):
@@ -1563,6 +1808,13 @@ def validate_lane_map(run_dir: Path, mitigation_risks: list[dict] | None = None)
 
     if final_verdict == "pass-with-risks":
         errors.extend(validate_risk_mitigation_lane_references(mitigation_risks, lane_ids))
+        errors.extend(
+            validate_risk_resolution_lane_references(
+                resolution_records,
+                lane_by_id,
+                normalized_status_by_id,
+            )
+        )
 
         if not successful_reviewer_lanes:
             errors.append(
@@ -1591,6 +1843,84 @@ def validate_lane_map(run_dir: Path, mitigation_risks: list[dict] | None = None)
                     errors.append(
                         f"lane-map.json: lane {lane_id} reviewer handoff "
                         "Risk Mitigation Review missing risk id: "
+                        f"{risk_id_value}"
+                    )
+
+        if not successful_qa_lanes:
+            errors.append(
+                "lane-map.json: Verdict pass-with-risks requires successful "
+                "qa lane for Resolution Gate"
+            )
+        if not successful_reviewer_lanes:
+            errors.append(
+                "lane-map.json: Verdict pass-with-risks requires successful "
+                "reviewer lane for Resolution Gate"
+            )
+
+        resolution_qa_ids = {
+            value
+            for resolution in resolution_records
+            for value in [resolution.get("verified_by")]
+            if isinstance(value, str) and value
+        }
+        resolution_reviewer_ids = {
+            value
+            for resolution in resolution_records
+            for value in [resolution.get("reviewed_by")]
+            if isinstance(value, str) and value
+        }
+
+        for lane_id in sorted(resolution_qa_ids):
+            lane = lane_by_id.get(lane_id)
+            handoff = lane.get("handoff") if isinstance(lane, dict) else None
+            if not isinstance(handoff, str) or not handoff:
+                errors.append(
+                    f"lane-map.json: lane {lane_id} successful qa lane "
+                    "requires handoff for Resolution Gate"
+                )
+                continue
+            handoff_path = resolve_run_path(run_dir, handoff)
+            for section in missing_markdown_headings(
+                handoff_path,
+                [RISK_RESOLUTION_VERIFICATION_SECTION],
+            ):
+                errors.append(f"lane-map.json: lane {lane_id} handoff missing section: {section}")
+            verification_text = markdown_section_text(
+                handoff_path.read_text(encoding="utf-8") if handoff_path.exists() else "",
+                RISK_RESOLUTION_VERIFICATION_SECTION,
+            )
+            for risk_id_value in resolution_risk_ids:
+                if not contains_facet_id(verification_text, risk_id_value):
+                    errors.append(
+                        f"lane-map.json: lane {lane_id} QA handoff "
+                        "Risk Resolution Verification missing risk id: "
+                        f"{risk_id_value}"
+                    )
+
+        for lane_id in sorted(resolution_reviewer_ids):
+            lane = lane_by_id.get(lane_id)
+            handoff = lane.get("handoff") if isinstance(lane, dict) else None
+            if not isinstance(handoff, str) or not handoff:
+                errors.append(
+                    f"lane-map.json: lane {lane_id} successful reviewer lane "
+                    "requires handoff for Resolution Gate"
+                )
+                continue
+            handoff_path = resolve_run_path(run_dir, handoff)
+            for section in missing_markdown_headings(
+                handoff_path,
+                [RISK_RESOLUTION_REVIEW_SECTION],
+            ):
+                errors.append(f"lane-map.json: lane {lane_id} handoff missing section: {section}")
+            review_text = markdown_section_text(
+                handoff_path.read_text(encoding="utf-8") if handoff_path.exists() else "",
+                RISK_RESOLUTION_REVIEW_SECTION,
+            )
+            for risk_id_value in resolution_risk_ids:
+                if not contains_facet_id(review_text, risk_id_value):
+                    errors.append(
+                        f"lane-map.json: lane {lane_id} reviewer handoff "
+                        "Risk Resolution Review missing risk id: "
                         f"{risk_id_value}"
                     )
 
@@ -1653,6 +1983,12 @@ def validate_compact_run(run_dir: Path, allow_no_check: bool, allow_pending: boo
         errors.extend(validate_verdict(final_path))
         mitigation_risks, mitigation_errors = validate_risk_mitigations(run_dir, final_verdict)
         errors.extend(mitigation_errors)
+        resolution_records, resolution_errors = validate_risk_resolutions(
+            run_dir,
+            final_verdict,
+            mitigation_risks,
+        )
+        errors.extend(resolution_errors)
         if final_verdict == "pass-with-risks":
             errors.extend(
                 validate_final_risk_mitigation_coverage(
@@ -1660,8 +1996,15 @@ def validate_compact_run(run_dir: Path, allow_no_check: bool, allow_pending: boo
                     risk_mitigation_ids(mitigation_risks),
                 )
             )
+            errors.extend(
+                validate_final_risk_resolution_coverage(
+                    final_path,
+                    risk_resolution_ids(resolution_records),
+                )
+            )
     else:
         mitigation_risks = []
+        resolution_records = []
 
     has_timeline = (run_dir / "timeline.jsonl").exists()
     has_agents = (run_dir / "agents").exists()
@@ -1672,7 +2015,7 @@ def validate_compact_run(run_dir: Path, allow_no_check: bool, allow_pending: boo
         if not allow_pending:
             errors.extend(validate_final_timeline_event(run_dir, require_timeline=True))
 
-    errors.extend(validate_lane_map(run_dir, mitigation_risks))
+    errors.extend(validate_lane_map(run_dir, mitigation_risks, resolution_records))
 
     return errors
 
@@ -1705,6 +2048,12 @@ def validate_full_run(
         final_verdict = read_single_field(run_dir / "final.md", "Verdict")
         mitigation_risks, mitigation_errors = validate_risk_mitigations(run_dir, final_verdict)
         errors.extend(mitigation_errors)
+        resolution_records, resolution_errors = validate_risk_resolutions(
+            run_dir,
+            final_verdict,
+            mitigation_risks,
+        )
+        errors.extend(resolution_errors)
         if final_verdict == "pass-with-risks":
             errors.extend(
                 validate_final_risk_mitigation_coverage(
@@ -1712,10 +2061,17 @@ def validate_full_run(
                     risk_mitigation_ids(mitigation_risks),
                 )
             )
+            errors.extend(
+                validate_final_risk_resolution_coverage(
+                    run_dir / "final.md",
+                    risk_resolution_ids(resolution_records),
+                )
+            )
     else:
         mitigation_risks = []
+        resolution_records = []
 
-    errors.extend(validate_lane_map(run_dir, mitigation_risks))
+    errors.extend(validate_lane_map(run_dir, mitigation_risks, resolution_records))
 
     if require_handoff and not list((run_dir / "handoffs").glob("*.md")):
         errors.append("no handoff markdown files")

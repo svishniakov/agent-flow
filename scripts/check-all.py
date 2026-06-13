@@ -56,6 +56,18 @@ MITIGATION_GATE_GUARD_TERMS = [
     "next_gate",
     "identified",
 ]
+RESOLUTION_GATE_GUARD_TERMS = [
+    "Resolution Gate",
+    "risk-resolutions.json",
+    "Risk Resolutions",
+    "Risk Resolution Verification",
+    "Risk Resolution Review",
+    "resolution_type",
+    "fixed",
+    "mitigated",
+    "contained",
+    "unresolved",
+]
 
 REQUIRED_RUNTIME_TEXT = {
     "SKILL.md": [
@@ -80,6 +92,7 @@ REQUIRED_RUNTIME_TEXT = {
         "matrix_facets",
         "Architecture Execution Control",
         *MITIGATION_GATE_GUARD_TERMS,
+        *RESOLUTION_GATE_GUARD_TERMS,
         "Architecture Approval Gate",
         "Local Best Practice auto gate",
         "regression demotion",
@@ -104,6 +117,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Matrix Mismatches",
         "Contract Drift",
         *MITIGATION_GATE_GUARD_TERMS,
+        *RESOLUTION_GATE_GUARD_TERMS,
         "Architecture Approval Gate",
         "Local Best Practice auto gate",
         "regression demotion",
@@ -140,6 +154,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Matrix Mismatches",
         "Contract Drift",
         *MITIGATION_GATE_GUARD_TERMS,
+        *RESOLUTION_GATE_GUARD_TERMS,
         "Architecture Approval Gate",
         "Local Best Practice auto gate",
         "regression demotion",
@@ -167,6 +182,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Matrix Mismatches",
         "Contract Drift",
         *MITIGATION_GATE_GUARD_TERMS,
+        *RESOLUTION_GATE_GUARD_TERMS,
         "Architecture Approval Gate",
         "Local Best Practice auto gate",
         "Model/reasoning upgrade is not the default fix",
@@ -194,6 +210,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Matrix Mismatches",
         "Contract Drift",
         *MITIGATION_GATE_GUARD_TERMS,
+        *RESOLUTION_GATE_GUARD_TERMS,
     ],
     "references/architecture-matrix.md": [
         "Architecture Matrix",
@@ -338,6 +355,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Matrix Mismatches",
         "Contract Drift",
         *MITIGATION_GATE_GUARD_TERMS,
+        *RESOLUTION_GATE_GUARD_TERMS,
         "Architecture Approval Gate",
         "Local Best Practice auto gate",
         "regression demotion",
@@ -374,6 +392,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Matrix Mismatches",
         "Contract Drift",
         *MITIGATION_GATE_GUARD_TERMS,
+        *RESOLUTION_GATE_GUARD_TERMS,
     ],
     "agents/qa-verifier.md": [
         "Architecture Contract Gate",
@@ -387,6 +406,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Context Propagation",
         "Architecture Invariants",
         *MITIGATION_GATE_GUARD_TERMS,
+        *RESOLUTION_GATE_GUARD_TERMS,
     ],
     "agents/backend-worker.md": [
         "Architecture Compliance",

@@ -66,6 +66,7 @@ Delegation packet must include:
 - When the Architecture Contract Gate applies, enforce Architecture Execution Control: require worker `Architecture Compliance`, route architecture drift to architect re-check, require QA `Architecture Invariants`, and require reviewer `Architecture Matrix Mismatches` plus `Contract Drift`.
 - Enforce Architecture Context Propagation: workers declare selected `matrix_facets`, QA covers selected `risk_gates` and `verification_gates`, and reviewer covers the full selected `architecture_context` plus selected `architecture_capabilities`.
 - Enforce Mitigation Gate before `pass-with-risks`: write `risk-mitigations.json`, mark every risk as `identified`, include `problem`, `impact`, `affected_scope`, evidence, and `next_gate=resolution`, then route reviewer `Risk Mitigation Review`.
+- Enforce Resolution Gate after Mitigation Gate before `pass-with-risks`: write `risk-resolutions.json`, cover every identified risk, record `resolution_type`, concrete `resolution`, evidence, `verification`, `verified_by`, and `reviewed_by`, then route QA `Risk Resolution Verification` and reviewer `Risk Resolution Review`; `pass-with-risks` may close only with `fixed`, `mitigated`, or `contained`, never `unresolved`.
 - Route rejected, regressed, or uncertain architecture attempts through the Architecture Approval Gate before workers retry.
 - Apply regression demotion immediately when a reused practice fails or regresses.
 - For architecture-sensitive code review, require architect-owned boundaries, risks, ownership, and verification gates before reviewer verdict.
@@ -85,6 +86,7 @@ Return:
 - Architecture Execution Control status, including architecture drift and re-check outcome when applicable
 - Architecture Context Propagation status for worker `matrix_facets`, QA gates, and reviewer coverage
 - Mitigation Gate status, including `risk-mitigations.json`, `Risk Mitigations`, `Risk Mitigation Review`, `identified` risks, and `next_gate`
+- Resolution Gate status, including `risk-resolutions.json`, `Risk Resolutions`, `Risk Resolution Verification`, `Risk Resolution Review`, `resolution_type`, `fixed`, `mitigated`, `contained`, and any `unresolved` risk when final verdict is `blocked` or `fail`
 - dependency gate result
 - subagent authorization status from budget or explicit request
 - roles used or skipped with reason
