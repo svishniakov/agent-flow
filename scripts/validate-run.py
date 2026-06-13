@@ -115,6 +115,10 @@ RISK_RESOLUTIONS_PATH = "risk-resolutions.json"
 RISK_RESOLUTIONS_SECTION = "Risk Resolutions"
 RISK_RESOLUTION_VERIFICATION_SECTION = "Risk Resolution Verification"
 RISK_RESOLUTION_REVIEW_SECTION = "Risk Resolution Review"
+SENIOR_QA_TEST_DESIGN_REVIEW_SECTION = "Senior QA Test Design Review"
+RESOLUTION_ARCHITECT_REVIEW_SECTION = "Resolution Architect Review"
+SUPERVISING_ARCHITECT_REVIEW_SECTION = "Supervising Architect Review"
+BLOCKED_RECOVERY_PATH_LABEL = "Blocked Recovery Path"
 RISK_MITIGATION_STATUS = "identified"
 RISK_MITIGATION_NEXT_GATE = "resolution"
 RISK_MITIGATION_CATEGORIES = {
@@ -143,6 +147,7 @@ RISK_MITIGATION_REQUIRED_FIELDS = [
 ]
 RISK_RESOLUTION_STATUSES = {"fixed", "mitigated", "contained", "unresolved"}
 RISK_RESOLUTION_PASS_STATUSES = {"fixed", "mitigated", "contained"}
+RISK_RESOLUTION_ATTEMPT_STATUSES = {"fixed", "mitigated", "contained", "blocked", "unresolved"}
 RISK_RESOLUTION_TYPES = {
     "code-change",
     "test-added",
@@ -164,6 +169,29 @@ RISK_RESOLUTION_REQUIRED_FIELDS = [
     "verified_by",
     "reviewed_by",
 ]
+BLOCKED_RESOLUTION_REASONS = {
+    "acceptance-criteria-gap",
+    "qa-execution-gap",
+    "wrong-qa-conclusion",
+    "external-blocker",
+    "invalid-resolution-approach",
+    "bad-resolution-implementation",
+    "architecture-mismatch",
+    "insufficient-evidence",
+    "test-flake",
+    "unknown",
+}
+ROLLBACK_STATUSES = {"rolled-back", "not-needed", "not-possible"}
+BLOCKED_LESSON_STATUSES = {"quarantined", "confirmed"}
+SENIOR_QA_REVIEW_STATUSES = {"criteria-expanded", "criteria-adequate", "criteria-blocked"}
+SENIOR_QA_RECHECK_RESULTS = {"pass", "blocked", "fail"}
+ARCHITECT_REVIEW_DECISIONS = {"revised-approach", "confirmed-approach", "blocked"}
+SUPERVISING_ARCHITECT_REVIEW_DECISIONS = {
+    "revised-approach",
+    "confirmed-final-block",
+    "external-blocker",
+    "fail",
+}
 ARCHITECTURE_CONTEXT_AXES = {
     "product_context": "Product Context",
     "application_surface": "Application Surface",
@@ -720,6 +748,347 @@ def validate_risk_resolution_evidence(run_dir: Path, value: object, label: str) 
     return errors
 
 
+def validate_risk_resolution_string_list(
+    value: object,
+    label: str,
+    field: str,
+    *,
+    required_non_empty: bool = True,
+) -> list[str]:
+    if not isinstance(value, list) or (required_non_empty and not value):
+        return [f"{RISK_RESOLUTIONS_PATH} {label}.{field} must be a non-empty array"]
+    errors: list[str] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, str) or not item.strip():
+            errors.append(
+                f"{RISK_RESOLUTIONS_PATH} {label}.{field}[{index}] must be a non-empty string"
+            )
+    return errors
+
+
+def validate_risk_resolution_rollback(
+    run_dir: Path,
+    rollback: object,
+    label: str,
+    final_verdict: str | None,
+) -> list[str]:
+    if not isinstance(rollback, dict):
+        return [f"{RISK_RESOLUTIONS_PATH} {label} missing rollback"]
+
+    errors: list[str] = []
+    status = rollback.get("status")
+    if status not in ROLLBACK_STATUSES:
+        allowed = ", ".join(sorted(ROLLBACK_STATUSES))
+        errors.append(
+            f"{RISK_RESOLUTIONS_PATH} {label}.rollback.status invalid "
+            f"(expected one of: {allowed})"
+        )
+    elif status == "not-possible" and final_verdict == "pass-with-risks":
+        errors.append(
+            f"{RISK_RESOLUTIONS_PATH} {label}.rollback.status not-possible "
+            "is not allowed for Verdict: pass-with-risks"
+        )
+
+    summary = rollback.get("summary")
+    if not isinstance(summary, str) or not summary.strip():
+        errors.append(f"{RISK_RESOLUTIONS_PATH} {label}.rollback.summary must be a non-empty string")
+
+    if status == "rolled-back":
+        errors.extend(
+            validate_risk_resolution_evidence(
+                run_dir,
+                rollback.get("evidence"),
+                f"{label}.rollback",
+            )
+        )
+    elif "evidence" in rollback:
+        errors.extend(
+            validate_risk_resolution_evidence(
+                run_dir,
+                rollback.get("evidence"),
+                f"{label}.rollback",
+            )
+        )
+    return errors
+
+
+def validate_blocked_lesson(lesson: object, label: str) -> list[str]:
+    if not isinstance(lesson, dict):
+        return [f"{RISK_RESOLUTIONS_PATH} {label} missing blocked_lesson"]
+
+    errors: list[str] = []
+    status = lesson.get("status")
+    if status not in BLOCKED_LESSON_STATUSES:
+        allowed = ", ".join(sorted(BLOCKED_LESSON_STATUSES))
+        errors.append(
+            f"{RISK_RESOLUTIONS_PATH} {label}.blocked_lesson.status invalid "
+            f"(expected one of: {allowed})"
+        )
+    classification = lesson.get("classification")
+    if classification not in BLOCKED_RESOLUTION_REASONS:
+        allowed = ", ".join(sorted(BLOCKED_RESOLUTION_REASONS))
+        errors.append(
+            f"{RISK_RESOLUTIONS_PATH} {label}.blocked_lesson.classification invalid "
+            f"(expected one of: {allowed})"
+        )
+    summary = lesson.get("summary")
+    if not isinstance(summary, str) or not summary.strip():
+        errors.append(f"{RISK_RESOLUTIONS_PATH} {label}.blocked_lesson.summary must be a non-empty string")
+    errors.extend(
+        validate_risk_resolution_string_list(
+            lesson.get("forbidden_repeat"),
+            f"{label}.blocked_lesson",
+            "forbidden_repeat",
+        )
+    )
+    return errors
+
+
+def validate_senior_qa_recovery(
+    run_dir: Path,
+    value: object,
+    label: str,
+) -> list[str]:
+    if not isinstance(value, dict):
+        return [f"{RISK_RESOLUTIONS_PATH} {label}.blocked_recovery missing senior_qa_test_design_review"]
+
+    errors: list[str] = []
+    lane = value.get("lane")
+    if not isinstance(lane, str) or not lane.strip():
+        errors.append(
+            f"{RISK_RESOLUTIONS_PATH} {label}.blocked_recovery.senior_qa_test_design_review.lane "
+            "must be a non-empty string"
+        )
+    status = value.get("status")
+    if status not in SENIOR_QA_REVIEW_STATUSES:
+        allowed = ", ".join(sorted(SENIOR_QA_REVIEW_STATUSES))
+        errors.append(
+            f"{RISK_RESOLUTIONS_PATH} {label}.blocked_recovery.senior_qa_test_design_review.status "
+            f"invalid (expected one of: {allowed})"
+        )
+    for field in [
+        "covered_acceptance_criteria",
+        "missing_acceptance_criteria",
+        "ambiguous_acceptance_criteria",
+        "added_acceptance_criteria",
+        "external_blockers",
+    ]:
+        errors.extend(
+            validate_risk_resolution_string_list(
+                value.get(field),
+                f"{label}.blocked_recovery.senior_qa_test_design_review",
+                field,
+                required_non_empty=False,
+            )
+        )
+    for field in [
+        "test_cases",
+        "edge_cases",
+        "negative_cases",
+        "regression_cases",
+        "integration_cases",
+        "data_state_cases",
+        "environment_cases",
+    ]:
+        errors.extend(
+            validate_risk_resolution_string_list(
+                value.get(field),
+                f"{label}.blocked_recovery.senior_qa_test_design_review",
+                field,
+            )
+        )
+    recheck_result = value.get("recheck_result")
+    if recheck_result not in SENIOR_QA_RECHECK_RESULTS:
+        allowed = ", ".join(sorted(SENIOR_QA_RECHECK_RESULTS))
+        errors.append(
+            f"{RISK_RESOLUTIONS_PATH} {label}.blocked_recovery.senior_qa_test_design_review.recheck_result "
+            f"invalid (expected one of: {allowed})"
+        )
+    errors.extend(
+        validate_risk_resolution_evidence(
+            run_dir,
+            value.get("evidence"),
+            f"{label}.blocked_recovery.senior_qa_test_design_review",
+        )
+    )
+    return errors
+
+
+def validate_architect_recovery(
+    run_dir: Path,
+    value: object,
+    label: str,
+    field: str,
+    decisions: set[str],
+    *,
+    require_instruction: bool = False,
+) -> list[str]:
+    if not isinstance(value, dict):
+        return [f"{RISK_RESOLUTIONS_PATH} {label}.blocked_recovery missing {field}"]
+
+    errors: list[str] = []
+    lane = value.get("lane")
+    if not isinstance(lane, str) or not lane.strip():
+        errors.append(
+            f"{RISK_RESOLUTIONS_PATH} {label}.blocked_recovery.{field}.lane must be a non-empty string"
+        )
+    decision = value.get("decision")
+    if decision not in decisions:
+        allowed = ", ".join(sorted(decisions))
+        errors.append(
+            f"{RISK_RESOLUTIONS_PATH} {label}.blocked_recovery.{field}.decision invalid "
+            f"(expected one of: {allowed})"
+        )
+    instruction = value.get("instruction")
+    if require_instruction and (not isinstance(instruction, str) or not instruction.strip()):
+        errors.append(
+            f"{RISK_RESOLUTIONS_PATH} {label}.blocked_recovery.{field}.instruction "
+            "must be a non-empty string"
+        )
+    elif decision == "revised-approach" and (not isinstance(instruction, str) or not instruction.strip()):
+        errors.append(
+            f"{RISK_RESOLUTIONS_PATH} {label}.blocked_recovery.{field}.instruction "
+            "must be a non-empty string"
+        )
+    elif "instruction" in value and (not isinstance(instruction, str) or not instruction.strip()):
+        errors.append(
+            f"{RISK_RESOLUTIONS_PATH} {label}.blocked_recovery.{field}.instruction "
+            "must be a non-empty string"
+        )
+    errors.extend(
+        validate_risk_resolution_string_list(
+            value.get("forbidden_repeat"),
+            f"{label}.blocked_recovery.{field}",
+            "forbidden_repeat",
+        )
+    )
+    errors.extend(
+        validate_risk_resolution_evidence(
+            run_dir,
+            value.get("evidence"),
+            f"{label}.blocked_recovery.{field}",
+        )
+    )
+    return errors
+
+
+def validate_resolution_attempts(
+    run_dir: Path,
+    resolution: dict,
+    label: str,
+    final_verdict: str | None,
+) -> list[str]:
+    attempts = resolution.get("attempts")
+    if attempts is None:
+        return []
+    if not isinstance(attempts, list) or not attempts:
+        return [f"{RISK_RESOLUTIONS_PATH} {label}.attempts must be a non-empty array"]
+
+    errors: list[str] = []
+    if len(attempts) > 3:
+        errors.append(f"{RISK_RESOLUTIONS_PATH} {label}.attempts must not contain more than 3 attempts")
+
+    attempt_numbers: list[int] = []
+    blocked_attempt_numbers: set[int] = set()
+    for index, attempt in enumerate(attempts):
+        attempt_label = f"{label}.attempts[{index}]"
+        if not isinstance(attempt, dict):
+            errors.append(f"{RISK_RESOLUTIONS_PATH} {attempt_label} must be an object")
+            continue
+
+        number = attempt.get("attempt")
+        if not isinstance(number, int) or isinstance(number, bool):
+            errors.append(f"{RISK_RESOLUTIONS_PATH} {attempt_label}.attempt must be an integer")
+        else:
+            attempt_numbers.append(number)
+
+        status = attempt.get("status")
+        if status not in RISK_RESOLUTION_ATTEMPT_STATUSES:
+            allowed = ", ".join(sorted(RISK_RESOLUTION_ATTEMPT_STATUSES))
+            errors.append(
+                f"{RISK_RESOLUTIONS_PATH} {attempt_label}.status invalid "
+                f"(expected one of: {allowed})"
+            )
+
+        resolution_type = attempt.get("resolution_type")
+        if resolution_type not in RISK_RESOLUTION_TYPES:
+            allowed = ", ".join(sorted(RISK_RESOLUTION_TYPES))
+            errors.append(
+                f"{RISK_RESOLUTIONS_PATH} {attempt_label}.resolution_type invalid "
+                f"(expected one of: {allowed})"
+            )
+
+        for field in ["owner_lane", "resolution", "verification", "verified_by", "reviewed_by"]:
+            errors.extend(validate_risk_resolution_text_field(attempt, field, attempt_label))
+
+        errors.extend(validate_risk_resolution_evidence(run_dir, attempt.get("evidence"), attempt_label))
+
+        if status == "blocked":
+            if isinstance(number, int) and not isinstance(number, bool):
+                blocked_attempt_numbers.add(number)
+            blocked_reason = attempt.get("blocked_reason")
+            if blocked_reason not in BLOCKED_RESOLUTION_REASONS:
+                allowed = ", ".join(sorted(BLOCKED_RESOLUTION_REASONS))
+                errors.append(
+                    f"{RISK_RESOLUTIONS_PATH} {attempt_label}.blocked_reason invalid "
+                    f"(expected one of: {allowed})"
+                )
+            errors.extend(validate_risk_resolution_rollback(run_dir, attempt.get("rollback"), attempt_label, final_verdict))
+            errors.extend(validate_blocked_lesson(attempt.get("blocked_lesson"), attempt_label))
+
+    if attempt_numbers != list(range(1, len(attempt_numbers) + 1)):
+        errors.append(f"{RISK_RESOLUTIONS_PATH} {label}.attempts must be contiguous from 1")
+
+    if final_verdict == "pass-with-risks" and attempts:
+        last_attempt = attempts[-1]
+        if isinstance(last_attempt, dict) and last_attempt.get("status") not in RISK_RESOLUTION_PASS_STATUSES:
+            errors.append(
+                f"{RISK_RESOLUTIONS_PATH} {label}.attempts last attempt must be fixed, mitigated, or contained "
+                "for Verdict: pass-with-risks"
+            )
+
+    if blocked_attempt_numbers:
+        recovery = resolution.get("blocked_recovery")
+        if not isinstance(recovery, dict):
+            errors.append(f"{RISK_RESOLUTIONS_PATH} {label} missing blocked_recovery")
+            recovery = {}
+        if 1 in blocked_attempt_numbers:
+            errors.extend(
+                validate_senior_qa_recovery(
+                    run_dir,
+                    recovery.get("senior_qa_test_design_review"),
+                    label,
+                )
+            )
+            errors.extend(
+                validate_architect_recovery(
+                    run_dir,
+                    recovery.get("architect_review"),
+                    label,
+                    "architect_review",
+                    ARCHITECT_REVIEW_DECISIONS,
+                    require_instruction=True,
+                )
+            )
+        if 2 in blocked_attempt_numbers:
+            errors.extend(
+                validate_architect_recovery(
+                    run_dir,
+                    recovery.get("supervising_architect_review"),
+                    label,
+                    "supervising_architect_review",
+                    SUPERVISING_ARCHITECT_REVIEW_DECISIONS,
+                )
+            )
+        if 3 in blocked_attempt_numbers and final_verdict not in {"blocked", "fail"}:
+            errors.append(
+                f"{RISK_RESOLUTIONS_PATH} {label}.attempts third blocked attempt requires "
+                "Verdict: blocked or fail"
+            )
+
+    return errors
+
+
 def validate_risk_resolutions(
     run_dir: Path,
     final_verdict: str | None,
@@ -802,6 +1171,7 @@ def validate_risk_resolutions(
             errors.extend(validate_risk_resolution_text_field(resolution, field, label))
 
         errors.extend(validate_risk_resolution_evidence(run_dir, resolution.get("evidence"), label))
+        errors.extend(validate_resolution_attempts(run_dir, resolution, label, final_verdict))
         parsed_resolutions.append(resolution)
 
     if final_verdict == "pass-with-risks":
@@ -893,8 +1263,16 @@ def validate_risk_resolution_lane_references(
     normalized_status_by_id: dict[str, str],
 ) -> list[str]:
     errors: list[str] = []
+    resolution_items: list[tuple[str, dict]] = []
     for index, resolution in enumerate(resolutions):
-        label = f"resolutions[{index}]"
+        resolution_items.append((f"resolutions[{index}]", resolution))
+        attempts = resolution.get("attempts")
+        if isinstance(attempts, list):
+            for attempt_index, attempt in enumerate(attempts):
+                if isinstance(attempt, dict):
+                    resolution_items.append((f"resolutions[{index}].attempts[{attempt_index}]", attempt))
+
+    for label, resolution in resolution_items:
         owner_lane_id = resolution.get("owner_lane")
         verified_by_id = resolution.get("verified_by")
         reviewed_by_id = resolution.get("reviewed_by")
@@ -945,6 +1323,238 @@ def validate_risk_resolution_lane_references(
             errors.append(f"{RISK_RESOLUTIONS_PATH} {label} owner_lane must not run after verified_by")
         if verified_wave is not None and reviewed_wave is not None and verified_wave > reviewed_wave:
             errors.append(f"{RISK_RESOLUTIONS_PATH} {label} verified_by must not run after reviewed_by")
+
+    return errors
+
+
+def recovery_lane(
+    recovery: dict,
+    field: str,
+) -> str | None:
+    value = recovery.get(field)
+    if not isinstance(value, dict):
+        return None
+    lane = value.get("lane")
+    return lane if isinstance(lane, str) and lane else None
+
+
+def validate_recovery_handoff(
+    run_dir: Path,
+    lane_id: str,
+    lane: dict,
+    section: str,
+    risk_id_value: str,
+    *,
+    required_text: str | None = None,
+) -> list[str]:
+    errors: list[str] = []
+    handoff = lane.get("handoff")
+    if not isinstance(handoff, str) or not handoff:
+        errors.append(f"lane-map.json: lane {lane_id} requires handoff for Blocked Resolution Gate")
+        return errors
+    handoff_path = resolve_run_path(run_dir, handoff)
+    for missing in missing_markdown_headings(handoff_path, [section]):
+        errors.append(f"lane-map.json: lane {lane_id} handoff missing section: {missing}")
+    text = markdown_section_text(
+        handoff_path.read_text(encoding="utf-8") if handoff_path.exists() else "",
+        section,
+    )
+    if not contains_facet_id(text, risk_id_value):
+        errors.append(f"lane-map.json: lane {lane_id} {section} missing risk id: {risk_id_value}")
+    if required_text and required_text not in text:
+        errors.append(f"lane-map.json: lane {lane_id} {section} missing instruction text")
+    return errors
+
+
+def validate_recovery_lane_shape(
+    field: str,
+    lane_id: str | None,
+    lane_by_id: dict[str, dict],
+    normalized_status_by_id: dict[str, str],
+    *,
+    expected_type: str,
+    expected_role: str,
+    critical: bool | None,
+) -> tuple[dict | None, list[str]]:
+    if not lane_id:
+        return None, [f"{field} lane must be a non-empty string"]
+    lane = lane_by_id.get(lane_id)
+    if lane is None:
+        return None, [f"{field} lane not found: {lane_id}"]
+    status = normalized_status_by_id.get(lane_id)
+    if (
+        lane.get("type") != expected_type
+        or lane.get("role") != expected_role
+        or status not in SUCCESSFUL_LANE_STATUSES
+        or (critical is not None and lane.get("critical") is not critical)
+    ):
+        if expected_role == "senior-qa-verifier":
+            return lane, [
+                f"{field} must reference a successful senior-qa-verifier qa lane: {lane_id}"
+            ]
+        if expected_role == "supervising-architect":
+            return lane, [
+                f"{field} must reference a successful non-critical supervising-architect architecture lane: {lane_id}"
+            ]
+        if expected_role == "architect":
+            return lane, [
+                f"{field} must reference a successful non-critical architect architecture lane: {lane_id}"
+            ]
+        return lane, [f"{field} references invalid lane: {lane_id}"]
+    return lane, []
+
+
+def validate_blocked_resolution_recovery_lanes(
+    run_dir: Path,
+    resolutions: list[dict],
+    lane_by_id: dict[str, dict],
+    normalized_status_by_id: dict[str, str],
+) -> list[str]:
+    errors: list[str] = []
+    for index, resolution in enumerate(resolutions):
+        risk_id_value = risk_id(resolution.get("risk_id"))
+        if not risk_id_value:
+            continue
+        attempts = resolution.get("attempts")
+        if not isinstance(attempts, list) or not attempts:
+            continue
+        blocked_numbers = {
+            attempt.get("attempt")
+            for attempt in attempts
+            if isinstance(attempt, dict) and attempt.get("status") == "blocked"
+        }
+        if not blocked_numbers:
+            continue
+        recovery = resolution.get("blocked_recovery")
+        if not isinstance(recovery, dict):
+            continue
+
+        senior_lane: dict | None = None
+        architect_lane: dict | None = None
+        supervising_lane: dict | None = None
+
+        if 1 in blocked_numbers:
+            senior_lane_id = recovery_lane(recovery, "senior_qa_test_design_review")
+            senior_lane, lane_errors = validate_recovery_lane_shape(
+                "senior_qa_test_design_review",
+                senior_lane_id,
+                lane_by_id,
+                normalized_status_by_id,
+                expected_type="qa",
+                expected_role="senior-qa-verifier",
+                critical=None,
+            )
+            errors.extend(f"risk-resolutions.json resolutions[{index}].blocked_recovery.{error}" for error in lane_errors)
+            if senior_lane_id and senior_lane:
+                errors.extend(
+                    validate_recovery_handoff(
+                        run_dir,
+                        senior_lane_id,
+                        senior_lane,
+                        SENIOR_QA_TEST_DESIGN_REVIEW_SECTION,
+                        risk_id_value,
+                    )
+                )
+
+            architect_review = recovery.get("architect_review") if isinstance(recovery.get("architect_review"), dict) else {}
+            architect_lane_id = recovery_lane(recovery, "architect_review")
+            architect_lane, lane_errors = validate_recovery_lane_shape(
+                "architect_review",
+                architect_lane_id,
+                lane_by_id,
+                normalized_status_by_id,
+                expected_type="architecture",
+                expected_role="architect",
+                critical=False,
+            )
+            errors.extend(f"risk-resolutions.json resolutions[{index}].blocked_recovery.{error}" for error in lane_errors)
+            architect_instruction = architect_review.get("instruction") if isinstance(architect_review, dict) else None
+            if architect_lane_id and architect_lane:
+                errors.extend(
+                    validate_recovery_handoff(
+                        run_dir,
+                        architect_lane_id,
+                        architect_lane,
+                        RESOLUTION_ARCHITECT_REVIEW_SECTION,
+                        risk_id_value,
+                        required_text=architect_instruction if isinstance(architect_instruction, str) else None,
+                    )
+                )
+
+        if 2 in blocked_numbers:
+            supervising_review = (
+                recovery.get("supervising_architect_review")
+                if isinstance(recovery.get("supervising_architect_review"), dict)
+                else {}
+            )
+            supervising_lane_id = recovery_lane(recovery, "supervising_architect_review")
+            supervising_lane, lane_errors = validate_recovery_lane_shape(
+                "supervising_architect_review",
+                supervising_lane_id,
+                lane_by_id,
+                normalized_status_by_id,
+                expected_type="architecture",
+                expected_role="supervising-architect",
+                critical=False,
+            )
+            errors.extend(f"risk-resolutions.json resolutions[{index}].blocked_recovery.{error}" for error in lane_errors)
+            supervising_instruction = supervising_review.get("instruction") if isinstance(supervising_review, dict) else None
+            if supervising_lane_id and supervising_lane:
+                errors.extend(
+                    validate_recovery_handoff(
+                        run_dir,
+                        supervising_lane_id,
+                        supervising_lane,
+                        SUPERVISING_ARCHITECT_REVIEW_SECTION,
+                        risk_id_value,
+                        required_text=supervising_instruction if isinstance(supervising_instruction, str) else None,
+                    )
+                )
+
+        attempt_by_number = {
+            attempt.get("attempt"): attempt
+            for attempt in attempts
+            if isinstance(attempt, dict)
+        }
+        attempt_1 = attempt_by_number.get(1)
+        attempt_2 = attempt_by_number.get(2)
+        attempt_3 = attempt_by_number.get(3)
+
+        if isinstance(attempt_1, dict) and attempt_1.get("status") == "blocked":
+            blocked_waves = [
+                lane_wave(lane_by_id.get(lane_id))
+                for lane_id in [attempt_1.get("verified_by"), attempt_1.get("reviewed_by")]
+                if isinstance(lane_id, str)
+            ]
+            latest_blocked_wave = max([wave for wave in blocked_waves if wave is not None], default=None)
+            senior_lane_id = recovery_lane(recovery, "senior_qa_test_design_review")
+            senior_wave = lane_wave(lane_by_id.get(senior_lane_id)) if senior_lane_id else None
+            architect_lane_id = recovery_lane(recovery, "architect_review")
+            architect_wave = lane_wave(lane_by_id.get(architect_lane_id)) if architect_lane_id else None
+            if latest_blocked_wave is not None and senior_wave is not None and senior_wave <= latest_blocked_wave:
+                errors.append(f"risk-resolutions.json resolutions[{index}] senior_qa_test_design_review must run after blocked attempt 1 verification")
+            if senior_wave is not None and architect_wave is not None and architect_wave <= senior_wave:
+                errors.append(f"risk-resolutions.json resolutions[{index}] architect_review must run after senior_qa_test_design_review")
+            if isinstance(attempt_2, dict):
+                owner_wave = lane_wave(lane_by_id.get(attempt_2.get("owner_lane")))
+                if architect_wave is not None and owner_wave is not None and owner_wave <= architect_wave:
+                    errors.append(f"risk-resolutions.json resolutions[{index}] attempt 2 owner_lane must run after architect_review")
+
+        if isinstance(attempt_2, dict) and attempt_2.get("status") == "blocked":
+            blocked_waves = [
+                lane_wave(lane_by_id.get(lane_id))
+                for lane_id in [attempt_2.get("verified_by"), attempt_2.get("reviewed_by")]
+                if isinstance(lane_id, str)
+            ]
+            latest_blocked_wave = max([wave for wave in blocked_waves if wave is not None], default=None)
+            supervising_lane_id = recovery_lane(recovery, "supervising_architect_review")
+            supervising_wave = lane_wave(lane_by_id.get(supervising_lane_id)) if supervising_lane_id else None
+            if latest_blocked_wave is not None and supervising_wave is not None and supervising_wave <= latest_blocked_wave:
+                errors.append(f"risk-resolutions.json resolutions[{index}] supervising_architect_review must run after blocked attempt 2 verification")
+            if isinstance(attempt_3, dict):
+                owner_wave = lane_wave(lane_by_id.get(attempt_3.get("owner_lane")))
+                if supervising_wave is not None and owner_wave is not None and owner_wave <= supervising_wave:
+                    errors.append(f"risk-resolutions.json resolutions[{index}] attempt 3 owner_lane must run after supervising_architect_review")
 
     return errors
 
@@ -1806,8 +2416,7 @@ def validate_lane_map(
                         "recheck_lane must run after drifting worker lane"
                     )
 
-    if final_verdict == "pass-with-risks":
-        errors.extend(validate_risk_mitigation_lane_references(mitigation_risks, lane_ids))
+    if resolution_records:
         errors.extend(
             validate_risk_resolution_lane_references(
                 resolution_records,
@@ -1815,6 +2424,17 @@ def validate_lane_map(
                 normalized_status_by_id,
             )
         )
+        errors.extend(
+            validate_blocked_resolution_recovery_lanes(
+                run_dir,
+                resolution_records,
+                lane_by_id,
+                normalized_status_by_id,
+            )
+        )
+
+    if final_verdict == "pass-with-risks":
+        errors.extend(validate_risk_mitigation_lane_references(mitigation_risks, lane_ids))
 
         if not successful_reviewer_lanes:
             errors.append(
@@ -2002,6 +2622,13 @@ def validate_compact_run(run_dir: Path, allow_no_check: bool, allow_pending: boo
                     risk_resolution_ids(resolution_records),
                 )
             )
+        elif final_verdict in {"blocked", "fail"} and resolution_records:
+            errors.extend(
+                validate_final_risk_resolution_coverage(
+                    final_path,
+                    risk_resolution_ids(resolution_records),
+                )
+            )
     else:
         mitigation_risks = []
         resolution_records = []
@@ -2061,6 +2688,13 @@ def validate_full_run(
                     risk_mitigation_ids(mitigation_risks),
                 )
             )
+            errors.extend(
+                validate_final_risk_resolution_coverage(
+                    run_dir / "final.md",
+                    risk_resolution_ids(resolution_records),
+                )
+            )
+        elif final_verdict in {"blocked", "fail"} and resolution_records:
             errors.extend(
                 validate_final_risk_resolution_coverage(
                     run_dir / "final.md",

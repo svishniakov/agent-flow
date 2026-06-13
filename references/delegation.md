@@ -157,6 +157,14 @@ mentions every risk id. Reviewer writes `Risk Resolution Review`, checks every
 risk id, verifies that `final.md` includes `Risk Resolutions`, and confirms
 that `unresolved` does not appear in a positive final verdict.
 
+Blocked Resolution Gate uses the Blocked Recovery Path inside Resolution Gate.
+A blocked attempt records `blocked_lesson`, `rollback`, `forbidden_repeat`, and evidence.
+Attempt 1 blocked routes first to Senior QA for `Senior QA Test Design Review`,
+then to architect for `Resolution Architect Review`; only then can a worker run
+attempt 2. Attempt 2 blocked skips Senior QA and routes to supervising architect
+for `Supervising Architect Review`; only then can attempt 3 start. A third
+blocked attempt ends the run as `blocked` or `fail`.
+
 When worker lanes exist under the Architecture Contract Gate, QA must run after
 the workers and any architect re-check, and its handoff must include
 `Architecture Invariants`. Reviewer must run after QA and write

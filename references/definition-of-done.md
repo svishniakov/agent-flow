@@ -64,6 +64,7 @@ For full `release` trace:
 - Architecture Context Propagation is covered: workers declare selected `matrix_facets`, QA covers selected `risk_gates` and `verification_gates`, and reviewer covers the full selected `architecture_context` plus selected `architecture_capabilities`;
 - Mitigation Gate is covered for `pass-with-risks`: `risk-mitigations.json` records at least one `identified` risk, `final.md` includes `Risk Mitigations`, and reviewer `Risk Mitigation Review` covers every risk id when lane-map exists;
 - Resolution Gate is covered for `pass-with-risks`: `risk-resolutions.json` records what was done now for every identified risk, `final.md` includes `Risk Resolutions`, QA `Risk Resolution Verification` covers every risk id, reviewer `Risk Resolution Review` covers every risk id, `resolution_type` is recorded, and each status is `fixed`, `mitigated`, or `contained`;
+- Blocked Resolution Gate is covered when a resolution attempt blocks: `risk-resolutions.json` records `attempts`, `blocked_lesson`, `rollback`, `forbidden_repeat`, Blocked Recovery Path, Senior QA `Senior QA Test Design Review`, architect `Resolution Architect Review`, and `Supervising Architect Review` when attempt 2 also blocks;
 - artifacts index is valid JSON;
 - each delegated subagent has a handoff;
 - checks include command names and results;
@@ -82,6 +83,7 @@ For full `release` trace:
 - Architecture Context Propagation blocked `ship` until worker `matrix_facets`, QA `risk_gates` and `verification_gates`, reviewer selected-context coverage, and selected `architecture_capabilities` coverage were present.
 - Mitigation Gate blocked `pass-with-risks` until each risk was identified with evidence and `next_gate=resolution`.
 - Resolution Gate blocked `pass-with-risks` until each identified risk had a concrete resolution record, evidence, verification, QA review, reviewer review, and status `fixed`, `mitigated`, or `contained`; `unresolved` was allowed only for `blocked` or `fail`.
+- Blocked Resolution Gate blocked retry work until Senior QA reviewed acceptance criteria and test design, architect approved attempt 2, supervising architect approved attempt 3 when needed, rollback was recorded, and repeated failed approaches were listed in `forbidden_repeat`.
 - Architecture Approval Gate reviewed any rejected, regressed, or uncertain architecture attempt before retrying implementation.
 - Local Best Practice auto gate was used only for an analyzer-confirmed local practice with clear context, no matching `Do not reuse when`, no external write, and fresh verification.
 - regression demotion froze or demoted any practice that failed after reuse.

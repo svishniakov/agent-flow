@@ -68,6 +68,16 @@ RESOLUTION_GATE_GUARD_TERMS = [
     "contained",
     "unresolved",
 ]
+BLOCKED_RESOLUTION_GATE_GUARD_TERMS = [
+    "Blocked Resolution Gate",
+    "Blocked Recovery Path",
+    "Senior QA Test Design Review",
+    "Resolution Architect Review",
+    "Supervising Architect Review",
+    "blocked_lesson",
+    "forbidden_repeat",
+    "rollback",
+]
 
 REQUIRED_RUNTIME_TEXT = {
     "SKILL.md": [
@@ -93,6 +103,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Execution Control",
         *MITIGATION_GATE_GUARD_TERMS,
         *RESOLUTION_GATE_GUARD_TERMS,
+        *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
         "Architecture Approval Gate",
         "Local Best Practice auto gate",
         "regression demotion",
@@ -118,6 +129,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Contract Drift",
         *MITIGATION_GATE_GUARD_TERMS,
         *RESOLUTION_GATE_GUARD_TERMS,
+        *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
         "Architecture Approval Gate",
         "Local Best Practice auto gate",
         "regression demotion",
@@ -155,6 +167,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Contract Drift",
         *MITIGATION_GATE_GUARD_TERMS,
         *RESOLUTION_GATE_GUARD_TERMS,
+        *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
         "Architecture Approval Gate",
         "Local Best Practice auto gate",
         "regression demotion",
@@ -183,6 +196,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Contract Drift",
         *MITIGATION_GATE_GUARD_TERMS,
         *RESOLUTION_GATE_GUARD_TERMS,
+        *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
         "Architecture Approval Gate",
         "Local Best Practice auto gate",
         "Model/reasoning upgrade is not the default fix",
@@ -211,6 +225,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Contract Drift",
         *MITIGATION_GATE_GUARD_TERMS,
         *RESOLUTION_GATE_GUARD_TERMS,
+        *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
     ],
     "references/architecture-matrix.md": [
         "Architecture Matrix",
@@ -356,6 +371,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Contract Drift",
         *MITIGATION_GATE_GUARD_TERMS,
         *RESOLUTION_GATE_GUARD_TERMS,
+        *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
         "Architecture Approval Gate",
         "Local Best Practice auto gate",
         "regression demotion",
@@ -377,6 +393,9 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Execution Control",
         "architecture drift",
         "architect re-check",
+        "Blocked Resolution Gate",
+        "Resolution Architect Review",
+        "forbidden_repeat",
     ],
     "agents/reviewer.md": [
         "Evidence Records",
@@ -393,6 +412,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Contract Drift",
         *MITIGATION_GATE_GUARD_TERMS,
         *RESOLUTION_GATE_GUARD_TERMS,
+        *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
     ],
     "agents/qa-verifier.md": [
         "Architecture Contract Gate",
@@ -407,6 +427,23 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Invariants",
         *MITIGATION_GATE_GUARD_TERMS,
         *RESOLUTION_GATE_GUARD_TERMS,
+        "Blocked Resolution Gate",
+        "Senior QA Test Design Review",
+        "edge cases",
+        "negative cases",
+    ],
+    "agents/senior-qa-verifier.md": [
+        "Senior QA Test Design Review",
+        "acceptance criteria",
+        "test cases",
+        "edge cases",
+        "negative cases",
+    ],
+    "agents/supervising-architect.md": [
+        "Supervising Architect Review",
+        "forbidden_repeat",
+        "attempt 3",
+        "blocked_lesson",
     ],
     "agents/backend-worker.md": [
         "Architecture Compliance",
@@ -496,6 +533,8 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Matrix Mismatches",
         "Contract Drift",
         *MITIGATION_GATE_GUARD_TERMS,
+        *RESOLUTION_GATE_GUARD_TERMS,
+        *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
     ],
     "scripts/architecture_capabilities.py": [
         "Architecture Capability Router",

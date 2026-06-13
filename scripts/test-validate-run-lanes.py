@@ -55,6 +55,9 @@ RISK_MITIGATION_REVIEW_SECTION = "Risk Mitigation Review"
 RISK_RESOLUTIONS_SECTION = "Risk Resolutions"
 RISK_RESOLUTION_VERIFICATION_SECTION = "Risk Resolution Verification"
 RISK_RESOLUTION_REVIEW_SECTION = "Risk Resolution Review"
+SENIOR_QA_TEST_DESIGN_REVIEW_SECTION = "Senior QA Test Design Review"
+RESOLUTION_ARCHITECT_REVIEW_SECTION = "Resolution Architect Review"
+SUPERVISING_ARCHITECT_REVIEW_SECTION = "Supervising Architect Review"
 ARCHITECTURE_CONTEXT_AXES = [
     "product_context",
     "application_surface",
@@ -339,6 +342,132 @@ def risk_resolutions(
     return {"version": version, "resolutions": resolutions}
 
 
+def resolution_attempt(
+    attempt: int,
+    *,
+    status: str = "blocked",
+    owner_lane: str = "worker-a",
+    verified_by: str = "qa-behavior",
+    reviewed_by: str = "review-contract",
+    evidence: list[str] | None = None,
+    rollback: Any = DEFAULT,
+    blocked_lesson: Any = DEFAULT,
+    blocked_reason: Any = "insufficient-evidence",
+) -> dict[str, Any]:
+    data = {
+        "attempt": attempt,
+        "status": status,
+        "resolution_type": "evidence-added" if status == "blocked" else "test-added",
+        "owner_lane": owner_lane,
+        "resolution": f"Attempt {attempt} resolution action.",
+        "evidence": evidence or ["checks/smoke.md"],
+        "verification": f"Attempt {attempt} verification.",
+        "verified_by": verified_by,
+        "reviewed_by": reviewed_by,
+    }
+    if status == "blocked":
+        if blocked_reason is not OMIT:
+            data["blocked_reason"] = blocked_reason
+        if rollback is DEFAULT:
+            data["rollback"] = {
+                "status": "rolled-back",
+                "summary": f"Rolled back attempt {attempt} changes.",
+                "evidence": ["checks/smoke.md"],
+            }
+        elif rollback is not OMIT:
+            data["rollback"] = rollback
+        if blocked_lesson is DEFAULT:
+            data["blocked_lesson"] = {
+                "status": "quarantined",
+                "classification": "insufficient-evidence",
+                "summary": "Do not repeat the blocked evidence-only approach.",
+                "forbidden_repeat": ["evidence-only-claim"],
+            }
+        elif blocked_lesson is not OMIT:
+            data["blocked_lesson"] = blocked_lesson
+    return data
+
+
+def blocked_recovery(
+    *,
+    include_senior_qa: bool = True,
+    include_architect: bool = True,
+    include_supervising: bool = False,
+    senior_qa_overrides: dict[str, Any] | None = None,
+    architect_overrides: dict[str, Any] | None = None,
+    supervising_overrides: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    recovery: dict[str, Any] = {}
+    if include_senior_qa:
+        senior_qa = {
+            "lane": "senior-qa-test-design",
+            "status": "criteria-expanded",
+            "covered_acceptance_criteria": ["Original criterion was checked."],
+            "missing_acceptance_criteria": ["Visible browser proof was missing."],
+            "ambiguous_acceptance_criteria": [],
+            "added_acceptance_criteria": ["Show visible browser proof."],
+            "test_cases": ["Happy path visible proof."],
+            "edge_cases": ["Rendered state changes after async load."],
+            "negative_cases": ["Proof file missing visible target."],
+            "regression_cases": ["Existing smoke proof still passes."],
+            "integration_cases": ["Worker evidence links to QA proof."],
+            "data_state_cases": ["Evidence state is present in final artifact."],
+            "environment_cases": ["Headless browser output is readable."],
+            "external_blockers": [],
+            "recheck_result": "blocked",
+            "evidence": ["checks/smoke.md"],
+        }
+        senior_qa.update(senior_qa_overrides or {})
+        recovery["senior_qa_test_design_review"] = senior_qa
+    if include_architect:
+        architect = {
+            "lane": "architect-resolution-review",
+            "decision": "revised-approach",
+            "instruction": "Add visible proof before repeating the resolution.",
+            "forbidden_repeat": ["evidence-only-claim"],
+            "evidence": ["checks/smoke.md"],
+        }
+        architect.update(architect_overrides or {})
+        recovery["architect_review"] = architect
+    if include_supervising:
+        supervising = {
+            "lane": "supervising-architect-review",
+            "decision": "revised-approach",
+            "instruction": "Use a stronger proof path and do not repeat failed attempt 2.",
+            "forbidden_repeat": ["evidence-only-claim", "attempt-2-proof-gap"],
+            "evidence": ["checks/smoke.md"],
+        }
+        supervising.update(supervising_overrides or {})
+        recovery["supervising_architect_review"] = supervising
+    return recovery
+
+
+def resolution_with_attempts(
+    attempts: list[dict[str, Any]],
+    *,
+    status: str = "mitigated",
+    owner_lane: str = "worker-b",
+    verified_by: str = "qa-retry",
+    reviewed_by: str = "review-retry",
+    blocked_recovery_data: Any = DEFAULT,
+) -> dict[str, Any]:
+    resolution = risk_resolutions()["resolutions"][0] | {
+        "status": status,
+        "owner_lane": owner_lane,
+        "resolution": "Final resolution after recovery.",
+        "evidence": ["checks/smoke.md"],
+        "verification": "QA verified the final recovery attempt.",
+        "verified_by": verified_by,
+        "reviewed_by": reviewed_by,
+        "attempts": attempts,
+    }
+    if blocked_recovery_data is DEFAULT:
+        resolution["blocked_recovery"] = blocked_recovery()
+    elif blocked_recovery_data is not OMIT:
+        resolution["blocked_recovery"] = blocked_recovery_data
+    return resolution
+
+
 def risk_resolution_section(risk_ids: list[str] | None = None) -> str:
     ids = [DEFAULT_RISK_ID] if risk_ids is None else risk_ids
     return f"\n## {RISK_RESOLUTIONS_SECTION}\n\nResolved risks:\n{facet_lines(ids)}\n"
@@ -377,7 +506,7 @@ def write_run(
             None if final_risk_ids is DEFAULT else final_risk_ids
         )
     if (
-        verdict == "pass-with-risks"
+        (verdict == "pass-with-risks" or final_resolution_ids is not DEFAULT)
         and risk_resolutions_data is not OMIT
         and final_resolution_ids is not OMIT
     ):
@@ -432,7 +561,7 @@ def write_run(
             if isinstance(handoff, str):
                 path = run_dir / handoff
                 path.parent.mkdir(parents=True, exist_ok=True)
-                if lane.get("type") == "architecture":
+                if lane.get("type") == "architecture" and "handoff_sections" not in lane:
                     missing = set(lane.get("missing_contract_sections", []))
                     selected_facets = lane.get("architecture_selected_facets")
                     if selected_facets is not None and not isinstance(selected_facets, list):
@@ -553,7 +682,7 @@ def write_compact_run(
             None if final_risk_ids is DEFAULT else final_risk_ids
         )
     if (
-        verdict == "pass-with-risks"
+        (verdict == "pass-with-risks" or final_resolution_ids is not DEFAULT)
         and risk_resolutions_data is not OMIT
         and final_resolution_ids is not OMIT
     ):
@@ -866,6 +995,99 @@ def reviewer_control_lane(
             risk_ids,
             risk_resolution_ids,
         ),
+    )
+
+
+def senior_qa_lane(
+    *,
+    status: str = "pass",
+    wave: int = 5,
+    lane_id: str = "senior-qa-test-design",
+    role: str = "senior-qa-verifier",
+    lane_type: str = "qa",
+    handoff_sections: list[str] | None = None,
+    handoff_section_bodies: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    return lane(
+        lane_id,
+        status=status,
+        lane_type=lane_type,
+        role=role,
+        wave=wave,
+        handoff_sections=handoff_sections
+        if handoff_sections is not None
+        else [SENIOR_QA_TEST_DESIGN_REVIEW_SECTION],
+        handoff_section_bodies=handoff_section_bodies
+        if handoff_section_bodies is not None
+        else {
+            SENIOR_QA_TEST_DESIGN_REVIEW_SECTION: (
+                f"Risk `{DEFAULT_RISK_ID}` reviewed with expanded test design."
+            )
+        },
+    )
+
+
+def architect_resolution_review_lane(
+    *,
+    status: str = "pass",
+    wave: int = 6,
+    lane_id: str = "architect-resolution-review",
+    role: str = "architect",
+    critical: bool = False,
+    handoff_sections: list[str] | None = None,
+    handoff_section_bodies: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    return lane(
+        lane_id,
+        status=status,
+        lane_type="architecture",
+        role=role,
+        critical=critical,
+        wave=wave,
+        handoff_sections=handoff_sections
+        if handoff_sections is not None
+        else [RESOLUTION_ARCHITECT_REVIEW_SECTION],
+        handoff_section_bodies=handoff_section_bodies
+        if handoff_section_bodies is not None
+        else {
+            RESOLUTION_ARCHITECT_REVIEW_SECTION: (
+                f"Risk `{DEFAULT_RISK_ID}` instruction: Add visible proof before "
+                "repeating the resolution. "
+                "avoid evidence-only-claim."
+            )
+        },
+    )
+
+
+def supervising_architect_review_lane(
+    *,
+    status: str = "pass",
+    wave: int = 10,
+    lane_id: str = "supervising-architect-review",
+    role: str = "supervising-architect",
+    critical: bool = False,
+    handoff_sections: list[str] | None = None,
+    handoff_section_bodies: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    return lane(
+        lane_id,
+        status=status,
+        lane_type="architecture",
+        role=role,
+        critical=critical,
+        wave=wave,
+        handoff_sections=handoff_sections
+        if handoff_sections is not None
+        else [SUPERVISING_ARCHITECT_REVIEW_SECTION],
+        handoff_section_bodies=handoff_section_bodies
+        if handoff_section_bodies is not None
+        else {
+            SUPERVISING_ARCHITECT_REVIEW_SECTION: (
+                f"Risk `{DEFAULT_RISK_ID}` instruction: Use a stronger proof path "
+                "and do not repeat failed attempt 2. "
+                "avoid attempt-2-proof-gap."
+            )
+        },
     )
 
 
@@ -1361,6 +1583,7 @@ def main() -> int:
             write_run(
                 temp / "risk-resolutions-unresolved-blocked",
                 verdict="blocked",
+                final_resolution_ids=[DEFAULT_RISK_ID],
                 risk_mitigations_data=risk_mitigations(),
                 risk_resolutions_data=risk_resolutions(
                     resolutions=[
@@ -1672,6 +1895,629 @@ def main() -> int:
                 temp / "risk-resolutions-lane-map-valid-path",
                 verdict="pass-with-risks",
                 lanes=resolution_lane_coverage,
+            ),
+        )
+
+        attempt_1_blocked = resolution_attempt(1)
+        attempt_2_success = resolution_attempt(
+            2,
+            status="fixed",
+            owner_lane="worker-b",
+            verified_by="qa-retry",
+            reviewed_by="review-retry",
+        )
+        attempt_2_blocked = resolution_attempt(
+            2,
+            status="blocked",
+            owner_lane="worker-b",
+            verified_by="qa-retry",
+            reviewed_by="review-retry",
+            blocked_lesson={
+                "status": "confirmed",
+                "classification": "insufficient-evidence",
+                "summary": "Attempt 2 repeated an insufficient proof path.",
+                "forbidden_repeat": ["attempt-2-proof-gap"],
+            },
+        )
+        attempt_3_success = resolution_attempt(
+            3,
+            status="contained",
+            owner_lane="worker-c",
+            verified_by="qa-final",
+            reviewed_by="review-final",
+        )
+        attempt_3_blocked = resolution_attempt(
+            3,
+            status="blocked",
+            owner_lane="worker-c",
+            verified_by="qa-final",
+            reviewed_by="review-final",
+            blocked_lesson={
+                "status": "confirmed",
+                "classification": "architecture-mismatch",
+                "summary": "Final attempt could not satisfy the architecture constraint.",
+                "forbidden_repeat": ["attempt-2-proof-gap", "attempt-3-architecture-mismatch"],
+            },
+        )
+        recovery_attempt_2_lanes = [
+            worker_lane("worker-a", wave=2),
+            qa_lane("qa-behavior", wave=3),
+            reviewer_lane(
+                "review-contract",
+                wave=4,
+                handoff_sections=[RISK_MITIGATION_REVIEW_SECTION],
+                handoff_section_bodies={
+                    RISK_MITIGATION_REVIEW_SECTION: f"- `{DEFAULT_RISK_ID}`",
+                },
+            ),
+            senior_qa_lane(wave=5),
+            architect_resolution_review_lane(wave=6),
+            worker_lane("worker-b", wave=7),
+            qa_lane(
+                "qa-retry",
+                wave=8,
+                handoff_sections=[RISK_RESOLUTION_VERIFICATION_SECTION],
+                handoff_section_bodies={
+                    RISK_RESOLUTION_VERIFICATION_SECTION: f"- `{DEFAULT_RISK_ID}`",
+                },
+            ),
+            reviewer_lane(
+                "review-retry",
+                wave=9,
+                handoff_sections=[
+                    RISK_MITIGATION_REVIEW_SECTION,
+                    RISK_RESOLUTION_REVIEW_SECTION,
+                ],
+                handoff_section_bodies={
+                    RISK_MITIGATION_REVIEW_SECTION: f"- `{DEFAULT_RISK_ID}`",
+                    RISK_RESOLUTION_REVIEW_SECTION: f"- `{DEFAULT_RISK_ID}`",
+                },
+            ),
+        ]
+        recovery_attempt_3_lanes = [
+            *recovery_attempt_2_lanes[:7],
+            reviewer_lane(
+                "review-retry",
+                wave=9,
+                handoff_sections=[RISK_MITIGATION_REVIEW_SECTION],
+                handoff_section_bodies={
+                    RISK_MITIGATION_REVIEW_SECTION: f"- `{DEFAULT_RISK_ID}`",
+                },
+            ),
+            supervising_architect_review_lane(wave=10),
+            worker_lane("worker-c", wave=11),
+            qa_lane(
+                "qa-final",
+                wave=12,
+                handoff_sections=[RISK_RESOLUTION_VERIFICATION_SECTION],
+                handoff_section_bodies={
+                    RISK_RESOLUTION_VERIFICATION_SECTION: f"- `{DEFAULT_RISK_ID}`",
+                },
+            ),
+            reviewer_lane(
+                "review-final",
+                wave=13,
+                handoff_sections=[
+                    RISK_MITIGATION_REVIEW_SECTION,
+                    RISK_RESOLUTION_REVIEW_SECTION,
+                ],
+                handoff_section_bodies={
+                    RISK_MITIGATION_REVIEW_SECTION: f"- `{DEFAULT_RISK_ID}`",
+                    RISK_RESOLUTION_REVIEW_SECTION: f"- `{DEFAULT_RISK_ID}`",
+                },
+            ),
+        ]
+
+        expect_pass(
+            "flat existing risk resolution remains valid",
+            write_run(
+                temp / "risk-resolutions-flat-compatible",
+                verdict="pass-with-risks",
+                lanes=resolution_lane_coverage,
+            ),
+        )
+
+        expect_fail(
+            "risk resolution attempts non-contiguous fail",
+            write_run(
+                temp / "risk-resolutions-attempts-non-contiguous",
+                verdict="pass-with-risks",
+                risk_resolutions_data=risk_resolutions(
+                    resolutions=[
+                        resolution_with_attempts(
+                            [attempt_1_blocked, attempt_3_success],
+                        )
+                    ]
+                ),
+            ),
+            "risk-resolutions.json resolutions[0].attempts must be contiguous from 1",
+        )
+
+        expect_fail(
+            "risk resolution attempts max three fail",
+            write_run(
+                temp / "risk-resolutions-attempts-too-many",
+                verdict="pass-with-risks",
+                risk_resolutions_data=risk_resolutions(
+                    resolutions=[
+                        resolution_with_attempts(
+                            [
+                                attempt_1_blocked,
+                                attempt_2_blocked,
+                                attempt_3_blocked,
+                                resolution_attempt(4, status="fixed"),
+                            ],
+                            blocked_recovery_data=blocked_recovery(include_supervising=True),
+                        )
+                    ]
+                ),
+            ),
+            "risk-resolutions.json resolutions[0].attempts must not contain more than 3 attempts",
+        )
+
+        expect_fail(
+            "risk resolution attempt invalid status fails",
+            write_run(
+                temp / "risk-resolutions-attempt-invalid-status",
+                verdict="pass-with-risks",
+                risk_resolutions_data=risk_resolutions(
+                    resolutions=[
+                        resolution_with_attempts(
+                            [{**attempt_1_blocked, "status": "mystery"}],
+                        )
+                    ]
+                ),
+            ),
+            "risk-resolutions.json resolutions[0].attempts[0].status invalid",
+        )
+
+        expect_fail(
+            "blocked attempt without lesson fails",
+            write_run(
+                temp / "risk-resolutions-blocked-attempt-no-lesson",
+                verdict="pass-with-risks",
+                risk_resolutions_data=risk_resolutions(
+                    resolutions=[
+                        resolution_with_attempts(
+                            [resolution_attempt(1, blocked_lesson=OMIT), attempt_2_success],
+                        )
+                    ]
+                ),
+            ),
+            "risk-resolutions.json resolutions[0].attempts[0] missing blocked_lesson",
+        )
+
+        expect_fail(
+            "blocked attempt without rollback fails",
+            write_run(
+                temp / "risk-resolutions-blocked-attempt-no-rollback",
+                verdict="pass-with-risks",
+                risk_resolutions_data=risk_resolutions(
+                    resolutions=[
+                        resolution_with_attempts(
+                            [resolution_attempt(1, rollback=OMIT), attempt_2_success],
+                        )
+                    ]
+                ),
+            ),
+            "risk-resolutions.json resolutions[0].attempts[0] missing rollback",
+        )
+
+        expect_fail(
+            "rolled back rollback without evidence fails",
+            write_run(
+                temp / "risk-resolutions-rollback-no-evidence",
+                verdict="pass-with-risks",
+                risk_resolutions_data=risk_resolutions(
+                    resolutions=[
+                        resolution_with_attempts(
+                            [
+                                resolution_attempt(
+                                    1,
+                                    rollback={
+                                        "status": "rolled-back",
+                                        "summary": "Rollback happened.",
+                                        "evidence": [],
+                                    },
+                                ),
+                                attempt_2_success,
+                            ],
+                        )
+                    ]
+                ),
+            ),
+            "risk-resolutions.json resolutions[0].attempts[0].rollback.evidence must be a non-empty array",
+        )
+
+        expect_fail(
+            "not possible rollback blocks pass-with-risks",
+            write_run(
+                temp / "risk-resolutions-rollback-not-possible-pass-with-risks",
+                verdict="pass-with-risks",
+                risk_resolutions_data=risk_resolutions(
+                    resolutions=[
+                        resolution_with_attempts(
+                            [
+                                resolution_attempt(
+                                    1,
+                                    rollback={
+                                        "status": "not-possible",
+                                        "summary": "Rollback was unsafe.",
+                                    },
+                                ),
+                                attempt_2_success,
+                            ],
+                        )
+                    ]
+                ),
+            ),
+            "risk-resolutions.json resolutions[0].attempts[0].rollback.status not-possible is not allowed for Verdict: pass-with-risks",
+        )
+
+        expect_fail(
+            "blocked attempt without senior qa recovery fails",
+            write_run(
+                temp / "risk-resolutions-no-senior-qa-recovery",
+                verdict="pass-with-risks",
+                risk_resolutions_data=risk_resolutions(
+                    resolutions=[
+                        resolution_with_attempts(
+                            [attempt_1_blocked, attempt_2_success],
+                            blocked_recovery_data=blocked_recovery(include_senior_qa=False),
+                        )
+                    ]
+                ),
+            ),
+            "risk-resolutions.json resolutions[0].blocked_recovery missing senior_qa_test_design_review",
+        )
+
+        expect_fail(
+            "senior qa lane missing fails",
+            write_run(
+                temp / "risk-resolutions-senior-qa-lane-missing",
+                verdict="pass-with-risks",
+                lanes=[lane for lane in recovery_attempt_2_lanes if lane["id"] != "senior-qa-test-design"],
+                risk_resolutions_data=risk_resolutions(
+                    resolutions=[
+                        resolution_with_attempts([attempt_1_blocked, attempt_2_success])
+                    ]
+                ),
+            ),
+            "senior_qa_test_design_review lane not found: senior-qa-test-design",
+        )
+
+        expect_fail(
+            "senior qa lane wrong role fails",
+            write_run(
+                temp / "risk-resolutions-senior-qa-wrong-role",
+                verdict="pass-with-risks",
+                lanes=[
+                    *[
+                        lane
+                        for lane in recovery_attempt_2_lanes
+                        if lane["id"] != "senior-qa-test-design"
+                    ],
+                    senior_qa_lane(role="qa-verifier"),
+                ],
+                risk_resolutions_data=risk_resolutions(
+                    resolutions=[
+                        resolution_with_attempts([attempt_1_blocked, attempt_2_success])
+                    ]
+                ),
+            ),
+            "senior_qa_test_design_review must reference a successful senior-qa-verifier qa lane",
+        )
+
+        expect_fail(
+            "senior qa handoff missing section fails",
+            write_run(
+                temp / "risk-resolutions-senior-qa-missing-section",
+                verdict="pass-with-risks",
+                lanes=[
+                    *[
+                        lane
+                        for lane in recovery_attempt_2_lanes
+                        if lane["id"] != "senior-qa-test-design"
+                    ],
+                    senior_qa_lane(handoff_sections=[]),
+                ],
+                risk_resolutions_data=risk_resolutions(
+                    resolutions=[
+                        resolution_with_attempts([attempt_1_blocked, attempt_2_success])
+                    ]
+                ),
+            ),
+            "handoff missing section: Senior QA Test Design Review",
+        )
+
+        for field in ["test_cases", "edge_cases", "negative_cases", "evidence"]:
+            expect_fail(
+                f"senior qa review missing {field} fails",
+                write_run(
+                    temp / f"risk-resolutions-senior-qa-missing-{field}",
+                    verdict="pass-with-risks",
+                    risk_resolutions_data=risk_resolutions(
+                        resolutions=[
+                            resolution_with_attempts(
+                                [attempt_1_blocked, attempt_2_success],
+                                blocked_recovery_data=blocked_recovery(
+                                    senior_qa_overrides={field: []},
+                                ),
+                            )
+                        ]
+                    ),
+                ),
+                f"risk-resolutions.json resolutions[0].blocked_recovery.senior_qa_test_design_review.{field} must be a non-empty array",
+            )
+
+        expect_fail(
+            "blocked attempt without architect review fails",
+            write_run(
+                temp / "risk-resolutions-no-architect-recovery",
+                verdict="pass-with-risks",
+                risk_resolutions_data=risk_resolutions(
+                    resolutions=[
+                        resolution_with_attempts(
+                            [attempt_1_blocked, attempt_2_success],
+                            blocked_recovery_data=blocked_recovery(include_architect=False),
+                        )
+                    ]
+                ),
+            ),
+            "risk-resolutions.json resolutions[0].blocked_recovery missing architect_review",
+        )
+
+        architect_missing_instruction = blocked_recovery()
+        architect_missing_instruction["architect_review"].pop("instruction")
+        expect_fail(
+            "architect review without instruction fails",
+            write_run(
+                temp / "risk-resolutions-architect-no-instruction",
+                verdict="pass-with-risks",
+                risk_resolutions_data=risk_resolutions(
+                    resolutions=[
+                        resolution_with_attempts(
+                            [attempt_1_blocked, attempt_2_success],
+                            blocked_recovery_data=architect_missing_instruction,
+                        )
+                    ]
+                ),
+            ),
+            "risk-resolutions.json resolutions[0].blocked_recovery.architect_review.instruction must be a non-empty string",
+        )
+
+        expect_fail(
+            "architect review lane critical fails",
+            write_run(
+                temp / "risk-resolutions-architect-critical",
+                verdict="pass-with-risks",
+                lanes=[
+                    *[
+                        lane
+                        for lane in recovery_attempt_2_lanes
+                        if lane["id"] != "architect-resolution-review"
+                    ],
+                    architect_resolution_review_lane(critical=True),
+                ],
+                risk_resolutions_data=risk_resolutions(
+                    resolutions=[
+                        resolution_with_attempts([attempt_1_blocked, attempt_2_success])
+                    ]
+                ),
+            ),
+            "architect_review must reference a successful non-critical architect architecture lane",
+        )
+
+        expect_fail(
+            "architect review handoff missing section fails",
+            write_run(
+                temp / "risk-resolutions-architect-missing-section",
+                verdict="pass-with-risks",
+                lanes=[
+                    *[
+                        lane
+                        for lane in recovery_attempt_2_lanes
+                        if lane["id"] != "architect-resolution-review"
+                    ],
+                    architect_resolution_review_lane(handoff_sections=[]),
+                ],
+                risk_resolutions_data=risk_resolutions(
+                    resolutions=[
+                        resolution_with_attempts([attempt_1_blocked, attempt_2_success])
+                    ]
+                ),
+            ),
+            "handoff missing section: Resolution Architect Review",
+        )
+
+        expect_fail(
+            "attempt 2 worker before architect review fails",
+            write_run(
+                temp / "risk-resolutions-attempt-2-before-architect",
+                verdict="pass-with-risks",
+                lanes=[
+                    lane if lane["id"] != "worker-b" else worker_lane("worker-b", wave=5)
+                    for lane in recovery_attempt_2_lanes
+                ],
+                risk_resolutions_data=risk_resolutions(
+                    resolutions=[
+                        resolution_with_attempts([attempt_1_blocked, attempt_2_success])
+                    ]
+                ),
+            ),
+            "attempt 2 owner_lane must run after architect_review",
+        )
+
+        expect_fail(
+            "attempt 2 blocked without supervising architect fails",
+            write_run(
+                temp / "risk-resolutions-attempt-2-no-supervising",
+                verdict="pass-with-risks",
+                risk_resolutions_data=risk_resolutions(
+                    resolutions=[
+                        resolution_with_attempts(
+                            [attempt_1_blocked, attempt_2_blocked, attempt_3_success],
+                        )
+                    ]
+                ),
+            ),
+            "risk-resolutions.json resolutions[0].blocked_recovery missing supervising_architect_review",
+        )
+
+        expect_fail(
+            "supervising architect wrong role fails",
+            write_run(
+                temp / "risk-resolutions-supervising-wrong-role",
+                verdict="pass-with-risks",
+                lanes=[
+                    *[
+                        lane
+                        for lane in recovery_attempt_3_lanes
+                        if lane["id"] != "supervising-architect-review"
+                    ],
+                    supervising_architect_review_lane(role="architect"),
+                ],
+                risk_resolutions_data=risk_resolutions(
+                    resolutions=[
+                        resolution_with_attempts(
+                            [attempt_1_blocked, attempt_2_blocked, attempt_3_success],
+                            owner_lane="worker-c",
+                            verified_by="qa-final",
+                            reviewed_by="review-final",
+                            blocked_recovery_data=blocked_recovery(include_supervising=True),
+                        )
+                    ]
+                ),
+            ),
+            "supervising_architect_review must reference a successful non-critical supervising-architect architecture lane",
+        )
+
+        expect_fail(
+            "supervising architect handoff missing section fails",
+            write_run(
+                temp / "risk-resolutions-supervising-missing-section",
+                verdict="pass-with-risks",
+                lanes=[
+                    *[
+                        lane
+                        for lane in recovery_attempt_3_lanes
+                        if lane["id"] != "supervising-architect-review"
+                    ],
+                    supervising_architect_review_lane(handoff_sections=[]),
+                ],
+                risk_resolutions_data=risk_resolutions(
+                    resolutions=[
+                        resolution_with_attempts(
+                            [attempt_1_blocked, attempt_2_blocked, attempt_3_success],
+                            owner_lane="worker-c",
+                            verified_by="qa-final",
+                            reviewed_by="review-final",
+                            blocked_recovery_data=blocked_recovery(include_supervising=True),
+                        )
+                    ]
+                ),
+            ),
+            "handoff missing section: Supervising Architect Review",
+        )
+
+        expect_fail(
+            "attempt 3 worker before supervising architect fails",
+            write_run(
+                temp / "risk-resolutions-attempt-3-before-supervising",
+                verdict="pass-with-risks",
+                lanes=[
+                    lane if lane["id"] != "worker-c" else worker_lane("worker-c", wave=9)
+                    for lane in recovery_attempt_3_lanes
+                ],
+                risk_resolutions_data=risk_resolutions(
+                    resolutions=[
+                        resolution_with_attempts(
+                            [attempt_1_blocked, attempt_2_blocked, attempt_3_success],
+                            owner_lane="worker-c",
+                            verified_by="qa-final",
+                            reviewed_by="review-final",
+                            blocked_recovery_data=blocked_recovery(include_supervising=True),
+                        )
+                    ]
+                ),
+            ),
+            "attempt 3 owner_lane must run after supervising_architect_review",
+        )
+
+        expect_fail(
+            "third blocked attempt cannot pass with risks",
+            write_run(
+                temp / "risk-resolutions-third-blocked-pass-with-risks",
+                verdict="pass-with-risks",
+                risk_resolutions_data=risk_resolutions(
+                    resolutions=[
+                        resolution_with_attempts(
+                            [attempt_1_blocked, attempt_2_blocked, attempt_3_blocked],
+                            status="unresolved",
+                            owner_lane="worker-c",
+                            verified_by="qa-final",
+                            reviewed_by="review-final",
+                            blocked_recovery_data=blocked_recovery(include_supervising=True),
+                        )
+                    ]
+                ),
+            ),
+            "risk-resolutions.json resolutions[0].status unresolved is not allowed for Verdict: pass-with-risks",
+        )
+
+        expect_pass(
+            "third blocked attempt allows final blocked",
+            write_run(
+                temp / "risk-resolutions-third-blocked-final-blocked",
+                verdict="blocked",
+                final_resolution_ids=[DEFAULT_RISK_ID],
+                risk_mitigations_data=risk_mitigations(),
+                risk_resolutions_data=risk_resolutions(
+                    resolutions=[
+                        resolution_with_attempts(
+                            [attempt_1_blocked, attempt_2_blocked, attempt_3_blocked],
+                            status="unresolved",
+                            owner_lane="worker-c",
+                            verified_by="qa-final",
+                            reviewed_by="review-final",
+                            blocked_recovery_data=blocked_recovery(include_supervising=True),
+                        )
+                    ]
+                ),
+            ),
+        )
+
+        expect_pass(
+            "blocked recovery attempt 2 passes",
+            write_run(
+                temp / "risk-resolutions-recovered-attempt-2",
+                verdict="pass-with-risks",
+                lanes=recovery_attempt_2_lanes,
+                risk_resolutions_data=risk_resolutions(
+                    resolutions=[
+                        resolution_with_attempts([attempt_1_blocked, attempt_2_success])
+                    ]
+                ),
+            ),
+        )
+
+        expect_pass(
+            "blocked recovery attempt 3 passes",
+            write_run(
+                temp / "risk-resolutions-recovered-attempt-3",
+                verdict="pass-with-risks",
+                lanes=recovery_attempt_3_lanes,
+                risk_resolutions_data=risk_resolutions(
+                    resolutions=[
+                        resolution_with_attempts(
+                            [attempt_1_blocked, attempt_2_blocked, attempt_3_success],
+                            owner_lane="worker-c",
+                            verified_by="qa-final",
+                            reviewed_by="review-final",
+                            blocked_recovery_data=blocked_recovery(include_supervising=True),
+                        )
+                    ]
+                ),
             ),
         )
 

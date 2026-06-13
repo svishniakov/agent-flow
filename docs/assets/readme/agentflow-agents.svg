@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 740" role="img" aria-label="AgentFlow 25 role cards">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 740" role="img" aria-label="AgentFlow 27 role cards">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#343431"/>
@@ -17,7 +17,7 @@
   </defs>
   <rect width="1200" height="740" rx="30" fill="url(#bg)"/>
   <rect width="1200" height="740" rx="30" fill="url(#grid)"/>
-  <text x="70" y="76" class="t" font-size="34" font-weight="900">25 role files</text>
+  <text x="70" y="76" class="t" font-size="34" font-weight="900">27 role files</text>
   <text x="70" y="112" class="m" font-size="18">Every role has narrow ownership, model/reasoning config, skills, tools, and handoff rules.</text>
   <line x1="70" y1="148" x2="1130" y2="148" stroke="#f9f9f7" stroke-opacity=".1"/>
 

@@ -245,6 +245,19 @@ Resolution Gate follows Mitigation Gate for every traceable run with `Verdict: p
 - when `lane-map.json` exists, QA handoff must include `Risk Resolution Verification` and every risk id;
 - when `lane-map.json` exists, reviewer handoff must include `Risk Resolution Review` and every risk id.
 
+Blocked Resolution Gate is part of Resolution Gate and uses the same `risk-resolutions.json` artifact:
+
+- flat resolution records remain valid when no blocked recovery is needed;
+- when `attempts` is present, attempt numbers must be contiguous from `1`, at most three attempts are allowed, and statuses must be `fixed`, `mitigated`, `contained`, `blocked`, or `unresolved`;
+- every blocked attempt records `blocked_lesson`, `forbidden_repeat`, `rollback`, `blocked_reason`, evidence, verification, `verified_by`, and `reviewed_by`;
+- `rollback.status=not-possible` is allowed only for final `blocked` or `fail`;
+- attempt 1 blocked requires a Blocked Recovery Path with Senior QA `Senior QA Test Design Review`, then architect `Resolution Architect Review`; attempt 2 owner lane must run after that architect lane;
+- attempt 2 blocked requires `Supervising Architect Review`; attempt 3 owner lane must run after that supervising architect lane;
+- Senior QA recovery lanes use `type=qa`, `role=senior-qa-verifier`, successful status, and handoff coverage for the risk id;
+- architect recovery lanes use `type=architecture`, `role=architect`, `critical=false`, successful status, `Resolution Architect Review`, and the worker instruction;
+- supervising architect recovery lanes use `type=architecture`, `role=supervising-architect`, `critical=false`, successful status, `Supervising Architect Review`, and the final retry instruction or final blocker;
+- a third blocked attempt forces final `blocked` or `fail`; it cannot close as `pass-with-risks`.
+
 For final handoff, `validate-run.py` also requires:
 
 - exactly one `Verdict:` field in `final.md`;

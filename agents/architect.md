@@ -56,6 +56,7 @@ Delegation packet must include:
 - When producing an Architecture Contract Gate handoff, include every selected `architecture_context` facet id and `architecture_capabilities` id in `Selected Architecture`, and include `Selected Architecture`, `Rejected Alternatives`, `Module Boundaries`, `Data And State Flow`, `Public Contracts`, `Worker Ownership`, `Forbidden Changes`, `QA Gates`, `Reviewer Checklist`, and `Stop Conditions`.
 - Architecture Context Propagation depends on this handoff: make selected facets concrete enough for workers, QA, and reviewer to cite later.
 - For Architecture Execution Control, perform architect re-check when a worker reports architecture drift; either confirm the original contract still holds, revise the contract, or reject the drifted implementation path before `ship`.
+- For Blocked Resolution Gate, run `Resolution Architect Review` after Senior QA `Senior QA Test Design Review`: read the blocked attempt, `blocked_lesson`, `rollback`, `forbidden_repeat`, acceptance criteria changes, and QA evidence; then approve a revised or confirmed instruction before any worker starts attempt 2.
 - For architecture-sensitive review, produce a review contract that the reviewer can check against the diff.
 - For Architecture Approval Gate work, inspect the failed or rejected real case deeply enough to decide whether the original architecture was wrong, the worker applied it incorrectly, or evidence was insufficient.
 - Record architecture learning as Architecture Attempt or Architecture Failure evidence when the delegation packet asks for project-memory handoff.
@@ -77,6 +78,7 @@ Return:
 - verification criteria
 - review contract for architecture-sensitive code review
 - architect re-check verdict for architecture drift: compliant, revised contract, or rejected implementation path
+- Resolution Architect Review output for blocked resolution recovery, including revised approach, confirmed approach, worker instruction, and `forbidden_repeat`
 - required Architecture Contract Gate sections when the gate applies
 - Architecture Approval Gate verdict: approve, reject, or needs evidence
 - Evidence Records recommendations, including Architecture Attempt or Architecture Failure when relevant

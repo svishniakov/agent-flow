@@ -65,7 +65,7 @@ Inside Agent Flow, the orchestrator owns the outcome:
 7. Keep scope bounded.
 8. Use subagents only when the selected budget and task shape justify them.
 9. Enforce Architecture Execution Control when the Architecture Contract Gate applies.
-10. Enforce Mitigation Gate and Resolution Gate before any `pass-with-risks` final verdict.
+10. Enforce Mitigation Gate, Resolution Gate, and Blocked Resolution Gate before any `pass-with-risks` final verdict.
 11. Verify evidence before any completion claim.
 12. Close the current project-memory task status before final handoff.
 13. Return the final answer with residual risks.
@@ -153,6 +153,8 @@ Architecture Context Propagation is required when worker lanes exist under the A
 Mitigation Gate is required for every traceable run with `Verdict: pass-with-risks`. The orchestrator writes `risk-mitigations.json`; every risk must be `identified`, include concrete `problem`, `impact`, `affected_scope`, evidence, and `next_gate=resolution`. `final.md` must include `Risk Mitigations` with every risk id. If `lane-map.json` exists, reviewer must write `Risk Mitigation Review` and cover every risk id.
 
 Resolution Gate is required after Mitigation Gate for every traceable run with `Verdict: pass-with-risks`. The orchestrator writes `risk-resolutions.json`; every identified risk must have a resolution record with `resolution_type`, concrete action, evidence, verification, and status `fixed`, `mitigated`, or `contained`. `final.md` must include `Risk Resolutions` with every risk id. If `lane-map.json` exists, QA writes `Risk Resolution Verification`, reviewer writes `Risk Resolution Review`, and both cover every resolved risk id. `unresolved` is allowed only for `blocked` or `fail`.
+
+Blocked Resolution Gate runs inside Resolution Gate when a resolution attempt blocks. The blocked attempt records `blocked_lesson`, `rollback`, `forbidden_repeat`, and the Blocked Recovery Path. Attempt 1 blocked routes to Senior QA `Senior QA Test Design Review`, then architect `Resolution Architect Review`, then attempt 2. Attempt 2 blocked routes to `Supervising Architect Review`, then attempt 3. A third blocked attempt forces final `blocked` or `fail`; it cannot become `pass-with-risks`.
 
 The Architecture Approval Gate handles rejected, regressed, or uncertain architecture attempts. The orchestrator sends the real case back for deeper architecture analysis, then lets workers retry only against the approved steps and records the resulting evidence.
 

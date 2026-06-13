@@ -8,7 +8,7 @@ AgentFlow is a Codex skill for scoped agent workflows. Put `Agent Flow`, `AgentF
 
 Target: Codex with OpenAI models only. Claude Code, Cursor, Hermes, and other hosts are outside this package scope.
 
-It ships 25 roles and tracks 138 role skill dependencies.
+It ships 27 roles and tracks 138 role skill dependencies.
 
 ### Contract
 
@@ -61,7 +61,7 @@ PASS all Agent Flow checks
 | Path | Purpose |
 | --- | --- |
 | `SKILL.md` | Codex skill entrypoint and invocation contract |
-| `agents/*.md` | 25 bundled role prompts |
+| `agents/*.md` | 27 bundled role prompts |
 | `agents/agent-identities.json` | stable role identities for traces and handoffs |
 | `references/architecture-matrix.md` | reusable architecture matrix facets for product, surface, stack, risk, and verification context |
 | `references/architecture-capability-router.md` | Architecture Capability Router and Soft Skill Binding contract |
@@ -84,6 +84,7 @@ PASS all Agent Flow checks
 - Task status is a hard completion signal: after successful verification or product commit, a completed current task must move from `in_progress` to `done`.
 - Mitigation Gate is required for `pass-with-risks`: `risk-mitigations.json`, `Risk Mitigations`, and reviewer `Risk Mitigation Review` must identify every risk and set `next_gate=resolution`.
 - Resolution Gate is required after Mitigation Gate for `pass-with-risks`: `risk-resolutions.json`, `Risk Resolutions`, QA `Risk Resolution Verification`, and reviewer `Risk Resolution Review` must show what was done now and close each risk as `fixed`, `mitigated`, or `contained`.
+- Blocked Resolution Gate keeps blocked resolution attempts inside the Resolution Gate: blocked attempts record `blocked_lesson`, `rollback`, and a Blocked Recovery Path before any retry.
 - Evidence Records in `implementation-notes.md` are structured local learning data, not free-form notes.
 - Local Best Practice auto gate can reuse a learned approach only after analyzer confirmation, clear context match, no matching `Do not reuse when`, no external write, and fresh verification.
 - A failed or regressed reuse demotes or freezes the practice until architecture review resolves it.
@@ -112,6 +113,8 @@ Architecture Context Propagation then carries that context through execution: wo
 Mitigation Gate applies to every traceable run that ends with `Verdict: pass-with-risks`. The run must include `risk-mitigations.json` with at least one `identified` risk, concrete `problem`, `impact`, `affected_scope`, evidence, and `next_gate=resolution`. `final.md` must include `Risk Mitigations` and every risk id. When `lane-map.json` exists, a successful reviewer lane must include `Risk Mitigation Review` and every risk id.
 
 Resolution Gate follows Mitigation Gate for every `Verdict: pass-with-risks`. The run must include `risk-resolutions.json`; every identified risk must have a resolution record with `resolution_type`, concrete action, evidence, verification, and status `fixed`, `mitigated`, or `contained`. `final.md` must include `Risk Resolutions` and every risk id. When `lane-map.json` exists, QA writes `Risk Resolution Verification`, reviewer writes `Risk Resolution Review`, and both cover every resolved risk id. `unresolved` is allowed only for `blocked` or `fail`.
+
+Blocked Resolution Gate extends `risk-resolutions.json` when an attempt blocks. Attempt 1 blocked requires `blocked_lesson`, `rollback`, Senior QA `Senior QA Test Design Review`, and architect `Resolution Architect Review` before attempt 2. If attempt 2 blocks, `Supervising Architect Review` is required before attempt 3. A third blocked attempt can end only as `blocked` or `fail`; `pass-with-risks` stays blocked.
 
 ### Dependency Gate
 
@@ -179,7 +182,7 @@ AgentFlow - Codex skill для задач, где агенту нужен упр
 
 Пакет рассчитан на Codex и модели OpenAI. Claude Code, Cursor, Hermes и другие hosts не поддерживаются.
 
-В репозитории есть 25 ролей и 138 зависимостей role skills.
+В репозитории есть 27 ролей и 138 зависимостей role skills.
 
 ### Контракт
 
@@ -232,7 +235,7 @@ PASS all Agent Flow checks
 | Файл | Назначение |
 | --- | --- |
 | `SKILL.md` | точка входа skill и правило запуска |
-| `agents/*.md` | 25 встроенных prompts ролей |
+| `agents/*.md` | 27 встроенных prompts ролей |
 | `agents/agent-identities.json` | стабильные identities ролей для trace и handoff |
 | `references/architecture-matrix.md` | переиспользуемая Architecture Matrix по типу продукта, приложению, стеку, рискам и проверкам |
 | `references/architecture-capability-router.md` | Architecture Capability Router и Soft Skill Binding |
@@ -254,6 +257,7 @@ PASS all Agent Flow checks
 - Статус задачи - обязательный сигнал завершения: после успешной проверки или product commit закрытая текущая задача должна перейти из `in_progress` в `done`.
 - Mitigation Gate обязателен для `pass-with-risks`: `risk-mitigations.json`, `Risk Mitigations` и reviewer `Risk Mitigation Review` должны идентифицировать каждый риск и указать `next_gate=resolution`.
 - Resolution Gate обязателен после Mitigation Gate для `pass-with-risks`: `risk-resolutions.json`, `Risk Resolutions`, QA `Risk Resolution Verification` и reviewer `Risk Resolution Review` показывают, что агент сделал сейчас, и закрывают каждый риск как `fixed`, `mitigated` или `contained`.
+- Blocked Resolution Gate остаётся внутри Resolution Gate: заблокированная попытка фиксирует `blocked_lesson`, `rollback` и Blocked Recovery Path перед новым заходом.
 - Evidence Records в `implementation-notes.md` - структурированные данные для локального обучения, а не свободные заметки.
 - Local Best Practice auto gate переиспользует подход только после подтверждения analyzer, ясного совпадения контекста, отсутствия совпадения с `Do not reuse when`, отсутствия внешней записи и свежей проверки.
 - Если переиспользованный подход дал failure или regression, practice демотируется или замораживается до архитектурного разбора.
@@ -282,6 +286,8 @@ Architecture Context Propagation проводит этот контекст че
 Mitigation Gate применяется к каждому traceable run с `Verdict: pass-with-risks`. В run должен быть `risk-mitigations.json` минимум с одним `identified` риском, конкретными `problem`, `impact`, `affected_scope`, evidence и `next_gate=resolution`. `final.md` содержит секцию `Risk Mitigations` и каждый risk id. Если есть `lane-map.json`, успешная reviewer lane пишет `Risk Mitigation Review` и покрывает каждый risk id.
 
 Resolution Gate идёт сразу после Mitigation Gate для каждого `Verdict: pass-with-risks`. В run должен быть `risk-resolutions.json`; каждый identified risk получает resolution record с `resolution_type`, сделанным действием, evidence, verification и статусом `fixed`, `mitigated` или `contained`. `final.md` содержит `Risk Resolutions` и каждый risk id. Если есть `lane-map.json`, QA пишет `Risk Resolution Verification`, reviewer пишет `Risk Resolution Review`, и обе секции покрывают каждый resolved risk id. `unresolved` допустим только для `blocked` или `fail`.
+
+Blocked Resolution Gate расширяет `risk-resolutions.json`, когда resolution-попытка блокируется. После первой блокировки нужны `blocked_lesson`, `rollback`, Senior QA `Senior QA Test Design Review` и architect `Resolution Architect Review`; только после этого worker может идти во вторую попытку. Если вторая попытка тоже блокируется, перед третьей нужен `Supervising Architect Review`. Третья заблокированная попытка завершается только как `blocked` или `fail`; `pass-with-risks` запрещён.
 
 ### Dependency Gate
 

@@ -54,6 +54,7 @@ Delegation packet must include:
 - When Architecture Artifact Authoring Automation created a reviewer skeleton, fill reviewer handoff and evidence yourself and remove every reviewer-owned `TODO(agent):` before readiness.
 - When Mitigation Gate applies, write `Risk Mitigation Review` and mention every `identified` risk id from `risk-mitigations.json`; confirm identification and evidence only, not resolution.
 - When Resolution Gate applies, write `Risk Resolution Review`, mention every risk id from `risk-resolutions.json`, check `resolution_type`, evidence, QA `Risk Resolution Verification`, and final `Risk Resolutions`; reject `pass-with-risks` if a risk remains `unresolved` instead of `fixed`, `mitigated`, or `contained`.
+- When Blocked Resolution Gate applies, review Blocked Recovery Path, blocked `attempts`, `blocked_lesson`, `rollback`, `forbidden_repeat`, Senior QA `Senior QA Test Design Review`, architect `Resolution Architect Review`, and `Supervising Architect Review` before accepting any retry or final blocked/fail verdict.
 - Look for behavioral regressions and missing evidence first.
 - Check Evidence Records when the implementation reused a local practice or claims an approach is proven.
 - Classify findings by severity with file/line references when possible.
@@ -73,6 +74,7 @@ Return:
 - full selected `architecture_capabilities` coverage, mismatches, or unverified capability constraints
 - Risk Mitigation Review coverage for `Risk Mitigations`, `identified` risks, and `next_gate`
 - Risk Resolution Review coverage for `Risk Resolutions`, `Risk Resolution Verification`, `resolution_type`, `fixed`, `mitigated`, `contained`, and any `unresolved` record
+- Blocked Resolution Gate coverage for blocked attempts, `blocked_lesson`, `rollback`, `forbidden_repeat`, `Senior QA Test Design Review`, `Resolution Architect Review`, and `Supervising Architect Review`
 - Evidence Records gaps or regression-demotion risks, if any
 - test gaps
 - release readiness verdict

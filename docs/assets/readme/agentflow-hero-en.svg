@@ -46,7 +46,7 @@
     <text x="304" y="118" class="t" font-size="20" font-weight="800">.agent-work</text>
     <text x="304" y="144" class="m" font-size="14">tasks / lessons / notes</text>
     <text x="514" y="82" class="f" font-size="12" font-weight="800" letter-spacing="2">ROLES</text>
-    <text x="514" y="114" class="t" font-size="22" font-weight="850">25 agents</text>
+    <text x="514" y="114" class="t" font-size="22" font-weight="850">27 agents</text>
     <text x="514" y="144" class="m" font-size="14">model · reasoning · skills</text>
     <text x="770" y="88" class="f" font-size="12" font-weight="800" letter-spacing="2">DONE</text>
     <path d="M780 124l24 24l58-66" fill="none" stroke="#f9f9f7" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>

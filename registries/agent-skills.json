@@ -139,7 +139,8 @@
       "aliases": [],
       "tier": "optional",
       "required_by_roles": [
-        "ai-slops-hunter"
+        "ai-slops-hunter",
+        "supervising-architect"
       ],
       "install": {
         "source_type": "manual",
@@ -296,6 +297,7 @@
         "python-worker",
         "qa-verifier",
         "reviewer",
+        "senior-qa-verifier",
         "visual-qa"
       ],
       "install": {
@@ -321,7 +323,8 @@
       "aliases": [],
       "tier": "optional",
       "required_by_roles": [
-        "architect"
+        "architect",
+        "supervising-architect"
       ],
       "install": {
         "source_type": "manual",
@@ -825,7 +828,8 @@
       "aliases": [],
       "tier": "optional",
       "required_by_roles": [
-        "architect"
+        "architect",
+        "supervising-architect"
       ],
       "install": {
         "source_type": "manual",
@@ -1290,7 +1294,8 @@
       "aliases": [],
       "tier": "optional",
       "required_by_roles": [
-        "qa-verifier"
+        "qa-verifier",
+        "senior-qa-verifier"
       ],
       "install": {
         "source_type": "manual",
@@ -2295,7 +2300,8 @@
       "aliases": [],
       "tier": "optional",
       "required_by_roles": [
-        "architect"
+        "architect",
+        "supervising-architect"
       ],
       "install": {
         "source_type": "manual",
@@ -3520,6 +3526,7 @@
         "qa-verifier",
         "rag-retrieval-engineer",
         "reviewer",
+        "senior-qa-verifier",
         "typescript-worker"
       ],
       "install": {

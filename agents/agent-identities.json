@@ -49,6 +49,16 @@
       "stable_agent_slug": "qa-verifier"
     },
     {
+      "role": "senior-qa-verifier",
+      "stable_agent_name": "Senior QA Verifier",
+      "stable_agent_slug": "senior-qa-verifier"
+    },
+    {
+      "role": "supervising-architect",
+      "stable_agent_name": "Supervising Architect",
+      "stable_agent_slug": "supervising-architect"
+    },
+    {
       "role": "ai-slops-hunter",
       "stable_agent_name": "AI Slop Hunter",
       "stable_agent_slug": "ai-slops-hunter"

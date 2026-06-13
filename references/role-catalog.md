@@ -29,6 +29,13 @@ Use when: Work touches module boundaries, APIs, storage, queues, integrations, m
 Do not use when: The plan is already narrow enough for a worker.
 Overlap notes: Use `backend-worker`, `frontend-worker`, or language workers for execution after architecture is settled. Use `reviewer` for independent findings against the architect-owned contract.
 
+### supervising-architect
+
+Status: active
+Use when: A second Resolution Gate attempt is blocked and the ordinary architect's recovery instruction needs independent root-cause, reasoning, and approach review before a final retry.
+Do not use when: Only the first resolution attempt is blocked, or when Senior QA has not yet reviewed acceptance criteria and test design.
+Overlap notes: Use `architect` after Senior QA for attempt 2. Use `supervising-architect` only after attempt 2 blocks; it supervises architecture reasoning and final retry instructions, not worker execution.
+
 ### researcher
 
 Status: active
@@ -56,6 +63,13 @@ Status: active
 Use when: Tests, logs, reproduction, browser/simulator smoke, regression checks, and readiness evidence are needed.
 Do not use when: The task is architectural critique or code review without execution evidence.
 Overlap notes: Use `reviewer` for risk analysis after QA evidence; use workers for fixes.
+
+### senior-qa-verifier
+
+Status: active
+Use when: A Resolution Gate attempt is blocked and the acceptance criteria, QA adequacy, test cases, edge cases, negative cases, and re-check design need independent Senior QA review before architect re-planning.
+Do not use when: The resolution has not blocked, or when the task needs implementation or architecture approach selection.
+Overlap notes: Use `qa-verifier` for ordinary verification. Use `senior-qa-verifier` to redesign the verification matrix, then route findings to `architect`.
 
 ### ai-slops-hunter
 
