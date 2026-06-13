@@ -68,6 +68,7 @@ COMMIT_HASH_PATTERN = re.compile(r"\b[0-9a-f]{7,40}\b", re.IGNORECASE)
 COMMIT_DECLARATION_PATTERN = re.compile(
     r"(?i)(^\s*(?:[-*]\s*)?(?:product\s+)?commit\s*:|committed\s+as)"
 )
+KEBAB_CASE_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 ARCHITECTURE_CONTRACT_SECTIONS = [
     "Selected Architecture",
     "Rejected Alternatives",
@@ -107,6 +108,35 @@ ARCHITECTURE_COMPLIANCE_SECTION = "Architecture Compliance"
 ARCHITECTURE_INVARIANTS_SECTION = "Architecture Invariants"
 ARCHITECTURE_MATRIX_MISMATCHES_SECTION = "Architecture Matrix Mismatches"
 CONTRACT_DRIFT_SECTION = "Contract Drift"
+RISK_MITIGATIONS_PATH = "risk-mitigations.json"
+RISK_MITIGATIONS_SECTION = "Risk Mitigations"
+RISK_MITIGATION_REVIEW_SECTION = "Risk Mitigation Review"
+RISK_MITIGATION_STATUS = "identified"
+RISK_MITIGATION_NEXT_GATE = "resolution"
+RISK_MITIGATION_CATEGORIES = {
+    "verification-gap",
+    "architecture-drift",
+    "incomplete-implementation",
+    "test-gap",
+    "security-risk",
+    "data-risk",
+    "ux-risk",
+    "dependency-risk",
+    "release-risk",
+    "unknown",
+}
+RISK_MITIGATION_REQUIRED_FIELDS = [
+    "id",
+    "status",
+    "detected_by",
+    "category",
+    "problem",
+    "impact",
+    "affected_scope",
+    "evidence",
+    "next_gate",
+    "owner_lane",
+]
 ARCHITECTURE_CONTEXT_AXES = {
     "product_context": "Product Context",
     "application_surface": "Application Surface",
@@ -539,6 +569,147 @@ def validate_no_agent_placeholders(run_dir: Path, lanes: list[object]) -> list[s
     return errors
 
 
+def risk_id(value: object) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
+def validate_risk_mitigation_text_field(risk: dict, field: str, label: str) -> list[str]:
+    value = risk.get(field)
+    if not isinstance(value, str) or not value.strip():
+        return [f"risk-mitigations.json {label}.{field} must be a non-empty string"]
+    return []
+
+
+def validate_risk_mitigation_evidence(run_dir: Path, value: object, label: str) -> list[str]:
+    errors: list[str] = []
+    if not isinstance(value, list) or not value:
+        return [f"risk-mitigations.json {label}.evidence must be a non-empty array"]
+    for index, path in enumerate(value):
+        if not isinstance(path, str) or not path:
+            errors.append(
+                f"risk-mitigations.json {label}.evidence[{index}] must be a non-empty string"
+            )
+            continue
+        if not resolve_run_path(run_dir, path).exists():
+            errors.append(
+                f"risk-mitigations.json {label}.evidence[{index}] not found: {path}"
+            )
+    return errors
+
+
+def validate_risk_mitigations(
+    run_dir: Path,
+    final_verdict: str | None,
+) -> tuple[list[dict], list[str]]:
+    path = run_dir / RISK_MITIGATIONS_PATH
+    required = final_verdict == "pass-with-risks"
+    if not path.exists():
+        if required:
+            return [], [f"{RISK_MITIGATIONS_PATH} is required for Verdict: pass-with-risks"]
+        return [], []
+
+    data, load_errors = load_json(path, RISK_MITIGATIONS_PATH)
+    if load_errors:
+        return [], load_errors
+    if not isinstance(data, dict):
+        return [], [f"{RISK_MITIGATIONS_PATH} must be a JSON object"]
+
+    errors: list[str] = []
+    if data.get("version") != 1:
+        errors.append(f"{RISK_MITIGATIONS_PATH} field 'version' must be 1")
+
+    risks = data.get("risks")
+    if not isinstance(risks, list) or not risks:
+        errors.append(f"{RISK_MITIGATIONS_PATH} field 'risks' must be a non-empty array")
+        return [], errors
+
+    parsed_risks: list[dict] = []
+    seen_ids: set[str] = set()
+    for index, risk in enumerate(risks):
+        label = f"risks[{index}]"
+        if not isinstance(risk, dict):
+            errors.append(f"{RISK_MITIGATIONS_PATH} {label} must be an object")
+            continue
+
+        for field in RISK_MITIGATION_REQUIRED_FIELDS:
+            if field not in risk:
+                errors.append(f"{RISK_MITIGATIONS_PATH} {label} missing field: {field}")
+
+        current_id = risk_id(risk.get("id"))
+        if current_id is None:
+            errors.append(f"{RISK_MITIGATIONS_PATH} {label}.id must be a non-empty string")
+        elif not KEBAB_CASE_PATTERN.fullmatch(current_id):
+            errors.append(f"{RISK_MITIGATIONS_PATH} {label}.id must be kebab-case")
+        elif current_id in seen_ids:
+            errors.append(f"{RISK_MITIGATIONS_PATH} duplicate risk id: {current_id}")
+        else:
+            seen_ids.add(current_id)
+
+        if risk.get("status") != RISK_MITIGATION_STATUS:
+            errors.append(f"{RISK_MITIGATIONS_PATH} {label}.status must be identified")
+
+        category = risk.get("category")
+        if category not in RISK_MITIGATION_CATEGORIES:
+            allowed = ", ".join(sorted(RISK_MITIGATION_CATEGORIES))
+            errors.append(
+                f"{RISK_MITIGATIONS_PATH} {label}.category invalid "
+                f"(expected one of: {allowed})"
+            )
+
+        for field in ["detected_by", "problem", "impact", "affected_scope", "owner_lane"]:
+            errors.extend(validate_risk_mitigation_text_field(risk, field, label))
+
+        errors.extend(validate_risk_mitigation_evidence(run_dir, risk.get("evidence"), label))
+
+        if risk.get("next_gate") != RISK_MITIGATION_NEXT_GATE:
+            errors.append(f"{RISK_MITIGATIONS_PATH} {label}.next_gate must be resolution")
+
+        parsed_risks.append(risk)
+
+    return parsed_risks, errors
+
+
+def risk_mitigation_ids(risks: list[dict]) -> list[str]:
+    ids: list[str] = []
+    for risk in risks:
+        current_id = risk_id(risk.get("id"))
+        if current_id is not None:
+            ids.append(current_id)
+    return ids
+
+
+def validate_final_risk_mitigation_coverage(final_path: Path, risk_ids: list[str]) -> list[str]:
+    if not final_path.exists() or not final_path.is_file():
+        return []
+
+    missing = missing_markdown_headings(final_path, [RISK_MITIGATIONS_SECTION])
+    if missing:
+        return [f"final.md missing section: {section}" for section in missing]
+
+    section_text = markdown_section_text(final_path.read_text(encoding="utf-8"), RISK_MITIGATIONS_SECTION)
+    return [
+        f"final.md Risk Mitigations missing risk id: {risk_id_value}"
+        for risk_id_value in risk_ids
+        if not contains_facet_id(section_text, risk_id_value)
+    ]
+
+
+def validate_risk_mitigation_lane_references(
+    risks: list[dict],
+    lane_ids: set[str],
+) -> list[str]:
+    errors: list[str] = []
+    for index, risk in enumerate(risks):
+        label = f"risks[{index}]"
+        for field in ["detected_by", "owner_lane"]:
+            value = risk.get(field)
+            if isinstance(value, str) and value and value not in lane_ids:
+                errors.append(
+                    f"{RISK_MITIGATIONS_PATH} {label}.{field} lane not found: {value}"
+                )
+    return errors
+
+
 def load_lane_trace_events(run_dir: Path, role: str, lane_id: str) -> tuple[list[dict], list[str]]:
     trace_path = run_dir / "agents" / role / "trace.jsonl"
     if not trace_path.exists():
@@ -897,7 +1068,7 @@ def validate_architecture_compliance_shape(
     return compliance, errors
 
 
-def validate_lane_map(run_dir: Path) -> list[str]:
+def validate_lane_map(run_dir: Path, mitigation_risks: list[dict] | None = None) -> list[str]:
     lane_map_path = run_dir / "lane-map.json"
     data, errors = load_json(lane_map_path, "lane-map.json")
     if errors or data is None:
@@ -989,6 +1160,8 @@ def validate_lane_map(run_dir: Path) -> list[str]:
     successful_worker_lanes: list[tuple[str, int, str | None]] = []
     drifting_worker_lanes: list[tuple[str, int | None, str | None]] = []
     worker_lane_count = 0
+    mitigation_risks = mitigation_risks or []
+    mitigation_risk_ids = risk_mitigation_ids(mitigation_risks)
 
     for index, lane in enumerate(lanes):
         if not isinstance(lane, dict):
@@ -1388,6 +1561,39 @@ def validate_lane_map(run_dir: Path) -> list[str]:
                         "recheck_lane must run after drifting worker lane"
                     )
 
+    if final_verdict == "pass-with-risks":
+        errors.extend(validate_risk_mitigation_lane_references(mitigation_risks, lane_ids))
+
+        if not successful_reviewer_lanes:
+            errors.append(
+                "lane-map.json: Verdict pass-with-risks requires successful "
+                "reviewer lane for Mitigation Gate"
+            )
+        for lane_id, _wave, handoff in successful_reviewer_lanes:
+            if not isinstance(handoff, str) or not handoff:
+                errors.append(
+                    f"lane-map.json: lane {lane_id} successful reviewer lane "
+                    "requires handoff for Mitigation Gate"
+                )
+                continue
+            handoff_path = resolve_run_path(run_dir, handoff)
+            for section in missing_markdown_headings(
+                handoff_path,
+                [RISK_MITIGATION_REVIEW_SECTION],
+            ):
+                errors.append(f"lane-map.json: lane {lane_id} handoff missing section: {section}")
+            review_text = markdown_section_text(
+                handoff_path.read_text(encoding="utf-8") if handoff_path.exists() else "",
+                RISK_MITIGATION_REVIEW_SECTION,
+            )
+            for risk_id_value in mitigation_risk_ids:
+                if not contains_facet_id(review_text, risk_id_value):
+                    errors.append(
+                        f"lane-map.json: lane {lane_id} reviewer handoff "
+                        "Risk Mitigation Review missing risk id: "
+                        f"{risk_id_value}"
+                    )
+
     if final_verdict == "ship":
         for lane_id, lane in lane_by_id.items():
             if lane.get("critical") is not True:
@@ -1442,8 +1648,20 @@ def validate_compact_run(run_dir: Path, allow_no_check: bool, allow_pending: boo
         errors.append("artifacts exists but is not a directory")
 
     final_path = run_dir / "final.md"
+    final_verdict = read_single_field(final_path, "Verdict") if not allow_pending else None
     if not allow_pending and final_path.exists() and final_path.is_file():
         errors.extend(validate_verdict(final_path))
+        mitigation_risks, mitigation_errors = validate_risk_mitigations(run_dir, final_verdict)
+        errors.extend(mitigation_errors)
+        if final_verdict == "pass-with-risks":
+            errors.extend(
+                validate_final_risk_mitigation_coverage(
+                    final_path,
+                    risk_mitigation_ids(mitigation_risks),
+                )
+            )
+    else:
+        mitigation_risks = []
 
     has_timeline = (run_dir / "timeline.jsonl").exists()
     has_agents = (run_dir / "agents").exists()
@@ -1454,7 +1672,7 @@ def validate_compact_run(run_dir: Path, allow_no_check: bool, allow_pending: boo
         if not allow_pending:
             errors.extend(validate_final_timeline_event(run_dir, require_timeline=True))
 
-    errors.extend(validate_lane_map(run_dir))
+    errors.extend(validate_lane_map(run_dir, mitigation_risks))
 
     return errors
 
@@ -1482,9 +1700,22 @@ def validate_full_run(
     errors.extend(validate_jsonl(run_dir / "timeline.jsonl"))
     errors.extend(validate_timeline_sequence(run_dir))
     errors.extend(validate_agent_traces(run_dir))
-    errors.extend(validate_lane_map(run_dir))
     if not allow_pending:
         errors.extend(validate_final_timeline_event(run_dir, require_timeline=True))
+        final_verdict = read_single_field(run_dir / "final.md", "Verdict")
+        mitigation_risks, mitigation_errors = validate_risk_mitigations(run_dir, final_verdict)
+        errors.extend(mitigation_errors)
+        if final_verdict == "pass-with-risks":
+            errors.extend(
+                validate_final_risk_mitigation_coverage(
+                    run_dir / "final.md",
+                    risk_mitigation_ids(mitigation_risks),
+                )
+            )
+    else:
+        mitigation_risks = []
+
+    errors.extend(validate_lane_map(run_dir, mitigation_risks))
 
     if require_handoff and not list((run_dir / "handoffs").glob("*.md")):
         errors.append("no handoff markdown files")

@@ -52,6 +52,7 @@ Delegation packet must include:
 - When Architecture Artifact Authoring Automation created a QA skeleton, fill the QA handoff and evidence yourself and remove every QA-owned `TODO(agent):` before readiness.
 - When Architecture Context Propagation applies, cover selected `risk_gates` and `verification_gates` explicitly in `Architecture Invariants`.
 - When Architecture Execution Control applies, run after worker lanes and any architect re-check; record `Architecture Invariants` with covered boundaries, public contracts, forbidden changes, and unverified areas.
+- When Mitigation Gate applies, provide concrete evidence for each `identified` risk, make sure the final `Risk Mitigations` section can cite that evidence, and keep the risk pointed to `next_gate=resolution`; do not claim it is resolved in this gate.
 - Exercise user workflows when UI behavior is claimed.
 - Report pass, pass-with-risks, fail, or blocked.
 
@@ -66,6 +67,7 @@ Return:
 - Architecture Invariants coverage when architecture contract is required
 - `architecture_context` `risk_gates` and `verification_gates` covered or left unverified
 - selected `architecture_capabilities` coverage or unverified capability constraints
+- Mitigation Gate evidence for `risk-mitigations.json`, including `identified` risk ids, evidence paths, `Risk Mitigations`, and reviewer `Risk Mitigation Review` inputs
 - verdict
 - unverified areas
 - next action

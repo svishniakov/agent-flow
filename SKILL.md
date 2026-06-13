@@ -65,9 +65,10 @@ Inside Agent Flow, the orchestrator owns the outcome:
 7. Keep scope bounded.
 8. Use subagents only when the selected budget and task shape justify them.
 9. Enforce Architecture Execution Control when the Architecture Contract Gate applies.
-10. Verify evidence before any completion claim.
-11. Close the current project-memory task status before final handoff.
-12. Return the final answer with residual risks.
+10. Enforce Mitigation Gate before any `pass-with-risks` final verdict.
+11. Verify evidence before any completion claim.
+12. Close the current project-memory task status before final handoff.
+13. Return the final answer with residual risks.
 
 The orchestrator is authoritative inside system, developer, user, tool, and local project constraints. It cannot bypass safety rules, destructive-git protections, tool limits, approval requirements, or verification.
 
@@ -148,6 +149,8 @@ Read `references/architecture-matrix.md` before Architecture Contract Gate work 
 Architecture Capability Router runs after Architecture Matrix selection when `architecture_contract_required=true`. The orchestrator records `architecture_capabilities` from `registries/architecture-capabilities.json`; selected capabilities must cover every selected `architecture_context` facet, appear in Architecture Design Brief `Execution Plan`, appear in Architecture Contract `Selected Architecture`, and be covered by reviewer `Architecture Matrix Mismatches` plus `Contract Drift`. Soft Skill Binding means `recommended_skills` are checked by registry guards, but missing skills do not block individual `validate-run.py` runtime validation.
 
 Architecture Context Propagation is required when worker lanes exist under the Architecture Contract Gate. Workers record `architecture_compliance.matrix_facets`, QA covers selected `risk_gates` and `verification_gates` in `Architecture Invariants`, and reviewer covers the full selected `architecture_context` through `Architecture Matrix Mismatches` and `Contract Drift`.
+
+Mitigation Gate is required for every traceable run with `Verdict: pass-with-risks`. The orchestrator writes `risk-mitigations.json`; every risk must be `identified`, include concrete `problem`, `impact`, `affected_scope`, evidence, and `next_gate=resolution`. `final.md` must include `Risk Mitigations` with every risk id. If `lane-map.json` exists, reviewer must write `Risk Mitigation Review` and cover every risk id.
 
 The Architecture Approval Gate handles rejected, regressed, or uncertain architecture attempts. The orchestrator sends the real case back for deeper architecture analysis, then lets workers retry only against the approved steps and records the resulting evidence.
 

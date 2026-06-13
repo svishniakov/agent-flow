@@ -141,6 +141,14 @@ the selected facets they actually touched and mention those facet ids in
 selected facet and selected capability id across `Architecture Matrix
 Mismatches` and `Contract Drift`.
 
+Mitigation Gate applies before any `pass-with-risks` final verdict. The
+orchestrator records identified risks in `risk-mitigations.json`; each risk
+keeps concrete `problem`, `impact`, `affected_scope`, evidence, and
+`next_gate=resolution`. QA supplies evidence for the identified risk. The final
+handoff lists every id in `Risk Mitigations`. Reviewer writes
+`Risk Mitigation Review` and confirms that every risk id is visible in the final handoff.
+Resolution is a later gate, not part of this step.
+
 When worker lanes exist under the Architecture Contract Gate, QA must run after
 the workers and any architect re-check, and its handoff must include
 `Architecture Invariants`. Reviewer must run after QA and write

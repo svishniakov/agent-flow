@@ -82,6 +82,7 @@ PASS all Agent Flow checks
 - Budget switching is internal; users do not choose workflow depth manually.
 - Dependency Gate is mandatory before new feature work: if another active task may affect the new one, the orchestrator stops and recommends waiting or merging the work into one coordinated run.
 - Task status is a hard completion signal: after successful verification or product commit, a completed current task must move from `in_progress` to `done`.
+- Mitigation Gate is required for `pass-with-risks`: `risk-mitigations.json`, `Risk Mitigations`, and reviewer `Risk Mitigation Review` must identify every risk and set `next_gate=resolution`.
 - Evidence Records in `implementation-notes.md` are structured local learning data, not free-form notes.
 - Local Best Practice auto gate can reuse a learned approach only after analyzer confirmation, clear context match, no matching `Do not reuse when`, no external write, and fresh verification.
 - A failed or regressed reuse demotes or freezes the practice until architecture review resolves it.
@@ -106,6 +107,8 @@ Architecture Artifact Authoring Automation lets `init-run.py --architecture-gate
 When the product or stack matters, the orchestrator writes `architecture_context` in `lane-map.json` with the six Architecture Matrix axes: `product_context`, `application_surface`, `architecture_pattern`, `stack_runtime`, `risk_gates`, and `verification_gates`. `validate-run.py` parses the allowed facet ids from `references/architecture-matrix.md` and checks that every selected facet appears in the architect's `Selected Architecture` section.
 
 Architecture Context Propagation then carries that context through execution: workers declare covered `matrix_facets`, QA covers selected `risk_gates` and `verification_gates`, and reviewer checks every selected facet through `Architecture Matrix Mismatches` and `Contract Drift`.
+
+Mitigation Gate applies to every traceable run that ends with `Verdict: pass-with-risks`. The run must include `risk-mitigations.json` with at least one `identified` risk, concrete `problem`, `impact`, `affected_scope`, evidence, and `next_gate=resolution`. `final.md` must include `Risk Mitigations` and every risk id. When `lane-map.json` exists, a successful reviewer lane must include `Risk Mitigation Review` and every risk id.
 
 ### Dependency Gate
 
@@ -246,6 +249,7 @@ PASS all Agent Flow checks
 - Budget выбирает оркестратор; пользователь не управляет глубиной workflow вручную.
 - Dependency Gate обязателен перед новой фичей: если другая активная задача может повлиять на неё, оркестратор останавливает старт и предлагает дождаться результата или объединить работы в один coordinated run.
 - Статус задачи - обязательный сигнал завершения: после успешной проверки или product commit закрытая текущая задача должна перейти из `in_progress` в `done`.
+- Mitigation Gate обязателен для `pass-with-risks`: `risk-mitigations.json`, `Risk Mitigations` и reviewer `Risk Mitigation Review` должны идентифицировать каждый риск и указать `next_gate=resolution`.
 - Evidence Records в `implementation-notes.md` - структурированные данные для локального обучения, а не свободные заметки.
 - Local Best Practice auto gate переиспользует подход только после подтверждения analyzer, ясного совпадения контекста, отсутствия совпадения с `Do not reuse when`, отсутствия внешней записи и свежей проверки.
 - Если переиспользованный подход дал failure или regression, practice демотируется или замораживается до архитектурного разбора.
@@ -270,6 +274,8 @@ Architecture Artifact Authoring Automation запускает `init-run.py --arc
 Если тип продукта или стек влияет на решение, оркестратор записывает `architecture_context` в `lane-map.json`: `product_context`, `application_surface`, `architecture_pattern`, `stack_runtime`, `risk_gates` и `verification_gates`. `validate-run.py` берёт допустимые facet ids из `references/architecture-matrix.md` и проверяет, что каждый выбранный facet попал в секцию `Selected Architecture`.
 
 Architecture Context Propagation проводит этот контекст через исполнение: workers указывают покрытые `matrix_facets`, QA покрывает выбранные `risk_gates` и `verification_gates`, а reviewer проверяет все выбранные facets через `Architecture Matrix Mismatches` и `Contract Drift`.
+
+Mitigation Gate применяется к каждому traceable run с `Verdict: pass-with-risks`. В run должен быть `risk-mitigations.json` минимум с одним `identified` риском, конкретными `problem`, `impact`, `affected_scope`, evidence и `next_gate=resolution`. `final.md` содержит секцию `Risk Mitigations` и каждый risk id. Если есть `lane-map.json`, успешная reviewer lane пишет `Risk Mitigation Review` и покрывает каждый risk id.
 
 ### Dependency Gate
 

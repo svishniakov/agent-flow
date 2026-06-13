@@ -50,6 +50,8 @@ ARCHITECTURE_COMPLIANCE_SECTION = "Architecture Compliance"
 ARCHITECTURE_INVARIANTS_SECTION = "Architecture Invariants"
 ARCHITECTURE_MATRIX_MISMATCHES_SECTION = "Architecture Matrix Mismatches"
 CONTRACT_DRIFT_SECTION = "Contract Drift"
+RISK_MITIGATIONS_SECTION = "Risk Mitigations"
+RISK_MITIGATION_REVIEW_SECTION = "Risk Mitigation Review"
 ARCHITECTURE_CONTEXT_AXES = [
     "product_context",
     "application_surface",
@@ -72,6 +74,7 @@ DEFAULT_ARCHITECTURE_CAPABILITIES = [
     "modular-monolith-architecture",
 ]
 DEFAULT_WORKER_MATRIX_FACETS = ["backend-service", "monolith"]
+DEFAULT_RISK_ID = "browser-proof-gap"
 OMIT = object()
 DEFAULT = object()
 
@@ -251,10 +254,11 @@ def default_qa_handoff_bodies(
 def default_reviewer_handoff_bodies(
     context: dict[str, Any] | None = None,
     capabilities: list[str] | None = None,
+    risk_ids: list[str] | None = None,
 ) -> dict[str, str]:
     facets = architecture_context_facets(context)
     selected_capabilities = DEFAULT_ARCHITECTURE_CAPABILITIES if capabilities is None else capabilities
-    return {
+    bodies = {
         ARCHITECTURE_MATRIX_MISMATCHES_SECTION: (
             "Checked facets:\n"
             + facet_lines(facets)
@@ -266,6 +270,37 @@ def default_reviewer_handoff_bodies(
             "architecture capabilities."
         ),
     }
+    if risk_ids:
+        bodies[RISK_MITIGATION_REVIEW_SECTION] = "Reviewed risks:\n" + facet_lines(risk_ids)
+    return bodies
+
+
+def risk_mitigations(
+    *,
+    risks: Any = DEFAULT,
+    version: Any = 1,
+) -> dict[str, Any]:
+    if risks is DEFAULT:
+        risks = [
+            {
+                "id": DEFAULT_RISK_ID,
+                "status": "identified",
+                "detected_by": "qa-behavior",
+                "category": "verification-gap",
+                "problem": "Browser proof did not visibly show the target state.",
+                "impact": "Final confidence is lower because the visual proof is incomplete.",
+                "affected_scope": "checks/browser-proof.md and final verification evidence.",
+                "evidence": ["checks/smoke.md"],
+                "next_gate": "resolution",
+                "owner_lane": "worker-a",
+            }
+        ]
+    return {"version": version, "risks": risks}
+
+
+def risk_mitigation_section(risk_ids: list[str] | None = None) -> str:
+    ids = [DEFAULT_RISK_ID] if risk_ids is None else risk_ids
+    return f"\n## {RISK_MITIGATIONS_SECTION}\n\nIdentified risks:\n{facet_lines(ids)}\n"
 
 
 def write_run(
@@ -275,6 +310,8 @@ def write_run(
     lanes: list[dict[str, Any]] | None = None,
     trace_events: dict[str, list[dict[str, Any]]] | None = None,
     lane_map_extra: dict[str, Any] | None = None,
+    risk_mitigations_data: Any = DEFAULT,
+    final_risk_ids: Any = DEFAULT,
 ) -> Path:
     run_dir = root / "run"
     (run_dir / "handoffs").mkdir(parents=True)
@@ -287,8 +324,33 @@ def write_run(
         if name == "manifest.md":
             content += f"Verdict: {verdict}\n"
         (run_dir / name).write_text(content, encoding="utf-8")
-    (run_dir / "final.md").write_text(f"# Final\n\nVerdict: {verdict}\n", encoding="utf-8")
+    final_text = f"# Final\n\nVerdict: {verdict}\n"
+    if (
+        verdict == "pass-with-risks"
+        and risk_mitigations_data is not OMIT
+        and final_risk_ids is not OMIT
+    ):
+        final_text += risk_mitigation_section(
+            None if final_risk_ids is DEFAULT else final_risk_ids
+        )
+    (run_dir / "final.md").write_text(final_text, encoding="utf-8")
     (run_dir / "artifacts.json").write_text("[]\n", encoding="utf-8")
+    if verdict == "pass-with-risks" and risk_mitigations_data is DEFAULT:
+        (run_dir / "risk-mitigations.json").write_text(
+            json.dumps(risk_mitigations(), ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    elif risk_mitigations_data is not OMIT and risk_mitigations_data is not DEFAULT:
+        if isinstance(risk_mitigations_data, str):
+            (run_dir / "risk-mitigations.json").write_text(
+                risk_mitigations_data,
+                encoding="utf-8",
+            )
+        else:
+            (run_dir / "risk-mitigations.json").write_text(
+                json.dumps(risk_mitigations_data, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
 
     timeline_events: list[dict[str, Any]] = []
     for role, events in (trace_events or {}).items():
@@ -395,6 +457,43 @@ def write_run(
         timeline_event("final", summary="Fixture final event.", next_step="handoff")
     )
     write_jsonl(run_dir / "timeline.jsonl", timeline_events)
+    return run_dir
+
+
+def write_compact_run(
+    root: Path,
+    *,
+    verdict: str = "pass-with-risks",
+    risk_mitigations_data: Any = DEFAULT,
+    final_risk_ids: Any = DEFAULT,
+) -> Path:
+    run_dir = root / "run"
+    run_dir.mkdir(parents=True)
+    (run_dir / "artifacts").mkdir()
+    (run_dir / "checks").mkdir()
+    (run_dir / "checks" / "smoke.md").write_text("# Smoke\n\npass\n", encoding="utf-8")
+    (run_dir / "run.md").write_text("# Compact run\n", encoding="utf-8")
+    (run_dir / "checks.md").write_text("# Checks\n\npass\n", encoding="utf-8")
+    final_text = f"# Final\n\nVerdict: {verdict}\n"
+    if (
+        verdict == "pass-with-risks"
+        and risk_mitigations_data is not OMIT
+        and final_risk_ids is not OMIT
+    ):
+        final_text += risk_mitigation_section(
+            None if final_risk_ids is DEFAULT else final_risk_ids
+        )
+    (run_dir / "final.md").write_text(final_text, encoding="utf-8")
+    if verdict == "pass-with-risks" and risk_mitigations_data is DEFAULT:
+        (run_dir / "risk-mitigations.json").write_text(
+            json.dumps(risk_mitigations(), ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    elif risk_mitigations_data is not OMIT and risk_mitigations_data is not DEFAULT:
+        (run_dir / "risk-mitigations.json").write_text(
+            json.dumps(risk_mitigations_data, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
     return run_dir
 
 
@@ -655,15 +754,20 @@ def reviewer_control_lane(
     handoff_section_bodies: dict[str, str] | None = None,
     context: dict[str, Any] | None = None,
     capabilities: list[str] | None = None,
+    risk_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     return reviewer_lane(
         wave=wave,
         handoff_sections=handoff_sections
         if handoff_sections is not None
-        else [ARCHITECTURE_MATRIX_MISMATCHES_SECTION, CONTRACT_DRIFT_SECTION],
+        else [
+            ARCHITECTURE_MATRIX_MISMATCHES_SECTION,
+            CONTRACT_DRIFT_SECTION,
+            *([RISK_MITIGATION_REVIEW_SECTION] if risk_ids else []),
+        ],
         handoff_section_bodies=handoff_section_bodies
         if handoff_section_bodies is not None
-        else default_reviewer_handoff_bodies(context, capabilities),
+        else default_reviewer_handoff_bodies(context, capabilities, risk_ids),
     )
 
 
@@ -737,6 +841,300 @@ def main() -> int:
             "schema v1 remains valid",
             write_run(temp / "schema-v1", lanes=[lane("qa-schema-v1")]),
         )
+
+        expect_fail(
+            "pass-with-risks requires risk mitigations file",
+            write_run(
+                temp / "pass-with-risks-no-risk-mitigations",
+                verdict="pass-with-risks",
+                risk_mitigations_data=OMIT,
+            ),
+            "risk-mitigations.json is required for Verdict: pass-with-risks",
+        )
+
+        expect_pass(
+            "pass-with-risks with identified risk passes",
+            write_run(
+                temp / "pass-with-risks-identified-risk",
+                verdict="pass-with-risks",
+            ),
+        )
+
+        expect_fail(
+            "compact pass-with-risks requires risk mitigations file",
+            write_compact_run(
+                temp / "compact-pass-with-risks-no-risk-mitigations",
+                risk_mitigations_data=OMIT,
+            ),
+            "risk-mitigations.json is required for Verdict: pass-with-risks",
+        )
+
+        expect_pass(
+            "compact pass-with-risks with identified risk passes",
+            write_compact_run(temp / "compact-pass-with-risks-identified-risk"),
+        )
+
+        expect_fail(
+            "risk mitigations invalid json fails",
+            write_run(
+                temp / "risk-mitigations-invalid-json",
+                verdict="pass-with-risks",
+                risk_mitigations_data="{",
+            ),
+            "risk-mitigations.json invalid JSON",
+        )
+
+        expect_fail(
+            "risk mitigations invalid version fails",
+            write_run(
+                temp / "risk-mitigations-invalid-version",
+                verdict="pass-with-risks",
+                risk_mitigations_data=risk_mitigations(version=2),
+            ),
+            "risk-mitigations.json field 'version' must be 1",
+        )
+
+        expect_fail(
+            "risk mitigations empty risks fails",
+            write_run(
+                temp / "risk-mitigations-empty-risks",
+                verdict="pass-with-risks",
+                risk_mitigations_data=risk_mitigations(risks=[]),
+            ),
+            "risk-mitigations.json field 'risks' must be a non-empty array",
+        )
+
+        duplicate_risk = risk_mitigations()["risks"][0]
+        expect_fail(
+            "risk mitigations duplicate risk id fails",
+            write_run(
+                temp / "risk-mitigations-duplicate-id",
+                verdict="pass-with-risks",
+                risk_mitigations_data=risk_mitigations(
+                    risks=[duplicate_risk, {**duplicate_risk}]
+                ),
+            ),
+            "risk-mitigations.json duplicate risk id: browser-proof-gap",
+        )
+
+        expect_fail(
+            "risk mitigations non kebab risk id fails",
+            write_run(
+                temp / "risk-mitigations-non-kebab-id",
+                verdict="pass-with-risks",
+                risk_mitigations_data=risk_mitigations(
+                    risks=[{**duplicate_risk, "id": "BrowserProofGap"}]
+                ),
+            ),
+            "risk-mitigations.json risks[0].id must be kebab-case",
+        )
+
+        missing_problem_risk = {**duplicate_risk}
+        missing_problem_risk.pop("problem")
+        expect_fail(
+            "risk mitigations missing required field fails",
+            write_run(
+                temp / "risk-mitigations-missing-field",
+                verdict="pass-with-risks",
+                risk_mitigations_data=risk_mitigations(risks=[missing_problem_risk]),
+            ),
+            "risk-mitigations.json risks[0] missing field: problem",
+        )
+
+        for field in ["problem", "impact", "affected_scope"]:
+            expect_fail(
+                f"risk mitigations empty {field} fails",
+                write_run(
+                    temp / f"risk-mitigations-empty-{field}",
+                    verdict="pass-with-risks",
+                    risk_mitigations_data=risk_mitigations(
+                        risks=[{**duplicate_risk, field: ""}]
+                    ),
+                ),
+                f"risk-mitigations.json risks[0].{field} must be a non-empty string",
+            )
+
+        expect_fail(
+            "risk mitigations invalid status fails",
+            write_run(
+                temp / "risk-mitigations-invalid-status",
+                verdict="pass-with-risks",
+                risk_mitigations_data=risk_mitigations(
+                    risks=[{**duplicate_risk, "status": "resolved"}]
+                ),
+            ),
+            "risk-mitigations.json risks[0].status must be identified",
+        )
+
+        expect_fail(
+            "risk mitigations invalid category fails",
+            write_run(
+                temp / "risk-mitigations-invalid-category",
+                verdict="pass-with-risks",
+                risk_mitigations_data=risk_mitigations(
+                    risks=[{**duplicate_risk, "category": "surprise-risk"}]
+                ),
+            ),
+            "risk-mitigations.json risks[0].category invalid",
+        )
+
+        expect_fail(
+            "risk mitigations invalid next gate fails",
+            write_run(
+                temp / "risk-mitigations-invalid-next-gate",
+                verdict="pass-with-risks",
+                risk_mitigations_data=risk_mitigations(
+                    risks=[{**duplicate_risk, "next_gate": "later"}]
+                ),
+            ),
+            "risk-mitigations.json risks[0].next_gate must be resolution",
+        )
+
+        expect_fail(
+            "risk mitigations missing evidence path fails",
+            write_run(
+                temp / "risk-mitigations-missing-evidence",
+                verdict="pass-with-risks",
+                risk_mitigations_data=risk_mitigations(
+                    risks=[{**duplicate_risk, "evidence": ["checks/missing.md"]}]
+                ),
+            ),
+            "risk-mitigations.json risks[0].evidence[0] not found: checks/missing.md",
+        )
+
+        expect_fail(
+            "final missing risk mitigations section fails",
+            write_run(
+                temp / "risk-mitigations-final-missing-section",
+                verdict="pass-with-risks",
+                final_risk_ids=OMIT,
+            ),
+            "final.md missing section: Risk Mitigations",
+        )
+
+        expect_fail(
+            "final missing risk id fails",
+            write_run(
+                temp / "risk-mitigations-final-missing-risk-id",
+                verdict="pass-with-risks",
+                final_risk_ids=[],
+            ),
+            "final.md Risk Mitigations missing risk id: browser-proof-gap",
+        )
+
+        expect_fail(
+            "risk mitigations unknown detected_by lane fails",
+            write_run(
+                temp / "risk-mitigations-unknown-detected-by",
+                verdict="pass-with-risks",
+                lanes=[
+                    worker_lane(),
+                    qa_lane(),
+                    reviewer_lane(
+                        handoff_sections=[RISK_MITIGATION_REVIEW_SECTION],
+                        handoff_section_bodies={
+                            RISK_MITIGATION_REVIEW_SECTION: f"- `{DEFAULT_RISK_ID}`",
+                        },
+                    ),
+                ],
+                risk_mitigations_data=risk_mitigations(
+                    risks=[{**duplicate_risk, "detected_by": "missing-qa"}]
+                ),
+            ),
+            "risk-mitigations.json risks[0].detected_by lane not found: missing-qa",
+        )
+
+        expect_fail(
+            "risk mitigations unknown owner_lane fails",
+            write_run(
+                temp / "risk-mitigations-unknown-owner-lane",
+                verdict="pass-with-risks",
+                lanes=[
+                    worker_lane(),
+                    qa_lane(),
+                    reviewer_lane(
+                        handoff_sections=[RISK_MITIGATION_REVIEW_SECTION],
+                        handoff_section_bodies={
+                            RISK_MITIGATION_REVIEW_SECTION: f"- `{DEFAULT_RISK_ID}`",
+                        },
+                    ),
+                ],
+                risk_mitigations_data=risk_mitigations(
+                    risks=[{**duplicate_risk, "owner_lane": "missing-worker"}]
+                ),
+            ),
+            "risk-mitigations.json risks[0].owner_lane lane not found: missing-worker",
+        )
+
+        expect_fail(
+            "lane-map pass-with-risks requires reviewer mitigation review",
+            write_run(
+                temp / "risk-mitigations-no-reviewer",
+                verdict="pass-with-risks",
+                lanes=[
+                    worker_lane(),
+                    qa_lane(),
+                ],
+            ),
+            "lane-map.json: Verdict pass-with-risks requires successful reviewer lane for Mitigation Gate",
+        )
+
+        expect_fail(
+            "reviewer missing mitigation review section fails",
+            write_run(
+                temp / "risk-mitigations-reviewer-missing-section",
+                verdict="pass-with-risks",
+                lanes=[
+                    worker_lane(),
+                    qa_lane(),
+                    reviewer_lane(),
+                ],
+            ),
+            "handoff missing section: Risk Mitigation Review",
+        )
+
+        expect_fail(
+            "reviewer missing risk id fails",
+            write_run(
+                temp / "risk-mitigations-reviewer-missing-risk-id",
+                verdict="pass-with-risks",
+                lanes=[
+                    worker_lane(),
+                    qa_lane(),
+                    reviewer_lane(
+                        handoff_sections=[RISK_MITIGATION_REVIEW_SECTION],
+                        handoff_section_bodies={
+                            RISK_MITIGATION_REVIEW_SECTION: "Reviewed risks: none.",
+                        },
+                    ),
+                ],
+            ),
+            "reviewer handoff Risk Mitigation Review missing risk id: browser-proof-gap",
+        )
+
+        expect_pass(
+            "lane-map pass-with-risks with mitigation review passes",
+            write_run(
+                temp / "risk-mitigations-reviewer-covers-risk-id",
+                verdict="pass-with-risks",
+                lanes=[
+                    worker_lane(),
+                    qa_lane(),
+                    reviewer_lane(
+                        handoff_sections=[RISK_MITIGATION_REVIEW_SECTION],
+                        handoff_section_bodies={
+                            RISK_MITIGATION_REVIEW_SECTION: f"- `{DEFAULT_RISK_ID}`",
+                        },
+                    ),
+                ],
+            ),
+        )
+
+        for verdict in ["ship", "blocked", "fail"]:
+            expect_pass(
+                f"{verdict} does not require risk mitigations",
+                write_run(temp / f"{verdict}-no-risk-mitigations", verdict=verdict),
+            )
 
         expect_pass(
             "schema v2 accepts architecture lane",
@@ -1379,6 +1777,7 @@ def main() -> int:
                 lanes=[
                     architecture_lane(status="pass-with-risks"),
                     qa_lane(),
+                    reviewer_control_lane(wave=4, risk_ids=[DEFAULT_RISK_ID]),
                 ],
                 lane_map_extra=architecture_control_extra(),
             ),

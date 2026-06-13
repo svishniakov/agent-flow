@@ -62,6 +62,7 @@ For full `release` trace:
 - Architecture Capability Router is covered: selected `architecture_capabilities` from `registries/architecture-capabilities.json` cover selected Matrix facets, Architecture Design Brief `Execution Plan` includes the capability ids, Architecture Contract `Selected Architecture` includes them, and Soft Skill Binding handles `recommended_skills` through registry checks;
 - when Architecture Execution Control applies, worker lanes record `Architecture Compliance`, architecture drift has architect re-check before `ship`, QA records `Architecture Invariants`, and reviewer records `Architecture Matrix Mismatches` plus `Contract Drift`;
 - Architecture Context Propagation is covered: workers declare selected `matrix_facets`, QA covers selected `risk_gates` and `verification_gates`, and reviewer covers the full selected `architecture_context` plus selected `architecture_capabilities`;
+- Mitigation Gate is covered for `pass-with-risks`: `risk-mitigations.json` records at least one `identified` risk, `final.md` includes `Risk Mitigations`, and reviewer `Risk Mitigation Review` covers every risk id when lane-map exists;
 - artifacts index is valid JSON;
 - each delegated subagent has a handoff;
 - checks include command names and results;
@@ -78,6 +79,7 @@ For full `release` trace:
 - Architecture Design Mode blocked `ship` and `pass-with-risks` until an Architecture Design Brief had `Status: approved` and worker lanes ran after it.
 - Architecture Execution Control blocked `ship` until worker `Architecture Compliance`, QA `Architecture Invariants`, reviewer `Contract Drift`, and any architecture drift re-check were covered.
 - Architecture Context Propagation blocked `ship` until worker `matrix_facets`, QA `risk_gates` and `verification_gates`, reviewer selected-context coverage, and selected `architecture_capabilities` coverage were present.
+- Mitigation Gate blocked `pass-with-risks` until each risk was identified with evidence and `next_gate=resolution`.
 - Architecture Approval Gate reviewed any rejected, regressed, or uncertain architecture attempt before retrying implementation.
 - Local Best Practice auto gate was used only for an analyzer-confirmed local practice with clear context, no matching `Do not reuse when`, no external write, and fresh verification.
 - regression demotion froze or demoted any practice that failed after reuse.

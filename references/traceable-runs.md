@@ -214,6 +214,19 @@ Schema v2 also enforces Architecture Execution Control when
   every selected `architecture_context` facet and selected
   `architecture_capabilities` id.
 
+Mitigation Gate applies to every traceable run with `Verdict: pass-with-risks`:
+
+- `risk-mitigations.json` is required at the run root;
+- `risk-mitigations.json` must use `version=1` and a non-empty `risks` array;
+- each risk id must be unique kebab-case;
+- each risk status must be `identified`;
+- each risk category must be one of `verification-gap`, `architecture-drift`, `incomplete-implementation`, `test-gap`, `security-risk`, `data-risk`, `ux-risk`, `dependency-risk`, `release-risk`, or `unknown`;
+- each risk records non-empty `detected_by`, `problem`, `impact`, `affected_scope`, `evidence`, `next_gate`, and `owner_lane`;
+- every evidence path must exist, and `next_gate` must be `resolution`;
+- `final.md` must include `Risk Mitigations` and every risk id;
+- when `lane-map.json` exists, `detected_by` and `owner_lane` must reference existing lane ids;
+- when `lane-map.json` exists, a successful reviewer lane must include `Risk Mitigation Review` and every risk id.
+
 For final handoff, `validate-run.py` also requires:
 
 - exactly one `Verdict:` field in `final.md`;

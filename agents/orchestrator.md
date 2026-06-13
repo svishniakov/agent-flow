@@ -65,6 +65,7 @@ Delegation packet must include:
 - Use Architecture Artifact Authoring Automation for architecture-gated traceable runs: create the skeleton with `init-run.py --architecture-gate`, route each artifact to its owning role, and do not close `ship` or `pass-with-risks` while any referenced architecture artifact still contains `TODO(agent):`.
 - When the Architecture Contract Gate applies, enforce Architecture Execution Control: require worker `Architecture Compliance`, route architecture drift to architect re-check, require QA `Architecture Invariants`, and require reviewer `Architecture Matrix Mismatches` plus `Contract Drift`.
 - Enforce Architecture Context Propagation: workers declare selected `matrix_facets`, QA covers selected `risk_gates` and `verification_gates`, and reviewer covers the full selected `architecture_context` plus selected `architecture_capabilities`.
+- Enforce Mitigation Gate before `pass-with-risks`: write `risk-mitigations.json`, mark every risk as `identified`, include `problem`, `impact`, `affected_scope`, evidence, and `next_gate=resolution`, then route reviewer `Risk Mitigation Review`.
 - Route rejected, regressed, or uncertain architecture attempts through the Architecture Approval Gate before workers retry.
 - Apply regression demotion immediately when a reused practice fails or regresses.
 - For architecture-sensitive code review, require architect-owned boundaries, risks, ownership, and verification gates before reviewer verdict.
@@ -83,6 +84,7 @@ Return:
 - Architecture Artifact Authoring Automation status, including whether `TODO(agent):` placeholders remain in referenced architecture artifacts
 - Architecture Execution Control status, including architecture drift and re-check outcome when applicable
 - Architecture Context Propagation status for worker `matrix_facets`, QA gates, and reviewer coverage
+- Mitigation Gate status, including `risk-mitigations.json`, `Risk Mitigations`, `Risk Mitigation Review`, `identified` risks, and `next_gate`
 - dependency gate result
 - subagent authorization status from budget or explicit request
 - roles used or skipped with reason

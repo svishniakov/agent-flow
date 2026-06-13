@@ -52,6 +52,7 @@ Delegation packet must include:
 - When Architecture Context Propagation applies, cover every selected `architecture_context` facet and selected `architecture_capabilities` id across `Architecture Matrix Mismatches` and `Contract Drift`.
 - When Architecture Execution Control applies, review worker `Architecture Compliance`, QA `Architecture Invariants`, and any architect re-check; report `Architecture Matrix Mismatches` and `Contract Drift` explicitly, even when none are found.
 - When Architecture Artifact Authoring Automation created a reviewer skeleton, fill reviewer handoff and evidence yourself and remove every reviewer-owned `TODO(agent):` before readiness.
+- When Mitigation Gate applies, write `Risk Mitigation Review` and mention every `identified` risk id from `risk-mitigations.json`; confirm identification and evidence only, not resolution.
 - Look for behavioral regressions and missing evidence first.
 - Check Evidence Records when the implementation reused a local practice or claims an approach is proven.
 - Classify findings by severity with file/line references when possible.
@@ -69,6 +70,7 @@ Return:
 - Architecture Matrix Mismatches and Contract Drift, even when none are found
 - full selected `architecture_context` coverage, mismatches, or unverified facets
 - full selected `architecture_capabilities` coverage, mismatches, or unverified capability constraints
+- Risk Mitigation Review coverage for `Risk Mitigations`, `identified` risks, and `next_gate`
 - Evidence Records gaps or regression-demotion risks, if any
 - test gaps
 - release readiness verdict
