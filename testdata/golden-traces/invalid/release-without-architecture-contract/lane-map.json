@@ -1,0 +1,23 @@
+{
+  "schema_version": 2,
+  "lanes": [
+    {
+      "id": "worker-a",
+      "type": "implementation",
+      "role": "typescript-worker",
+      "wave": 1,
+      "critical": true,
+      "execution_mode": "role-lane",
+      "status": "pass",
+      "handoff": "handoffs/worker-a.md",
+      "evidence": [
+        "checks/worker-a.md"
+      ],
+      "replacement": null,
+      "handoff_sections": []
+    }
+  ],
+  "budget": "release",
+  "architecture_contract_required": false,
+  "architecture_contract_independent": false
+}

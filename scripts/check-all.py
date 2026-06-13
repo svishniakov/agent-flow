@@ -19,6 +19,7 @@ PRODUCT_SEARCH_PATHS = [
     "scripts",
     "agents",
     "registries",
+    "testdata",
 ]
 
 ARCHITECTURE_DESIGN_CORE_GUARD_TERMS = [
@@ -78,6 +79,11 @@ BLOCKED_RESOLUTION_GATE_GUARD_TERMS = [
     "forbidden_repeat",
     "rollback",
 ]
+GOLDEN_TRACE_RUN_GUARD_TERMS = [
+    "Golden Trace Runs",
+    "test-golden-traces",
+    "golden-traces",
+]
 
 REQUIRED_RUNTIME_TEXT = {
     "SKILL.md": [
@@ -104,6 +110,7 @@ REQUIRED_RUNTIME_TEXT = {
         *MITIGATION_GATE_GUARD_TERMS,
         *RESOLUTION_GATE_GUARD_TERMS,
         *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
+        *GOLDEN_TRACE_RUN_GUARD_TERMS,
         "Architecture Approval Gate",
         "Local Best Practice auto gate",
         "regression demotion",
@@ -130,6 +137,7 @@ REQUIRED_RUNTIME_TEXT = {
         *MITIGATION_GATE_GUARD_TERMS,
         *RESOLUTION_GATE_GUARD_TERMS,
         *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
+        "Golden Trace Runs",
         "Architecture Approval Gate",
         "Local Best Practice auto gate",
         "regression demotion",
@@ -565,6 +573,17 @@ REQUIRED_RUNTIME_TEXT = {
         "architecture capability registry",
         "allow-partial-matrix-coverage",
     ],
+    "scripts/test-golden-traces.py": [
+        *GOLDEN_TRACE_RUN_GUARD_TERMS,
+        "expected_error",
+        "VALIDATE_RUN",
+    ],
+    "testdata/golden-traces/manifest.json": [
+        "Golden Trace Runs",
+        "standard-multilane-architecture-ship",
+        "release-independent-architecture-ship",
+        "blocked-resolution-third-attempt-blocked",
+    ],
 }
 
 
@@ -679,6 +698,7 @@ def main() -> int:
         ("init-run fixtures", [sys.executable, "scripts/test-init-run.py"]),
         ("evidence record analyzer fixtures", [sys.executable, "scripts/test-analyze-evidence-records.py"]),
         ("lane fixture tests", [sys.executable, "scripts/test-validate-run-lanes.py"]),
+        ("golden trace runs", [sys.executable, "scripts/test-golden-traces.py"]),
         ("git diff hygiene", ["git", "diff", "--check"]),
     ]
     content_steps = [

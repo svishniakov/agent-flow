@@ -74,6 +74,8 @@ PASS all Agent Flow checks
 | `scripts/resolve-agent-config.py` | model/reasoning resolver for `spawn_agent` |
 | `scripts/validate-run.py` | traceable run and lane-map validator |
 | `scripts/validate-architecture-capabilities.py` | Architecture Capability Router registry validator |
+| `scripts/test-golden-traces.py` | Golden Trace Runs acceptance runner |
+| `testdata/golden-traces/` | persisted valid and invalid traceable runs for architecture-layer acceptance |
 
 ### Key Rules
 
@@ -85,6 +87,7 @@ PASS all Agent Flow checks
 - Mitigation Gate is required for `pass-with-risks`: `risk-mitigations.json`, `Risk Mitigations`, and reviewer `Risk Mitigation Review` must identify every risk and set `next_gate=resolution`.
 - Resolution Gate is required after Mitigation Gate for `pass-with-risks`: `risk-resolutions.json`, `Risk Resolutions`, QA `Risk Resolution Verification`, and reviewer `Risk Resolution Review` must show what was done now and close each risk as `fixed`, `mitigated`, or `contained`.
 - Blocked Resolution Gate keeps blocked resolution attempts inside the Resolution Gate: blocked attempts record `blocked_lesson`, `rollback`, and a Blocked Recovery Path before any retry.
+- Golden Trace Runs are the architecture-layer acceptance pack: persisted full trace directories must pass or fail through `scripts/test-golden-traces.py` with the expected validator result.
 - Evidence Records in `implementation-notes.md` are structured local learning data, not free-form notes.
 - Local Best Practice auto gate can reuse a learned approach only after analyzer confirmation, clear context match, no matching `Do not reuse when`, no external write, and fresh verification.
 - A failed or regressed reuse demotes or freezes the practice until architecture review resolves it.
@@ -247,6 +250,8 @@ PASS all Agent Flow checks
 | `scripts/resolve-agent-config.py` | resolver model/reasoning для `spawn_agent` |
 | `scripts/validate-run.py` | validator traceable runs и lane-map |
 | `scripts/validate-architecture-capabilities.py` | validator Architecture Capability Router registry |
+| `scripts/test-golden-traces.py` | acceptance runner для Golden Trace Runs |
+| `testdata/golden-traces/` | сохранённые валидные и невалидные traceable runs для проверки архитектурного слоя |
 
 ### Главные правила
 
@@ -258,6 +263,7 @@ PASS all Agent Flow checks
 - Mitigation Gate обязателен для `pass-with-risks`: `risk-mitigations.json`, `Risk Mitigations` и reviewer `Risk Mitigation Review` должны идентифицировать каждый риск и указать `next_gate=resolution`.
 - Resolution Gate обязателен после Mitigation Gate для `pass-with-risks`: `risk-resolutions.json`, `Risk Resolutions`, QA `Risk Resolution Verification` и reviewer `Risk Resolution Review` показывают, что агент сделал сейчас, и закрывают каждый риск как `fixed`, `mitigated` или `contained`.
 - Blocked Resolution Gate остаётся внутри Resolution Gate: заблокированная попытка фиксирует `blocked_lesson`, `rollback` и Blocked Recovery Path перед новым заходом.
+- Golden Trace Runs проверяют архитектурный слой на целых traceable runs: сохранённые директории должны проходить или падать через `scripts/test-golden-traces.py` с ожидаемым результатом.
 - Evidence Records в `implementation-notes.md` - структурированные данные для локального обучения, а не свободные заметки.
 - Local Best Practice auto gate переиспользует подход только после подтверждения analyzer, ясного совпадения контекста, отсутствия совпадения с `Do not reuse when`, отсутствия внешней записи и свежей проверки.
 - Если переиспользованный подход дал failure или regression, practice демотируется или замораживается до архитектурного разбора.

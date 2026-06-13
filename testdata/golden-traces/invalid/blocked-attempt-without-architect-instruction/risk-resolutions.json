@@ -1,0 +1,115 @@
+{
+  "version": 1,
+  "resolutions": [
+    {
+      "risk_id": "browser-proof-gap",
+      "status": "mitigated",
+      "resolution_type": "evidence-added",
+      "owner_lane": "worker-b",
+      "resolution": "Final resolution after recovery.",
+      "evidence": [
+        "checks/smoke.md"
+      ],
+      "verification": "QA verified the final recovery attempt.",
+      "verified_by": "qa-retry",
+      "reviewed_by": "review-retry",
+      "attempts": [
+        {
+          "attempt": 1,
+          "status": "blocked",
+          "resolution_type": "evidence-added",
+          "owner_lane": "worker-a",
+          "resolution": "Attempt 1 resolution action.",
+          "evidence": [
+            "checks/smoke.md"
+          ],
+          "verification": "Attempt 1 verification.",
+          "verified_by": "qa-behavior",
+          "reviewed_by": "review-contract",
+          "blocked_reason": "insufficient-evidence",
+          "rollback": {
+            "status": "rolled-back",
+            "summary": "Rolled back attempt 1 changes.",
+            "evidence": [
+              "checks/smoke.md"
+            ]
+          },
+          "blocked_lesson": {
+            "status": "quarantined",
+            "classification": "insufficient-evidence",
+            "summary": "Do not repeat the blocked evidence-only approach.",
+            "forbidden_repeat": [
+              "evidence-only-claim"
+            ]
+          }
+        },
+        {
+          "attempt": 2,
+          "status": "fixed",
+          "resolution_type": "test-added",
+          "owner_lane": "worker-b",
+          "resolution": "Attempt 2 resolution action.",
+          "evidence": [
+            "checks/smoke.md"
+          ],
+          "verification": "Attempt 2 verification.",
+          "verified_by": "qa-retry",
+          "reviewed_by": "review-retry"
+        }
+      ],
+      "blocked_recovery": {
+        "senior_qa_test_design_review": {
+          "lane": "senior-qa-test-design",
+          "status": "criteria-expanded",
+          "covered_acceptance_criteria": [
+            "Original criterion was checked."
+          ],
+          "missing_acceptance_criteria": [
+            "Visible browser proof was missing."
+          ],
+          "ambiguous_acceptance_criteria": [],
+          "added_acceptance_criteria": [
+            "Show visible browser proof."
+          ],
+          "test_cases": [
+            "Happy path visible proof."
+          ],
+          "edge_cases": [
+            "Rendered state changes after async load."
+          ],
+          "negative_cases": [
+            "Proof file missing visible target."
+          ],
+          "regression_cases": [
+            "Existing smoke proof still passes."
+          ],
+          "integration_cases": [
+            "Worker evidence links to QA proof."
+          ],
+          "data_state_cases": [
+            "Evidence state is present in final artifact."
+          ],
+          "environment_cases": [
+            "Headless browser output is readable."
+          ],
+          "external_blockers": [],
+          "recheck_result": "blocked",
+          "evidence": [
+            "checks/smoke.md"
+          ]
+        },
+        "architect_review": {
+          "lane": "architect-resolution-review",
+          "decision": "revised-approach",
+          "instruction": "",
+          "forbidden_repeat": [
+            "evidence-only-claim"
+          ],
+          "evidence": [
+            "checks/smoke.md"
+          ]
+        }
+      }
+    }
+  ]
+}

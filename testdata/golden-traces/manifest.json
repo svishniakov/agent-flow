@@ -1,0 +1,161 @@
+{
+  "version": 1,
+  "description": "Golden Trace Runs acceptance pack for the architecture layer.",
+  "cases": [
+    {
+      "id": "standard-single-worker-no-architecture",
+      "path": "valid/standard-single-worker-no-architecture",
+      "mode": "full",
+      "expected": "pass",
+      "covers": [
+        "backward-compatible-standard-single-worker"
+      ]
+    },
+    {
+      "id": "standard-multilane-architecture-ship",
+      "path": "valid/standard-multilane-architecture-ship",
+      "mode": "full",
+      "expected": "pass",
+      "covers": [
+        "Architecture Contract Gate",
+        "Architecture Matrix Router",
+        "Architecture Capability Router",
+        "Architecture Design Mode",
+        "Architecture Execution Control",
+        "Architecture Context Propagation"
+      ]
+    },
+    {
+      "id": "release-independent-architecture-ship",
+      "path": "valid/release-independent-architecture-ship",
+      "mode": "full",
+      "expected": "pass",
+      "covers": [
+        "release architecture gate",
+        "independent architecture subagent"
+      ]
+    },
+    {
+      "id": "architecture-drift-rechecked-ship",
+      "path": "valid/architecture-drift-rechecked-ship",
+      "mode": "full",
+      "expected": "pass",
+      "covers": [
+        "Architecture Execution Control",
+        "drift recheck"
+      ]
+    },
+    {
+      "id": "pass-with-risks-mitigated",
+      "path": "valid/pass-with-risks-mitigated",
+      "mode": "full",
+      "expected": "pass",
+      "covers": [
+        "Mitigation Gate",
+        "Resolution Gate"
+      ]
+    },
+    {
+      "id": "blocked-resolution-recovered-attempt-2",
+      "path": "valid/blocked-resolution-recovered-attempt-2",
+      "mode": "full",
+      "expected": "pass",
+      "covers": [
+        "Blocked Resolution Gate",
+        "Senior QA Test Design Review",
+        "Resolution Architect Review"
+      ]
+    },
+    {
+      "id": "blocked-resolution-third-attempt-blocked",
+      "path": "valid/blocked-resolution-third-attempt-blocked",
+      "mode": "full",
+      "expected": "pass",
+      "covers": [
+        "Blocked Resolution Gate",
+        "Supervising Architect Review",
+        "final blocked"
+      ]
+    },
+    {
+      "id": "release-without-architecture-contract",
+      "path": "invalid/release-without-architecture-contract",
+      "mode": "full",
+      "expected": "fail",
+      "expected_error": "release budget requires architecture_contract_required=true",
+      "covers": [
+        "release architecture gate"
+      ]
+    },
+    {
+      "id": "standard-multilane-without-architecture-contract",
+      "path": "invalid/standard-multilane-without-architecture-contract",
+      "mode": "full",
+      "expected": "fail",
+      "expected_error": "standard budget with 2 worker lanes requires architecture_contract_required=true",
+      "covers": [
+        "standard multi-lane architecture gate"
+      ]
+    },
+    {
+      "id": "architecture-context-unknown-facet",
+      "path": "invalid/architecture-context-unknown-facet",
+      "mode": "full",
+      "expected": "fail",
+      "expected_error": "unknown Architecture Matrix facet",
+      "covers": [
+        "Architecture Matrix Router"
+      ]
+    },
+    {
+      "id": "design-brief-not-approved",
+      "path": "invalid/design-brief-not-approved",
+      "mode": "full",
+      "expected": "fail",
+      "expected_error": "positive final Verdict requires approved Architecture Design Brief",
+      "covers": [
+        "Architecture Design Mode"
+      ]
+    },
+    {
+      "id": "worker-before-approved-design",
+      "path": "invalid/worker-before-approved-design",
+      "mode": "full",
+      "expected": "fail",
+      "expected_error": "worker lane must run after approved Architecture Design Brief",
+      "covers": [
+        "Architecture Design Mode ordering"
+      ]
+    },
+    {
+      "id": "drift-without-architecture-recheck",
+      "path": "invalid/drift-without-architecture-recheck",
+      "mode": "full",
+      "expected": "fail",
+      "expected_error": "architecture drift requires recheck_lane",
+      "covers": [
+        "Architecture Execution Control"
+      ]
+    },
+    {
+      "id": "pass-with-risks-without-resolution",
+      "path": "invalid/pass-with-risks-without-resolution",
+      "mode": "full",
+      "expected": "fail",
+      "expected_error": "risk-resolutions.json is required for Verdict: pass-with-risks",
+      "covers": [
+        "Resolution Gate"
+      ]
+    },
+    {
+      "id": "blocked-attempt-without-architect-instruction",
+      "path": "invalid/blocked-attempt-without-architect-instruction",
+      "mode": "full",
+      "expected": "fail",
+      "expected_error": "architect_review.instruction must be a non-empty string",
+      "covers": [
+        "Blocked Resolution Gate"
+      ]
+    }
+  ]
+}

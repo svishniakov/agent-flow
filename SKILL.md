@@ -66,9 +66,10 @@ Inside Agent Flow, the orchestrator owns the outcome:
 8. Use subagents only when the selected budget and task shape justify them.
 9. Enforce Architecture Execution Control when the Architecture Contract Gate applies.
 10. Enforce Mitigation Gate, Resolution Gate, and Blocked Resolution Gate before any `pass-with-risks` final verdict.
-11. Verify evidence before any completion claim.
-12. Close the current project-memory task status before final handoff.
-13. Return the final answer with residual risks.
+11. Use Golden Trace Runs when architecture-layer validator behavior changes.
+12. Verify evidence before any completion claim.
+13. Close the current project-memory task status before final handoff.
+14. Return the final answer with residual risks.
 
 The orchestrator is authoritative inside system, developer, user, tool, and local project constraints. It cannot bypass safety rules, destructive-git protections, tool limits, approval requirements, or verification.
 
@@ -155,6 +156,8 @@ Mitigation Gate is required for every traceable run with `Verdict: pass-with-ris
 Resolution Gate is required after Mitigation Gate for every traceable run with `Verdict: pass-with-risks`. The orchestrator writes `risk-resolutions.json`; every identified risk must have a resolution record with `resolution_type`, concrete action, evidence, verification, and status `fixed`, `mitigated`, or `contained`. `final.md` must include `Risk Resolutions` with every risk id. If `lane-map.json` exists, QA writes `Risk Resolution Verification`, reviewer writes `Risk Resolution Review`, and both cover every resolved risk id. `unresolved` is allowed only for `blocked` or `fail`.
 
 Blocked Resolution Gate runs inside Resolution Gate when a resolution attempt blocks. The blocked attempt records `blocked_lesson`, `rollback`, `forbidden_repeat`, and the Blocked Recovery Path. Attempt 1 blocked routes to Senior QA `Senior QA Test Design Review`, then architect `Resolution Architect Review`, then attempt 2. Attempt 2 blocked routes to `Supervising Architect Review`, then attempt 3. A third blocked attempt forces final `blocked` or `fail`; it cannot become `pass-with-risks`.
+
+Golden Trace Runs are the persisted acceptance pack for the architecture layer. `scripts/test-golden-traces.py` validates `testdata/golden-traces/` with real full trace directories, including expected failures.
 
 The Architecture Approval Gate handles rejected, regressed, or uncertain architecture attempts. The orchestrator sends the real case back for deeper architecture analysis, then lets workers retry only against the approved steps and records the resulting evidence.
 
@@ -307,6 +310,7 @@ Optional helper scripts live in `scripts/`:
 - `record-agent-trace.py`: append one subagent or role-lane event to both run and role traces.
 - `validate-run.py`: check run completeness before final handoff.
 - `validate-architecture-capabilities.py`: check Architecture Capability Router registry and Soft Skill Binding links.
+- `test-golden-traces.py`: run Golden Trace Runs from `testdata/golden-traces/`.
 
 Scripts support the workflow; they do not replace engineering judgment.
 

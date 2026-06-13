@@ -1,0 +1,159 @@
+{
+  "schema_version": 1,
+  "lanes": [
+    {
+      "id": "worker-a",
+      "type": "implementation",
+      "role": "typescript-worker",
+      "wave": 1,
+      "critical": true,
+      "execution_mode": "role-lane",
+      "status": "pass",
+      "handoff": "handoffs/worker-a.md",
+      "evidence": [
+        "checks/worker-a.md"
+      ],
+      "replacement": null,
+      "handoff_sections": []
+    },
+    {
+      "id": "qa-behavior",
+      "type": "qa",
+      "role": "qa-verifier",
+      "wave": 2,
+      "critical": true,
+      "execution_mode": "role-lane",
+      "status": "pass",
+      "handoff": "handoffs/qa-behavior.md",
+      "evidence": [
+        "checks/qa-behavior.md"
+      ],
+      "replacement": null,
+      "handoff_sections": [
+        "Risk Resolution Verification"
+      ],
+      "handoff_section_bodies": {
+        "Risk Resolution Verification": "Verified `browser-proof-gap`."
+      }
+    },
+    {
+      "id": "review-contract",
+      "type": "review",
+      "role": "reviewer",
+      "wave": 3,
+      "critical": true,
+      "execution_mode": "role-lane",
+      "status": "pass",
+      "handoff": "handoffs/review-contract.md",
+      "evidence": [
+        "checks/review-contract.md"
+      ],
+      "replacement": null,
+      "handoff_sections": [
+        "Risk Mitigation Review",
+        "Risk Resolution Review"
+      ],
+      "handoff_section_bodies": {
+        "Risk Mitigation Review": "Reviewed `browser-proof-gap`.",
+        "Risk Resolution Review": "Reviewed `browser-proof-gap`."
+      }
+    },
+    {
+      "id": "senior-qa-test-design",
+      "type": "qa",
+      "role": "senior-qa-verifier",
+      "wave": 4,
+      "critical": true,
+      "execution_mode": "role-lane",
+      "status": "pass",
+      "handoff": "handoffs/senior-qa-test-design.md",
+      "evidence": [
+        "checks/senior-qa-test-design.md"
+      ],
+      "replacement": null,
+      "handoff_sections": [
+        "Senior QA Test Design Review"
+      ],
+      "handoff_section_bodies": {
+        "Senior QA Test Design Review": "Risk `browser-proof-gap` reviewed with expanded test design."
+      }
+    },
+    {
+      "id": "architect-resolution-review",
+      "type": "architecture",
+      "role": "architect",
+      "wave": 5,
+      "critical": false,
+      "execution_mode": "role-lane",
+      "status": "pass",
+      "handoff": "handoffs/architect-resolution-review.md",
+      "evidence": [
+        "checks/architect-resolution-review.md"
+      ],
+      "replacement": null,
+      "handoff_sections": [
+        "Resolution Architect Review"
+      ],
+      "handoff_section_bodies": {
+        "Resolution Architect Review": "Risk `browser-proof-gap` instruction: Add visible proof before repeating the resolution. avoid evidence-only-claim."
+      }
+    },
+    {
+      "id": "worker-b",
+      "type": "implementation",
+      "role": "typescript-worker",
+      "wave": 6,
+      "critical": true,
+      "execution_mode": "role-lane",
+      "status": "pass",
+      "handoff": "handoffs/worker-b.md",
+      "evidence": [
+        "checks/worker-b.md"
+      ],
+      "replacement": null,
+      "handoff_sections": []
+    },
+    {
+      "id": "qa-retry",
+      "type": "qa",
+      "role": "qa-verifier",
+      "wave": 7,
+      "critical": true,
+      "execution_mode": "role-lane",
+      "status": "pass",
+      "handoff": "handoffs/qa-retry.md",
+      "evidence": [
+        "checks/qa-retry.md"
+      ],
+      "replacement": null,
+      "handoff_sections": [
+        "Risk Resolution Verification"
+      ],
+      "handoff_section_bodies": {
+        "Risk Resolution Verification": "Verified `browser-proof-gap`."
+      }
+    },
+    {
+      "id": "review-retry",
+      "type": "review",
+      "role": "reviewer",
+      "wave": 8,
+      "critical": true,
+      "execution_mode": "role-lane",
+      "status": "pass",
+      "handoff": "handoffs/review-retry.md",
+      "evidence": [
+        "checks/review-retry.md"
+      ],
+      "replacement": null,
+      "handoff_sections": [
+        "Risk Mitigation Review",
+        "Risk Resolution Review"
+      ],
+      "handoff_section_bodies": {
+        "Risk Mitigation Review": "Reviewed `browser-proof-gap`.",
+        "Risk Resolution Review": "Reviewed `browser-proof-gap`."
+      }
+    }
+  ]
+}
