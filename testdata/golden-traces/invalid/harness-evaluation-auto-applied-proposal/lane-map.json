@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "lanes": [
+    {
+      "id": "worker-a",
+      "type": "implementation",
+      "role": "typescript-worker",
+      "wave": 1,
+      "critical": true,
+      "execution_mode": "role-lane",
+      "status": "pass",
+      "handoff": "handoffs/worker-a.md",
+      "evidence": [
+        "checks/worker-a.md"
+      ],
+      "replacement": null,
+      "handoff_sections": []
+    },
+    {
+      "id": "qa-behavior",
+      "type": "qa",
+      "role": "qa-verifier",
+      "wave": 2,
+      "critical": true,
+      "execution_mode": "role-lane",
+      "status": "pass",
+      "handoff": "handoffs/qa-behavior.md",
+      "evidence": [
+        "checks/qa-behavior.md"
+      ],
+      "replacement": null,
+      "handoff_sections": [
+        "Risk Resolution Verification"
+      ],
+      "handoff_section_bodies": {
+        "Risk Resolution Verification": "Verified `browser-proof-gap`."
+      }
+    },
+    {
+      "id": "review-contract",
+      "type": "review",
+      "role": "reviewer",
+      "wave": 3,
+      "critical": true,
+      "execution_mode": "role-lane",
+      "status": "pass",
+      "handoff": "handoffs/review-contract.md",
+      "evidence": [
+        "checks/review-contract.md"
+      ],
+      "replacement": null,
+      "handoff_sections": [
+        "Risk Mitigation Review",
+        "Risk Resolution Review"
+      ],
+      "handoff_section_bodies": {
+        "Risk Mitigation Review": "Reviewed `browser-proof-gap`.",
+        "Risk Resolution Review": "Reviewed `browser-proof-gap`."
+      }
+    }
+  ]
+}

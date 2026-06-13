@@ -18,3 +18,9 @@ Role Lanes Used: yes
 Subagent Lanes: none
 Role Lanes: worker-a, qa-behavior, review-contract, senior-qa-test-design, architect-resolution-review, worker-b, qa-retry, review-retry
 Subagent Trace Evidence: none
+
+## Harness Evaluation
+
+Harness findings and proposals:
+- `blocked-resolution-recovered-recorded`
+- `promote-blocked-resolution-recovery-evidence`

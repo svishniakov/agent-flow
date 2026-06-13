@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "status": "evaluated",
+  "learning_triggers": [
+    "architecture-drift",
+    "architecture-recheck"
+  ],
+  "source_artifacts": [
+    "lane-map.json",
+    "timeline.jsonl"
+  ],
+  "findings": [
+    {
+      "id": "architecture-drift-recheck-recorded",
+      "type": "recovery-success",
+      "problem_class": "architecture-drift",
+      "architecture_context": [],
+      "architecture_capabilities": [],
+      "approach": "route drift through architecture recheck before final",
+      "outcome": "success",
+      "evidence": [
+        "checks/smoke.md"
+      ],
+      "lesson": "Architecture drift can ship only after successful recheck evidence.",
+      "reuse_when": "same trigger appears with matching persisted evidence",
+      "do_not_reuse_when": "required persisted evidence is missing or contradicted"
+    }
+  ],
+  "proposals": [
+    {
+      "id": "promote-architecture-drift-recheck-evidence",
+      "type": "evidence-record",
+      "status": "proposed",
+      "target": "Evidence Records",
+      "rationale": "Golden trace produced reusable harness evidence boundaries.",
+      "evidence": [
+        "checks/smoke.md"
+      ],
+      "requires_human_approval": true
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate traceable runs, Architecture Capability Router, and Architecture Artifact Authoring Automation gates."""
+"""Validate traceable runs, Architecture Capability Router, Architecture Artifact Authoring Automation, and Harness Evaluation Loop gates."""
 
 from __future__ import annotations
 
@@ -51,6 +51,9 @@ CONTINUATION_SUMMARY_PATH = "continuation-summary.json"
 CONTINUATION_SUMMARY_SECTION = "Continuation Summary"
 CONTINUATION_REVALIDATION_SECTION = "Continuation Revalidation"
 CONTINUATION_REVIEW_SECTION = "Continuation Review"
+HARNESS_EVALUATION_PATH = "harness-evaluation.json"
+HARNESS_EVALUATION_SECTION = "Harness Evaluation"
+HARNESS_EVALUATION_REVIEW_SECTION = "Harness Evaluation Review"
 LANE_TYPES = {"architecture", "implementation", "integration", "qa", "review"}
 TRACE_BUDGETS = {"release", "standard"}
 WORKER_LANE_TYPES = {"implementation", "integration"}
@@ -72,6 +75,36 @@ SUCCESSFUL_CHECK_STAGES = {"verification", "checks"}
 SUCCESS_STATUSES = {"pass", "ship", "pass-with-risks"}
 CONTINUATION_STAGES = {"blocked-checkpoint", "continuation"}
 CONTINUATION_STATUSES = {"resumed-ready", "resumed-blocked", "resumed-fail"}
+HARNESS_EVALUATION_STATUSES = {"evaluated", "needs-review", "blocked-learning"}
+HARNESS_LEARNING_TRIGGERS = {
+    "continuation",
+    "risk-mitigation",
+    "risk-resolution",
+    "blocked-resolution",
+    "architecture-drift",
+    "architecture-recheck",
+    "readiness-recovery",
+    "nonpositive-architecture-final",
+}
+HARNESS_FINDING_TYPES = {
+    "recovery-success",
+    "architecture-failure",
+    "orchestration-failure",
+    "qa-gap",
+    "readiness-gap",
+    "anti-pattern",
+    "local-practice-candidate",
+}
+HARNESS_OUTCOMES = {"success", "failure", "regression", "rejected", "unknown"}
+HARNESS_PROPOSAL_TYPES = {
+    "evidence-record",
+    "architecture-matrix",
+    "architecture-capability",
+    "verification-gate",
+    "role-prompt",
+    "validator-guard",
+    "golden-trace",
+}
 COMMIT_HASH_PATTERN = re.compile(r"\b[0-9a-f]{7,40}\b", re.IGNORECASE)
 COMMIT_DECLARATION_PATTERN = re.compile(
     r"(?i)(^\s*(?:[-*]\s*)?(?:product\s+)?commit\s*:|committed\s+as)"
@@ -2249,6 +2282,342 @@ def validate_continuation_summary(
     return errors
 
 
+def has_blocked_resolution_attempts(resolution_records: list[dict]) -> bool:
+    for resolution in resolution_records:
+        attempts = resolution.get("attempts")
+        if not isinstance(attempts, list):
+            continue
+        for attempt in attempts:
+            if isinstance(attempt, dict) and attempt.get("status") == "blocked":
+                return True
+    return False
+
+
+def detect_harness_learning_triggers(
+    run_dir: Path,
+    *,
+    final_verdict: str | None,
+    architecture_contract_required: bool,
+    resolution_records: list[dict],
+    drifting_worker_lanes: list[tuple[str, int | None, str | None]],
+    verification_readiness_data: dict | None,
+) -> set[str]:
+    triggers: set[str] = set()
+    timeline_events, timeline_errors = read_timeline_events(run_dir)
+    if not timeline_errors and continuation_stage_present(timeline_events):
+        triggers.add("continuation")
+    if (run_dir / CONTINUATION_SUMMARY_PATH).exists():
+        triggers.add("continuation")
+    if (run_dir / RISK_MITIGATIONS_PATH).exists():
+        triggers.add("risk-mitigation")
+    if (run_dir / RISK_RESOLUTIONS_PATH).exists():
+        triggers.add("risk-resolution")
+    if has_blocked_resolution_attempts(resolution_records):
+        triggers.add("blocked-resolution")
+    if drifting_worker_lanes:
+        triggers.add("architecture-drift")
+        if any(recheck_lane for _lane_id, _wave, recheck_lane in drifting_worker_lanes):
+            triggers.add("architecture-recheck")
+    if isinstance(verification_readiness_data, dict):
+        status = verification_readiness_data.get("status")
+        attempts = verification_readiness_data.get("attempts")
+        approval_requests = verification_readiness_data.get("approval_requests")
+        approval_executions = verification_readiness_data.get("approval_executions")
+        if (
+            status in {"needs-approval", "paused-blocked", "blocked"}
+            or (isinstance(attempts, list) and len(attempts) > 1)
+            or (isinstance(approval_requests, list) and bool(approval_requests))
+            or (isinstance(approval_executions, list) and bool(approval_executions))
+        ):
+            triggers.add("readiness-recovery")
+    if architecture_contract_required and final_verdict in {"blocked", "fail"}:
+        triggers.add("nonpositive-architecture-final")
+    return triggers
+
+
+def validate_harness_id(value: object, label: str, errors: list[str]) -> str | None:
+    if not isinstance(value, str) or not value:
+        errors.append(f"{label} must be a non-empty string")
+        return None
+    if not KEBAB_CASE_PATTERN.fullmatch(value):
+        errors.append(f"{label} must be kebab-case")
+    return value
+
+
+def validate_harness_finding(
+    run_dir: Path,
+    finding: object,
+    index: int,
+    selected_context_facets: set[str],
+    selected_capabilities: set[str],
+    known_capabilities: set[str],
+    seen_ids: set[str],
+    errors: list[str],
+) -> str | None:
+    label = f"{HARNESS_EVALUATION_PATH} findings[{index}]"
+    if not isinstance(finding, dict):
+        errors.append(f"{label} must be an object")
+        return None
+
+    for field in [
+        "id",
+        "type",
+        "problem_class",
+        "architecture_context",
+        "architecture_capabilities",
+        "approach",
+        "outcome",
+        "evidence",
+        "lesson",
+        "reuse_when",
+        "do_not_reuse_when",
+    ]:
+        if field not in finding:
+            errors.append(f"{label} missing field: {field}")
+
+    finding_id = validate_harness_id(finding.get("id"), f"{label}.id", errors)
+    if finding_id:
+        if finding_id in seen_ids:
+            errors.append(f"{HARNESS_EVALUATION_PATH} duplicate finding id: {finding_id}")
+        seen_ids.add(finding_id)
+
+    if finding.get("type") not in HARNESS_FINDING_TYPES:
+        errors.append(f"{label}.type invalid")
+    if finding.get("outcome") not in HARNESS_OUTCOMES:
+        errors.append(f"{label}.outcome invalid")
+
+    for field in ["problem_class", "approach", "lesson", "reuse_when", "do_not_reuse_when"]:
+        validate_string(finding.get(field), f"{label}.{field}", errors)
+
+    context_values = validate_string_list(
+        finding.get("architecture_context"),
+        f"{label}.architecture_context",
+        errors,
+    )
+    for context_index, facet in enumerate(context_values):
+        if facet not in selected_context_facets:
+            errors.append(f"{label}.architecture_context[{context_index}] unselected facet: {facet}")
+
+    capability_values = validate_string_list(
+        finding.get("architecture_capabilities"),
+        f"{label}.architecture_capabilities",
+        errors,
+    )
+    for capability_index, capability in enumerate(capability_values):
+        if known_capabilities and capability not in known_capabilities:
+            errors.append(
+                f"{label}.architecture_capabilities[{capability_index}] "
+                f"unknown capability: {capability}"
+            )
+            continue
+        if capability not in selected_capabilities:
+            errors.append(
+                f"{label}.architecture_capabilities[{capability_index}] "
+                f"unselected capability: {capability}"
+            )
+
+    validate_existing_path_list(run_dir, finding.get("evidence"), f"{label}.evidence", errors)
+    return finding_id
+
+
+def validate_harness_proposal(
+    run_dir: Path,
+    proposal: object,
+    index: int,
+    seen_ids: set[str],
+    errors: list[str],
+) -> str | None:
+    label = f"{HARNESS_EVALUATION_PATH} proposals[{index}]"
+    if not isinstance(proposal, dict):
+        errors.append(f"{label} must be an object")
+        return None
+
+    for field in [
+        "id",
+        "type",
+        "status",
+        "target",
+        "rationale",
+        "evidence",
+        "requires_human_approval",
+    ]:
+        if field not in proposal:
+            errors.append(f"{label} missing field: {field}")
+
+    proposal_id = validate_harness_id(proposal.get("id"), f"{label}.id", errors)
+    if proposal_id:
+        if proposal_id in seen_ids:
+            errors.append(f"{HARNESS_EVALUATION_PATH} duplicate proposal id: {proposal_id}")
+        seen_ids.add(proposal_id)
+
+    if proposal.get("type") not in HARNESS_PROPOSAL_TYPES:
+        errors.append(f"{label}.type invalid")
+    if proposal.get("status") != "proposed":
+        errors.append(f"{label}.status must be proposed")
+    if proposal.get("requires_human_approval") is not True:
+        errors.append(f"{label}.requires_human_approval must be true")
+    for field in ["target", "rationale"]:
+        validate_string(proposal.get(field), f"{label}.{field}", errors)
+    validate_existing_path_list(run_dir, proposal.get("evidence"), f"{label}.evidence", errors)
+    return proposal_id
+
+
+def validate_harness_evaluation(
+    run_dir: Path,
+    *,
+    final_verdict: str | None,
+    learning_triggers: set[str],
+    architecture_context_facets: list[str],
+    architecture_capabilities: list[str],
+    known_architecture_capability_ids: set[str],
+    successful_reviewer_lanes: list[tuple[str, int, str | None]],
+    require_reviewer_review: bool,
+) -> list[str]:
+    path = run_dir / HARNESS_EVALUATION_PATH
+    if not path.exists():
+        if learning_triggers:
+            return [f"{HARNESS_EVALUATION_PATH} is required for triggered learning run"]
+        return []
+
+    data, errors = load_json(path, HARNESS_EVALUATION_PATH)
+    if errors:
+        return errors
+    if not isinstance(data, dict):
+        return [f"{HARNESS_EVALUATION_PATH} must be a JSON object"]
+
+    if data.get("version") != 1:
+        errors.append(f"{HARNESS_EVALUATION_PATH} field 'version' must be 1")
+
+    status = data.get("status")
+    if status not in HARNESS_EVALUATION_STATUSES:
+        errors.append(f"{HARNESS_EVALUATION_PATH} status invalid")
+    elif status == "blocked-learning" and final_verdict not in {"blocked", "fail"}:
+        errors.append(f"{HARNESS_EVALUATION_PATH} status blocked-learning requires final Verdict: blocked or fail")
+
+    declared_triggers = validate_string_list(
+        data.get("learning_triggers"),
+        f"{HARNESS_EVALUATION_PATH} learning_triggers",
+        errors,
+    )
+    declared_trigger_set = set(declared_triggers)
+    for trigger in declared_triggers:
+        if trigger not in HARNESS_LEARNING_TRIGGERS:
+            errors.append(f"{HARNESS_EVALUATION_PATH} unknown learning trigger: {trigger}")
+        elif trigger not in learning_triggers:
+            errors.append(f"{HARNESS_EVALUATION_PATH} learning trigger not present in run: {trigger}")
+    for trigger in sorted(learning_triggers - declared_trigger_set):
+        errors.append(f"{HARNESS_EVALUATION_PATH} missing learning trigger: {trigger}")
+
+    validate_existing_path_list(
+        run_dir,
+        data.get("source_artifacts"),
+        f"{HARNESS_EVALUATION_PATH} source_artifacts",
+        errors,
+    )
+
+    if status == "blocked-learning":
+        validate_string(data.get("blocked_reason"), f"{HARNESS_EVALUATION_PATH} blocked_reason", errors)
+        validate_existing_path_list(
+            run_dir,
+            data.get("blocked_evidence"),
+            f"{HARNESS_EVALUATION_PATH} blocked_evidence",
+            errors,
+        )
+
+    findings = data.get("findings")
+    proposals = data.get("proposals")
+    if status in {"evaluated", "needs-review"}:
+        if not isinstance(findings, list) or not findings:
+            errors.append(f"{HARNESS_EVALUATION_PATH} findings must be a non-empty array")
+            findings = []
+        if not isinstance(proposals, list) or not proposals:
+            errors.append(f"{HARNESS_EVALUATION_PATH} proposals must be a non-empty array")
+            proposals = []
+    else:
+        if findings is None:
+            findings = []
+        if proposals is None:
+            proposals = []
+        if not isinstance(findings, list):
+            errors.append(f"{HARNESS_EVALUATION_PATH} findings must be an array")
+            findings = []
+        if not isinstance(proposals, list):
+            errors.append(f"{HARNESS_EVALUATION_PATH} proposals must be an array")
+            proposals = []
+
+    finding_ids: list[str] = []
+    proposal_ids: list[str] = []
+    seen_finding_ids: set[str] = set()
+    seen_proposal_ids: set[str] = set()
+    selected_context_set = set(architecture_context_facets)
+    selected_capability_set = set(architecture_capabilities)
+    known_capability_set = known_architecture_capability_ids | selected_capability_set
+
+    for index, finding in enumerate(findings):
+        finding_id = validate_harness_finding(
+            run_dir,
+            finding,
+            index,
+            selected_context_set,
+            selected_capability_set,
+            known_capability_set,
+            seen_finding_ids,
+            errors,
+        )
+        if finding_id:
+            finding_ids.append(finding_id)
+
+    for index, proposal in enumerate(proposals):
+        proposal_id = validate_harness_proposal(
+            run_dir,
+            proposal,
+            index,
+            seen_proposal_ids,
+            errors,
+        )
+        if proposal_id:
+            proposal_ids.append(proposal_id)
+
+    required_ids = [*finding_ids, *proposal_ids]
+    if required_ids:
+        validate_markdown_section_coverage(
+            run_dir / "final.md",
+            HARNESS_EVALUATION_SECTION,
+            required_ids,
+            missing_section_error=f"final.md missing section: {HARNESS_EVALUATION_SECTION}",
+            missing_id_error_prefix="final.md Harness Evaluation missing harness id",
+            errors=errors,
+        )
+
+    if (
+        require_reviewer_review
+        and final_verdict in POSITIVE_FINAL_VERDICTS
+        and learning_triggers
+    ):
+        if not successful_reviewer_lanes:
+            errors.append("lane-map.json: positive Harness Evaluation requires successful reviewer lane")
+        for lane_id, _wave, handoff in successful_reviewer_lanes:
+            if not isinstance(handoff, str) or not handoff:
+                errors.append(f"lane-map.json: lane {lane_id} requires handoff for Harness Evaluation Review")
+                continue
+            validate_markdown_section_coverage(
+                resolve_run_path(run_dir, handoff),
+                HARNESS_EVALUATION_REVIEW_SECTION,
+                required_ids,
+                missing_section_error=(
+                    f"lane-map.json: lane {lane_id} handoff missing section: "
+                    f"{HARNESS_EVALUATION_REVIEW_SECTION}"
+                ),
+                missing_id_error_prefix=(
+                    f"lane-map.json: lane {lane_id} "
+                    f"{HARNESS_EVALUATION_REVIEW_SECTION} missing harness id"
+                ),
+                errors=errors,
+            )
+
+    return errors
+
+
 def load_architecture_matrix_facets() -> tuple[dict[str, set[str]], list[str]]:
     facets = {axis: set() for axis in ARCHITECTURE_CONTEXT_AXES}
     if not ARCHITECTURE_MATRIX_PATH.exists():
@@ -2918,6 +3287,8 @@ def validate_lane_map(
     run_dir: Path,
     mitigation_risks: list[dict] | None = None,
     resolution_records: list[dict] | None = None,
+    *,
+    allow_pending: bool = False,
 ) -> list[str]:
     lane_map_path = run_dir / "lane-map.json"
     data, errors = load_json(lane_map_path, "lane-map.json")
@@ -2958,6 +3329,7 @@ def validate_lane_map(
     architecture_context_facets: list[str] = []
     architecture_capabilities: list[str] = []
     known_matrix_facets: set[str] = set()
+    known_architecture_capability_ids: set[str] = set()
     if architecture_contract_required or "architecture_context" in data:
         matrix_facets, matrix_errors = load_architecture_matrix_facets()
         errors.extend(matrix_errors)
@@ -2981,6 +3353,7 @@ def validate_lane_map(
             validate_skills=False,
             require_full_matrix_coverage=False,
         )
+        known_architecture_capability_ids = set(capabilities_by_id)
         errors.extend(capability_registry_errors)
         architecture_capabilities, capability_errors = validate_architecture_capabilities_shape(
             data,
@@ -3318,6 +3691,27 @@ def validate_lane_map(
             verification_readiness_data=verification_readiness_data,
         )
     )
+    if not allow_pending:
+        learning_triggers = detect_harness_learning_triggers(
+            run_dir,
+            final_verdict=final_verdict,
+            architecture_contract_required=architecture_contract_required,
+            resolution_records=resolution_records,
+            drifting_worker_lanes=drifting_worker_lanes,
+            verification_readiness_data=verification_readiness_data,
+        )
+        errors.extend(
+            validate_harness_evaluation(
+                run_dir,
+                final_verdict=final_verdict,
+                learning_triggers=learning_triggers,
+                architecture_context_facets=architecture_context_facets,
+                architecture_capabilities=architecture_capabilities,
+                known_architecture_capability_ids=known_architecture_capability_ids,
+                successful_reviewer_lanes=successful_reviewer_lanes,
+                require_reviewer_review=True,
+            )
+        )
 
     if architecture_contract_required:
         if final_verdict in POSITIVE_FINAL_VERDICTS:
@@ -3794,7 +4188,14 @@ def validate_compact_run(run_dir: Path, allow_no_check: bool, allow_pending: boo
         if not allow_pending:
             errors.extend(validate_final_timeline_event(run_dir, require_timeline=True))
 
-    errors.extend(validate_lane_map(run_dir, mitigation_risks, resolution_records))
+    errors.extend(
+        validate_lane_map(
+            run_dir,
+            mitigation_risks,
+            resolution_records,
+            allow_pending=allow_pending,
+        )
+    )
 
     return errors
 
@@ -3857,7 +4258,35 @@ def validate_full_run(
         mitigation_risks = []
         resolution_records = []
 
-    errors.extend(validate_lane_map(run_dir, mitigation_risks, resolution_records))
+    errors.extend(
+        validate_lane_map(
+            run_dir,
+            mitigation_risks,
+            resolution_records,
+            allow_pending=allow_pending,
+        )
+    )
+    if not (run_dir / "lane-map.json").exists() and not allow_pending:
+        learning_triggers = detect_harness_learning_triggers(
+            run_dir,
+            final_verdict=read_single_field(run_dir / "final.md", "Verdict"),
+            architecture_contract_required=False,
+            resolution_records=resolution_records,
+            drifting_worker_lanes=[],
+            verification_readiness_data=None,
+        )
+        errors.extend(
+            validate_harness_evaluation(
+                run_dir,
+                final_verdict=read_single_field(run_dir / "final.md", "Verdict"),
+                learning_triggers=learning_triggers,
+                architecture_context_facets=[],
+                architecture_capabilities=[],
+                known_architecture_capability_ids=set(),
+                successful_reviewer_lanes=[],
+                require_reviewer_review=False,
+            )
+        )
 
     if require_handoff and not list((run_dir / "handoffs").glob("*.md")):
         errors.append("no handoff markdown files")

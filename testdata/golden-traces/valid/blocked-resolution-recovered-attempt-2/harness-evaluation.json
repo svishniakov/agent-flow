@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "status": "evaluated",
+  "learning_triggers": [
+    "risk-mitigation",
+    "risk-resolution",
+    "blocked-resolution"
+  ],
+  "source_artifacts": [
+    "risk-mitigations.json",
+    "risk-resolutions.json"
+  ],
+  "findings": [
+    {
+      "id": "blocked-resolution-recovered-recorded",
+      "type": "recovery-success",
+      "problem_class": "blocked-resolution",
+      "architecture_context": [],
+      "architecture_capabilities": [],
+      "approach": "run Senior QA test design review and architect review before attempt 2",
+      "outcome": "success",
+      "evidence": [
+        "checks/smoke.md"
+      ],
+      "lesson": "Worker retry after blocked resolution needs Senior QA and architect instruction.",
+      "reuse_when": "same trigger appears with matching persisted evidence",
+      "do_not_reuse_when": "required persisted evidence is missing or contradicted"
+    }
+  ],
+  "proposals": [
+    {
+      "id": "promote-blocked-resolution-recovery-evidence",
+      "type": "evidence-record",
+      "status": "proposed",
+      "target": "Evidence Records",
+      "rationale": "Golden trace produced reusable harness evidence boundaries.",
+      "evidence": [
+        "checks/smoke.md"
+      ],
+      "requires_human_approval": true
+    }
+  ]
+}

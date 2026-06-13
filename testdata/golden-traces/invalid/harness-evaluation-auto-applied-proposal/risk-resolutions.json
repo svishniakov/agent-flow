@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "resolutions": [
+    {
+      "risk_id": "browser-proof-gap",
+      "status": "mitigated",
+      "resolution_type": "evidence-added",
+      "owner_lane": "worker-a",
+      "resolution": "Added concrete evidence for the identified proof gap.",
+      "evidence": [
+        "checks/smoke.md"
+      ],
+      "verification": "QA verified the added evidence in this run.",
+      "verified_by": "qa-behavior",
+      "reviewed_by": "review-contract"
+    }
+  ]
+}

@@ -66,6 +66,7 @@ PASS all Agent Flow checks
 | `references/architecture-matrix.md` | reusable architecture matrix facets for product, surface, stack, risk, and verification context |
 | `references/architecture-capability-router.md` | Architecture Capability Router and Soft Skill Binding contract |
 | `references/architecture-artifact-authoring.md` | Architecture Artifact Authoring Automation for agent-filled architecture templates |
+| `references/harness-evaluation-loop.md` | Harness Evaluation Loop for trace learning records and human-approved proposals |
 | `references/role-catalog.md` | role lifecycle, use cases, exclusions, overlap notes |
 | `registries/agent-skills.json` | metadata for role skill dependencies |
 | `registries/architecture-capabilities.json` | capability routing from Matrix facets to soft skill bindings |
@@ -118,6 +119,8 @@ Architecture Context Propagation then carries that context through execution: wo
 Verification Readiness Gate runs after approved architecture design and before workers. `lane-map.json` records `verification_readiness`, and `verification-readiness.json` covers every selected `risk_gates` and `verification_gates` facet. If readiness needs a documented local command, the status becomes `needs-approval`; the agent asks the user and runs only an approved documented safe command, then records `approval_executions` and repeats readiness. If the user declines, the current pass stops as `paused-blocked`, final verdict is `blocked`, and `final.md` includes the manual instruction plus `resume_phrase: Готово`. Workers may start only after the latest readiness attempt is `ready`, and QA writes `Verification Gate Results`.
 
 Continuation Gate protects resumed runs. If `timeline.jsonl` contains `blocked-checkpoint` or `continuation` and the run later ends with `ship` or `pass-with-risks`, `continuation-summary.json` must identify the blocked checkpoint snapshot, resolved blockers, `historical_worker_lanes`, `new_worker_lanes`, and `revalidated_lanes`. Workers cannot run after the checkpoint until Verification Readiness is ready. `final.md` includes `Continuation Summary`; QA writes `Continuation Revalidation`; reviewer writes `Continuation Review`.
+
+Harness Evaluation Loop records what AgentFlow learned from triggered runs. When continuation, risk/resolution, blocked recovery, architecture drift/recheck, readiness recovery, or nonpositive architecture-final triggers exist, the run writes `harness-evaluation.json`; `final.md` includes `Harness Evaluation`; positive lane-map runs require reviewer `Harness Evaluation Review`. Proposals stay `proposed` with `requires_human_approval=true` and never auto-edit Matrix, registries, prompts, golden traces, or project memory.
 
 Mitigation Gate applies to every traceable run that ends with `Verdict: pass-with-risks`. The run must include `risk-mitigations.json` with at least one `identified` risk, concrete `problem`, `impact`, `affected_scope`, evidence, and `next_gate=resolution`. `final.md` must include `Risk Mitigations` and every risk id. When `lane-map.json` exists, a successful reviewer lane must include `Risk Mitigation Review` and every risk id.
 
@@ -185,6 +188,7 @@ Agent Flow Finish this feature for release. Run architecture, QA, and review gat
 - [Subagent policy](references/subagents.md)
 - [Delegation rules](references/delegation.md)
 - [Traceable runs](references/traceable-runs.md)
+- [Harness Evaluation Loop](references/harness-evaluation-loop.md)
 - [Definition of Done](references/definition-of-done.md)
 - [Russian documentation](docs/ru/agent-flow.md)
 - [English documentation](docs/en/agent-flow.md)
@@ -253,6 +257,7 @@ PASS all Agent Flow checks
 | `agents/agent-identities.json` | стабильные identities ролей для trace и handoff |
 | `references/architecture-matrix.md` | переиспользуемая Architecture Matrix по типу продукта, приложению, стеку, рискам и проверкам |
 | `references/architecture-capability-router.md` | Architecture Capability Router и Soft Skill Binding |
+| `references/harness-evaluation-loop.md` | Harness Evaluation Loop для записей обучения по trace и proposals с human approval |
 | `references/role-catalog.md` | сценарии ролей, ограничения и пересечения |
 | `registries/agent-skills.json` | metadata зависимостей role skills |
 | `registries/architecture-capabilities.json` | routing capabilities от Matrix facets к мягким skill-связям |
@@ -278,6 +283,7 @@ PASS all Agent Flow checks
 - Delegation Trace Gate запрещает ложные sidecar/subagent claims: positive lane-map runs требуют `delegation-summary.json`, финальную секцию `Delegation Trace`, `Subagents Used`, `Role Lanes Used`, `Subagent Trace Evidence` и terminal handoff evidence для каждого настоящего spawned subagent.
 - Verification Readiness Gate запускается до workers в architecture-gated lane runs: `verification-readiness.json` и `verification_readiness` доказывают готовность выбранных `risk_gates` и `verification_gates` или останавливают проход как `paused-blocked` после отказа пользователя с `resume_phrase=Готово`.
 - Continuation Gate защищает resumed runs: после `blocked-checkpoint` положительный итог требует `continuation-summary.json`, `Continuation Summary`, QA `Continuation Revalidation`, reviewer `Continuation Review`, `historical_worker_lanes` и `revalidated_lanes`; новая worker-работа запрещена до ready Verification Readiness.
+- Harness Evaluation Loop записывает уроки из triggered runs: при continuation, risk/resolution, blocked recovery, architecture drift/recheck, readiness recovery или nonpositive architecture-final нужен `harness-evaluation.json`; `final.md` содержит `Harness Evaluation`; positive lane-map runs требуют reviewer `Harness Evaluation Review`. Proposals остаются `proposed`, требуют `requires_human_approval=true` и не меняют Matrix, registries, prompts, golden traces или project memory автоматически.
 - Evidence Records в `implementation-notes.md` - структурированные данные для локального обучения, а не свободные заметки.
 - Local Best Practice auto gate переиспользует подход только после подтверждения analyzer, ясного совпадения контекста, отсутствия совпадения с `Do not reuse when`, отсутствия внешней записи и свежей проверки.
 - Если переиспользованный подход дал failure или regression, practice демотируется или замораживается до архитектурного разбора.
@@ -310,6 +316,8 @@ Mitigation Gate применяется к каждому traceable run с `Verdi
 Resolution Gate идёт сразу после Mitigation Gate для каждого `Verdict: pass-with-risks`. В run должен быть `risk-resolutions.json`; каждый identified risk получает resolution record с `resolution_type`, сделанным действием, evidence, verification и статусом `fixed`, `mitigated` или `contained`. `final.md` содержит `Risk Resolutions` и каждый risk id. Если есть `lane-map.json`, QA пишет `Risk Resolution Verification`, reviewer пишет `Risk Resolution Review`, и обе секции покрывают каждый resolved risk id. `unresolved` допустим только для `blocked` или `fail`.
 
 Blocked Resolution Gate расширяет `risk-resolutions.json`, когда resolution-попытка блокируется. После первой блокировки нужны `blocked_lesson`, `rollback`, Senior QA `Senior QA Test Design Review` и architect `Resolution Architect Review`; только после этого worker может идти во вторую попытку. Если вторая попытка тоже блокируется, перед третьей нужен `Supervising Architect Review`. Третья заблокированная попытка завершается только как `blocked` или `fail`; `pass-with-risks` запрещён.
+
+Harness Evaluation Loop превращает validated trace в проверяемую запись обучения. Если run содержит learning-trigger, он пишет `harness-evaluation.json`, финальную секцию `Harness Evaluation`, а positive lane-map run ещё и reviewer `Harness Evaluation Review`. Запись может предложить Evidence Record, Matrix/capability/validator/prompt/golden-trace изменение, но proposal не применяется автоматически и всегда требует отдельного подтверждения.
 
 Delegation Trace Gate применяется к positive lane-map runs. Run записывает
 `delegation-summary.json` и финальную секцию `Delegation Trace`; role lanes
@@ -371,6 +379,7 @@ Agent Flow Finish this feature for release. Run architecture, QA, and review gat
 - [Subagent policy](references/subagents.md)
 - [Delegation rules](references/delegation.md)
 - [Traceable runs](references/traceable-runs.md)
+- [Harness Evaluation Loop](references/harness-evaluation-loop.md)
 - [Definition of Done](references/definition-of-done.md)
 - [Документация на русском](docs/ru/agent-flow.md)
 - [Documentation in English](docs/en/agent-flow.md)

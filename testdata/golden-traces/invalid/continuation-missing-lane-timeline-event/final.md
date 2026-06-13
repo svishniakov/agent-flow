@@ -15,3 +15,9 @@ Resolved blockers and revalidated lanes:
 - `verification-env-missing`
 - `worker-a`
 - `worker-b`
+
+## Harness Evaluation
+
+Harness findings and proposals:
+- `readiness-before-workers-recovery`
+- `promote-continuation-revalidation-evidence`

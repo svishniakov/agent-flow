@@ -8,3 +8,9 @@ Role Lanes Used: yes
 Subagent Lanes: none
 Role Lanes: architecture-contract, worker-a, qa-behavior, review-contract
 Subagent Trace Evidence: none
+
+## Harness Evaluation
+
+Harness findings and proposals:
+- `architecture-drift-recheck-recorded`
+- `promote-architecture-drift-recheck-evidence`

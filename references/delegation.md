@@ -163,6 +163,14 @@ Verification Readiness plus QA and reviewer revalidation. QA writes
 `Continuation Summary`. New worker work after the checkpoint must not start
 before the ready readiness lane.
 
+Harness Evaluation Loop runs after gates produce a learning trigger. The
+orchestrator writes `harness-evaluation.json`, records `learning_triggers`,
+findings, proposals, and source evidence, and adds final `Harness Evaluation`.
+For positive lane-map runs, reviewer writes `Harness Evaluation Review`. Every
+proposal remains `proposed` with `requires_human_approval=true`; delegation must
+not auto-edit Architecture Matrix, Architecture Capability Router registry,
+role prompts, Golden Trace Runs, or project memory from this loop.
+
 Mitigation Gate applies before any `pass-with-risks` final verdict. The
 orchestrator records identified risks in `risk-mitigations.json`; each risk
 keeps concrete `problem`, `impact`, `affected_scope`, evidence, and

@@ -19,3 +19,9 @@ Checked capabilities:
 ## Contract Drift
 
 No contract drift for selected Architecture Matrix facets and architecture capabilities.
+
+## Harness Evaluation Review
+
+Reviewed harness evaluation items:
+- `readiness-recovery-recorded`
+- `promote-readiness-recovery-evidence`

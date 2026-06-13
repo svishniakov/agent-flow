@@ -272,6 +272,50 @@
         "Continuation Gate",
         "timeline lane evidence"
       ]
+    },
+    {
+      "id": "triggered-run-without-harness-evaluation",
+      "path": "invalid/triggered-run-without-harness-evaluation",
+      "mode": "full",
+      "expected": "fail",
+      "expected_error": "harness-evaluation.json is required for triggered learning run",
+      "covers": [
+        "Harness Evaluation Loop",
+        "learning trigger"
+      ]
+    },
+    {
+      "id": "harness-evaluation-auto-applied-proposal",
+      "path": "invalid/harness-evaluation-auto-applied-proposal",
+      "mode": "full",
+      "expected": "fail",
+      "expected_error": "harness-evaluation.json proposals[0].status must be proposed",
+      "covers": [
+        "Harness Evaluation Loop",
+        "human approval"
+      ]
+    },
+    {
+      "id": "harness-evaluation-missing-evidence",
+      "path": "invalid/harness-evaluation-missing-evidence",
+      "mode": "full",
+      "expected": "fail",
+      "expected_error": "harness-evaluation.json findings[0].evidence[0] not found: checks/missing.md",
+      "covers": [
+        "Harness Evaluation Loop",
+        "evidence"
+      ]
+    },
+    {
+      "id": "harness-evaluation-unselected-context",
+      "path": "invalid/harness-evaluation-unselected-context",
+      "mode": "full",
+      "expected": "fail",
+      "expected_error": "harness-evaluation.json findings[0].architecture_context[0] unselected facet: frontend-service",
+      "covers": [
+        "Harness Evaluation Loop",
+        "Architecture Matrix Router"
+      ]
     }
   ]
 }

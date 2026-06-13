@@ -55,6 +55,9 @@ CONTINUATION_SUMMARY_PATH = "continuation-summary.json"
 CONTINUATION_SUMMARY_SECTION = "Continuation Summary"
 CONTINUATION_REVALIDATION_SECTION = "Continuation Revalidation"
 CONTINUATION_REVIEW_SECTION = "Continuation Review"
+HARNESS_EVALUATION_PATH = "harness-evaluation.json"
+HARNESS_EVALUATION_SECTION = "Harness Evaluation"
+HARNESS_EVALUATION_REVIEW_SECTION = "Harness Evaluation Review"
 RISK_MITIGATIONS_SECTION = "Risk Mitigations"
 RISK_MITIGATION_REVIEW_SECTION = "Risk Mitigation Review"
 RISK_RESOLUTIONS_SECTION = "Risk Resolutions"
@@ -416,6 +419,7 @@ def default_reviewer_handoff_bodies(
     risk_ids: list[str] | None = None,
     risk_resolution_ids: list[str] | None = None,
     continuation_ids: list[str] | None = None,
+    harness_review_ids: list[str] | None = None,
 ) -> dict[str, str]:
     facets = architecture_context_facets(context)
     selected_capabilities = DEFAULT_ARCHITECTURE_CAPABILITIES if capabilities is None else capabilities
@@ -440,6 +444,10 @@ def default_reviewer_handoff_bodies(
     if continuation_ids:
         bodies[CONTINUATION_REVIEW_SECTION] = (
             "Reviewed continuation items:\n" + facet_lines(continuation_ids)
+        )
+    if harness_review_ids:
+        bodies[HARNESS_EVALUATION_REVIEW_SECTION] = (
+            "Reviewed harness evaluation items:\n" + facet_lines(harness_review_ids)
         )
     return bodies
 
@@ -506,9 +514,120 @@ def continuation_summary_section(ids: list[str] | None = None) -> str:
     )
 
 
+def harness_ids(
+    *,
+    finding_ids: list[str] | None = None,
+    proposal_ids: list[str] | None = None,
+) -> list[str]:
+    return [
+        *(finding_ids or ["readiness-before-workers-recovery"]),
+        *(proposal_ids or ["promote-continuation-revalidation-evidence"]),
+    ]
+
+
+def harness_evaluation(
+    *,
+    status: str = "evaluated",
+    learning_triggers: list[str] | None = None,
+    source_artifacts: list[str] | None = None,
+    findings: Any = DEFAULT,
+    proposals: Any = DEFAULT,
+    blocked_reason: Any = OMIT,
+    blocked_evidence: Any = OMIT,
+) -> dict[str, Any]:
+    if findings is DEFAULT:
+        findings = [
+            {
+                "id": "readiness-before-workers-recovery",
+                "type": "recovery-success",
+                "problem_class": "verification-readiness-ordering",
+                "architecture_context": ["saas-service", "backend-service"],
+                "architecture_capabilities": ["saas-platform-architecture"],
+                "approach": (
+                    "pause at blocked checkpoint, document readiness, "
+                    "revalidate historical workers"
+                ),
+                "outcome": "success",
+                "evidence": ["checks/verification-readiness.md"],
+                "lesson": (
+                    "Do not rewrite worker waves after resume; revalidate "
+                    "historical workers instead."
+                ),
+                "reuse_when": "same-run resume after blocked readiness",
+                "do_not_reuse_when": "new worker ran after checkpoint before ready readiness",
+            }
+        ]
+    if proposals is DEFAULT:
+        proposals = [
+            {
+                "id": "promote-continuation-revalidation-evidence",
+                "type": "evidence-record",
+                "status": "proposed",
+                "target": "Evidence Records",
+                "rationale": "The recovery pattern passed validation and has reusable boundaries.",
+                "evidence": ["checks/verification-readiness.md"],
+                "requires_human_approval": True,
+            }
+        ]
+    data = {
+        "version": 1,
+        "status": status,
+        "learning_triggers": learning_triggers or ["continuation"],
+        "source_artifacts": source_artifacts or ["lane-map.json", "timeline.jsonl"],
+        "findings": findings,
+        "proposals": proposals,
+    }
+    if blocked_reason is not OMIT:
+        data["blocked_reason"] = blocked_reason
+    if blocked_evidence is not OMIT:
+        data["blocked_evidence"] = blocked_evidence
+    return data
+
+
+def resolution_data_has_blocked_attempt(data: Any) -> bool:
+    if not isinstance(data, dict):
+        return False
+    resolutions = data.get("resolutions")
+    if not isinstance(resolutions, list):
+        return False
+    for resolution in resolutions:
+        if not isinstance(resolution, dict):
+            continue
+        attempts = resolution.get("attempts")
+        if not isinstance(attempts, list):
+            continue
+        if any(isinstance(attempt, dict) and attempt.get("status") == "blocked" for attempt in attempts):
+            return True
+    return False
+
+
+def harness_evaluation_section(ids: list[str] | None = None) -> str:
+    items = harness_ids() if ids is None else ids
+    return (
+        f"\n## {HARNESS_EVALUATION_SECTION}\n\n"
+        "Harness findings and proposals:\n"
+        f"{facet_lines(items)}\n"
+    )
+
+
+def write_harness_evaluation_file(
+    run_dir: Path,
+    data: Any = DEFAULT,
+) -> Path:
+    path = run_dir / HARNESS_EVALUATION_PATH
+    if data is DEFAULT:
+        data = harness_evaluation()
+    if isinstance(data, str):
+        path.write_text(data, encoding="utf-8")
+    else:
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return run_dir
+
+
 def write_continuation_summary_file(
     run_dir: Path,
     data: Any = DEFAULT,
+    harness_evaluation_data: Any = DEFAULT,
 ) -> Path:
     checkpoint_dir = run_dir / "artifacts" / "checkpoints" / "orchestrator-blocked-checkpoint"
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -523,6 +642,29 @@ def write_continuation_summary_file(
         path.write_text(data, encoding="utf-8")
     else:
         path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    if harness_evaluation_data is DEFAULT:
+        write_harness_evaluation_file(
+            run_dir,
+            harness_evaluation(
+                learning_triggers=["continuation"],
+                source_artifacts=[
+                    "lane-map.json",
+                    "timeline.jsonl",
+                    CONTINUATION_SUMMARY_PATH,
+                    VERIFICATION_READINESS_PATH,
+                ],
+            ),
+        )
+        final_path = run_dir / "final.md"
+        if final_path.exists():
+            final_text = final_path.read_text(encoding="utf-8")
+            if HARNESS_EVALUATION_SECTION not in final_text:
+                final_path.write_text(
+                    final_text + harness_evaluation_section(),
+                    encoding="utf-8",
+                )
+    elif harness_evaluation_data is not OMIT:
+        write_harness_evaluation_file(run_dir, harness_evaluation_data)
     return run_dir
 
 
@@ -785,6 +927,8 @@ def write_run(
     risk_resolutions_data: Any = DEFAULT,
     final_resolution_ids: Any = DEFAULT,
     verification_readiness_data: Any = DEFAULT,
+    harness_evaluation_data: Any = DEFAULT,
+    final_harness_ids: Any = DEFAULT,
 ) -> Path:
     run_dir = root / "run"
     (run_dir / "handoffs").mkdir(parents=True)
@@ -844,6 +988,50 @@ def write_run(
                 else None
             )
 
+    risk_learning_default_needed = (
+        verdict == "pass-with-risks"
+        or (risk_mitigations_data is not DEFAULT and risk_mitigations_data is not OMIT)
+        or (risk_resolutions_data is not DEFAULT and risk_resolutions_data is not OMIT)
+    )
+    readiness_learning_default_needed = (
+        isinstance(verification_readiness_data, dict)
+        and (
+            verification_readiness_data.get("status") in {"needs-approval", "paused-blocked", "blocked"}
+            or bool(verification_readiness_data.get("approval_requests"))
+            or bool(verification_readiness_data.get("approval_executions"))
+            or len(verification_readiness_data.get("attempts", [])) > 1
+        )
+    )
+    architecture_learning_default_needed = bool(
+        lane_map_extra
+        and lane_map_extra.get("architecture_contract_required") is True
+        and verdict in {"blocked", "fail"}
+    )
+    architecture_drift_default_needed = any(
+        isinstance(lane_data, dict)
+        and isinstance(lane_data.get("architecture_compliance"), dict)
+        and lane_data["architecture_compliance"].get("status") == "drift"
+        for lane_data in (lanes or [])
+    )
+    harness_default_needed = (
+        risk_learning_default_needed
+        or readiness_learning_default_needed
+        or architecture_learning_default_needed
+        or architecture_drift_default_needed
+    )
+    if risk_learning_default_needed:
+        default_harness_finding_id = "pass-with-risks-resolution-recorded"
+        default_harness_proposal_id = "promote-risk-resolution-evidence"
+    elif architecture_drift_default_needed:
+        default_harness_finding_id = "architecture-drift-recheck-recorded"
+        default_harness_proposal_id = "promote-architecture-drift-recheck-evidence"
+    else:
+        default_harness_finding_id = "readiness-recovery-recorded"
+        default_harness_proposal_id = "promote-readiness-recovery-evidence"
+    default_harness_ids_for_run = harness_ids(
+        finding_ids=[default_harness_finding_id],
+        proposal_ids=[default_harness_proposal_id],
+    )
     final_text = f"# Final\n\nVerdict: {verdict}\n"
     if lanes is not None and delegation_summary_data is DEFAULT:
         final_text += delegation_trace_section(delegation_summary(lanes))
@@ -865,6 +1053,17 @@ def write_run(
     ):
         final_text += risk_resolution_section(
             None if final_resolution_ids is DEFAULT else final_resolution_ids
+        )
+    if (
+        harness_evaluation_data is not OMIT
+        and final_harness_ids is not OMIT
+        and (harness_evaluation_data is not DEFAULT or harness_default_needed)
+    ):
+        default_harness_ids = None
+        if harness_evaluation_data is DEFAULT and harness_default_needed:
+            default_harness_ids = default_harness_ids_for_run
+        final_text += harness_evaluation_section(
+            default_harness_ids if final_harness_ids is DEFAULT else final_harness_ids
         )
     (run_dir / "final.md").write_text(final_text, encoding="utf-8")
     (run_dir / "artifacts.json").write_text("[]\n", encoding="utf-8")
@@ -900,6 +1099,74 @@ def write_run(
                 json.dumps(risk_resolutions_data, ensure_ascii=False, indent=2) + "\n",
                 encoding="utf-8",
             )
+    if harness_evaluation_data is DEFAULT:
+        if harness_default_needed:
+            default_learning_triggers = []
+            if risk_learning_default_needed:
+                default_learning_triggers.extend(["risk-mitigation", "risk-resolution"])
+            if risk_learning_default_needed and resolution_data_has_blocked_attempt(risk_resolutions_data):
+                default_learning_triggers.append("blocked-resolution")
+            if readiness_learning_default_needed:
+                default_learning_triggers.append("readiness-recovery")
+            if architecture_learning_default_needed:
+                default_learning_triggers.append("nonpositive-architecture-final")
+            if architecture_drift_default_needed:
+                default_learning_triggers.append("architecture-drift")
+                if any(
+                    isinstance(lane_data, dict)
+                    and isinstance(lane_data.get("architecture_compliance"), dict)
+                    and lane_data["architecture_compliance"].get("recheck_lane")
+                    for lane_data in (lanes or [])
+                ):
+                    default_learning_triggers.append("architecture-recheck")
+            default_finding = {
+                **harness_evaluation()["findings"][0],
+                "id": default_harness_finding_id,
+                "architecture_context": [],
+                "architecture_capabilities": [],
+                "evidence": ["checks/smoke.md"],
+            }
+            if risk_learning_default_needed:
+                default_finding.update(
+                    {
+                        "type": "local-practice-candidate",
+                        "problem_class": "risk-resolution",
+                        "approach": "identify risk and record current resolution evidence",
+                    }
+                )
+            elif architecture_drift_default_needed:
+                default_finding.update(
+                    {
+                        "type": "recovery-success",
+                        "problem_class": "architecture-drift",
+                        "approach": "route drift through architecture recheck before final",
+                    }
+                )
+            else:
+                default_finding.update(
+                    {
+                        "type": "readiness-gap",
+                        "problem_class": "verification-readiness",
+                        "approach": "stop before workers and record readiness blocker evidence",
+                    }
+                )
+            write_harness_evaluation_file(
+                run_dir,
+                harness_evaluation(
+                    learning_triggers=list(dict.fromkeys(default_learning_triggers)),
+                    source_artifacts=["final.md", "checks/smoke.md"],
+                    findings=[default_finding],
+                    proposals=[
+                        {
+                            **harness_evaluation()["proposals"][0],
+                            "id": default_harness_proposal_id,
+                            "evidence": ["checks/smoke.md"],
+                        }
+                    ],
+                ),
+            )
+    elif harness_evaluation_data is not OMIT:
+        write_harness_evaluation_file(run_dir, harness_evaluation_data)
 
     timeline_events: list[dict[str, Any]] = []
     if ordered_trace_events:
@@ -1048,6 +1315,23 @@ def write_run(
                     handoff_section_bodies = lane.get("handoff_section_bodies", {})
                     if not isinstance(handoff_section_bodies, dict):
                         handoff_section_bodies = {}
+                    if (
+                        lane.get("type") == "review"
+                        and harness_default_needed
+                        and harness_evaluation_data is not OMIT
+                        and final_harness_ids is not OMIT
+                    ):
+                        lane_sections = lane.setdefault("handoff_sections", [])
+                        if (
+                            isinstance(lane_sections, list)
+                            and HARNESS_EVALUATION_REVIEW_SECTION not in lane_sections
+                        ):
+                            lane_sections.append(HARNESS_EVALUATION_REVIEW_SECTION)
+                            handoff_section_bodies.setdefault(
+                                HARNESS_EVALUATION_REVIEW_SECTION,
+                                "Reviewed harness evaluation items:\n"
+                                + facet_lines(default_harness_ids_for_run),
+                            )
                     sections = [
                         f"## {section}\n\n"
                         f"{handoff_section_bodies.get(section, f'Fixture {section.lower()}.')}\n"
@@ -1504,6 +1788,7 @@ def reviewer_control_lane(
     risk_ids: list[str] | None = None,
     risk_resolution_ids: list[str] | None = None,
     continuation_review_ids: list[str] | None = None,
+    harness_review_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     return reviewer_lane(
         wave=wave,
@@ -1515,6 +1800,7 @@ def reviewer_control_lane(
             *([RISK_MITIGATION_REVIEW_SECTION] if risk_ids else []),
             *([RISK_RESOLUTION_REVIEW_SECTION] if risk_resolution_ids else []),
             *([CONTINUATION_REVIEW_SECTION] if continuation_review_ids else []),
+            *([HARNESS_EVALUATION_REVIEW_SECTION] if harness_review_ids else []),
         ],
         handoff_section_bodies=handoff_section_bodies
         if handoff_section_bodies is not None
@@ -1524,6 +1810,7 @@ def reviewer_control_lane(
             risk_ids,
             risk_resolution_ids,
             continuation_review_ids,
+            harness_review_ids,
         ),
     )
 
@@ -1540,6 +1827,7 @@ def continuation_lanes() -> list[dict[str, Any]]:
         reviewer_control_lane(
             wave=5,
             continuation_review_ids=continuation_ids(),
+            harness_review_ids=harness_ids(),
         ),
     ]
 
@@ -2015,6 +2303,361 @@ def main() -> int:
             write_continuation_summary_file(
                 write_run(
                     temp / "continuation-historical-workers-revalidated",
+                    lanes=continuation_lanes(),
+                    lane_map_extra=continuation_lane_map_extra,
+                    verification_readiness_data=continuation_readiness_data(),
+                    ordered_trace_events=continuation_trace_events(),
+                    final_extra=continuation_summary_section(),
+                ),
+            ),
+        )
+
+        expect_fail(
+            "triggered continuation requires harness evaluation",
+            write_continuation_summary_file(
+                write_run(
+                    temp / "harness-continuation-missing",
+                    lanes=continuation_lanes(),
+                    lane_map_extra=continuation_lane_map_extra,
+                    verification_readiness_data=continuation_readiness_data(),
+                    ordered_trace_events=continuation_trace_events(),
+                    final_extra=continuation_summary_section(),
+                    harness_evaluation_data=OMIT,
+                ),
+                harness_evaluation_data=OMIT,
+            ),
+            "harness-evaluation.json is required for triggered learning run",
+        )
+
+        expect_fail(
+            "triggered risk resolution requires harness evaluation",
+            write_run(
+                temp / "harness-risk-resolution-missing",
+                verdict="pass-with-risks",
+                harness_evaluation_data=OMIT,
+            ),
+            "harness-evaluation.json is required for triggered learning run",
+        )
+
+        expect_fail(
+            "architecture drift requires harness evaluation",
+            write_run(
+                temp / "harness-architecture-drift-missing",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(
+                        wave=3,
+                        architecture_compliance_data=architecture_compliance(
+                            status="drift",
+                            recheck_lane="architecture-recheck",
+                        ),
+                    ),
+                    architecture_lane("architecture-recheck", wave=4),
+                    qa_control_lane(wave=5),
+                    reviewer_control_lane(wave=6),
+                ],
+                lane_map_extra=architecture_control_extra(),
+                harness_evaluation_data=OMIT,
+            ),
+            "harness-evaluation.json is required for triggered learning run",
+        )
+
+        expect_pass(
+            "no-trigger schema v2 without harness evaluation passes",
+            write_run(
+                temp / "harness-no-trigger-schema-v2",
+                lanes=[lane("qa-trace")],
+                lane_map_extra={"schema_version": 2, "budget": "standard"},
+                harness_evaluation_data=OMIT,
+            ),
+        )
+
+        expect_fail(
+            "harness evaluation invalid json fails",
+            write_harness_evaluation_file(
+                write_continuation_summary_file(
+                    write_run(
+                        temp / "harness-invalid-json",
+                        lanes=continuation_lanes(),
+                        lane_map_extra=continuation_lane_map_extra,
+                        verification_readiness_data=continuation_readiness_data(),
+                        ordered_trace_events=continuation_trace_events(),
+                        final_extra=continuation_summary_section(),
+                    ),
+                ),
+                "{",
+            ),
+            "harness-evaluation.json invalid JSON",
+        )
+
+        expect_fail(
+            "harness evaluation invalid version fails",
+            write_harness_evaluation_file(
+                write_continuation_summary_file(
+                    write_run(
+                        temp / "harness-invalid-version",
+                        lanes=continuation_lanes(),
+                        lane_map_extra=continuation_lane_map_extra,
+                        verification_readiness_data=continuation_readiness_data(),
+                        ordered_trace_events=continuation_trace_events(),
+                        final_extra=continuation_summary_section(),
+                    ),
+                ),
+                harness_evaluation() | {"version": 2},
+            ),
+            "harness-evaluation.json field 'version' must be 1",
+        )
+
+        expect_fail(
+            "harness evaluation invalid status fails",
+            write_harness_evaluation_file(
+                write_continuation_summary_file(
+                    write_run(
+                        temp / "harness-invalid-status",
+                        lanes=continuation_lanes(),
+                        lane_map_extra=continuation_lane_map_extra,
+                        verification_readiness_data=continuation_readiness_data(),
+                        ordered_trace_events=continuation_trace_events(),
+                        final_extra=continuation_summary_section(),
+                    ),
+                ),
+                harness_evaluation(status="done"),
+            ),
+            "harness-evaluation.json status invalid",
+        )
+
+        default_finding = harness_evaluation()["findings"][0]
+        default_proposal = harness_evaluation()["proposals"][0]
+        expect_fail(
+            "harness evaluation missing finding id fails",
+            write_harness_evaluation_file(
+                write_continuation_summary_file(
+                    write_run(
+                        temp / "harness-missing-finding-id",
+                        lanes=continuation_lanes(),
+                        lane_map_extra=continuation_lane_map_extra,
+                        verification_readiness_data=continuation_readiness_data(),
+                        ordered_trace_events=continuation_trace_events(),
+                        final_extra=continuation_summary_section(),
+                    ),
+                ),
+                harness_evaluation(findings=[{k: v for k, v in default_finding.items() if k != "id"}]),
+            ),
+            "harness-evaluation.json findings[0] missing field: id",
+        )
+
+        expect_fail(
+            "harness evaluation duplicate proposal id fails",
+            write_harness_evaluation_file(
+                write_continuation_summary_file(
+                    write_run(
+                        temp / "harness-duplicate-proposal-id",
+                        lanes=continuation_lanes(),
+                        lane_map_extra=continuation_lane_map_extra,
+                        verification_readiness_data=continuation_readiness_data(),
+                        ordered_trace_events=continuation_trace_events(),
+                        final_extra=continuation_summary_section(),
+                    ),
+                ),
+                harness_evaluation(proposals=[default_proposal, {**default_proposal}]),
+            ),
+            "harness-evaluation.json duplicate proposal id: promote-continuation-revalidation-evidence",
+        )
+
+        expect_fail(
+            "harness evaluation non-kebab finding id fails",
+            write_harness_evaluation_file(
+                write_continuation_summary_file(
+                    write_run(
+                        temp / "harness-non-kebab-finding-id",
+                        lanes=continuation_lanes(),
+                        lane_map_extra=continuation_lane_map_extra,
+                        verification_readiness_data=continuation_readiness_data(),
+                        ordered_trace_events=continuation_trace_events(),
+                        final_extra=continuation_summary_section(),
+                    ),
+                ),
+                harness_evaluation(findings=[{**default_finding, "id": "ReadinessRecovery"}]),
+            ),
+            "harness-evaluation.json findings[0].id must be kebab-case",
+        )
+
+        expect_fail(
+            "harness evaluation unknown trigger fails",
+            write_harness_evaluation_file(
+                write_continuation_summary_file(
+                    write_run(
+                        temp / "harness-unknown-trigger",
+                        lanes=continuation_lanes(),
+                        lane_map_extra=continuation_lane_map_extra,
+                        verification_readiness_data=continuation_readiness_data(),
+                        ordered_trace_events=continuation_trace_events(),
+                        final_extra=continuation_summary_section(),
+                    ),
+                ),
+                harness_evaluation(learning_triggers=["mystery-trigger"]),
+            ),
+            "harness-evaluation.json unknown learning trigger: mystery-trigger",
+        )
+
+        expect_fail(
+            "harness evaluation missing actual trigger fails",
+            write_run(
+                temp / "harness-missing-actual-trigger",
+                lanes=[lane("qa-trace")],
+                lane_map_extra={"schema_version": 2, "budget": "standard"},
+                harness_evaluation_data=harness_evaluation(learning_triggers=["continuation"]),
+            ),
+            "harness-evaluation.json learning trigger not present in run: continuation",
+        )
+
+        expect_fail(
+            "harness evaluation missing evidence path fails",
+            write_harness_evaluation_file(
+                write_continuation_summary_file(
+                    write_run(
+                        temp / "harness-missing-evidence",
+                        lanes=continuation_lanes(),
+                        lane_map_extra=continuation_lane_map_extra,
+                        verification_readiness_data=continuation_readiness_data(),
+                        ordered_trace_events=continuation_trace_events(),
+                        final_extra=continuation_summary_section(),
+                    ),
+                ),
+                harness_evaluation(
+                    findings=[{**default_finding, "evidence": ["checks/missing.md"]}]
+                ),
+            ),
+            "harness-evaluation.json findings[0].evidence[0] not found: checks/missing.md",
+        )
+
+        expect_fail(
+            "harness evaluation unselected architecture context fails",
+            write_harness_evaluation_file(
+                write_continuation_summary_file(
+                    write_run(
+                        temp / "harness-unselected-context",
+                        lanes=continuation_lanes(),
+                        lane_map_extra=continuation_lane_map_extra,
+                        verification_readiness_data=continuation_readiness_data(),
+                        ordered_trace_events=continuation_trace_events(),
+                        final_extra=continuation_summary_section(),
+                    ),
+                ),
+                harness_evaluation(
+                    findings=[{**default_finding, "architecture_context": ["frontend-service"]}]
+                ),
+            ),
+            "harness-evaluation.json findings[0].architecture_context[0] unselected facet: frontend-service",
+        )
+
+        expect_fail(
+            "harness evaluation unknown capability fails",
+            write_harness_evaluation_file(
+                write_continuation_summary_file(
+                    write_run(
+                        temp / "harness-unknown-capability",
+                        lanes=continuation_lanes(),
+                        lane_map_extra=continuation_lane_map_extra,
+                        verification_readiness_data=continuation_readiness_data(),
+                        ordered_trace_events=continuation_trace_events(),
+                        final_extra=continuation_summary_section(),
+                    ),
+                ),
+                harness_evaluation(
+                    findings=[{**default_finding, "architecture_capabilities": ["missing-capability"]}]
+                ),
+            ),
+            "harness-evaluation.json findings[0].architecture_capabilities[0] unknown capability: missing-capability",
+        )
+
+        expect_fail(
+            "harness evaluation applied proposal fails",
+            write_harness_evaluation_file(
+                write_continuation_summary_file(
+                    write_run(
+                        temp / "harness-applied-proposal",
+                        lanes=continuation_lanes(),
+                        lane_map_extra=continuation_lane_map_extra,
+                        verification_readiness_data=continuation_readiness_data(),
+                        ordered_trace_events=continuation_trace_events(),
+                        final_extra=continuation_summary_section(),
+                    ),
+                ),
+                harness_evaluation(proposals=[{**default_proposal, "status": "applied"}]),
+            ),
+            "harness-evaluation.json proposals[0].status must be proposed",
+        )
+
+        expect_fail(
+            "harness evaluation proposal requires human approval fails",
+            write_harness_evaluation_file(
+                write_continuation_summary_file(
+                    write_run(
+                        temp / "harness-proposal-no-approval",
+                        lanes=continuation_lanes(),
+                        lane_map_extra=continuation_lane_map_extra,
+                        verification_readiness_data=continuation_readiness_data(),
+                        ordered_trace_events=continuation_trace_events(),
+                        final_extra=continuation_summary_section(),
+                    ),
+                ),
+                harness_evaluation(proposals=[{**default_proposal, "requires_human_approval": False}]),
+            ),
+            "harness-evaluation.json proposals[0].requires_human_approval must be true",
+        )
+
+        expect_fail(
+            "harness final section required",
+            write_harness_evaluation_file(
+                write_continuation_summary_file(
+                    write_run(
+                        temp / "harness-final-missing-section",
+                        lanes=continuation_lanes(),
+                        lane_map_extra=continuation_lane_map_extra,
+                        verification_readiness_data=continuation_readiness_data(),
+                        ordered_trace_events=continuation_trace_events(),
+                        final_extra=continuation_summary_section(),
+                        final_harness_ids=OMIT,
+                    ),
+                    harness_evaluation_data=OMIT,
+                ),
+            ),
+            "final.md missing section: Harness Evaluation",
+        )
+
+        expect_fail(
+            "harness reviewer section required for positive lane-map run",
+            write_continuation_summary_file(
+                write_run(
+                    temp / "harness-reviewer-missing-section",
+                    lanes=[
+                        architecture_lane(),
+                        verification_readiness_lane("verification-readiness-continuation", wave=2),
+                        worker_lane(wave=3),
+                        qa_control_lane(
+                            wave=4,
+                            continuation_revalidation_ids=continuation_ids(),
+                        ),
+                        reviewer_control_lane(
+                            wave=5,
+                            continuation_review_ids=continuation_ids(),
+                        ),
+                    ],
+                    lane_map_extra=continuation_lane_map_extra,
+                    verification_readiness_data=continuation_readiness_data(),
+                    ordered_trace_events=continuation_trace_events(),
+                    final_extra=continuation_summary_section(),
+                ),
+            ),
+            "lane-map.json: lane review-contract handoff missing section: Harness Evaluation Review",
+        )
+
+        expect_pass(
+            "valid continuation harness evaluation passes",
+            write_continuation_summary_file(
+                write_run(
+                    temp / "harness-valid-continuation",
                     lanes=continuation_lanes(),
                     lane_map_extra=continuation_lane_map_extra,
                     verification_readiness_data=continuation_readiness_data(),

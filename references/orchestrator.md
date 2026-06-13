@@ -93,6 +93,7 @@ Only after the budget and task shape justify subagents:
 - Enforce Architecture Context Propagation: worker `architecture_compliance.matrix_facets` covers selected worker-owned facets, QA covers selected `risk_gates` and `verification_gates`, and reviewer covers the full selected `architecture_context` plus selected `architecture_capabilities`.
 - Enforce Verification Readiness Gate before workers: write `verification_readiness`, maintain `verification-readiness.json`, cover selected `risk_gates` and `verification_gates`, ask user approval only for documented safe commands when status is `needs-approval`, record `approval_requests` and `approval_executions`, stop immediately as `paused-blocked` with final `blocked` and `resume_phrase=Готово` when the user declines, and require post-worker QA `Verification Gate Results`.
 - Enforce Continuation Gate for resumed runs: keep the original `blocked-checkpoint` in `timeline.jsonl`, write `continuation-summary.json`, preserve the checkpoint snapshot, distinguish `historical_worker_lanes` from `new_worker_lanes`, require `revalidated_lanes`, and do not start new worker work before ready Verification Readiness. Final must include `Continuation Summary`; QA writes `Continuation Revalidation`; reviewer writes `Continuation Review`.
+- Enforce Harness Evaluation Loop when a learning trigger exists: write `harness-evaluation.json`, record `learning_triggers`, findings, proposals, and source evidence, add final `Harness Evaluation`, and route reviewer `Harness Evaluation Review` for positive lane-map runs. Proposals must stay `proposed` with `requires_human_approval=true`; do not auto-edit Matrix, capability registry, prompts, golden traces, or project memory.
 - Enforce Mitigation Gate before `pass-with-risks`: write `risk-mitigations.json`, mark every risk as `identified`, include `problem`, `impact`, `affected_scope`, evidence, and `next_gate=resolution`, record the ids in `Risk Mitigations`, then route reviewer `Risk Mitigation Review`.
 - Enforce Resolution Gate after Mitigation Gate before `pass-with-risks`: write `risk-resolutions.json`, create one record per identified risk, include `resolution_type`, concrete `resolution`, evidence, `verification`, `verified_by`, `reviewed_by`, record the ids in `Risk Resolutions`, route QA `Risk Resolution Verification`, and route reviewer `Risk Resolution Review`; only `fixed`, `mitigated`, or `contained` may close `pass-with-risks`, while `unresolved` is only valid for `blocked` or `fail`.
 - Enforce Blocked Resolution Gate inside Resolution Gate: blocked attempts require `blocked_lesson`, `rollback`, `forbidden_repeat`, and a Blocked Recovery Path; attempt 1 blocked routes to Senior QA `Senior QA Test Design Review` and architect `Resolution Architect Review` before attempt 2; attempt 2 blocked routes to `Supervising Architect Review` before attempt 3; a third blocked attempt ends as `blocked` or `fail`.
@@ -143,13 +144,14 @@ Before final answer:
 2. Verify changed files and command outputs.
 3. Confirm trace artifacts only if used.
 4. Confirm Delegation Trace Gate: no role-lane is described as sidecar/subagent unless spawned trace evidence and terminal handoff exist.
-5. If `implementation-notes.md` gained Evidence Records, run or account for the evidence analyzer before relying on a learned practice.
-6. If product changes must be committed, create the product commit after checks and before final trace closure. Do not include `.agent-work/` in the product commit unless the user explicitly requested it.
-7. Run the Task Status Completion Gate for the current `.agent-work/tasks/todo.md` section. If the checklist is complete, verification is recorded, no blocker remains, and the requested commit succeeded, set `Status: done`; otherwise record the missing item and keep `Status: in_progress` or `Status: blocked`.
-8. If a trace timeline exists and a product commit was created, append an orchestrator `stage=commit` event with the commit hash.
-9. Compare the initial worktree snapshot with current `git status --short`.
-10. In `final.md`, record run-owned changes, product commit hash when applicable, pre-existing dirty files left untouched, and pre-existing dirty files touched by the run.
-11. If a trace timeline exists, append the final orchestrator event after `final.md` records the verdict and commit hash.
-12. Run final trace validation.
-13. Record residual risks.
-14. Keep final answer short and evidence-based.
+5. If a traceable run has learning triggers, create `harness-evaluation.json` before final validation and keep it signal-only.
+6. If `implementation-notes.md` gained Evidence Records, run or account for the evidence analyzer before relying on a learned practice.
+7. If product changes must be committed, create the product commit after checks and before final trace closure. Do not include `.agent-work/` in the product commit unless the user explicitly requested it.
+8. Run the Task Status Completion Gate for the current `.agent-work/tasks/todo.md` section. If the checklist is complete, verification is recorded, no blocker remains, and the requested commit succeeded, set `Status: done`; otherwise record the missing item and keep `Status: in_progress` or `Status: blocked`.
+9. If a trace timeline exists and a product commit was created, append an orchestrator `stage=commit` event with the commit hash.
+10. Compare the initial worktree snapshot with current `git status --short`.
+11. In `final.md`, record run-owned changes, product commit hash when applicable, pre-existing dirty files left untouched, and pre-existing dirty files touched by the run.
+12. If a trace timeline exists, append the final orchestrator event after `final.md` records the verdict and commit hash.
+13. Run final trace validation.
+14. Record residual risks.
+15. Keep final answer short and evidence-based.

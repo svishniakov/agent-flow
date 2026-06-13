@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "status": "evaluated",
+  "learning_triggers": [
+    "readiness-recovery"
+  ],
+  "source_artifacts": [
+    "lane-map.json",
+    "verification-readiness.json"
+  ],
+  "findings": [
+    {
+      "id": "readiness-recovery-recorded",
+      "type": "readiness-gap",
+      "problem_class": "verification-readiness",
+      "architecture_context": [],
+      "architecture_capabilities": [],
+      "approach": "stop positive verdict when readiness is paused-blocked",
+      "outcome": "failure",
+      "evidence": [
+        "checks/smoke.md"
+      ],
+      "lesson": "Paused readiness cannot produce a positive verdict.",
+      "reuse_when": "same trigger appears with matching persisted evidence",
+      "do_not_reuse_when": "required persisted evidence is missing or contradicted"
+    }
+  ],
+  "proposals": [
+    {
+      "id": "promote-readiness-recovery-evidence",
+      "type": "evidence-record",
+      "status": "proposed",
+      "target": "Evidence Records",
+      "rationale": "Golden trace produced reusable harness evidence boundaries.",
+      "evidence": [
+        "checks/smoke.md"
+      ],
+      "requires_human_approval": true
+    }
+  ]
+}

@@ -26,3 +26,9 @@ Reviewed continuation items:
 - `verification-env-missing`
 - `worker-a`
 - `worker-b`
+
+## Harness Evaluation Review
+
+Reviewed harness evaluation items:
+- `readiness-before-workers-recovery`
+- `promote-continuation-revalidation-evidence`

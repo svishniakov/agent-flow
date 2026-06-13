@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "risks": [
+    {
+      "id": "browser-proof-gap",
+      "status": "identified",
+      "detected_by": "qa-behavior",
+      "category": "verification-gap",
+      "problem": "Browser proof did not visibly show the target state.",
+      "impact": "Final confidence is lower because the visual proof is incomplete.",
+      "affected_scope": "checks/browser-proof.md and final verification evidence.",
+      "evidence": [
+        "checks/smoke.md"
+      ],
+      "next_gate": "resolution",
+      "owner_lane": "worker-a"
+    }
+  ]
+}

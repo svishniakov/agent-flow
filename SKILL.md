@@ -67,10 +67,11 @@ Inside Agent Flow, the orchestrator owns the outcome:
 9. Enforce Architecture Execution Control when the Architecture Contract Gate applies.
 10. Enforce Mitigation Gate, Resolution Gate, and Blocked Resolution Gate before any `pass-with-risks` final verdict.
 11. Enforce Delegation Trace Gate for traceable lane runs.
-12. Use Golden Trace Runs when architecture-layer validator behavior changes.
-13. Verify evidence before any completion claim.
-14. Close the current project-memory task status before final handoff.
-15. Return the final answer with residual risks.
+12. Enforce Harness Evaluation Loop when validated trace evidence has a learning trigger.
+13. Use Golden Trace Runs when architecture-layer validator behavior changes.
+14. Verify evidence before any completion claim.
+15. Close the current project-memory task status before final handoff.
+16. Return the final answer with residual risks.
 
 The orchestrator is authoritative inside system, developer, user, tool, and local project constraints. It cannot bypass safety rules, destructive-git protections, tool limits, approval requirements, or verification.
 
@@ -155,6 +156,8 @@ Architecture Context Propagation is required when worker lanes exist under the A
 Verification Readiness Gate runs after an approved Architecture Design Brief and before worker lanes when architecture-gated runs have workers. The orchestrator records `verification_readiness` in `lane-map.json` and writes `verification-readiness.json` to prove every selected `risk_gates` and `verification_gates` facet is ready. If documented infra or environment startup is needed, readiness becomes `needs-approval`; the agent asks the user, runs only approved documented safe commands, records `approval_requests` and `approval_executions`, and retries readiness. If the user declines, the run stops immediately as `paused-blocked` with final `blocked`, manual instructions, and `resume_phrase` set to `Готово`. Positive verdicts require the latest readiness attempt to be `ready`, and QA records `Verification Gate Results`.
 
 Continuation Gate applies when a run has a `blocked-checkpoint` or `continuation` timeline stage and later closes with `ship` or `pass-with-risks`. The orchestrator writes `continuation-summary.json`, preserves the blocked checkpoint snapshot, records `historical_worker_lanes`, `new_worker_lanes`, `revalidated_lanes`, and resolved blockers, and proves with timeline `lane_id` events that no new worker ran before ready Verification Readiness. Final output includes `Continuation Summary`; QA writes `Continuation Revalidation`; reviewer writes `Continuation Review`.
+
+Harness Evaluation Loop runs after validated gates produce learning evidence. When continuation, risk/resolution, blocked recovery, architecture drift/recheck, readiness recovery, or nonpositive architecture-final triggers exist, the orchestrator writes `harness-evaluation.json`, records `learning_triggers`, final `Harness Evaluation`, and for positive lane-map runs reviewer `Harness Evaluation Review`. Findings and proposals must cite persisted evidence; proposal status stays `proposed` and `requires_human_approval=true`. The loop never edits Architecture Matrix, capability registry, role prompts, Golden Trace Runs, or project memory automatically.
 
 Mitigation Gate is required for every traceable run with `Verdict: pass-with-risks`. The orchestrator writes `risk-mitigations.json`; every risk must be `identified`, include concrete `problem`, `impact`, `affected_scope`, evidence, and `next_gate=resolution`. `final.md` must include `Risk Mitigations` with every risk id. If `lane-map.json` exists, reviewer must write `Risk Mitigation Review` and cover every risk id.
 
@@ -241,6 +244,8 @@ Common internal flows:
 ## Trace Gate
 
 Read `references/traceable-runs.md` only when the selected budget is `standard` or `release`, or when the user explicitly asks for durable artifacts.
+
+Read `references/harness-evaluation-loop.md` when a traceable run contains a learning trigger or when `harness-evaluation.json` already exists.
 
 Do not create `.agent-work/runs/` for `light` tasks.
 

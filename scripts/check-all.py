@@ -114,6 +114,14 @@ CONTINUATION_GATE_GUARD_TERMS = [
     "historical_worker_lanes",
     "revalidated_lanes",
 ]
+HARNESS_EVALUATION_GUARD_TERMS = [
+    "Harness Evaluation Loop",
+    "harness-evaluation.json",
+    "Harness Evaluation",
+    "Harness Evaluation Review",
+    "learning_triggers",
+    "requires_human_approval",
+]
 
 REQUIRED_RUNTIME_TEXT = {
     "SKILL.md": [
@@ -144,6 +152,7 @@ REQUIRED_RUNTIME_TEXT = {
         *DELEGATION_TRACE_GATE_GUARD_TERMS,
         *VERIFICATION_READINESS_GATE_GUARD_TERMS,
         *CONTINUATION_GATE_GUARD_TERMS,
+        *HARNESS_EVALUATION_GUARD_TERMS,
         "Architecture Approval Gate",
         "Local Best Practice auto gate",
         "regression demotion",
@@ -174,6 +183,7 @@ REQUIRED_RUNTIME_TEXT = {
         *DELEGATION_TRACE_GATE_GUARD_TERMS,
         *VERIFICATION_READINESS_GATE_GUARD_TERMS,
         *CONTINUATION_GATE_GUARD_TERMS,
+        *HARNESS_EVALUATION_GUARD_TERMS,
         "Architecture Approval Gate",
         "Local Best Practice auto gate",
         "regression demotion",
@@ -216,6 +226,7 @@ REQUIRED_RUNTIME_TEXT = {
         *DELEGATION_TRACE_GATE_GUARD_TERMS,
         *VERIFICATION_READINESS_GATE_GUARD_TERMS,
         *CONTINUATION_GATE_GUARD_TERMS,
+        *HARNESS_EVALUATION_GUARD_TERMS,
         "Local Best Practice auto gate",
         "regression demotion",
         "Model/reasoning upgrade is not the default fix",
@@ -247,6 +258,7 @@ REQUIRED_RUNTIME_TEXT = {
         *DELEGATION_TRACE_GATE_GUARD_TERMS,
         *VERIFICATION_READINESS_GATE_GUARD_TERMS,
         *CONTINUATION_GATE_GUARD_TERMS,
+        *HARNESS_EVALUATION_GUARD_TERMS,
         "Architecture Approval Gate",
         "Local Best Practice auto gate",
         "Model/reasoning upgrade is not the default fix",
@@ -278,6 +290,15 @@ REQUIRED_RUNTIME_TEXT = {
         *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
         *DELEGATION_TRACE_GATE_GUARD_TERMS,
         *VERIFICATION_READINESS_GATE_GUARD_TERMS,
+        *HARNESS_EVALUATION_GUARD_TERMS,
+    ],
+    "references/harness-evaluation-loop.md": [
+        *HARNESS_EVALUATION_GUARD_TERMS,
+        "Architecture Matrix",
+        "Architecture Capability Router",
+        "Evidence Records",
+        "never edits",
+        "proposal",
     ],
     "references/architecture-matrix.md": [
         "Architecture Matrix",
@@ -427,6 +448,7 @@ REQUIRED_RUNTIME_TEXT = {
         *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
         *VERIFICATION_READINESS_GATE_GUARD_TERMS,
         *CONTINUATION_GATE_GUARD_TERMS,
+        *HARNESS_EVALUATION_GUARD_TERMS,
         "Architecture Approval Gate",
         "Local Best Practice auto gate",
         "regression demotion",
@@ -467,6 +489,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Contract Drift",
         *VERIFICATION_READINESS_GATE_GUARD_TERMS,
         *CONTINUATION_GATE_GUARD_TERMS,
+        *HARNESS_EVALUATION_GUARD_TERMS,
         *MITIGATION_GATE_GUARD_TERMS,
         *RESOLUTION_GATE_GUARD_TERMS,
         *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
@@ -596,6 +619,7 @@ REQUIRED_RUNTIME_TEXT = {
         *MITIGATION_GATE_GUARD_TERMS,
         *RESOLUTION_GATE_GUARD_TERMS,
         *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
+        *HARNESS_EVALUATION_GUARD_TERMS,
     ],
     "scripts/architecture_capabilities.py": [
         "Architecture Capability Router",

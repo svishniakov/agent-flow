@@ -290,6 +290,45 @@ Continuation validation is timeline-based, not wave-only:
   `Continuation Revalidation`, and reviewer `Continuation Review` sections
   covering every resolved blocker id and every historical or new worker lane id.
 
+## Harness Evaluation Loop
+
+Harness Evaluation Loop turns validated trace evidence into
+`harness-evaluation.json`. It is required for full traceable lane-map runs when a
+learning trigger exists:
+
+- continuation evidence: `continuation-summary.json`, `blocked-checkpoint`, or
+  `continuation` timeline stage;
+- risk evidence: `risk-mitigations.json` or `risk-resolutions.json`;
+- blocked resolution evidence: blocked attempts, `blocked_lesson`, `rollback`,
+  or `forbidden_repeat`;
+- architecture evidence: worker `architecture_compliance.status=drift` or an
+  architecture re-check after drift;
+- readiness evidence: `needs-approval`, `paused-blocked`, `blocked`, approval
+  execution, or readiness retry in `verification-readiness.json`;
+- final `pass-with-risks`, `blocked`, or `fail` when
+  `architecture_contract_required=true`.
+
+`harness-evaluation.json` uses `version=1` and records:
+
+- `status`: `evaluated`, `needs-review`, or `blocked-learning`;
+- `learning_triggers` that must match real persisted triggers in the run;
+- `source_artifacts` with existing evidence paths;
+- non-empty `findings` and `proposals` for `evaluated` and `needs-review`;
+- `blocked_reason` and evidence when status is `blocked-learning`;
+- proposal `status=proposed` and `requires_human_approval=true`.
+
+Every finding and proposal id must be kebab-case, unique within its array, backed
+by existing evidence, and mentioned in final `Harness Evaluation`. Findings may
+reference selected `architecture_context` facets and selected
+`architecture_capabilities`, but unselected or unknown references fail
+validation.
+
+Positive lane-map runs with a learning trigger require reviewer
+`Harness Evaluation Review` covering every finding and proposal id. The loop is
+signal-only: it can propose Evidence Records, Architecture Matrix changes,
+capability registry changes, role prompt updates, validator guards, or Golden
+Trace Runs, but it never applies those changes automatically.
+
 Schema v2 also enforces Architecture Execution Control when
 `architecture_contract_required=true`:
 

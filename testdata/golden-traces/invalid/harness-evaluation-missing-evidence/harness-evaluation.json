@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "status": "evaluated",
+  "learning_triggers": [
+    "risk-mitigation",
+    "risk-resolution"
+  ],
+  "source_artifacts": [
+    "risk-mitigations.json",
+    "risk-resolutions.json"
+  ],
+  "findings": [
+    {
+      "id": "pass-with-risks-resolution-recorded",
+      "type": "local-practice-candidate",
+      "problem_class": "risk-resolution",
+      "architecture_context": [],
+      "architecture_capabilities": [],
+      "approach": "identify risk and record current resolution evidence",
+      "outcome": "failure",
+      "evidence": [
+        "checks/missing.md"
+      ],
+      "lesson": "Pass-with-risks needs both mitigation and resolution artifacts.",
+      "reuse_when": "same trigger appears with matching persisted evidence",
+      "do_not_reuse_when": "required persisted evidence is missing or contradicted"
+    }
+  ],
+  "proposals": [
+    {
+      "id": "promote-risk-resolution-evidence",
+      "type": "evidence-record",
+      "status": "proposed",
+      "target": "Evidence Records",
+      "rationale": "Golden trace produced reusable harness evidence boundaries.",
+      "evidence": [
+        "checks/smoke.md"
+      ],
+      "requires_human_approval": true
+    }
+  ]
+}

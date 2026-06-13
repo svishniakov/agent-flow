@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "status": "evaluated",
+  "learning_triggers": [
+    "continuation"
+  ],
+  "source_artifacts": [
+    "lane-map.json",
+    "timeline.jsonl",
+    "continuation-summary.json"
+  ],
+  "findings": [
+    {
+      "id": "readiness-before-workers-recovery",
+      "type": "recovery-success",
+      "problem_class": "verification-readiness-ordering",
+      "architecture_context": [],
+      "architecture_capabilities": [],
+      "approach": "pause at blocked checkpoint and revalidate historical workers",
+      "outcome": "success",
+      "evidence": [
+        "checks/smoke.md"
+      ],
+      "lesson": "Do not rewrite worker waves after resume; revalidate historical workers instead.",
+      "reuse_when": "same trigger appears with matching persisted evidence",
+      "do_not_reuse_when": "required persisted evidence is missing or contradicted"
+    }
+  ],
+  "proposals": [
+    {
+      "id": "promote-continuation-revalidation-evidence",
+      "type": "evidence-record",
+      "status": "proposed",
+      "target": "Evidence Records",
+      "rationale": "Golden trace produced reusable harness evidence boundaries.",
+      "evidence": [
+        "checks/smoke.md"
+      ],
+      "requires_human_approval": true
+    }
+  ]
+}
