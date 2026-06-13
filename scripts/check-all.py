@@ -104,6 +104,16 @@ VERIFICATION_READINESS_GATE_GUARD_TERMS = [
     "resume_phrase",
     "Verification Gate Results",
 ]
+CONTINUATION_GATE_GUARD_TERMS = [
+    "Continuation Gate",
+    "continuation-summary.json",
+    "blocked-checkpoint",
+    "Continuation Summary",
+    "Continuation Revalidation",
+    "Continuation Review",
+    "historical_worker_lanes",
+    "revalidated_lanes",
+]
 
 REQUIRED_RUNTIME_TEXT = {
     "SKILL.md": [
@@ -133,6 +143,7 @@ REQUIRED_RUNTIME_TEXT = {
         *GOLDEN_TRACE_RUN_GUARD_TERMS,
         *DELEGATION_TRACE_GATE_GUARD_TERMS,
         *VERIFICATION_READINESS_GATE_GUARD_TERMS,
+        *CONTINUATION_GATE_GUARD_TERMS,
         "Architecture Approval Gate",
         "Local Best Practice auto gate",
         "regression demotion",
@@ -162,6 +173,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Golden Trace Runs",
         *DELEGATION_TRACE_GATE_GUARD_TERMS,
         *VERIFICATION_READINESS_GATE_GUARD_TERMS,
+        *CONTINUATION_GATE_GUARD_TERMS,
         "Architecture Approval Gate",
         "Local Best Practice auto gate",
         "regression demotion",
@@ -203,6 +215,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Approval Gate",
         *DELEGATION_TRACE_GATE_GUARD_TERMS,
         *VERIFICATION_READINESS_GATE_GUARD_TERMS,
+        *CONTINUATION_GATE_GUARD_TERMS,
         "Local Best Practice auto gate",
         "regression demotion",
         "Model/reasoning upgrade is not the default fix",
@@ -233,6 +246,7 @@ REQUIRED_RUNTIME_TEXT = {
         *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
         *DELEGATION_TRACE_GATE_GUARD_TERMS,
         *VERIFICATION_READINESS_GATE_GUARD_TERMS,
+        *CONTINUATION_GATE_GUARD_TERMS,
         "Architecture Approval Gate",
         "Local Best Practice auto gate",
         "Model/reasoning upgrade is not the default fix",
@@ -412,6 +426,7 @@ REQUIRED_RUNTIME_TEXT = {
         *RESOLUTION_GATE_GUARD_TERMS,
         *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
         *VERIFICATION_READINESS_GATE_GUARD_TERMS,
+        *CONTINUATION_GATE_GUARD_TERMS,
         "Architecture Approval Gate",
         "Local Best Practice auto gate",
         "regression demotion",
@@ -451,6 +466,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Matrix Mismatches",
         "Contract Drift",
         *VERIFICATION_READINESS_GATE_GUARD_TERMS,
+        *CONTINUATION_GATE_GUARD_TERMS,
         *MITIGATION_GATE_GUARD_TERMS,
         *RESOLUTION_GATE_GUARD_TERMS,
         *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
@@ -467,6 +483,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Context Propagation",
         "Architecture Invariants",
         *VERIFICATION_READINESS_GATE_GUARD_TERMS,
+        *CONTINUATION_GATE_GUARD_TERMS,
         *MITIGATION_GATE_GUARD_TERMS,
         *RESOLUTION_GATE_GUARD_TERMS,
         "Blocked Resolution Gate",
@@ -575,6 +592,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Matrix Mismatches",
         "Contract Drift",
         *VERIFICATION_READINESS_GATE_GUARD_TERMS,
+        *CONTINUATION_GATE_GUARD_TERMS,
         *MITIGATION_GATE_GUARD_TERMS,
         *RESOLUTION_GATE_GUARD_TERMS,
         *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
@@ -621,6 +639,8 @@ REQUIRED_RUNTIME_TEXT = {
         "standard-multilane-architecture-ship",
         "release-independent-architecture-ship",
         "blocked-resolution-third-attempt-blocked",
+        "blocked-checkpoint-continuation-ship",
+        "continuation-positive-without-summary",
     ],
 }
 

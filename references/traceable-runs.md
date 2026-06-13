@@ -252,6 +252,44 @@ requires Verification Readiness Gate before implementation:
 - a QA lane may pass only when `verification_results.status=pass`; blocked
   required verification forces QA `blocked` and prevents positive final verdicts.
 
+## Continuation Gate
+
+When a same-run continuation resumes after a blocked checkpoint, do not rewrite
+the old order as if the new gate had existed from the start. If `timeline.jsonl`
+contains `stage=blocked-checkpoint` or `stage=continuation` and the final verdict
+is `ship` or `pass-with-risks`, schema v2 requires `continuation-summary.json`.
+
+`continuation-summary.json` uses `version=1` and records:
+
+- `status`: `resumed-ready`, `resumed-blocked`, or `resumed-fail`;
+- `previous_checkpoint` with the `blocked-checkpoint` `lane_id`, `verdict=blocked`,
+  and a snapshot path such as
+  `artifacts/checkpoints/orchestrator-blocked-checkpoint/final.md`;
+- `resolved_blockers` with kebab-case ids, concrete resolution text, and evidence;
+- `readiness_lane` for the ready Verification Readiness lane;
+- `historical_worker_lanes` for worker lanes completed before the blocked
+  checkpoint or before the new readiness gate existed;
+- `new_worker_lanes` for worker lanes run after continuation readiness became
+  ready;
+- `revalidated_lanes` for historical worker lanes rechecked after readiness;
+- `qa_recheck_lane`, `reviewer_recheck_lane`, and notes.
+
+Continuation validation is timeline-based, not wave-only:
+
+- the previous checkpoint must exist in `timeline.jsonl` as
+  `stage=blocked-checkpoint`;
+- the readiness lane must have a successful timeline event after the checkpoint;
+- every successful worker, readiness, QA, and reviewer lane in a positive
+  continuation must have a timeline event with matching `lane_id`;
+- worker events before the ready readiness lane are allowed only as declared
+  `historical_worker_lanes`, and those lanes must be listed in
+  `revalidated_lanes`;
+- worker events after the blocked checkpoint but before ready readiness fail;
+- new worker events after ready readiness must be listed in `new_worker_lanes`;
+- positive continuation requires final `Continuation Summary`, QA
+  `Continuation Revalidation`, and reviewer `Continuation Review` sections
+  covering every resolved blocker id and every historical or new worker lane id.
+
 Schema v2 also enforces Architecture Execution Control when
 `architecture_contract_required=true`:
 

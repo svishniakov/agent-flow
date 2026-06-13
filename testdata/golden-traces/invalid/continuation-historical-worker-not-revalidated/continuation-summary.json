@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "status": "resumed-ready",
+  "previous_checkpoint": {
+    "lane_id": "orchestrator-blocked-checkpoint",
+    "verdict": "blocked",
+    "snapshot": "artifacts/checkpoints/orchestrator-blocked-checkpoint/final.md"
+  },
+  "resolved_blockers": [
+    {
+      "id": "verification-env-missing",
+      "resolution": "Verification readiness was proven after continuation.",
+      "evidence": [
+        "checks/verification-readiness.md"
+      ]
+    }
+  ],
+  "readiness_lane": "verification-readiness-1",
+  "historical_worker_lanes": [
+    "worker-a",
+    "worker-b"
+  ],
+  "new_worker_lanes": [],
+  "revalidated_lanes": [
+    "worker-a"
+  ],
+  "qa_recheck_lane": "qa-behavior",
+  "reviewer_recheck_lane": "review-contract",
+  "notes": "Worker B was not listed as revalidated."
+}

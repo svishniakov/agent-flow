@@ -51,6 +51,10 @@ ARCHITECTURE_INVARIANTS_SECTION = "Architecture Invariants"
 ARCHITECTURE_MATRIX_MISMATCHES_SECTION = "Architecture Matrix Mismatches"
 CONTRACT_DRIFT_SECTION = "Contract Drift"
 DELEGATION_TRACE_SECTION = "Delegation Trace"
+CONTINUATION_SUMMARY_PATH = "continuation-summary.json"
+CONTINUATION_SUMMARY_SECTION = "Continuation Summary"
+CONTINUATION_REVALIDATION_SECTION = "Continuation Revalidation"
+CONTINUATION_REVIEW_SECTION = "Continuation Review"
 RISK_MITIGATIONS_SECTION = "Risk Mitigations"
 RISK_MITIGATION_REVIEW_SECTION = "Risk Mitigation Review"
 RISK_RESOLUTIONS_SECTION = "Risk Resolutions"
@@ -277,6 +281,7 @@ def default_qa_handoff_bodies(
     risk_resolution_ids: list[str] | None = None,
     include_verification_results: bool = False,
     verification_status: str = "pass",
+    continuation_ids: list[str] | None = None,
 ) -> dict[str, str]:
     facets = [
         *architecture_context_axis_facets("risk_gates", context),
@@ -292,6 +297,10 @@ def default_qa_handoff_bodies(
         bodies[VERIFICATION_GATE_RESULTS_SECTION] = verification_gate_result_lines(
             context,
             verification_status,
+        )
+    if continuation_ids:
+        bodies[CONTINUATION_REVALIDATION_SECTION] = (
+            "Revalidated continuation items:\n" + facet_lines(continuation_ids)
         )
     return bodies
 
@@ -406,6 +415,7 @@ def default_reviewer_handoff_bodies(
     capabilities: list[str] | None = None,
     risk_ids: list[str] | None = None,
     risk_resolution_ids: list[str] | None = None,
+    continuation_ids: list[str] | None = None,
 ) -> dict[str, str]:
     facets = architecture_context_facets(context)
     selected_capabilities = DEFAULT_ARCHITECTURE_CAPABILITIES if capabilities is None else capabilities
@@ -427,7 +437,93 @@ def default_reviewer_handoff_bodies(
         bodies[RISK_RESOLUTION_REVIEW_SECTION] = (
             "Reviewed risk resolutions:\n" + facet_lines(risk_resolution_ids)
         )
+    if continuation_ids:
+        bodies[CONTINUATION_REVIEW_SECTION] = (
+            "Reviewed continuation items:\n" + facet_lines(continuation_ids)
+        )
     return bodies
+
+
+def continuation_summary(
+    *,
+    status: str = "resumed-ready",
+    previous_checkpoint: Any = DEFAULT,
+    resolved_blockers: Any = DEFAULT,
+    readiness_lane: str = "verification-readiness-continuation",
+    historical_worker_lanes: list[str] | None = None,
+    new_worker_lanes: list[str] | None = None,
+    revalidated_lanes: list[str] | None = None,
+    qa_recheck_lane: str = "qa-behavior",
+    reviewer_recheck_lane: str = "review-contract",
+    notes: str = "No new worker lane ran before readiness.",
+) -> dict[str, Any]:
+    if previous_checkpoint is DEFAULT:
+        previous_checkpoint = {
+            "lane_id": "orchestrator-blocked-checkpoint",
+            "verdict": "blocked",
+            "snapshot": "artifacts/checkpoints/orchestrator-blocked-checkpoint/final.md",
+        }
+    if resolved_blockers is DEFAULT:
+        resolved_blockers = [
+            {
+                "id": "pii-smoke-command-undocumented",
+                "resolution": "Documented command exists and passes.",
+                "evidence": ["checks/verification-readiness.md"],
+            }
+        ]
+    return {
+        "version": 1,
+        "status": status,
+        "previous_checkpoint": previous_checkpoint,
+        "resolved_blockers": resolved_blockers,
+        "readiness_lane": readiness_lane,
+        "historical_worker_lanes": ["worker-a"] if historical_worker_lanes is None else historical_worker_lanes,
+        "new_worker_lanes": [] if new_worker_lanes is None else new_worker_lanes,
+        "revalidated_lanes": ["worker-a"] if revalidated_lanes is None else revalidated_lanes,
+        "qa_recheck_lane": qa_recheck_lane,
+        "reviewer_recheck_lane": reviewer_recheck_lane,
+        "notes": notes,
+    }
+
+
+def continuation_ids(
+    *,
+    blocker_ids: list[str] | None = None,
+    worker_ids: list[str] | None = None,
+) -> list[str]:
+    return [
+        *(blocker_ids or ["pii-smoke-command-undocumented"]),
+        *(worker_ids or ["worker-a"]),
+    ]
+
+
+def continuation_summary_section(ids: list[str] | None = None) -> str:
+    items = continuation_ids() if ids is None else ids
+    return (
+        f"\n## {CONTINUATION_SUMMARY_SECTION}\n\n"
+        "Continuation evidence:\n"
+        f"{facet_lines(items)}\n"
+    )
+
+
+def write_continuation_summary_file(
+    run_dir: Path,
+    data: Any = DEFAULT,
+) -> Path:
+    checkpoint_dir = run_dir / "artifacts" / "checkpoints" / "orchestrator-blocked-checkpoint"
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    (checkpoint_dir / "final.md").write_text(
+        "# Final checkpoint\n\nVerdict: blocked\n",
+        encoding="utf-8",
+    )
+    path = run_dir / CONTINUATION_SUMMARY_PATH
+    if data is DEFAULT:
+        data = continuation_summary()
+    if isinstance(data, str):
+        path.write_text(data, encoding="utf-8")
+    else:
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return run_dir
 
 
 def risk_mitigations(
@@ -679,6 +775,7 @@ def write_run(
     verdict: str = "ship",
     lanes: list[dict[str, Any]] | None = None,
     trace_events: dict[str, list[dict[str, Any]]] | None = None,
+    ordered_trace_events: list[dict[str, Any]] | None = None,
     lane_map_extra: dict[str, Any] | None = None,
     delegation_summary_data: Any = DEFAULT,
     final_extra: str = "",
@@ -728,7 +825,13 @@ def write_run(
                         "lanes": [VERIFICATION_READINESS_LANE_ID],
                     },
                 }
-            if not any(lane_data.get("id") == VERIFICATION_READINESS_LANE_ID for lane_data in lanes):
+            readiness_lane_ids = (
+                lane_map_extra.get("verification_readiness", {}).get("lanes", [])
+                if isinstance(lane_map_extra, dict)
+                and isinstance(lane_map_extra.get("verification_readiness"), dict)
+                else [VERIFICATION_READINESS_LANE_ID]
+            )
+            if not any(lane_data.get("id") in readiness_lane_ids for lane_data in lanes):
                 lanes.insert(1, verification_readiness_lane())
         if (
             architecture_gate_requested
@@ -799,6 +902,17 @@ def write_run(
             )
 
     timeline_events: list[dict[str, Any]] = []
+    if ordered_trace_events:
+        events_by_role: dict[str, list[dict[str, Any]]] = {}
+        for event in ordered_trace_events:
+            role = event.get("role")
+            role_key = role if isinstance(role, str) and role else "orchestrator"
+            events_by_role.setdefault(role_key, []).append(event)
+        for role, events in events_by_role.items():
+            trace_path = run_dir / "agents" / role / "trace.jsonl"
+            trace_path.parent.mkdir(parents=True)
+            write_jsonl(trace_path, events)
+        timeline_events.extend(ordered_trace_events)
     for role, events in (trace_events or {}).items():
         trace_path = run_dir / "agents" / role / "trace.jsonl"
         trace_path.parent.mkdir(parents=True)
@@ -828,7 +942,13 @@ def write_run(
                         "lanes": [VERIFICATION_READINESS_LANE_ID],
                     },
                 }
-            if not any(lane_data.get("id") == VERIFICATION_READINESS_LANE_ID for lane_data in lanes):
+            readiness_lane_ids = (
+                lane_map_extra.get("verification_readiness", {}).get("lanes", [])
+                if isinstance(lane_map_extra, dict)
+                and isinstance(lane_map_extra.get("verification_readiness"), dict)
+                else [VERIFICATION_READINESS_LANE_ID]
+            )
+            if not any(lane_data.get("id") in readiness_lane_ids for lane_data in lanes):
                 lanes.insert(1, verification_readiness_lane())
         if (
             architecture_gate_requested
@@ -1139,6 +1259,31 @@ def subagent_handoff_trace(role: str, lane_id: str) -> dict[str, Any]:
     )
 
 
+def role_lane_trace(
+    lane_data: dict[str, Any],
+    *,
+    stage: str = "handoff",
+    status: str = "pass",
+    artifacts: list[str] | None = None,
+) -> dict[str, Any]:
+    lane_id = lane_data["id"]
+    role = lane_data["role"]
+    return timeline_event(
+        stage,
+        role=role,
+        status=status,
+        summary=f"{lane_id} recorded {stage}.",
+        next_step="continue",
+        artifacts=artifacts if artifacts is not None else [lane_data.get("handoff") or ""],
+        execution_mode=lane_data.get("execution_mode", "role-lane"),
+        agent_trace=f"agents/{role}/trace.jsonl",
+        agent_artifact_dir=f"artifacts/agents/{role}",
+        lane_id=lane_id,
+        wave=lane_data.get("wave"),
+        critical=lane_data.get("critical", True),
+    )
+
+
 def architecture_lane(
     lane_id: str = "architecture-contract",
     *,
@@ -1311,6 +1456,7 @@ def qa_control_lane(
     handoff_section_bodies: dict[str, str] | None = None,
     context: dict[str, Any] | None = None,
     risk_resolution_ids: list[str] | None = None,
+    continuation_revalidation_ids: list[str] | None = None,
     verification_results_data: Any = DEFAULT,
 ) -> dict[str, Any]:
     include_verification_results = verification_results_data is not OMIT
@@ -1323,6 +1469,7 @@ def qa_control_lane(
             ARCHITECTURE_INVARIANTS_SECTION,
             *([VERIFICATION_GATE_RESULTS_SECTION] if include_verification_results else []),
             *([RISK_RESOLUTION_VERIFICATION_SECTION] if risk_resolution_ids else []),
+            *([CONTINUATION_REVALIDATION_SECTION] if continuation_revalidation_ids else []),
         ],
         handoff_section_bodies=handoff_section_bodies
         if handoff_section_bodies is not None
@@ -1334,6 +1481,7 @@ def qa_control_lane(
             if isinstance(verification_results_data, dict)
             and verification_results_data.get("status") == "blocked"
             else "pass",
+            continuation_ids=continuation_revalidation_ids,
         ),
     )
     if status not in {"pass", "pass-with-risks"}:
@@ -1355,6 +1503,7 @@ def reviewer_control_lane(
     capabilities: list[str] | None = None,
     risk_ids: list[str] | None = None,
     risk_resolution_ids: list[str] | None = None,
+    continuation_review_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     return reviewer_lane(
         wave=wave,
@@ -1365,6 +1514,7 @@ def reviewer_control_lane(
             CONTRACT_DRIFT_SECTION,
             *([RISK_MITIGATION_REVIEW_SECTION] if risk_ids else []),
             *([RISK_RESOLUTION_REVIEW_SECTION] if risk_resolution_ids else []),
+            *([CONTINUATION_REVIEW_SECTION] if continuation_review_ids else []),
         ],
         handoff_section_bodies=handoff_section_bodies
         if handoff_section_bodies is not None
@@ -1373,7 +1523,81 @@ def reviewer_control_lane(
             capabilities,
             risk_ids,
             risk_resolution_ids,
+            continuation_review_ids,
         ),
+    )
+
+
+def continuation_lanes() -> list[dict[str, Any]]:
+    return [
+        architecture_lane(),
+        verification_readiness_lane("verification-readiness-continuation", wave=2),
+        worker_lane(wave=3),
+        qa_control_lane(
+            wave=4,
+            continuation_revalidation_ids=continuation_ids(),
+        ),
+        reviewer_control_lane(
+            wave=5,
+            continuation_review_ids=continuation_ids(),
+        ),
+    ]
+
+
+def continuation_trace_events(
+    *,
+    worker_before_checkpoint: bool = True,
+    worker_after_checkpoint_before_readiness: bool = False,
+    worker_after_readiness: bool = False,
+) -> list[dict[str, Any]]:
+    lanes_by_id = {lane_data["id"]: lane_data for lane_data in continuation_lanes()}
+    worker = lanes_by_id["worker-a"]
+    readiness = lanes_by_id["verification-readiness-continuation"]
+    qa = lanes_by_id["qa-behavior"]
+    reviewer = lanes_by_id["review-contract"]
+
+    events: list[dict[str, Any]] = []
+    if worker_before_checkpoint:
+        events.append(role_lane_trace(worker))
+    events.append(
+        timeline_event(
+            "blocked-checkpoint",
+            status="blocked",
+            summary="Fixture blocked checkpoint.",
+            execution_mode="role-lane",
+            agent_trace="agents/orchestrator/trace.jsonl",
+            agent_artifact_dir="artifacts/agents/orchestrator",
+            lane_id="orchestrator-blocked-checkpoint",
+            wave=5,
+            critical=True,
+        )
+    )
+    if worker_after_checkpoint_before_readiness:
+        events.append(role_lane_trace(worker))
+    events.append(role_lane_trace(readiness))
+    if worker_after_readiness:
+        events.append(role_lane_trace(worker))
+    events.append(role_lane_trace(qa, stage="checks"))
+    events.append(role_lane_trace(reviewer, stage="checks"))
+
+    return events
+
+
+def continuation_readiness_data() -> dict[str, Any]:
+    base = verification_readiness()
+    return verification_readiness(
+        attempts=[
+            {
+                "id": "readiness-continuation",
+                "lane": "verification-readiness-continuation",
+                "status": "ready",
+                "gates": base["attempts"][0]["gates"],
+                "blockers": [],
+                "approval_requests": [],
+            }
+        ],
+        approval_requests=[],
+        approval_executions=[],
     )
 
 
@@ -1524,6 +1748,279 @@ def main() -> int:
                 temp / "role-lane-delegation-summary",
                 lanes=[lane("qa-trace")],
                 lane_map_extra={"schema_version": 2, "budget": "standard"},
+            ),
+        )
+
+        continuation_lane_map_extra = {
+            **architecture_control_extra(),
+            "verification_readiness": {
+                "artifact": VERIFICATION_READINESS_PATH,
+                "lanes": ["verification-readiness-continuation"],
+            },
+        }
+        expect_fail(
+            "positive continuation requires continuation summary",
+            write_run(
+                temp / "continuation-missing-summary",
+                lanes=continuation_lanes(),
+                lane_map_extra=continuation_lane_map_extra,
+                verification_readiness_data=continuation_readiness_data(),
+                ordered_trace_events=continuation_trace_events(),
+                final_extra=continuation_summary_section(),
+            ),
+            "continuation-summary.json is required for positive continuation run",
+        )
+
+        expect_fail(
+            "continuation invalid json fails",
+            write_continuation_summary_file(
+                write_run(
+                    temp / "continuation-invalid-json",
+                    lanes=continuation_lanes(),
+                    lane_map_extra=continuation_lane_map_extra,
+                    verification_readiness_data=continuation_readiness_data(),
+                    ordered_trace_events=continuation_trace_events(),
+                    final_extra=continuation_summary_section(),
+                ),
+                "{",
+            ),
+            "continuation-summary.json invalid JSON",
+        )
+
+        expect_fail(
+            "continuation invalid version fails",
+            write_continuation_summary_file(
+                write_run(
+                    temp / "continuation-invalid-version",
+                    lanes=continuation_lanes(),
+                    lane_map_extra=continuation_lane_map_extra,
+                    verification_readiness_data=continuation_readiness_data(),
+                    ordered_trace_events=continuation_trace_events(),
+                    final_extra=continuation_summary_section(),
+                ),
+                continuation_summary() | {"version": 2},
+            ),
+            "continuation-summary.json field 'version' must be 1",
+        )
+
+        expect_fail(
+            "continuation missing checkpoint snapshot fails",
+            write_continuation_summary_file(
+                write_run(
+                    temp / "continuation-missing-checkpoint-snapshot",
+                    lanes=continuation_lanes(),
+                    lane_map_extra=continuation_lane_map_extra,
+                    verification_readiness_data=continuation_readiness_data(),
+                    ordered_trace_events=continuation_trace_events(),
+                    final_extra=continuation_summary_section(),
+                ),
+                continuation_summary(
+                    previous_checkpoint={
+                        "lane_id": "orchestrator-blocked-checkpoint",
+                        "verdict": "blocked",
+                        "snapshot": "artifacts/checkpoints/missing/final.md",
+                    }
+                ),
+            ),
+            "continuation-summary.json previous_checkpoint.snapshot not found",
+        )
+
+        expect_fail(
+            "continuation checkpoint missing in timeline fails",
+            write_continuation_summary_file(
+                write_run(
+                    temp / "continuation-missing-checkpoint-event",
+                    lanes=continuation_lanes(),
+                    lane_map_extra=continuation_lane_map_extra,
+                    verification_readiness_data=continuation_readiness_data(),
+                    ordered_trace_events=continuation_trace_events(worker_before_checkpoint=False),
+                    final_extra=continuation_summary_section(),
+                ),
+                continuation_summary(
+                    previous_checkpoint={
+                        "lane_id": "missing-blocked-checkpoint",
+                        "verdict": "blocked",
+                        "snapshot": "artifacts/checkpoints/orchestrator-blocked-checkpoint/final.md",
+                    }
+                ),
+            ),
+            "continuation-summary.json previous_checkpoint.lane_id missing blocked-checkpoint timeline event",
+        )
+
+        expect_fail(
+            "continuation historical worker requires declaration",
+            write_continuation_summary_file(
+                write_run(
+                    temp / "continuation-historical-worker-not-declared",
+                    lanes=continuation_lanes(),
+                    lane_map_extra=continuation_lane_map_extra,
+                    verification_readiness_data=continuation_readiness_data(),
+                    ordered_trace_events=continuation_trace_events(),
+                    final_extra=continuation_summary_section(),
+                ),
+                continuation_summary(historical_worker_lanes=[], revalidated_lanes=[]),
+            ),
+            "continuation-summary.json missing historical worker lane: worker-a",
+        )
+
+        expect_fail(
+            "continuation historical worker requires revalidation",
+            write_continuation_summary_file(
+                write_run(
+                    temp / "continuation-historical-worker-not-revalidated",
+                    lanes=continuation_lanes(),
+                    lane_map_extra=continuation_lane_map_extra,
+                    verification_readiness_data=continuation_readiness_data(),
+                    ordered_trace_events=continuation_trace_events(),
+                    final_extra=continuation_summary_section(),
+                ),
+                continuation_summary(revalidated_lanes=[]),
+            ),
+            "continuation-summary.json missing revalidated historical worker lane: worker-a",
+        )
+
+        expect_fail(
+            "continuation new worker before readiness fails",
+            write_continuation_summary_file(
+                write_run(
+                    temp / "continuation-new-worker-before-readiness",
+                    lanes=continuation_lanes(),
+                    lane_map_extra=continuation_lane_map_extra,
+                    verification_readiness_data=continuation_readiness_data(),
+                    ordered_trace_events=continuation_trace_events(
+                        worker_before_checkpoint=False,
+                        worker_after_checkpoint_before_readiness=True,
+                    ),
+                    final_extra=continuation_summary_section(),
+                ),
+                continuation_summary(
+                    historical_worker_lanes=[],
+                    new_worker_lanes=["worker-a"],
+                    revalidated_lanes=["worker-a"],
+                ),
+            ),
+            "lane-map.json: continuation worker lane worker-a must run after ready Verification Readiness Gate",
+        )
+
+        expect_pass(
+            "continuation new worker after readiness passes",
+            write_continuation_summary_file(
+                write_run(
+                    temp / "continuation-new-worker-after-readiness",
+                    lanes=continuation_lanes(),
+                    lane_map_extra=continuation_lane_map_extra,
+                    verification_readiness_data=continuation_readiness_data(),
+                    ordered_trace_events=continuation_trace_events(
+                        worker_before_checkpoint=False,
+                        worker_after_readiness=True,
+                    ),
+                    final_extra=continuation_summary_section(),
+                ),
+                continuation_summary(
+                    historical_worker_lanes=[],
+                    new_worker_lanes=["worker-a"],
+                    revalidated_lanes=["worker-a"],
+                ),
+            ),
+        )
+
+        expect_fail(
+            "continuation positive requires lane timeline events",
+            write_continuation_summary_file(
+                write_run(
+                    temp / "continuation-missing-lane-timeline-event",
+                    lanes=continuation_lanes(),
+                    lane_map_extra=continuation_lane_map_extra,
+                    verification_readiness_data=continuation_readiness_data(),
+                    trace_events={
+                        "orchestrator": [
+                            timeline_event(
+                                "blocked-checkpoint",
+                                status="blocked",
+                                summary="Fixture blocked checkpoint.",
+                                lane_id="orchestrator-blocked-checkpoint",
+                            )
+                        ]
+                    },
+                    final_extra=continuation_summary_section(),
+                ),
+            ),
+            "lane-map.json: continuation timeline for lane verification-readiness-continuation missing event",
+        )
+
+        expect_fail(
+            "continuation final requires summary section",
+            write_continuation_summary_file(
+                write_run(
+                    temp / "continuation-final-missing-section",
+                    lanes=continuation_lanes(),
+                    lane_map_extra=continuation_lane_map_extra,
+                    verification_readiness_data=continuation_readiness_data(),
+                    ordered_trace_events=continuation_trace_events(),
+                ),
+            ),
+            "final.md missing section: Continuation Summary",
+        )
+
+        expect_fail(
+            "continuation qa requires revalidation section",
+            write_continuation_summary_file(
+                write_run(
+                    temp / "continuation-qa-missing-section",
+                    lanes=[
+                        architecture_lane(),
+                        verification_readiness_lane("verification-readiness-continuation", wave=2),
+                        worker_lane(wave=3),
+                        qa_control_lane(wave=4),
+                        reviewer_control_lane(
+                            wave=5,
+                            continuation_review_ids=continuation_ids(),
+                        ),
+                    ],
+                    lane_map_extra=continuation_lane_map_extra,
+                    verification_readiness_data=continuation_readiness_data(),
+                    ordered_trace_events=continuation_trace_events(),
+                    final_extra=continuation_summary_section(),
+                ),
+            ),
+            "lane-map.json: lane qa-behavior handoff missing section: Continuation Revalidation",
+        )
+
+        expect_fail(
+            "continuation reviewer requires review section",
+            write_continuation_summary_file(
+                write_run(
+                    temp / "continuation-reviewer-missing-section",
+                    lanes=[
+                        architecture_lane(),
+                        verification_readiness_lane("verification-readiness-continuation", wave=2),
+                        worker_lane(wave=3),
+                        qa_control_lane(
+                            wave=4,
+                            continuation_revalidation_ids=continuation_ids(),
+                        ),
+                        reviewer_control_lane(wave=5),
+                    ],
+                    lane_map_extra=continuation_lane_map_extra,
+                    verification_readiness_data=continuation_readiness_data(),
+                    ordered_trace_events=continuation_trace_events(),
+                    final_extra=continuation_summary_section(),
+                ),
+            ),
+            "lane-map.json: lane review-contract handoff missing section: Continuation Review",
+        )
+
+        expect_pass(
+            "continuation with historical workers and revalidation passes",
+            write_continuation_summary_file(
+                write_run(
+                    temp / "continuation-historical-workers-revalidated",
+                    lanes=continuation_lanes(),
+                    lane_map_extra=continuation_lane_map_extra,
+                    verification_readiness_data=continuation_readiness_data(),
+                    ordered_trace_events=continuation_trace_events(),
+                    final_extra=continuation_summary_section(),
+                ),
             ),
         )
 

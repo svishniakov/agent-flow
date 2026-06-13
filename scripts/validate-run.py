@@ -47,6 +47,10 @@ AGENT_TODO_PLACEHOLDER = "TODO(agent):"
 AGENT_EXECUTION_MODES = {"subagent", "role-lane"}
 DELEGATION_SUMMARY_PATH = "delegation-summary.json"
 DELEGATION_TRACE_SECTION = "Delegation Trace"
+CONTINUATION_SUMMARY_PATH = "continuation-summary.json"
+CONTINUATION_SUMMARY_SECTION = "Continuation Summary"
+CONTINUATION_REVALIDATION_SECTION = "Continuation Revalidation"
+CONTINUATION_REVIEW_SECTION = "Continuation Review"
 LANE_TYPES = {"architecture", "implementation", "integration", "qa", "review"}
 TRACE_BUDGETS = {"release", "standard"}
 WORKER_LANE_TYPES = {"implementation", "integration"}
@@ -66,6 +70,8 @@ UNRESOLVED_LANE_STATUSES = {"planned", "spawned", "active", "timed-out", "fail",
 IMPLEMENTATION_STAGES = {"implementation", "fix"}
 SUCCESSFUL_CHECK_STAGES = {"verification", "checks"}
 SUCCESS_STATUSES = {"pass", "ship", "pass-with-risks"}
+CONTINUATION_STAGES = {"blocked-checkpoint", "continuation"}
+CONTINUATION_STATUSES = {"resumed-ready", "resumed-blocked", "resumed-fail"}
 COMMIT_HASH_PATTERN = re.compile(r"\b[0-9a-f]{7,40}\b", re.IGNORECASE)
 COMMIT_DECLARATION_PATTERN = re.compile(
     r"(?i)(^\s*(?:[-*]\s*)?(?:product\s+)?commit\s*:|committed\s+as)"
@@ -1931,6 +1937,318 @@ def contains_facet_id(text: str, facet: str) -> bool:
     return bool(pattern.search(text))
 
 
+def successful_lane_event_indexes(timeline_events: list[dict], lane_id: str) -> list[int]:
+    return [
+        index
+        for index, event in enumerate(timeline_events)
+        if event.get("lane_id") == lane_id
+        and event.get("status") in SUCCESS_STATUSES
+        and event.get("stage") != "spawned"
+    ]
+
+
+def first_successful_lane_event_index(
+    timeline_events: list[dict],
+    lane_id: str,
+) -> int | None:
+    indexes = successful_lane_event_indexes(timeline_events, lane_id)
+    return min(indexes) if indexes else None
+
+
+def read_timeline_events(run_dir: Path) -> tuple[list[dict], list[str]]:
+    timeline_path = run_dir / "timeline.jsonl"
+    if not timeline_path.exists():
+        return [], ["missing timeline.jsonl for continuation validation"]
+    events, load_errors = load_jsonl_events(timeline_path)
+    if load_errors:
+        return [], load_errors
+    return events, []
+
+
+def continuation_stage_present(timeline_events: list[dict]) -> bool:
+    return any(event.get("stage") in CONTINUATION_STAGES for event in timeline_events)
+
+
+def validate_string_list(value: object, label: str, errors: list[str]) -> list[str]:
+    if not isinstance(value, list):
+        errors.append(f"{label} must be an array")
+        return []
+    result: list[str] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, str) or not item:
+            errors.append(f"{label}[{index}] must be a non-empty string")
+            continue
+        result.append(item)
+    return result
+
+
+def validate_markdown_section_coverage(
+    path: Path,
+    section: str,
+    required_ids: list[str],
+    *,
+    missing_section_error: str,
+    missing_id_error_prefix: str,
+    errors: list[str],
+) -> None:
+    if not path.exists():
+        return
+    missing = missing_markdown_headings(path, [section])
+    if missing:
+        errors.append(missing_section_error)
+        return
+    section_text = markdown_section_text(path.read_text(encoding="utf-8"), section)
+    for required_id in required_ids:
+        if not contains_facet_id(section_text, required_id):
+            errors.append(f"{missing_id_error_prefix}: {required_id}")
+
+
+def validate_continuation_summary(
+    run_dir: Path,
+    *,
+    final_verdict: str | None,
+    lane_by_id: dict[str, dict],
+    normalized_status_by_id: dict[str, str],
+    successful_worker_lanes: list[tuple[str, int, str | None]],
+    verification_readiness_data: dict | None,
+) -> list[str]:
+    timeline_events, timeline_errors = read_timeline_events(run_dir)
+    if timeline_errors:
+        return []
+
+    continuation_present = continuation_stage_present(timeline_events)
+    path = run_dir / CONTINUATION_SUMMARY_PATH
+    required = final_verdict in POSITIVE_FINAL_VERDICTS and continuation_present
+    if not path.exists():
+        if required:
+            return [f"{CONTINUATION_SUMMARY_PATH} is required for positive continuation run"]
+        return []
+
+    data, errors = load_json(path, CONTINUATION_SUMMARY_PATH)
+    if errors:
+        return errors
+    if not isinstance(data, dict):
+        return [f"{CONTINUATION_SUMMARY_PATH} must be a JSON object"]
+
+    if data.get("version") != 1:
+        errors.append(f"{CONTINUATION_SUMMARY_PATH} field 'version' must be 1")
+    status = data.get("status")
+    if status not in CONTINUATION_STATUSES:
+        errors.append(f"{CONTINUATION_SUMMARY_PATH} status invalid")
+    elif status == "resumed-ready" and final_verdict not in POSITIVE_FINAL_VERDICTS:
+        errors.append(f"{CONTINUATION_SUMMARY_PATH} status resumed-ready requires positive final Verdict")
+    elif status == "resumed-blocked" and final_verdict != "blocked":
+        errors.append(f"{CONTINUATION_SUMMARY_PATH} status resumed-blocked requires final Verdict: blocked")
+    elif status == "resumed-fail" and final_verdict != "fail":
+        errors.append(f"{CONTINUATION_SUMMARY_PATH} status resumed-fail requires final Verdict: fail")
+    if final_verdict in POSITIVE_FINAL_VERDICTS and status != "resumed-ready":
+        errors.append(f"{CONTINUATION_SUMMARY_PATH} status resumed-ready required for positive final Verdict")
+
+    checkpoint = data.get("previous_checkpoint")
+    checkpoint_lane_id: str | None = None
+    checkpoint_index: int | None = None
+    if not isinstance(checkpoint, dict):
+        errors.append(f"{CONTINUATION_SUMMARY_PATH} previous_checkpoint must be an object")
+    else:
+        checkpoint_lane_id = validate_string(
+            checkpoint.get("lane_id"),
+            f"{CONTINUATION_SUMMARY_PATH} previous_checkpoint.lane_id",
+            errors,
+        )
+        verdict = checkpoint.get("verdict")
+        if verdict != "blocked":
+            errors.append(f"{CONTINUATION_SUMMARY_PATH} previous_checkpoint.verdict must be blocked")
+        snapshot = validate_string(
+            checkpoint.get("snapshot"),
+            f"{CONTINUATION_SUMMARY_PATH} previous_checkpoint.snapshot",
+            errors,
+        )
+        if snapshot:
+            snapshot_path = resolve_run_path(run_dir, snapshot)
+            if not snapshot_path.exists():
+                errors.append(
+                    f"{CONTINUATION_SUMMARY_PATH} previous_checkpoint.snapshot not found: {snapshot}"
+                )
+            elif read_single_field(snapshot_path, "Verdict") != "blocked":
+                errors.append(
+                    f"{CONTINUATION_SUMMARY_PATH} previous_checkpoint.snapshot must record Verdict: blocked"
+                )
+        if checkpoint_lane_id:
+            checkpoint_indexes = [
+                index
+                for index, event in enumerate(timeline_events)
+                if event.get("lane_id") == checkpoint_lane_id
+                and event.get("stage") == "blocked-checkpoint"
+                and event.get("status") == "blocked"
+            ]
+            if checkpoint_indexes:
+                checkpoint_index = min(checkpoint_indexes)
+            else:
+                errors.append(
+                    f"{CONTINUATION_SUMMARY_PATH} previous_checkpoint.lane_id "
+                    f"missing blocked-checkpoint timeline event: {checkpoint_lane_id}"
+                )
+
+    resolved_blockers = data.get("resolved_blockers")
+    blocker_ids: list[str] = []
+    if not isinstance(resolved_blockers, list) or not resolved_blockers:
+        if final_verdict in POSITIVE_FINAL_VERDICTS:
+            errors.append(f"{CONTINUATION_SUMMARY_PATH} resolved_blockers must be a non-empty array")
+        resolved_blockers = []
+    for index, blocker in enumerate(resolved_blockers):
+        label = f"{CONTINUATION_SUMMARY_PATH} resolved_blockers[{index}]"
+        if not isinstance(blocker, dict):
+            errors.append(f"{label} must be an object")
+            continue
+        blocker_id = validate_string(blocker.get("id"), f"{label}.id", errors)
+        if blocker_id:
+            if not KEBAB_CASE_PATTERN.fullmatch(blocker_id):
+                errors.append(f"{label}.id must be kebab-case")
+            blocker_ids.append(blocker_id)
+        validate_string(blocker.get("resolution"), f"{label}.resolution", errors)
+        validate_existing_path_list(run_dir, blocker.get("evidence"), f"{label}.evidence", errors)
+    if len(set(blocker_ids)) != len(blocker_ids):
+        errors.append(f"{CONTINUATION_SUMMARY_PATH} duplicate resolved blocker id")
+
+    readiness_lane = validate_string(
+        data.get("readiness_lane"),
+        f"{CONTINUATION_SUMMARY_PATH} readiness_lane",
+        errors,
+    )
+    readiness_index: int | None = None
+    if readiness_lane:
+        if readiness_lane not in lane_by_id:
+            errors.append(f"{CONTINUATION_SUMMARY_PATH} readiness_lane not found: {readiness_lane}")
+        ready_attempt_lanes = {
+            attempt.get("lane")
+            for attempt in (verification_readiness_data or {}).get("attempts", [])
+            if isinstance(attempt, dict) and attempt.get("status") == "ready"
+        }
+        if readiness_lane not in ready_attempt_lanes:
+            errors.append(
+                f"{CONTINUATION_SUMMARY_PATH} readiness_lane must reference a ready Verification Readiness Gate lane"
+            )
+        readiness_index = first_successful_lane_event_index(timeline_events, readiness_lane)
+        if readiness_index is None:
+            errors.append(f"lane-map.json: continuation timeline for lane {readiness_lane} missing event")
+        elif checkpoint_index is not None and readiness_index <= checkpoint_index:
+            errors.append(
+                f"{CONTINUATION_SUMMARY_PATH} readiness_lane must run after previous checkpoint"
+            )
+
+    historical_worker_lanes = validate_string_list(
+        data.get("historical_worker_lanes"),
+        f"{CONTINUATION_SUMMARY_PATH} historical_worker_lanes",
+        errors,
+    )
+    new_worker_lanes = validate_string_list(
+        data.get("new_worker_lanes"),
+        f"{CONTINUATION_SUMMARY_PATH} new_worker_lanes",
+        errors,
+    )
+    revalidated_lanes = validate_string_list(
+        data.get("revalidated_lanes"),
+        f"{CONTINUATION_SUMMARY_PATH} revalidated_lanes",
+        errors,
+    )
+    for field, values in [
+        ("historical_worker_lanes", historical_worker_lanes),
+        ("new_worker_lanes", new_worker_lanes),
+        ("revalidated_lanes", revalidated_lanes),
+    ]:
+        for lane_id in values:
+            lane = lane_by_id.get(lane_id)
+            if lane is None:
+                errors.append(f"{CONTINUATION_SUMMARY_PATH} {field} unknown lane id: {lane_id}")
+            elif lane.get("type") not in WORKER_LANE_TYPES:
+                errors.append(f"{CONTINUATION_SUMMARY_PATH} {field} must reference worker lanes: {lane_id}")
+
+    worker_ids = [lane_id for lane_id, _wave, _handoff in successful_worker_lanes]
+    worker_event_indexes: dict[str, list[int]] = {
+        lane_id: successful_lane_event_indexes(timeline_events, lane_id)
+        for lane_id in worker_ids
+    }
+    for lane_id, indexes in worker_event_indexes.items():
+        if not indexes:
+            errors.append(f"lane-map.json: continuation timeline for lane {lane_id} missing event")
+            continue
+        for event_index in indexes:
+            if readiness_index is None:
+                continue
+            if checkpoint_index is not None and checkpoint_index < event_index < readiness_index:
+                errors.append(
+                    f"lane-map.json: continuation worker lane {lane_id} must run after "
+                    "ready Verification Readiness Gate"
+                )
+            elif event_index < readiness_index:
+                if lane_id not in historical_worker_lanes:
+                    errors.append(f"{CONTINUATION_SUMMARY_PATH} missing historical worker lane: {lane_id}")
+                if lane_id not in revalidated_lanes:
+                    errors.append(
+                        f"{CONTINUATION_SUMMARY_PATH} missing revalidated historical worker lane: {lane_id}"
+                    )
+            elif event_index > readiness_index and lane_id not in new_worker_lanes:
+                errors.append(f"{CONTINUATION_SUMMARY_PATH} missing new worker lane: {lane_id}")
+
+    qa_recheck_lane = validate_string(
+        data.get("qa_recheck_lane"),
+        f"{CONTINUATION_SUMMARY_PATH} qa_recheck_lane",
+        errors,
+    )
+    reviewer_recheck_lane = validate_string(
+        data.get("reviewer_recheck_lane"),
+        f"{CONTINUATION_SUMMARY_PATH} reviewer_recheck_lane",
+        errors,
+    )
+    required_section_ids = [*blocker_ids, *historical_worker_lanes, *new_worker_lanes]
+    for lane_id, expected_type, section, label in [
+        (qa_recheck_lane, "qa", CONTINUATION_REVALIDATION_SECTION, "qa"),
+        (reviewer_recheck_lane, "review", CONTINUATION_REVIEW_SECTION, "reviewer"),
+    ]:
+        if not lane_id:
+            continue
+        lane = lane_by_id.get(lane_id)
+        if lane is None:
+            errors.append(f"{CONTINUATION_SUMMARY_PATH} {label}_recheck_lane not found: {lane_id}")
+            continue
+        if lane.get("type") != expected_type:
+            errors.append(f"{CONTINUATION_SUMMARY_PATH} {label}_recheck_lane must be type={expected_type}: {lane_id}")
+        if normalized_status_by_id.get(lane_id) not in SUCCESSFUL_LANE_STATUSES:
+            errors.append(f"{CONTINUATION_SUMMARY_PATH} {label}_recheck_lane must pass: {lane_id}")
+        event_index = first_successful_lane_event_index(timeline_events, lane_id)
+        if event_index is None:
+            errors.append(f"lane-map.json: continuation timeline for lane {lane_id} missing event")
+        elif readiness_index is not None and event_index <= readiness_index:
+            errors.append(f"{CONTINUATION_SUMMARY_PATH} {label}_recheck_lane must run after readiness lane")
+        handoff = lane.get("handoff")
+        if not isinstance(handoff, str) or not handoff:
+            errors.append(f"lane-map.json: lane {lane_id} requires handoff for Continuation Gate")
+            continue
+        handoff_path = resolve_run_path(run_dir, handoff)
+        validate_markdown_section_coverage(
+            handoff_path,
+            section,
+            required_section_ids,
+            missing_section_error=f"lane-map.json: lane {lane_id} handoff missing section: {section}",
+            missing_id_error_prefix=f"lane-map.json: lane {lane_id} {section} missing continuation id",
+            errors=errors,
+        )
+
+    if final_verdict in POSITIVE_FINAL_VERDICTS:
+        final_path = run_dir / "final.md"
+        validate_markdown_section_coverage(
+            final_path,
+            CONTINUATION_SUMMARY_SECTION,
+            required_section_ids,
+            missing_section_error=f"final.md missing section: {CONTINUATION_SUMMARY_SECTION}",
+            missing_id_error_prefix="final.md Continuation Summary missing continuation id",
+            errors=errors,
+        )
+
+    validate_string(data.get("notes"), f"{CONTINUATION_SUMMARY_PATH} notes", errors)
+    return errors
+
+
 def load_architecture_matrix_facets() -> tuple[dict[str, set[str]], list[str]]:
     facets = {axis: set() for axis in ARCHITECTURE_CONTEXT_AXES}
     if not ARCHITECTURE_MATRIX_PATH.exists():
@@ -2989,6 +3307,17 @@ def validate_lane_map(
             readiness_wave = readiness_lane.get("wave")
             if isinstance(readiness_wave, int) and not isinstance(readiness_wave, bool):
                 ready_readiness_waves.append(readiness_wave)
+
+    errors.extend(
+        validate_continuation_summary(
+            run_dir,
+            final_verdict=final_verdict,
+            lane_by_id=lane_by_id,
+            normalized_status_by_id=normalized_status_by_id,
+            successful_worker_lanes=successful_worker_lanes,
+            verification_readiness_data=verification_readiness_data,
+        )
+    )
 
     if architecture_contract_required:
         if final_verdict in POSITIVE_FINAL_VERDICTS:

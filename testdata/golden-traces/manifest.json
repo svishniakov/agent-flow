@@ -26,6 +26,17 @@
       ]
     },
     {
+      "id": "blocked-checkpoint-continuation-ship",
+      "path": "valid/blocked-checkpoint-continuation-ship",
+      "mode": "full",
+      "expected": "pass",
+      "covers": [
+        "Continuation Gate",
+        "blocked-checkpoint",
+        "historical worker revalidation"
+      ]
+    },
+    {
       "id": "release-independent-architecture-ship",
       "path": "valid/release-independent-architecture-ship",
       "mode": "full",
@@ -218,6 +229,48 @@
       "expected_error": "lane-map.json: lane qa-behavior pass requires verification_results.status=pass",
       "covers": [
         "Verification Readiness Gate"
+      ]
+    },
+    {
+      "id": "continuation-positive-without-summary",
+      "path": "invalid/continuation-positive-without-summary",
+      "mode": "full",
+      "expected": "fail",
+      "expected_error": "continuation-summary.json is required for positive continuation run",
+      "covers": [
+        "Continuation Gate"
+      ]
+    },
+    {
+      "id": "continuation-worker-before-readiness",
+      "path": "invalid/continuation-worker-before-readiness",
+      "mode": "full",
+      "expected": "fail",
+      "expected_error": "continuation worker lane worker-a must run after ready Verification Readiness Gate",
+      "covers": [
+        "Continuation Gate",
+        "Verification Readiness Gate"
+      ]
+    },
+    {
+      "id": "continuation-historical-worker-not-revalidated",
+      "path": "invalid/continuation-historical-worker-not-revalidated",
+      "mode": "full",
+      "expected": "fail",
+      "expected_error": "continuation-summary.json missing revalidated historical worker lane: worker-b",
+      "covers": [
+        "Continuation Gate"
+      ]
+    },
+    {
+      "id": "continuation-missing-lane-timeline-event",
+      "path": "invalid/continuation-missing-lane-timeline-event",
+      "mode": "full",
+      "expected": "fail",
+      "expected_error": "lane-map.json: continuation timeline for lane verification-readiness-1 missing event",
+      "covers": [
+        "Continuation Gate",
+        "timeline lane evidence"
       ]
     }
   ]

@@ -153,6 +153,16 @@ ready attempt. A user decline stops the current pass immediately as
 `resume_phrase=Готово`. Workers start only after a `ready` readiness lane. The
 post-worker QA lane records `Verification Gate Results`.
 
+Continuation Gate applies when a run resumes after `blocked-checkpoint` or a
+`continuation` timeline stage. The orchestrator writes
+`continuation-summary.json`, preserves the blocked checkpoint snapshot, and
+records resolved blockers, `historical_worker_lanes`, `new_worker_lanes`, and
+`revalidated_lanes`. Historical worker lanes may be reused only after ready
+Verification Readiness plus QA and reviewer revalidation. QA writes
+`Continuation Revalidation`; reviewer writes `Continuation Review`; final writes
+`Continuation Summary`. New worker work after the checkpoint must not start
+before the ready readiness lane.
+
 Mitigation Gate applies before any `pass-with-risks` final verdict. The
 orchestrator records identified risks in `risk-mitigations.json`; each risk
 keeps concrete `problem`, `impact`, `affected_scope`, evidence, and

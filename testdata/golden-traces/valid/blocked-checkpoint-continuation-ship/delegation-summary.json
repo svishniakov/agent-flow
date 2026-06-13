@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "subagents_used": false,
+  "role_lanes_used": true,
+  "subagents": [],
+  "role_lanes": [
+    {
+      "lane_id": "architecture-contract",
+      "role": "architect",
+      "reason": "architecture-contract executed as role-lane."
+    },
+    {
+      "lane_id": "verification-readiness-1",
+      "role": "qa-verifier",
+      "reason": "verification-readiness-1 executed as role-lane."
+    },
+    {
+      "lane_id": "worker-a",
+      "role": "typescript-worker",
+      "reason": "worker-a executed as role-lane."
+    },
+    {
+      "lane_id": "worker-b",
+      "role": "integration-worker",
+      "reason": "worker-b executed as role-lane."
+    },
+    {
+      "lane_id": "qa-behavior",
+      "role": "qa-verifier",
+      "reason": "qa-behavior executed as role-lane."
+    },
+    {
+      "lane_id": "review-contract",
+      "role": "reviewer",
+      "reason": "review-contract executed as role-lane."
+    }
+  ],
+  "notes": "Golden trace delegation summary."
+}
