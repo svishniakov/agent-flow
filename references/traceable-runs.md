@@ -220,6 +220,38 @@ Schema v2 adds the Architecture Contract Gate:
 - reviewer and QA lanes may pass only after the architecture contract passes;
 - when `architecture_contract_independent` is true, the architecture lane must use `subagent` execution with spawned trace evidence.
 
+## Verification Readiness Gate
+
+When `architecture_contract_required=true` and worker lanes exist, schema v2
+requires Verification Readiness Gate before implementation:
+
+- `lane-map.json` records `verification_readiness` with `artifact` pointing to
+  `verification-readiness.json` and `lanes` listing readiness lanes;
+- readiness lanes use `type=qa`, `role=qa-verifier`, `critical=true`, and run
+  after the approved Architecture Design Brief but before worker lanes;
+- `verification-readiness.json` uses `version=1` and status `ready`,
+  `needs-approval`, `paused-blocked`, or `blocked`;
+- readiness attempts cover every selected `risk_gates` and
+  `verification_gates` facet from `architecture_context`;
+- unknown, unselected, duplicate, wrong-axis, or missing readiness facets fail
+  validation;
+- `ready` requires all gate records to be ready and no blockers;
+- `needs-approval` requires pending `approval_requests` and no successful worker
+  lanes;
+- approval requests can list only documented safe commands, a source document,
+  manual instruction, affected gates, and `resume_phrase`;
+- when the user approves, the agent records `approval_executions` with evidence,
+  then repeats readiness before starting workers;
+- when the user declines, status becomes `paused-blocked`, final verdict must be
+  `blocked`, no successful workers may exist, and `final.md` must include the
+  manual instruction plus `resume_phrase=Готово`;
+- successful worker lanes must run after the latest `ready` readiness lane;
+- positive final verdicts require the latest readiness status to be `ready`;
+- post-worker QA records `verification_results` in lane-map and a handoff
+  section named `Verification Gate Results`;
+- a QA lane may pass only when `verification_results.status=pass`; blocked
+  required verification forces QA `blocked` and prevents positive final verdicts.
+
 Schema v2 also enforces Architecture Execution Control when
 `architecture_contract_required=true`:
 

@@ -141,6 +141,18 @@ the selected facets they actually touched and mention those facet ids in
 selected facet and selected capability id across `Architecture Matrix
 Mismatches` and `Contract Drift`.
 
+Verification Readiness Gate runs before workers when an architecture-gated run
+has worker lanes. The orchestrator writes `verification_readiness` in
+`lane-map.json` and `verification-readiness.json`. The readiness QA lane checks
+whether every selected `risk_gates` and `verification_gates` facet can actually
+be verified. If a documented local command is needed, the gate records
+`needs-approval` and `approval_requests`; the agent asks the user before running
+anything. Approved commands produce `approval_executions` evidence and a later
+ready attempt. A user decline stops the current pass immediately as
+`paused-blocked`, final `blocked`, with a manual instruction and
+`resume_phrase=Готово`. Workers start only after a `ready` readiness lane. The
+post-worker QA lane records `Verification Gate Results`.
+
 Mitigation Gate applies before any `pass-with-risks` final verdict. The
 orchestrator records identified risks in `risk-mitigations.json`; each risk
 keeps concrete `problem`, `impact`, `affected_scope`, evidence, and

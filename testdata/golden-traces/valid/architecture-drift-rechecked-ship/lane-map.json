@@ -19,10 +19,24 @@
       "design_brief_decision_status": "approved"
     },
     {
+      "id": "verification-readiness-1",
+      "type": "qa",
+      "role": "qa-verifier",
+      "wave": 2,
+      "critical": true,
+      "execution_mode": "role-lane",
+      "status": "pass",
+      "handoff": "handoffs/verification-readiness.md",
+      "evidence": [
+        "checks/verification-readiness.md"
+      ],
+      "replacement": null
+    },
+    {
       "id": "worker-a",
       "type": "implementation",
       "role": "typescript-worker",
-      "wave": 2,
+      "wave": 3,
       "critical": true,
       "execution_mode": "role-lane",
       "status": "pass",
@@ -54,7 +68,7 @@
       "id": "architecture-recheck",
       "type": "architecture",
       "role": "architect",
-      "wave": 3,
+      "wave": 4,
       "critical": true,
       "execution_mode": "role-lane",
       "status": "pass",
@@ -71,7 +85,7 @@
       "id": "qa-behavior",
       "type": "qa",
       "role": "qa-verifier",
-      "wave": 4,
+      "wave": 5,
       "critical": true,
       "execution_mode": "role-lane",
       "status": "pass",
@@ -85,13 +99,45 @@
       ],
       "handoff_section_bodies": {
         "Architecture Invariants": "Covered gates:\n- `migrations`\n- `unit`\n- `integration`"
+      },
+      "verification_results": {
+        "status": "pass",
+        "gates": [
+          {
+            "axis": "risk_gates",
+            "facet": "migrations",
+            "status": "pass",
+            "evidence": [
+              "checks/qa-behavior.md"
+            ],
+            "notes": "migrations passed in golden QA."
+          },
+          {
+            "axis": "verification_gates",
+            "facet": "unit",
+            "status": "pass",
+            "evidence": [
+              "checks/qa-behavior.md"
+            ],
+            "notes": "unit passed in golden QA."
+          },
+          {
+            "axis": "verification_gates",
+            "facet": "integration",
+            "status": "pass",
+            "evidence": [
+              "checks/qa-behavior.md"
+            ],
+            "notes": "integration passed in golden QA."
+          }
+        ]
       }
     },
     {
       "id": "review-contract",
       "type": "review",
       "role": "reviewer",
-      "wave": 5,
+      "wave": 6,
       "critical": true,
       "execution_mode": "role-lane",
       "status": "pass",
@@ -140,5 +186,11 @@
       "modular-monolith-architecture"
     ],
     "notes": "Selected capabilities cover the fixture architecture context."
+  },
+  "verification_readiness": {
+    "artifact": "verification-readiness.json",
+    "lanes": [
+      "verification-readiness-1"
+    ]
   }
 }

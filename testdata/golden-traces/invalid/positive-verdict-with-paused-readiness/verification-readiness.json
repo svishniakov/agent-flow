@@ -1,0 +1,72 @@
+{
+  "version": 1,
+  "status": "paused-blocked",
+  "attempts": [
+    {
+      "id": "readiness-1",
+      "lane": "verification-readiness-1",
+      "status": "needs-approval",
+      "gates": [
+        {
+          "axis": "risk_gates",
+          "facet": "migrations",
+          "readiness": "needs-approval",
+          "check": "golden readiness check for migrations",
+          "evidence": [
+            "checks/verification-readiness.md"
+          ],
+          "notes": "migrations ready in golden trace."
+        },
+        {
+          "axis": "verification_gates",
+          "facet": "unit",
+          "readiness": "needs-approval",
+          "check": "golden readiness check for unit",
+          "evidence": [
+            "checks/verification-readiness.md"
+          ],
+          "notes": "unit ready in golden trace."
+        },
+        {
+          "axis": "verification_gates",
+          "facet": "integration",
+          "readiness": "needs-approval",
+          "check": "golden readiness check for integration",
+          "evidence": [
+            "checks/verification-readiness.md"
+          ],
+          "notes": "integration ready in golden trace."
+        }
+      ],
+      "blockers": [
+        "readiness-blocker"
+      ],
+      "approval_requests": [
+        "readiness-approval-request"
+      ]
+    }
+  ],
+  "approval_requests": [
+    {
+      "id": "readiness-approval-request",
+      "status": "declined",
+      "reason": "User declined readiness approval in invalid golden trace.",
+      "commands": [
+        {
+          "cwd": "/repo",
+          "command": "documented safe command",
+          "source": "README.md",
+          "requires_user_approval": true
+        }
+      ],
+      "manual_instruction": "Start manually, then reply: Готово.",
+      "resume_phrase": "Готово",
+      "affected_gates": [
+        "migrations",
+        "unit",
+        "integration"
+      ]
+    }
+  ],
+  "approval_executions": []
+}

@@ -24,6 +24,8 @@ The command creates `lane-map.json` schema v2 plus:
 
 - `handoffs/architecture-design.md`;
 - `handoffs/architecture-contract.md`;
+- `verification-readiness.json`;
+- `handoffs/verification-readiness.md`;
 - one worker handoff per `--worker-lane`;
 - `handoffs/qa-behavior.md`;
 - `handoffs/review-contract.md`;
@@ -51,6 +53,7 @@ The scan covers Architecture Design Brief, Architecture Contract, worker handoff
 
 - Orchestrator chooses `architecture_context` and `architecture_capabilities`, creates the skeleton with `--architecture-gate`, and keeps lanes blocked until placeholders are gone.
 - Architect fills Architecture Design Brief and Architecture Contract before workers start.
+- QA fills the pre-worker Verification Readiness Gate artifact, including `verification_readiness`, `needs-approval`, `paused-blocked`, `approval_requests`, `approval_executions`, `resume_phrase`, and later `Verification Gate Results` coverage.
 - Workers fill their own `Architecture Compliance` handoff and update lane-map `architecture_compliance`.
 - QA fills `Architecture Invariants` from selected `risk_gates`, `verification_gates`, and contract QA gates.
 - Reviewer fills `Architecture Matrix Mismatches` and `Contract Drift` for every selected facet and capability.

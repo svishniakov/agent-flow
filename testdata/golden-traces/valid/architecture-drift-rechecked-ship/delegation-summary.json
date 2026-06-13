@@ -10,6 +10,11 @@
       "reason": "architecture-contract executed as role-lane."
     },
     {
+      "lane_id": "verification-readiness-1",
+      "role": "qa-verifier",
+      "reason": "verification-readiness-1 executed as role-lane."
+    },
+    {
       "lane_id": "worker-a",
       "role": "typescript-worker",
       "reason": "worker-a executed as role-lane."

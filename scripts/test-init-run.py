@@ -30,12 +30,15 @@ DEFAULT_ARCHITECTURE_CAPABILITIES = [
 AGENT_TODO_PLACEHOLDER = "TODO(agent):"
 EXPECTED_ARCHITECTURE_GATE_FILES = [
     "delegation-summary.json",
+    "verification-readiness.json",
     "handoffs/architecture-design.md",
     "handoffs/architecture-contract.md",
+    "handoffs/verification-readiness.md",
     "handoffs/worker-a.md",
     "handoffs/qa-behavior.md",
     "handoffs/review-contract.md",
     "checks/architecture-contract.md",
+    "checks/verification-readiness.md",
     "checks/worker-a.md",
     "checks/qa-behavior.md",
     "checks/review-contract.md",
@@ -229,6 +232,7 @@ def main() -> int:
         lane_ids = {lane.get("id") for lane in lane_map.get("lanes", []) if isinstance(lane, dict)}
         expected_lane_ids = {
             "architecture-contract",
+            "verification-readiness-1",
             "worker-a",
             "qa-behavior",
             "review-contract",

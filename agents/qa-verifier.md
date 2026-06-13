@@ -52,6 +52,8 @@ Delegation packet must include:
 - When Architecture Artifact Authoring Automation created a QA skeleton, fill the QA handoff and evidence yourself and remove every QA-owned `TODO(agent):` before readiness.
 - When Architecture Context Propagation applies, cover selected `risk_gates` and `verification_gates` explicitly in `Architecture Invariants`.
 - When Architecture Execution Control applies, run after worker lanes and any architect re-check; record `Architecture Invariants` with covered boundaries, public contracts, forbidden changes, and unverified areas.
+- When Verification Readiness Gate applies before workers, check selected `risk_gates` and `verification_gates`, write `verification-readiness.json`, set `verification_readiness` status, use `needs-approval` only for documented safe commands, record `approval_requests`, `approval_executions`, `paused-blocked`, and `resume_phrase=Готово` when needed, and do not let workers start until readiness is `ready`.
+- After workers, write `Verification Gate Results`; QA may pass only when required verification results passed, and blocked gate results must return QA `blocked`.
 - When Mitigation Gate applies, provide concrete evidence for each `identified` risk, make sure the final `Risk Mitigations` section can cite that evidence, and keep the risk pointed to `next_gate=resolution`; do not claim it is resolved in this gate.
 - When Resolution Gate applies, verify the action recorded in `risk-resolutions.json`: write `Risk Resolution Verification`, mention every risk id, check evidence paths, confirm `resolution_type`, make sure final `Risk Resolutions` and reviewer `Risk Resolution Review` can cover the same ids, and reject `pass-with-risks` if any record is `unresolved` instead of `fixed`, `mitigated`, or `contained`.
 - When Blocked Resolution Gate applies, ordinary QA records the exact blocked result, evidence, and blocked reason for Senior QA; Senior QA owns `Senior QA Test Design Review`, acceptance criteria expansion, edge cases, negative cases, and re-check design.
@@ -69,6 +71,7 @@ Return:
 - Architecture Invariants coverage when architecture contract is required
 - `architecture_context` `risk_gates` and `verification_gates` covered or left unverified
 - selected `architecture_capabilities` coverage or unverified capability constraints
+- Verification Readiness Gate evidence, including `verification-readiness.json`, `verification_readiness`, `needs-approval`, `paused-blocked`, `approval_requests`, `approval_executions`, `resume_phrase`, and `Verification Gate Results`
 - Mitigation Gate evidence for `risk-mitigations.json`, including `identified` risk ids, evidence paths, `Risk Mitigations`, and reviewer `Risk Mitigation Review` inputs
 - Resolution Gate evidence for `risk-resolutions.json`, including `Risk Resolution Verification`, risk ids, `resolution_type`, verification proof, and whether each status is `fixed`, `mitigated`, `contained`, or `unresolved`
 - Blocked Resolution Gate evidence inputs: blocked reason, risk id, evidence paths, and whether Senior QA `Senior QA Test Design Review` is required

@@ -52,6 +52,7 @@ Delegation packet must include:
 - When Architecture Context Propagation applies, cover every selected `architecture_context` facet and selected `architecture_capabilities` id across `Architecture Matrix Mismatches` and `Contract Drift`.
 - When Architecture Execution Control applies, review worker `Architecture Compliance`, QA `Architecture Invariants`, and any architect re-check; report `Architecture Matrix Mismatches` and `Contract Drift` explicitly, even when none are found.
 - When Architecture Artifact Authoring Automation created a reviewer skeleton, fill reviewer handoff and evidence yourself and remove every reviewer-owned `TODO(agent):` before readiness.
+- When Verification Readiness Gate applies, verify `verification_readiness`, `verification-readiness.json`, `approval_requests`, `approval_executions`, `needs-approval`, `paused-blocked`, and `resume_phrase`; reject positive verdicts when workers ran before readiness or QA lacks `Verification Gate Results`.
 - When Mitigation Gate applies, write `Risk Mitigation Review` and mention every `identified` risk id from `risk-mitigations.json`; confirm identification and evidence only, not resolution.
 - When Resolution Gate applies, write `Risk Resolution Review`, mention every risk id from `risk-resolutions.json`, check `resolution_type`, evidence, QA `Risk Resolution Verification`, and final `Risk Resolutions`; reject `pass-with-risks` if a risk remains `unresolved` instead of `fixed`, `mitigated`, or `contained`.
 - When Blocked Resolution Gate applies, review Blocked Recovery Path, blocked `attempts`, `blocked_lesson`, `rollback`, `forbidden_repeat`, Senior QA `Senior QA Test Design Review`, architect `Resolution Architect Review`, and `Supervising Architect Review` before accepting any retry or final blocked/fail verdict.
@@ -72,6 +73,7 @@ Return:
 - Architecture Matrix Mismatches and Contract Drift, even when none are found
 - full selected `architecture_context` coverage, mismatches, or unverified facets
 - full selected `architecture_capabilities` coverage, mismatches, or unverified capability constraints
+- Verification Readiness Gate coverage for `verification-readiness.json`, `verification_readiness`, `needs-approval`, `paused-blocked`, `approval_requests`, `approval_executions`, `resume_phrase`, and `Verification Gate Results`
 - Risk Mitigation Review coverage for `Risk Mitigations`, `identified` risks, and `next_gate`
 - Risk Resolution Review coverage for `Risk Resolutions`, `Risk Resolution Verification`, `resolution_type`, `fixed`, `mitigated`, `contained`, and any `unresolved` record
 - Blocked Resolution Gate coverage for blocked attempts, `blocked_lesson`, `rollback`, `forbidden_repeat`, `Senior QA Test Design Review`, `Resolution Architect Review`, and `Supervising Architect Review`

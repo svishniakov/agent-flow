@@ -1,0 +1,211 @@
+{
+  "schema_version": 2,
+  "lanes": [
+    {
+      "id": "architecture-contract",
+      "type": "architecture",
+      "role": "architect",
+      "wave": 1,
+      "critical": true,
+      "execution_mode": "role-lane",
+      "status": "pass",
+      "handoff": "handoffs/architecture-contract.md",
+      "evidence": [
+        "checks/architecture-contract.md"
+      ],
+      "replacement": null,
+      "architecture_design_brief": "handoffs/architecture-contract-design.md",
+      "create_architecture_design_brief": true,
+      "design_brief_decision_status": "approved"
+    },
+    {
+      "id": "verification-readiness-1",
+      "type": "qa",
+      "role": "qa-verifier",
+      "wave": 2,
+      "critical": true,
+      "execution_mode": "role-lane",
+      "status": "pass",
+      "handoff": "handoffs/verification-readiness.md",
+      "evidence": [
+        "checks/verification-readiness.md"
+      ],
+      "replacement": null
+    },
+    {
+      "id": "worker-a",
+      "type": "implementation",
+      "role": "typescript-worker",
+      "wave": 2,
+      "critical": true,
+      "execution_mode": "role-lane",
+      "status": "pass",
+      "handoff": "handoffs/worker-a.md",
+      "evidence": [
+        "checks/worker-a.md"
+      ],
+      "replacement": null,
+      "handoff_sections": [
+        "Architecture Compliance"
+      ],
+      "handoff_section_bodies": {
+        "Architecture Compliance": "Matrix facets:\n- `backend-service`\n- `monolith`"
+      },
+      "architecture_compliance": {
+        "status": "compliant",
+        "contract_sections": [
+          "Module Boundaries"
+        ],
+        "matrix_facets": [
+          "backend-service",
+          "monolith"
+        ],
+        "notes": "Fixture architecture compliance.",
+        "recheck_lane": null
+      }
+    },
+    {
+      "id": "worker-b",
+      "type": "integration",
+      "role": "integration-worker",
+      "wave": 3,
+      "critical": true,
+      "execution_mode": "role-lane",
+      "status": "pass",
+      "handoff": "handoffs/worker-b.md",
+      "evidence": [
+        "checks/worker-b.md"
+      ],
+      "replacement": null,
+      "handoff_sections": [
+        "Architecture Compliance"
+      ],
+      "handoff_section_bodies": {
+        "Architecture Compliance": "Matrix facets:\n- `backend-service`\n- `monolith`"
+      },
+      "architecture_compliance": {
+        "status": "compliant",
+        "contract_sections": [
+          "Module Boundaries"
+        ],
+        "matrix_facets": [
+          "backend-service",
+          "monolith"
+        ],
+        "notes": "Fixture architecture compliance.",
+        "recheck_lane": null
+      }
+    },
+    {
+      "id": "qa-behavior",
+      "type": "qa",
+      "role": "qa-verifier",
+      "wave": 4,
+      "critical": true,
+      "execution_mode": "role-lane",
+      "status": "pass",
+      "handoff": "handoffs/qa-behavior.md",
+      "evidence": [
+        "checks/qa-behavior.md"
+      ],
+      "replacement": null,
+      "handoff_sections": [
+        "Architecture Invariants"
+      ],
+      "handoff_section_bodies": {
+        "Architecture Invariants": "Covered gates:\n- `migrations`\n- `unit`\n- `integration`"
+      },
+      "verification_results": {
+        "status": "pass",
+        "gates": [
+          {
+            "axis": "risk_gates",
+            "facet": "migrations",
+            "status": "pass",
+            "evidence": [
+              "checks/qa-behavior.md"
+            ],
+            "notes": "migrations passed in golden QA."
+          },
+          {
+            "axis": "verification_gates",
+            "facet": "unit",
+            "status": "pass",
+            "evidence": [
+              "checks/qa-behavior.md"
+            ],
+            "notes": "unit passed in golden QA."
+          },
+          {
+            "axis": "verification_gates",
+            "facet": "integration",
+            "status": "pass",
+            "evidence": [
+              "checks/qa-behavior.md"
+            ],
+            "notes": "integration passed in golden QA."
+          }
+        ]
+      }
+    },
+    {
+      "id": "review-contract",
+      "type": "review",
+      "role": "reviewer",
+      "wave": 5,
+      "critical": true,
+      "execution_mode": "role-lane",
+      "status": "pass",
+      "handoff": "handoffs/review-contract.md",
+      "evidence": [
+        "checks/review-contract.md"
+      ],
+      "replacement": null,
+      "handoff_sections": [
+        "Architecture Matrix Mismatches",
+        "Contract Drift"
+      ],
+      "handoff_section_bodies": {
+        "Architecture Matrix Mismatches": "Checked facets:\n- `saas-service`\n- `backend-service`\n- `monolith`\n- `go`\n- `migrations`\n- `unit`\n- `integration`\n\nChecked capabilities:\n- `saas-platform-architecture`\n- `go-backend-service-architecture`\n- `modular-monolith-architecture`",
+        "Contract Drift": "No contract drift for selected Architecture Matrix facets and architecture capabilities."
+      }
+    }
+  ],
+  "budget": "standard",
+  "architecture_contract_required": true,
+  "architecture_context": {
+    "product_context": [
+      "saas-service"
+    ],
+    "application_surface": [
+      "backend-service"
+    ],
+    "architecture_pattern": [
+      "monolith"
+    ],
+    "stack_runtime": [
+      "go"
+    ],
+    "risk_gates": [
+      "migrations"
+    ],
+    "verification_gates": [
+      "unit",
+      "integration"
+    ]
+  },
+  "architecture_capabilities": {
+    "selected": [
+      "saas-platform-architecture",
+      "go-backend-service-architecture",
+      "modular-monolith-architecture"
+    ],
+    "notes": "Selected capabilities cover the fixture architecture context."
+  },
+  "verification_readiness": {
+    "artifact": "verification-readiness.json",
+    "lanes": [
+      "verification-readiness-1"
+    ]
+  }
+}

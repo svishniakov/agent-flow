@@ -117,6 +117,15 @@ RISK_RESOLUTIONS_PATH = "risk-resolutions.json"
 RISK_RESOLUTIONS_SECTION = "Risk Resolutions"
 RISK_RESOLUTION_VERIFICATION_SECTION = "Risk Resolution Verification"
 RISK_RESOLUTION_REVIEW_SECTION = "Risk Resolution Review"
+VERIFICATION_READINESS_PATH = "verification-readiness.json"
+VERIFICATION_READINESS_SECTION = "Verification Readiness"
+VERIFICATION_GATE_RESULTS_SECTION = "Verification Gate Results"
+VERIFICATION_READINESS_STATUSES = {"ready", "needs-approval", "paused-blocked", "blocked"}
+VERIFICATION_READINESS_ATTEMPT_STATUSES = {"ready", "needs-approval", "blocked"}
+VERIFICATION_GATE_READINESS_STATUSES = {"ready", "needs-approval", "blocked"}
+VERIFICATION_APPROVAL_STATUSES = {"pending", "approved", "declined"}
+VERIFICATION_APPROVAL_EXECUTION_STATUSES = {"succeeded", "failed", "not-run"}
+VERIFICATION_RESULT_STATUSES = {"pass", "blocked"}
 SENIOR_QA_TEST_DESIGN_REVIEW_SECTION = "Senior QA Test Design Review"
 RESOLUTION_ARCHITECT_REVIEW_SECTION = "Resolution Architect Review"
 SUPERVISING_ARCHITECT_REVIEW_SECTION = "Supervising Architect Review"
@@ -2001,6 +2010,373 @@ def validate_architecture_context_shape(
     return selected_by_axis, selected_facets, errors
 
 
+def selected_verification_gate_pairs(
+    architecture_context_by_axis: dict[str, list[str]],
+) -> list[tuple[str, str]]:
+    pairs: list[tuple[str, str]] = []
+    for axis in ["risk_gates", "verification_gates"]:
+        pairs.extend((axis, facet) for facet in architecture_context_by_axis.get(axis, []))
+    return pairs
+
+
+def validate_string(value: object, label: str, errors: list[str]) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        errors.append(f"{label} must be a non-empty string")
+        return None
+    return value
+
+
+def validate_existing_path_list(
+    run_dir: Path,
+    value: object,
+    label: str,
+    errors: list[str],
+) -> list[str]:
+    if not isinstance(value, list) or not value:
+        errors.append(f"{label} must be a non-empty array")
+        return []
+    paths: list[str] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, str) or not item:
+            errors.append(f"{label}[{index}] must be a non-empty string")
+            continue
+        paths.append(item)
+        if not resolve_run_path(run_dir, item).exists():
+            errors.append(f"{label}[{index}] not found: {item}")
+    return paths
+
+
+def validate_verification_gate_records(
+    run_dir: Path,
+    gates: object,
+    label: str,
+    selected_pairs: list[tuple[str, str]],
+    *,
+    status_field: str,
+    allowed_statuses: set[str],
+) -> tuple[set[tuple[str, str]], list[str]]:
+    errors: list[str] = []
+    seen: set[tuple[str, str]] = set()
+    selected_set = set(selected_pairs)
+    if not isinstance(gates, list):
+        return seen, [f"{label}.gates must be a non-empty array"]
+    if not gates:
+        if selected_pairs:
+            return seen, [f"{label}.gates must be a non-empty array"]
+        return seen, []
+
+    for index, gate in enumerate(gates):
+        gate_label = f"{label}.gates[{index}]"
+        if not isinstance(gate, dict):
+            errors.append(f"{gate_label} must be an object")
+            continue
+        axis = gate.get("axis")
+        facet = gate.get("facet")
+        if axis not in {"risk_gates", "verification_gates"}:
+            errors.append(f"{gate_label}.axis must be risk_gates or verification_gates")
+            continue
+        if not isinstance(facet, str) or not facet:
+            errors.append(f"{gate_label}.facet must be a non-empty string")
+            continue
+        pair = (axis, facet)
+        if pair in seen:
+            errors.append(f"{label} duplicate gate facet: {facet}")
+        seen.add(pair)
+        if pair not in selected_set:
+            errors.append(f"{label} unknown selected gate facet: {facet}")
+        status = gate.get(status_field)
+        if status not in allowed_statuses:
+            allowed = ", ".join(sorted(allowed_statuses))
+            errors.append(f"{gate_label}.{status_field} invalid (expected one of: {allowed})")
+        validate_string(gate.get("notes"), f"{gate_label}.notes", errors)
+        if status_field == "readiness":
+            validate_string(gate.get("check"), f"{gate_label}.check", errors)
+        validate_existing_path_list(run_dir, gate.get("evidence"), f"{gate_label}.evidence", errors)
+
+    for axis, facet in selected_pairs:
+        if (axis, facet) not in seen:
+            errors.append(f"{label} missing selected gate facet: {facet}")
+    return seen, errors
+
+
+def validate_verification_readiness(
+    run_dir: Path,
+    lane_map: dict,
+    *,
+    required: bool,
+    architecture_context_by_axis: dict[str, list[str]],
+    lane_by_id: dict[str, dict],
+    normalized_status_by_id: dict[str, str],
+    final_verdict: str | None,
+) -> tuple[dict | None, list[str]]:
+    errors: list[str] = []
+    selected_pairs = selected_verification_gate_pairs(architecture_context_by_axis)
+    raw_config = lane_map.get("verification_readiness")
+    if raw_config is None:
+        if required:
+            errors.append("lane-map.json field 'verification_readiness' is required")
+        return None, errors
+    if not isinstance(raw_config, dict):
+        return None, ["lane-map.json field 'verification_readiness' must be an object"]
+
+    artifact = raw_config.get("artifact")
+    if not isinstance(artifact, str) or not artifact:
+        errors.append("lane-map.json verification_readiness.artifact must be a non-empty string")
+        return None, errors
+    artifact_path = resolve_run_path(run_dir, artifact)
+    if not artifact_path.exists():
+        errors.append(f"{artifact} not found")
+        return None, errors
+
+    lane_ids = raw_config.get("lanes")
+    if not isinstance(lane_ids, list) or not lane_ids:
+        errors.append("lane-map.json verification_readiness.lanes must be a non-empty array")
+        lane_ids = []
+    readiness_lane_ids: list[str] = []
+    for index, lane_id in enumerate(lane_ids):
+        if not isinstance(lane_id, str) or not lane_id:
+            errors.append(f"lane-map.json verification_readiness.lanes[{index}] must be a non-empty string")
+            continue
+        readiness_lane_ids.append(lane_id)
+        lane = lane_by_id.get(lane_id)
+        if lane is None:
+            errors.append(f"lane-map.json verification_readiness lane not found: {lane_id}")
+            continue
+        if lane.get("type") != "qa":
+            errors.append(f"lane-map.json verification_readiness lane must be type=qa: {lane_id}")
+        if lane.get("role") != "qa-verifier":
+            errors.append(f"lane-map.json verification_readiness lane must use role=qa-verifier: {lane_id}")
+        if lane.get("critical") is not True:
+            errors.append(f"lane-map.json verification_readiness lane must be critical: {lane_id}")
+        if normalized_status_by_id.get(lane_id) in SUCCESSFUL_LANE_STATUSES:
+            handoff = lane.get("handoff")
+            if isinstance(handoff, str) and handoff:
+                handoff_path = resolve_run_path(run_dir, handoff)
+                for section in missing_markdown_headings(
+                    handoff_path,
+                    [VERIFICATION_GATE_RESULTS_SECTION],
+                ):
+                    errors.append(f"lane-map.json: lane {lane_id} handoff missing section: {section}")
+
+    data, json_errors = load_json(artifact_path, artifact)
+    errors.extend(json_errors)
+    if not isinstance(data, dict):
+        errors.append(f"{artifact} must be a JSON object")
+        return None, errors
+    if data.get("version") != 1:
+        errors.append(f"{artifact} version must be 1")
+    status = data.get("status")
+    if status not in VERIFICATION_READINESS_STATUSES:
+        errors.append(f"{artifact} status invalid")
+
+    attempts = data.get("attempts")
+    if not isinstance(attempts, list) or not attempts:
+        errors.append(f"{artifact} attempts must be a non-empty array")
+        attempts = []
+    approval_requests = data.get("approval_requests")
+    if not isinstance(approval_requests, list):
+        errors.append(f"{artifact} approval_requests must be an array")
+        approval_requests = []
+    approval_executions = data.get("approval_executions")
+    if not isinstance(approval_executions, list):
+        errors.append(f"{artifact} approval_executions must be an array")
+        approval_executions = []
+
+    request_by_id: dict[str, dict] = {}
+    for index, request in enumerate(approval_requests):
+        label = f"{artifact} approval_requests[{index}]"
+        if not isinstance(request, dict):
+            errors.append(f"{label} must be an object")
+            continue
+        request_id = validate_string(request.get("id"), f"{label}.id", errors)
+        if request_id:
+            if not KEBAB_CASE_PATTERN.fullmatch(request_id):
+                errors.append(f"{label}.id must be kebab-case")
+            if request_id in request_by_id:
+                errors.append(f"{artifact} duplicate approval request id: {request_id}")
+            request_by_id[request_id] = request
+        request_status = request.get("status")
+        if request_status not in VERIFICATION_APPROVAL_STATUSES:
+            errors.append(f"{label}.status invalid")
+        validate_string(request.get("reason"), f"{label}.reason", errors)
+        validate_string(request.get("manual_instruction"), f"{label}.manual_instruction", errors)
+        if request.get("resume_phrase") != "Готово":
+            errors.append(f"{label}.resume_phrase must be Готово")
+        affected_gates = request.get("affected_gates")
+        if not isinstance(affected_gates, list) or not affected_gates:
+            errors.append(f"{label}.affected_gates must be a non-empty array")
+        elif selected_pairs:
+            selected_facets = {facet for _axis, facet in selected_pairs}
+            for gate_index, facet in enumerate(affected_gates):
+                if not isinstance(facet, str) or not facet:
+                    errors.append(f"{label}.affected_gates[{gate_index}] must be a non-empty string")
+                elif facet not in selected_facets:
+                    errors.append(f"{label}.affected_gates[{gate_index}] unknown selected gate facet: {facet}")
+        commands = request.get("commands")
+        if not isinstance(commands, list) or not commands:
+            errors.append(f"{label}.commands must be a non-empty array")
+        else:
+            for command_index, command in enumerate(commands):
+                command_label = f"{label}.commands[{command_index}]"
+                if not isinstance(command, dict):
+                    errors.append(f"{command_label} must be an object")
+                    continue
+                validate_string(command.get("cwd"), f"{command_label}.cwd", errors)
+                validate_string(command.get("command"), f"{command_label}.command", errors)
+                validate_string(command.get("source"), f"{command_label}.source", errors)
+                if command.get("requires_user_approval") is not True:
+                    errors.append(f"{command_label}.requires_user_approval must be true")
+
+    successful_execution_request_ids: set[str] = set()
+    for index, execution in enumerate(approval_executions):
+        label = f"{artifact} approval_executions[{index}]"
+        if not isinstance(execution, dict):
+            errors.append(f"{label} must be an object")
+            continue
+        request_id = validate_string(execution.get("request_id"), f"{label}.request_id", errors)
+        if request_id and request_id not in request_by_id:
+            errors.append(f"{label}.request_id unknown approval request: {request_id}")
+        execution_status = execution.get("status")
+        if execution_status not in VERIFICATION_APPROVAL_EXECUTION_STATUSES:
+            errors.append(f"{label}.status invalid")
+        evidence = validate_existing_path_list(run_dir, execution.get("evidence"), f"{label}.evidence", errors)
+        if request_id and execution_status == "succeeded" and evidence:
+            successful_execution_request_ids.add(request_id)
+
+    latest_attempt_status: str | None = None
+    ready_lane_ids: list[str] = []
+    blocked_ids: set[str] = set()
+    for index, attempt in enumerate(attempts):
+        label = f"{artifact} attempts[{index}]"
+        if not isinstance(attempt, dict):
+            errors.append(f"{label} must be an object")
+            continue
+        validate_string(attempt.get("id"), f"{label}.id", errors)
+        lane_id = validate_string(attempt.get("lane"), f"{label}.lane", errors)
+        if lane_id and lane_id not in readiness_lane_ids:
+            errors.append(f"{label}.lane must be listed in lane-map verification_readiness.lanes: {lane_id}")
+        attempt_status = attempt.get("status")
+        if attempt_status not in VERIFICATION_READINESS_ATTEMPT_STATUSES:
+            errors.append(f"{label}.status invalid")
+        else:
+            latest_attempt_status = attempt_status
+            if attempt_status == "ready" and lane_id:
+                ready_lane_ids.append(lane_id)
+        _seen, gate_errors = validate_verification_gate_records(
+            run_dir,
+            attempt.get("gates"),
+            label,
+            selected_pairs,
+            status_field="readiness",
+            allowed_statuses=VERIFICATION_GATE_READINESS_STATUSES,
+        )
+        errors.extend(gate_errors)
+        blockers = attempt.get("blockers")
+        if not isinstance(blockers, list):
+            errors.append(f"{label}.blockers must be an array")
+            blockers = []
+        else:
+            for blocker in blockers:
+                if isinstance(blocker, str) and blocker:
+                    blocked_ids.add(blocker)
+        request_ids = attempt.get("approval_requests")
+        if not isinstance(request_ids, list):
+            errors.append(f"{label}.approval_requests must be an array")
+            request_ids = []
+        for request_id in request_ids:
+            if not isinstance(request_id, str) or not request_id:
+                errors.append(f"{label}.approval_requests must contain non-empty strings")
+            elif request_id not in request_by_id:
+                errors.append(f"{label}.approval_requests unknown approval request: {request_id}")
+        if attempt_status == "ready":
+            if blockers:
+                errors.append(f"{label}.blockers must be empty when status=ready")
+            if request_ids:
+                errors.append(f"{label}.approval_requests must be empty when status=ready")
+            for gate in attempt.get("gates", []) if isinstance(attempt.get("gates"), list) else []:
+                if isinstance(gate, dict) and gate.get("readiness") != "ready":
+                    errors.append(f"{label}.gates must all be ready when status=ready")
+                    break
+        elif attempt_status == "needs-approval":
+            if not blockers:
+                errors.append(f"{label}.blockers must be non-empty when status=needs-approval")
+            if not request_ids:
+                errors.append(f"{label}.approval_requests must be non-empty when status=needs-approval")
+        elif attempt_status == "blocked" and not blockers:
+            errors.append(f"{label}.blockers must be non-empty when status=blocked")
+
+    for request_id, request in request_by_id.items():
+        if request.get("status") == "approved" and request_id not in successful_execution_request_ids:
+            errors.append(f"{artifact} approval request {request_id} approved without execution evidence")
+
+    if status == "ready":
+        if latest_attempt_status != "ready" or not ready_lane_ids:
+            errors.append(f"{artifact} status ready requires a latest ready attempt")
+        if any(request.get("status") == "pending" for request in request_by_id.values()):
+            errors.append(f"{artifact} status ready cannot have pending approval requests")
+    elif status == "needs-approval":
+        if not any(request.get("status") == "pending" for request in request_by_id.values()):
+            errors.append(f"{artifact} status needs-approval requires a pending approval request")
+    elif status == "paused-blocked":
+        if final_verdict != "blocked":
+            errors.append(f"{artifact} status paused-blocked requires final Verdict: blocked")
+        if not any(request.get("status") == "declined" for request in request_by_id.values()):
+            errors.append(f"{artifact} status paused-blocked requires a declined approval request")
+        final_path = run_dir / "final.md"
+        if final_path.exists():
+            missing = missing_markdown_headings(final_path, [VERIFICATION_READINESS_SECTION])
+            for section in missing:
+                errors.append(f"final.md missing section: {section}")
+            final_text = markdown_section_text(final_path.read_text(encoding="utf-8"), VERIFICATION_READINESS_SECTION)
+            if "Готово" not in final_text:
+                errors.append("final.md Verification Readiness missing resume phrase: Готово")
+            for blocker_id in blocked_ids:
+                if blocker_id and not contains_facet_id(final_text, blocker_id):
+                    errors.append(f"final.md Verification Readiness missing blocker id: {blocker_id}")
+    elif status == "blocked":
+        if final_verdict not in {"blocked", "fail"}:
+            errors.append(f"{artifact} status blocked requires final Verdict: blocked or fail")
+
+    return data, errors
+
+
+def validate_qa_verification_results_shape(
+    run_dir: Path,
+    lane: dict,
+    label: str,
+    *,
+    selected_pairs: list[tuple[str, str]],
+) -> tuple[dict | None, list[str]]:
+    results = lane.get("verification_results")
+    if not isinstance(results, dict):
+        return None, [f"lane-map.json: lane {label} missing verification_results"]
+    errors: list[str] = []
+    status = results.get("status")
+    if status not in VERIFICATION_RESULT_STATUSES:
+        errors.append(f"lane-map.json: lane {label} verification_results.status invalid")
+    _seen, gate_errors = validate_verification_gate_records(
+        run_dir,
+        results.get("gates"),
+        f"lane-map.json: lane {label} verification_results",
+        selected_pairs,
+        status_field="status",
+        allowed_statuses=VERIFICATION_RESULT_STATUSES,
+    )
+    errors.extend(gate_errors)
+    if status == "pass":
+        for gate in results.get("gates", []) if isinstance(results.get("gates"), list) else []:
+            if isinstance(gate, dict) and gate.get("status") != "pass":
+                errors.append(f"lane-map.json: lane {label} verification_results pass requires all gates pass")
+                break
+    elif status == "blocked":
+        if not any(
+            isinstance(gate, dict) and gate.get("status") == "blocked"
+            for gate in (results.get("gates", []) if isinstance(results.get("gates"), list) else [])
+        ):
+            errors.append(f"lane-map.json: lane {label} verification_results blocked requires a blocked gate")
+    return results, errors
+
+
 def validate_selected_architecture_facets(path: Path, selected_facets: list[str]) -> list[str]:
     if not path.exists() or not selected_facets:
         return []
@@ -2301,6 +2677,17 @@ def validate_lane_map(
         errors.append("lane-map.json field 'lanes' must be an array")
         return errors
 
+    verification_readiness_lane_ids: set[str] = set()
+    raw_verification_readiness = data.get("verification_readiness")
+    if isinstance(raw_verification_readiness, dict):
+        raw_readiness_lanes = raw_verification_readiness.get("lanes")
+        if isinstance(raw_readiness_lanes, list):
+            verification_readiness_lane_ids = {
+                lane_id
+                for lane_id in raw_readiness_lanes
+                if isinstance(lane_id, str) and lane_id
+            }
+
     lane_ids: set[str] = set()
     lane_by_id: dict[str, dict] = {}
     normalized_status_by_id: dict[str, str] = {}
@@ -2469,7 +2856,11 @@ def validate_lane_map(
             successful_reviewer_lane_ids.append(lane_id)
             if isinstance(wave, int) and not isinstance(wave, bool):
                 successful_reviewer_lanes.append((lane_id, wave, handoff))
-        elif lane_type == "qa" and status in SUCCESSFUL_LANE_STATUSES:
+        elif (
+            lane_type == "qa"
+            and status in SUCCESSFUL_LANE_STATUSES
+            and lane_id not in verification_readiness_lane_ids
+        ):
             if isinstance(wave, int) and not isinstance(wave, bool):
                 successful_qa_lanes.append((lane_id, wave, handoff))
         elif lane_type in WORKER_LANE_TYPES and status in SUCCESSFUL_LANE_STATUSES:
@@ -2565,6 +2956,40 @@ def validate_lane_map(
         if budget == "release" and architecture_contract_required is not True:
             errors.append("lane-map.json: release budget requires architecture_contract_required=true")
 
+    verification_readiness_data: dict | None = None
+    verification_readiness_required = (
+        schema_version == 2
+        and architecture_contract_required
+        and worker_lane_count > 0
+    )
+    verification_readiness_data, readiness_errors = validate_verification_readiness(
+        run_dir,
+        data,
+        required=verification_readiness_required,
+        architecture_context_by_axis=architecture_context_by_axis,
+        lane_by_id=lane_by_id,
+        normalized_status_by_id=normalized_status_by_id,
+        final_verdict=final_verdict,
+    )
+    errors.extend(readiness_errors)
+
+    ready_readiness_waves: list[int] = []
+    if isinstance(verification_readiness_data, dict):
+        ready_attempt_lanes = [
+            attempt.get("lane")
+            for attempt in verification_readiness_data.get("attempts", [])
+            if isinstance(attempt, dict) and attempt.get("status") == "ready"
+        ]
+        for readiness_lane_id in ready_attempt_lanes:
+            if not isinstance(readiness_lane_id, str):
+                continue
+            readiness_lane = lane_by_id.get(readiness_lane_id)
+            if not readiness_lane:
+                continue
+            readiness_wave = readiness_lane.get("wave")
+            if isinstance(readiness_wave, int) and not isinstance(readiness_wave, bool):
+                ready_readiness_waves.append(readiness_wave)
+
     if architecture_contract_required:
         if final_verdict in POSITIVE_FINAL_VERDICTS:
             errors.extend(validate_no_agent_placeholders(run_dir, lanes))
@@ -2625,6 +3050,28 @@ def validate_lane_map(
                         break
 
         if successful_worker_lanes:
+            readiness_status = (
+                verification_readiness_data.get("status")
+                if isinstance(verification_readiness_data, dict)
+                else None
+            )
+            if (
+                (verification_readiness_required or verification_readiness_data is not None)
+                and readiness_status != "ready"
+            ):
+                errors.append("lane-map.json: worker lanes require ready Verification Readiness Gate")
+            if ready_readiness_waves:
+                latest_ready_readiness_wave = max(ready_readiness_waves)
+                for lane_id, wave, _handoff in successful_worker_lanes:
+                    if wave <= latest_ready_readiness_wave:
+                        errors.append(
+                            f"lane-map.json: worker lane {lane_id} must run after "
+                            "ready Verification Readiness Gate"
+                        )
+                        break
+            elif verification_readiness_required:
+                errors.append("lane-map.json: worker lanes require ready Verification Readiness Gate")
+
             for lane_id, wave, _handoff in successful_worker_lanes:
                 if not any(design_wave < wave for design_wave in approved_architecture_design_waves):
                     errors.append(
@@ -2653,6 +3100,45 @@ def validate_lane_map(
                             "Architecture Invariants missing "
                             f"Architecture Matrix facet: {facet}"
                         )
+
+            selected_gate_pairs = selected_verification_gate_pairs(architecture_context_by_axis)
+            for lane_id, lane in lane_by_id.items():
+                if lane.get("type") != "qa" or lane_id in verification_readiness_lane_ids:
+                    continue
+                lane_status = normalized_status_by_id.get(lane_id)
+                should_validate_results = (
+                    "verification_results" in lane
+                    or lane_status in SUCCESSFUL_LANE_STATUSES
+                )
+                if not should_validate_results:
+                    continue
+                results, result_errors = validate_qa_verification_results_shape(
+                    run_dir,
+                    lane,
+                    lane_id,
+                    selected_pairs=selected_gate_pairs,
+                )
+                errors.extend(result_errors)
+                handoff = lane.get("handoff")
+                if not isinstance(handoff, str) or not handoff:
+                    errors.append(
+                        f"lane-map.json: lane {lane_id} requires handoff for "
+                        "Verification Gate Results"
+                    )
+                else:
+                    handoff_path = resolve_run_path(run_dir, handoff)
+                    for section in missing_markdown_headings(
+                        handoff_path,
+                        [VERIFICATION_GATE_RESULTS_SECTION],
+                    ):
+                        errors.append(f"lane-map.json: lane {lane_id} handoff missing section: {section}")
+                if lane_status in SUCCESSFUL_LANE_STATUSES and (
+                    not results or results.get("status") != "pass"
+                ):
+                    errors.append(
+                        f"lane-map.json: lane {lane_id} pass requires "
+                        "verification_results.status=pass"
+                    )
 
             for lane_id, _wave, handoff in successful_reviewer_lanes:
                 if isinstance(handoff, str) and handoff:
@@ -2700,6 +3186,21 @@ def validate_lane_map(
                     if wave <= qa_wave:
                         errors.append("lane-map.json: reviewer lane must run after qa lane")
                         break
+
+        if final_verdict in POSITIVE_FINAL_VERDICTS:
+            readiness_status = (
+                verification_readiness_data.get("status")
+                if isinstance(verification_readiness_data, dict)
+                else None
+            )
+            if (
+                (verification_readiness_required or verification_readiness_data is not None)
+                and readiness_status != "ready"
+            ):
+                errors.append(
+                    "lane-map.json: positive final Verdict requires ready "
+                    "Verification Readiness Gate"
+                )
 
         if final_verdict == "ship" and successful_worker_lanes:
             if not successful_qa_lanes:

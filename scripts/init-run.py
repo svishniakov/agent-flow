@@ -43,6 +43,7 @@ LANE_MAP = {
 AGENT_TODO_PLACEHOLDER = "TODO(agent):"
 TRACE_BUDGETS = {"standard", "release"}
 WORKER_LANE_TYPES = {"implementation", "integration"}
+VERIFICATION_READINESS_PATH = "verification-readiness.json"
 COVERAGE_MATRIX = """# Coverage Matrix
 
 Use this file as the human-readable coverage summary for Lane Sharding runs.
@@ -84,6 +85,13 @@ def selected_context_facets(context: dict[str, list[str]]) -> list[str]:
     for axis in ARCHITECTURE_CONTEXT_AXES:
         facets.extend(context.get(axis, []))
     return facets
+
+
+def selected_verification_gate_facets(context: dict[str, list[str]]) -> list[str]:
+    return [
+        *context.get("risk_gates", []),
+        *context.get("verification_gates", []),
+    ]
 
 
 def parse_architecture_context(parser: argparse.ArgumentParser, raw_value: str | None) -> dict[str, list[str]]:
@@ -340,7 +348,78 @@ Selected risk and verification gates:
 {markdown_id_list(gates)}
 
 {AGENT_TODO_PLACEHOLDER} Verify behavior plus architecture invariants for the selected gates.
+
+## Verification Gate Results
+
+Selected risk and verification gates:
+{markdown_id_list(gates)}
+
+{AGENT_TODO_PLACEHOLDER} Record pass or blocked status for every selected gate after workers run.
 """
+
+
+def verification_readiness_handoff_template(context: dict[str, list[str]]) -> str:
+    gates = selected_verification_gate_facets(context)
+    return f"""# Verification Readiness Handoff
+
+## Verification Gate Results
+
+Selected risk and verification gates:
+{markdown_id_list(gates)}
+
+{AGENT_TODO_PLACEHOLDER} Probe required env, local runtime, service availability, browser/device readiness, and documented safe commands before workers start.
+"""
+
+
+def verification_readiness_template(context: dict[str, list[str]]) -> str:
+    gates = [
+        {
+            "axis": "risk_gates" if facet in context.get("risk_gates", []) else "verification_gates",
+            "facet": facet,
+            "readiness": "needs-approval",
+            "check": "TODO(agent): name the concrete readiness probe or command.",
+            "evidence": ["checks/verification-readiness.md"],
+            "notes": "TODO(agent): record readiness result before workers start.",
+        }
+        for facet in selected_verification_gate_facets(context)
+    ]
+    return json.dumps(
+        {
+            "version": 1,
+            "status": "needs-approval",
+            "attempts": [
+                {
+                    "id": "readiness-1",
+                    "lane": "verification-readiness-1",
+                    "status": "needs-approval",
+                    "gates": gates,
+                    "blockers": ["readiness-blocker"],
+                    "approval_requests": ["readiness-approval-request"],
+                }
+            ],
+            "approval_requests": [
+                {
+                    "id": "readiness-approval-request",
+                    "status": "pending",
+                    "reason": "TODO(agent): explain why documented command or manual setup is needed.",
+                    "commands": [
+                        {
+                            "cwd": "TODO(agent): repo-relative or absolute cwd from docs.",
+                            "command": "TODO(agent): documented safe command only.",
+                            "source": "TODO(agent): documentation source path.",
+                            "requires_user_approval": True,
+                        }
+                    ],
+                    "manual_instruction": "TODO(agent): tell the user what to run manually, then reply: Готово.",
+                    "resume_phrase": "Готово",
+                    "affected_gates": selected_verification_gate_facets(context),
+                }
+            ],
+            "approval_executions": [],
+        },
+        ensure_ascii=False,
+        indent=2,
+    ) + "\n"
 
 
 def reviewer_handoff_template(context: dict[str, list[str]], capabilities: list[str]) -> str:
@@ -397,12 +476,26 @@ def architecture_gate_lane_map(
             "architecture_design_brief": "handoffs/architecture-design.md",
         }
     ]
+    lanes.append(
+        {
+            "id": "verification-readiness-1",
+            "type": "qa",
+            "role": "qa-verifier",
+            "wave": 2,
+            "critical": True,
+            "execution_mode": "role-lane",
+            "status": "planned",
+            "handoff": "handoffs/verification-readiness.md",
+            "evidence": ["checks/verification-readiness.md"],
+            "replacement": None,
+        }
+    )
     lanes.extend(
         {
             "id": worker["id"],
             "type": worker["type"],
             "role": worker["role"],
-            "wave": 2,
+            "wave": 3,
             "critical": True,
             "execution_mode": "role-lane",
             "status": "planned",
@@ -418,7 +511,7 @@ def architecture_gate_lane_map(
                 "id": "qa-behavior",
                 "type": "qa",
                 "role": "qa-verifier",
-                "wave": 3,
+                "wave": 4,
                 "critical": True,
                 "execution_mode": "role-lane",
                 "status": "planned",
@@ -430,7 +523,7 @@ def architecture_gate_lane_map(
                 "id": "review-contract",
                 "type": "review",
                 "role": "reviewer",
-                "wave": 4,
+                "wave": 5,
                 "critical": True,
                 "execution_mode": "role-lane",
                 "status": "planned",
@@ -449,6 +542,10 @@ def architecture_gate_lane_map(
         "architecture_capabilities": {
             "selected": capabilities,
             "notes": "Generated from Architecture Matrix context; orchestrator must refine before implementation.",
+        },
+        "verification_readiness": {
+            "artifact": VERIFICATION_READINESS_PATH,
+            "lanes": ["verification-readiness-1"],
         },
         "lanes": lanes,
     }
@@ -476,6 +573,18 @@ def write_architecture_gate_artifacts(
     write_if_missing(
         run_dir / "checks" / "architecture-contract.md",
         check_template("Architecture Contract Evidence"),
+    )
+    write_if_missing(
+        run_dir / "handoffs" / "verification-readiness.md",
+        verification_readiness_handoff_template(context),
+    )
+    write_if_missing(
+        run_dir / "checks" / "verification-readiness.md",
+        check_template("Verification Readiness Evidence"),
+    )
+    write_if_missing(
+        run_dir / VERIFICATION_READINESS_PATH,
+        verification_readiness_template(context),
     )
     for worker in workers:
         write_if_missing(

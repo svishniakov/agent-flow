@@ -59,6 +59,9 @@ RISK_RESOLUTION_REVIEW_SECTION = "Risk Resolution Review"
 SENIOR_QA_TEST_DESIGN_REVIEW_SECTION = "Senior QA Test Design Review"
 RESOLUTION_ARCHITECT_REVIEW_SECTION = "Resolution Architect Review"
 SUPERVISING_ARCHITECT_REVIEW_SECTION = "Supervising Architect Review"
+VERIFICATION_GATE_RESULTS_SECTION = "Verification Gate Results"
+VERIFICATION_READINESS_PATH = "verification-readiness.json"
+VERIFICATION_READINESS_LANE_ID = "verification-readiness-1"
 ARCHITECTURE_CONTEXT_AXES = [
     "product_context",
     "application_surface",
@@ -150,6 +153,28 @@ def architecture_context_axis_facets(axis: str, context: dict[str, Any] | None =
 
 def facet_lines(facets: list[str]) -> str:
     return "\n".join(f"- `{facet}`" for facet in facets)
+
+
+def selected_verification_gate_facets(
+    context: dict[str, Any] | None = None,
+) -> list[tuple[str, str]]:
+    selected_context = context or DEFAULT_ARCHITECTURE_CONTEXT
+    gates: list[tuple[str, str]] = []
+    for axis in ["risk_gates", "verification_gates"]:
+        value = selected_context.get(axis, [])
+        if isinstance(value, list):
+            gates.extend((axis, facet) for facet in value if isinstance(facet, str))
+    return gates
+
+
+def verification_gate_result_lines(
+    context: dict[str, Any] | None = None,
+    status: str = "pass",
+) -> str:
+    gates = selected_verification_gate_facets(context)
+    if not gates:
+        return "Verification gates: none."
+    return "\n".join(f"- `{axis}` `{facet}` `{status}`" for axis, facet in gates)
 
 
 def architecture_capabilities(
@@ -250,6 +275,8 @@ def default_worker_handoff_bodies(
 def default_qa_handoff_bodies(
     context: dict[str, Any] | None = None,
     risk_resolution_ids: list[str] | None = None,
+    include_verification_results: bool = False,
+    verification_status: str = "pass",
 ) -> dict[str, str]:
     facets = [
         *architecture_context_axis_facets("risk_gates", context),
@@ -261,7 +288,117 @@ def default_qa_handoff_bodies(
         bodies[RISK_RESOLUTION_VERIFICATION_SECTION] = (
             "Verified risk resolutions:\n" + facet_lines(risk_resolution_ids)
         )
+    if include_verification_results:
+        bodies[VERIFICATION_GATE_RESULTS_SECTION] = verification_gate_result_lines(
+            context,
+            verification_status,
+        )
     return bodies
+
+
+def verification_readiness(
+    *,
+    status: str = "ready",
+    context: dict[str, Any] | None = None,
+    attempts: Any = DEFAULT,
+    approval_requests: Any = DEFAULT,
+    approval_executions: Any = DEFAULT,
+) -> dict[str, Any]:
+    gate_readiness = (
+        "ready"
+        if status == "ready"
+        else "needs-approval"
+        if status in {"needs-approval", "paused-blocked"}
+        else "blocked"
+    )
+    attempt_status = (
+        "ready"
+        if status == "ready"
+        else "needs-approval"
+        if status in {"needs-approval", "paused-blocked"}
+        else "blocked"
+    )
+    gates = [
+        {
+            "axis": axis,
+            "facet": facet,
+            "readiness": gate_readiness,
+            "check": f"check {facet}",
+            "evidence": ["checks/verification-readiness.md"],
+            "notes": f"{facet} readiness fixture.",
+        }
+        for axis, facet in selected_verification_gate_facets(context)
+    ]
+    if attempts is DEFAULT:
+        attempts = [
+            {
+                "id": "readiness-1",
+                "lane": VERIFICATION_READINESS_LANE_ID,
+                "status": attempt_status,
+                "gates": gates,
+                "blockers": [] if status == "ready" else ["verification-env-missing"],
+                "approval_requests": [] if status == "ready" else ["start-dev-stack"],
+            }
+        ]
+    if approval_requests is DEFAULT:
+        approval_requests = [] if status == "ready" else [
+            {
+                "id": "start-dev-stack",
+                "status": "pending",
+                "reason": "Fixture verification needs documented local runtime.",
+                "commands": [
+                    {
+                        "cwd": "/repo",
+                        "command": "documented safe command",
+                        "source": "README.md",
+                        "requires_user_approval": True,
+                    }
+                ],
+                "manual_instruction": "Start the documented stack, then reply: Готово.",
+                "resume_phrase": "Готово",
+                "affected_gates": [facet for _axis, facet in selected_verification_gate_facets(context)],
+            }
+        ]
+    if approval_executions is DEFAULT:
+        approval_executions = []
+    return {
+        "version": 1,
+        "status": status,
+        "attempts": attempts,
+        "approval_requests": approval_requests,
+        "approval_executions": approval_executions,
+    }
+
+
+def verification_readiness_section(blocker_ids: list[str] | None = None) -> str:
+    ids = blocker_ids or ["verification-env-missing"]
+    return (
+        "\n## Verification Readiness\n\n"
+        "Blocked readiness ids:\n"
+        f"{facet_lines(ids)}\n\n"
+        "Manual resume phrase: `Готово`.\n"
+    )
+
+
+def qa_verification_results(
+    *,
+    status: str = "pass",
+    context: dict[str, Any] | None = None,
+    gate_status: str = "pass",
+) -> dict[str, Any]:
+    return {
+        "status": status,
+        "gates": [
+            {
+                "axis": axis,
+                "facet": facet,
+                "status": gate_status,
+                "evidence": ["checks/qa-behavior.md"],
+                "notes": f"{facet} verification fixture.",
+            }
+            for axis, facet in selected_verification_gate_facets(context)
+        ],
+    }
 
 
 def default_reviewer_handoff_bodies(
@@ -550,18 +687,60 @@ def write_run(
     final_risk_ids: Any = DEFAULT,
     risk_resolutions_data: Any = DEFAULT,
     final_resolution_ids: Any = DEFAULT,
+    verification_readiness_data: Any = DEFAULT,
 ) -> Path:
     run_dir = root / "run"
     (run_dir / "handoffs").mkdir(parents=True)
     (run_dir / "checks").mkdir()
     (run_dir / "artifacts").mkdir()
     (run_dir / "checks" / "smoke.md").write_text("# Smoke\n\npass\n", encoding="utf-8")
+    (run_dir / "checks" / "verification-readiness.md").write_text(
+        "# Verification Readiness\n\npass\n",
+        encoding="utf-8",
+    )
 
     for name in REQUIRED_FILES:
         content = "# Fixture\n\n"
         if name == "manifest.md":
             content += f"Verdict: {verdict}\n"
         (run_dir / name).write_text(content, encoding="utf-8")
+
+    if lanes is not None:
+        lanes = list(lanes)
+        worker_lanes_present = any(
+            lane_data.get("type") in {"implementation", "integration"}
+            for lane_data in lanes
+        )
+        architecture_gate_requested = bool(
+            lane_map_extra
+            and lane_map_extra.get("architecture_contract_required") is True
+        )
+        if (
+            architecture_gate_requested
+            and worker_lanes_present
+            and verification_readiness_data is not OMIT
+        ):
+            if lane_map_extra is not None and "verification_readiness" not in lane_map_extra:
+                lane_map_extra = {
+                    **lane_map_extra,
+                    "verification_readiness": {
+                        "artifact": VERIFICATION_READINESS_PATH,
+                        "lanes": [VERIFICATION_READINESS_LANE_ID],
+                    },
+                }
+            if not any(lane_data.get("id") == VERIFICATION_READINESS_LANE_ID for lane_data in lanes):
+                lanes.insert(1, verification_readiness_lane())
+        if (
+            architecture_gate_requested
+            and worker_lanes_present
+            and verification_readiness_data is DEFAULT
+        ):
+            verification_readiness_data = verification_readiness(
+                context=lane_map_extra.get("architecture_context")
+                if isinstance(lane_map_extra, dict)
+                else None
+            )
+
     final_text = f"# Final\n\nVerdict: {verdict}\n"
     if lanes is not None and delegation_summary_data is DEFAULT:
         final_text += delegation_trace_section(delegation_summary(lanes))
@@ -627,6 +806,41 @@ def write_run(
         timeline_events.extend(events)
 
     if lanes is not None:
+        lanes = list(lanes)
+        worker_lanes_present = any(
+            lane_data.get("type") in {"implementation", "integration"}
+            for lane_data in lanes
+        )
+        architecture_gate_requested = bool(
+            lane_map_extra
+            and lane_map_extra.get("architecture_contract_required") is True
+        )
+        if (
+            architecture_gate_requested
+            and worker_lanes_present
+            and verification_readiness_data is not OMIT
+        ):
+            if lane_map_extra is not None and "verification_readiness" not in lane_map_extra:
+                lane_map_extra = {
+                    **lane_map_extra,
+                    "verification_readiness": {
+                        "artifact": VERIFICATION_READINESS_PATH,
+                        "lanes": [VERIFICATION_READINESS_LANE_ID],
+                    },
+                }
+            if not any(lane_data.get("id") == VERIFICATION_READINESS_LANE_ID for lane_data in lanes):
+                lanes.insert(1, verification_readiness_lane())
+        if (
+            architecture_gate_requested
+            and worker_lanes_present
+            and verification_readiness_data is DEFAULT
+        ):
+            verification_readiness_data = verification_readiness(
+                context=lane_map_extra.get("architecture_context")
+                if isinstance(lane_map_extra, dict)
+                else None
+            )
+
         if delegation_summary_data is DEFAULT:
             (run_dir / "delegation-summary.json").write_text(
                 json.dumps(delegation_summary(lanes), ensure_ascii=False, indent=2) + "\n",
@@ -735,6 +949,18 @@ def write_run(
             json.dumps(lane_map, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
+
+    if verification_readiness_data is not OMIT and verification_readiness_data is not DEFAULT:
+        if isinstance(verification_readiness_data, str):
+            (run_dir / VERIFICATION_READINESS_PATH).write_text(
+                verification_readiness_data,
+                encoding="utf-8",
+            )
+        else:
+            (run_dir / VERIFICATION_READINESS_PATH).write_text(
+                json.dumps(verification_readiness_data, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
 
     if route_extra:
         route_path = run_dir / "route.md"
@@ -1054,26 +1280,70 @@ def qa_lane(
     )
 
 
+def verification_readiness_lane(
+    lane_id: str = VERIFICATION_READINESS_LANE_ID,
+    *,
+    status: str = "pass",
+    wave: int = 1,
+    handoff_sections: list[str] | None = None,
+    handoff_section_bodies: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    return qa_lane(
+        lane_id,
+        status=status,
+        wave=wave,
+        handoff_sections=handoff_sections
+        if handoff_sections is not None
+        else [VERIFICATION_GATE_RESULTS_SECTION],
+        handoff_section_bodies=handoff_section_bodies
+        if handoff_section_bodies is not None
+        else {
+            VERIFICATION_GATE_RESULTS_SECTION: verification_gate_result_lines(),
+        },
+    )
+
+
 def qa_control_lane(
     *,
+    status: str = "pass",
     wave: int = 3,
     handoff_sections: list[str] | None = None,
     handoff_section_bodies: dict[str, str] | None = None,
     context: dict[str, Any] | None = None,
     risk_resolution_ids: list[str] | None = None,
+    verification_results_data: Any = DEFAULT,
 ) -> dict[str, Any]:
-    return qa_lane(
+    include_verification_results = verification_results_data is not OMIT
+    lane_data = qa_lane(
+        status=status,
         wave=wave,
         handoff_sections=handoff_sections
         if handoff_sections is not None
         else [
             ARCHITECTURE_INVARIANTS_SECTION,
+            *([VERIFICATION_GATE_RESULTS_SECTION] if include_verification_results else []),
             *([RISK_RESOLUTION_VERIFICATION_SECTION] if risk_resolution_ids else []),
         ],
         handoff_section_bodies=handoff_section_bodies
         if handoff_section_bodies is not None
-        else default_qa_handoff_bodies(context, risk_resolution_ids),
+        else default_qa_handoff_bodies(
+            context,
+            risk_resolution_ids,
+            include_verification_results=include_verification_results,
+            verification_status="blocked"
+            if isinstance(verification_results_data, dict)
+            and verification_results_data.get("status") == "blocked"
+            else "pass",
+        ),
     )
+    if status not in {"pass", "pass-with-risks"}:
+        lane_data["handoff"] = "handoffs/qa-behavior.md"
+        lane_data["evidence"] = ["checks/qa-behavior.md"]
+    if verification_results_data is DEFAULT:
+        lane_data["verification_results"] = qa_verification_results(context=context)
+    elif verification_results_data is not OMIT:
+        lane_data["verification_results"] = verification_results_data
+    return lane_data
 
 
 def reviewer_control_lane(
@@ -2793,6 +3063,395 @@ def main() -> int:
             write_run(
                 temp / "schema-v2-architecture",
                 lanes=[architecture_lane(), qa_lane()],
+                lane_map_extra=architecture_control_extra(),
+            ),
+        )
+
+        expect_fail(
+            "architecture worker run requires verification readiness",
+            write_run(
+                temp / "verification-readiness-missing",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+                verification_readiness_data=OMIT,
+            ),
+            "lane-map.json field 'verification_readiness' is required",
+        )
+
+        expect_fail(
+            "verification readiness artifact must exist",
+            write_run(
+                temp / "verification-readiness-missing-artifact",
+                lanes=[
+                    architecture_lane(),
+                    verification_readiness_lane(),
+                    worker_lane(),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra={
+                    **architecture_control_extra(),
+                    "verification_readiness": {
+                        "artifact": VERIFICATION_READINESS_PATH,
+                        "lanes": [VERIFICATION_READINESS_LANE_ID],
+                    },
+                },
+                verification_readiness_data=OMIT,
+            ),
+            "verification-readiness.json not found",
+        )
+
+        expect_fail(
+            "verification readiness invalid status fails",
+            write_run(
+                temp / "verification-readiness-invalid-status",
+                lanes=[
+                    architecture_lane(),
+                    verification_readiness_lane(),
+                    worker_lane(),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+                verification_readiness_data=verification_readiness(status="maybe"),
+            ),
+            "verification-readiness.json status invalid",
+        )
+
+        expect_fail(
+            "verification readiness missing selected risk gate fails",
+            write_run(
+                temp / "verification-readiness-missing-risk-gate",
+                lanes=[
+                    architecture_lane(),
+                    verification_readiness_lane(),
+                    worker_lane(),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+                verification_readiness_data=verification_readiness(
+                    attempts=[
+                        {
+                            "id": "readiness-1",
+                            "lane": VERIFICATION_READINESS_LANE_ID,
+                            "status": "ready",
+                            "gates": [
+                                {
+                                    "axis": "verification_gates",
+                                    "facet": "unit",
+                                    "readiness": "ready",
+                                    "check": "unit",
+                                    "evidence": ["checks/verification-readiness.md"],
+                                    "notes": "ready",
+                                },
+                                {
+                                    "axis": "verification_gates",
+                                    "facet": "integration",
+                                    "readiness": "ready",
+                                    "check": "integration",
+                                    "evidence": ["checks/verification-readiness.md"],
+                                    "notes": "ready",
+                                },
+                            ],
+                            "blockers": [],
+                            "approval_requests": [],
+                        }
+                    ]
+                ),
+            ),
+            "missing selected gate facet: migrations",
+        )
+
+        expect_fail(
+            "verification readiness unknown facet fails",
+            write_run(
+                temp / "verification-readiness-unknown-facet",
+                lanes=[
+                    architecture_lane(),
+                    verification_readiness_lane(),
+                    worker_lane(),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+                verification_readiness_data=verification_readiness(
+                    attempts=[
+                        {
+                            "id": "readiness-1",
+                            "lane": VERIFICATION_READINESS_LANE_ID,
+                            "status": "ready",
+                            "gates": [
+                                *verification_readiness()["attempts"][0]["gates"],
+                                {
+                                    "axis": "risk_gates",
+                                    "facet": "unknown-gate",
+                                    "readiness": "ready",
+                                    "check": "unknown",
+                                    "evidence": ["checks/verification-readiness.md"],
+                                    "notes": "unknown",
+                                },
+                            ],
+                            "blockers": [],
+                            "approval_requests": [],
+                        }
+                    ]
+                ),
+            ),
+            "unknown selected gate facet: unknown-gate",
+        )
+
+        expect_fail(
+            "needs approval cannot start workers",
+            write_run(
+                temp / "verification-readiness-needs-approval-worker",
+                lanes=[
+                    architecture_lane(),
+                    verification_readiness_lane(),
+                    worker_lane(),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+                verification_readiness_data=verification_readiness(status="needs-approval"),
+            ),
+            "lane-map.json: worker lanes require ready Verification Readiness Gate",
+        )
+
+        declined_request = {
+            "id": "start-dev-stack",
+            "status": "declined",
+            "reason": "User declined agent-run infra start.",
+            "commands": [
+                {
+                    "cwd": "/repo",
+                    "command": "documented safe command",
+                    "source": "README.md",
+                    "requires_user_approval": True,
+                }
+            ],
+            "manual_instruction": "Start the documented stack, then reply: Готово.",
+            "resume_phrase": "Готово",
+            "affected_gates": ["migrations", "unit", "integration"],
+        }
+        expect_pass(
+            "paused blocked readiness without workers passes",
+            write_run(
+                temp / "verification-readiness-paused-blocked",
+                verdict="blocked",
+                lanes=[architecture_lane(), verification_readiness_lane()],
+                lane_map_extra={
+                    **architecture_control_extra(),
+                    "verification_readiness": {
+                        "artifact": VERIFICATION_READINESS_PATH,
+                        "lanes": [VERIFICATION_READINESS_LANE_ID],
+                    },
+                },
+                verification_readiness_data=verification_readiness(
+                    status="paused-blocked",
+                    approval_requests=[declined_request],
+                ),
+                final_extra=verification_readiness_section(),
+            ),
+        )
+
+        expect_fail(
+            "declined readiness requires resume phrase",
+            write_run(
+                temp / "verification-readiness-declined-no-resume",
+                verdict="blocked",
+                lanes=[architecture_lane(), verification_readiness_lane()],
+                lane_map_extra={
+                    **architecture_control_extra(),
+                    "verification_readiness": {
+                        "artifact": VERIFICATION_READINESS_PATH,
+                        "lanes": [VERIFICATION_READINESS_LANE_ID],
+                    },
+                },
+                verification_readiness_data=verification_readiness(
+                    status="paused-blocked",
+                    approval_requests=[{**declined_request, "resume_phrase": ""}],
+                ),
+                final_extra=verification_readiness_section(),
+            ),
+            "verification-readiness.json approval_requests[0].resume_phrase must be Готово",
+        )
+
+        expect_fail(
+            "approved request requires execution evidence before ready retry",
+            write_run(
+                temp / "verification-readiness-approved-no-execution",
+                lanes=[
+                    architecture_lane(),
+                    verification_readiness_lane(),
+                    verification_readiness_lane("verification-readiness-2", wave=2),
+                    worker_lane(wave=3),
+                    qa_control_lane(wave=4),
+                    reviewer_control_lane(wave=5),
+                ],
+                lane_map_extra={
+                    **architecture_control_extra(),
+                    "verification_readiness": {
+                        "artifact": VERIFICATION_READINESS_PATH,
+                        "lanes": ["verification-readiness-1", "verification-readiness-2"],
+                    },
+                },
+                verification_readiness_data=verification_readiness(
+                    attempts=[
+                        {
+                            "id": "readiness-1",
+                            "lane": "verification-readiness-1",
+                            "status": "needs-approval",
+                            "gates": verification_readiness(status="needs-approval")["attempts"][0]["gates"],
+                            "blockers": ["verification-env-missing"],
+                            "approval_requests": ["start-dev-stack"],
+                        },
+                        {
+                            "id": "readiness-2",
+                            "lane": "verification-readiness-2",
+                            "status": "ready",
+                            "gates": verification_readiness()["attempts"][0]["gates"],
+                            "blockers": [],
+                            "approval_requests": [],
+                        },
+                    ],
+                    approval_requests=[{**declined_request, "status": "approved"}],
+                ),
+            ),
+            "verification-readiness.json approval request start-dev-stack approved without execution evidence",
+        )
+
+        expect_pass(
+            "approved execution then ready retry allows workers",
+            write_run(
+                temp / "verification-readiness-approved-ready-workers",
+                lanes=[
+                    architecture_lane(),
+                    verification_readiness_lane(),
+                    verification_readiness_lane("verification-readiness-2", wave=2),
+                    worker_lane(wave=3),
+                    qa_control_lane(wave=4),
+                    reviewer_control_lane(wave=5),
+                ],
+                lane_map_extra={
+                    **architecture_control_extra(),
+                    "verification_readiness": {
+                        "artifact": VERIFICATION_READINESS_PATH,
+                        "lanes": ["verification-readiness-1", "verification-readiness-2"],
+                    },
+                },
+                verification_readiness_data=verification_readiness(
+                    attempts=[
+                        {
+                            "id": "readiness-1",
+                            "lane": "verification-readiness-1",
+                            "status": "needs-approval",
+                            "gates": verification_readiness(status="needs-approval")["attempts"][0]["gates"],
+                            "blockers": ["verification-env-missing"],
+                            "approval_requests": ["start-dev-stack"],
+                        },
+                        {
+                            "id": "readiness-2",
+                            "lane": "verification-readiness-2",
+                            "status": "ready",
+                            "gates": verification_readiness()["attempts"][0]["gates"],
+                            "blockers": [],
+                            "approval_requests": [],
+                        },
+                    ],
+                    approval_requests=[{**declined_request, "status": "approved"}],
+                    approval_executions=[
+                        {
+                            "request_id": "start-dev-stack",
+                            "status": "succeeded",
+                            "evidence": ["checks/verification-readiness.md"],
+                        }
+                    ],
+                ),
+            ),
+        )
+
+        expect_fail(
+            "worker before ready readiness fails",
+            write_run(
+                temp / "verification-readiness-worker-before-ready",
+                lanes=[
+                    architecture_lane(),
+                    verification_readiness_lane(wave=2),
+                    worker_lane(wave=2),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "lane-map.json: worker lane worker-a must run after ready Verification Readiness Gate",
+        )
+
+        expect_fail(
+            "positive verdict with paused readiness fails",
+            write_run(
+                temp / "verification-readiness-paused-positive",
+                lanes=[architecture_lane(), verification_readiness_lane()],
+                lane_map_extra={
+                    **architecture_control_extra(),
+                    "verification_readiness": {
+                        "artifact": VERIFICATION_READINESS_PATH,
+                        "lanes": [VERIFICATION_READINESS_LANE_ID],
+                    },
+                },
+                verification_readiness_data=verification_readiness(
+                    status="paused-blocked",
+                    approval_requests=[declined_request],
+                ),
+            ),
+            "lane-map.json: positive final Verdict requires ready Verification Readiness Gate",
+        )
+
+        expect_fail(
+            "qa pass with blocked verification result fails",
+            write_run(
+                temp / "verification-results-qa-pass-blocked",
+                lanes=[
+                    architecture_lane(),
+                    verification_readiness_lane(),
+                    worker_lane(),
+                    qa_control_lane(
+                        wave=3,
+                        verification_results_data=qa_verification_results(
+                            status="blocked",
+                            gate_status="blocked",
+                        ),
+                    ),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "lane-map.json: lane qa-behavior pass requires verification_results.status=pass",
+        )
+
+        expect_pass(
+            "blocked qa verification result allows final blocked",
+            write_run(
+                temp / "verification-results-qa-blocked-final-blocked",
+                verdict="blocked",
+                lanes=[
+                    architecture_lane(),
+                    verification_readiness_lane(),
+                    worker_lane(),
+                    qa_control_lane(
+                        status="blocked",
+                        wave=3,
+                        verification_results_data=qa_verification_results(
+                            status="blocked",
+                            gate_status="blocked",
+                        ),
+                    ),
+                ],
                 lane_map_extra=architecture_control_extra(),
             ),
         )

@@ -189,6 +189,36 @@
         "Delegation Trace Gate",
         "delegation-summary.json"
       ]
+    },
+    {
+      "id": "worker-before-verification-readiness",
+      "path": "invalid/worker-before-verification-readiness",
+      "mode": "full",
+      "expected": "fail",
+      "expected_error": "lane-map.json: worker lane worker-a must run after ready Verification Readiness Gate",
+      "covers": [
+        "Verification Readiness Gate"
+      ]
+    },
+    {
+      "id": "positive-verdict-with-paused-readiness",
+      "path": "invalid/positive-verdict-with-paused-readiness",
+      "mode": "full",
+      "expected": "fail",
+      "expected_error": "lane-map.json: positive final Verdict requires ready Verification Readiness Gate",
+      "covers": [
+        "Verification Readiness Gate"
+      ]
+    },
+    {
+      "id": "qa-pass-with-blocked-verification-result",
+      "path": "invalid/qa-pass-with-blocked-verification-result",
+      "mode": "full",
+      "expected": "fail",
+      "expected_error": "lane-map.json: lane qa-behavior pass requires verification_results.status=pass",
+      "covers": [
+        "Verification Readiness Gate"
+      ]
     }
   ]
 }

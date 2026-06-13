@@ -18,6 +18,11 @@
       "reason": "worker-a executed as role-lane."
     },
     {
+      "lane_id": "verification-readiness-1",
+      "role": "qa-verifier",
+      "reason": "verification-readiness-1 executed as role-lane."
+    },
+    {
       "lane_id": "qa-behavior",
       "role": "qa-verifier",
       "reason": "qa-behavior executed as role-lane."
