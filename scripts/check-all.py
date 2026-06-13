@@ -84,6 +84,15 @@ GOLDEN_TRACE_RUN_GUARD_TERMS = [
     "test-golden-traces",
     "golden-traces",
 ]
+DELEGATION_TRACE_GATE_GUARD_TERMS = [
+    "Delegation Trace Gate",
+    "delegation-summary.json",
+    "Delegation Trace",
+    "Subagents Used",
+    "Role Lanes Used",
+    "Subagent Trace Evidence",
+    "terminal handoff",
+]
 
 REQUIRED_RUNTIME_TEXT = {
     "SKILL.md": [
@@ -111,6 +120,7 @@ REQUIRED_RUNTIME_TEXT = {
         *RESOLUTION_GATE_GUARD_TERMS,
         *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
         *GOLDEN_TRACE_RUN_GUARD_TERMS,
+        *DELEGATION_TRACE_GATE_GUARD_TERMS,
         "Architecture Approval Gate",
         "Local Best Practice auto gate",
         "regression demotion",
@@ -138,6 +148,7 @@ REQUIRED_RUNTIME_TEXT = {
         *RESOLUTION_GATE_GUARD_TERMS,
         *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
         "Golden Trace Runs",
+        *DELEGATION_TRACE_GATE_GUARD_TERMS,
         "Architecture Approval Gate",
         "Local Best Practice auto gate",
         "regression demotion",
@@ -177,6 +188,7 @@ REQUIRED_RUNTIME_TEXT = {
         *RESOLUTION_GATE_GUARD_TERMS,
         *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
         "Architecture Approval Gate",
+        *DELEGATION_TRACE_GATE_GUARD_TERMS,
         "Local Best Practice auto gate",
         "regression demotion",
         "Model/reasoning upgrade is not the default fix",
@@ -205,6 +217,7 @@ REQUIRED_RUNTIME_TEXT = {
         *MITIGATION_GATE_GUARD_TERMS,
         *RESOLUTION_GATE_GUARD_TERMS,
         *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
+        *DELEGATION_TRACE_GATE_GUARD_TERMS,
         "Architecture Approval Gate",
         "Local Best Practice auto gate",
         "Model/reasoning upgrade is not the default fix",
@@ -234,6 +247,7 @@ REQUIRED_RUNTIME_TEXT = {
         *MITIGATION_GATE_GUARD_TERMS,
         *RESOLUTION_GATE_GUARD_TERMS,
         *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
+        *DELEGATION_TRACE_GATE_GUARD_TERMS,
     ],
     "references/architecture-matrix.md": [
         "Architecture Matrix",

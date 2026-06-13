@@ -29,6 +29,7 @@ DEFAULT_ARCHITECTURE_CAPABILITIES = [
 ]
 AGENT_TODO_PLACEHOLDER = "TODO(agent):"
 EXPECTED_ARCHITECTURE_GATE_FILES = [
+    "delegation-summary.json",
     "handoffs/architecture-design.md",
     "handoffs/architecture-contract.md",
     "handoffs/worker-a.md",
@@ -196,6 +197,8 @@ def main() -> int:
         for relative_path in EXPECTED_ARCHITECTURE_GATE_FILES:
             if not (run_dir / relative_path).exists():
                 raise AssertionError(f"missing generated file: {relative_path}")
+            if relative_path == "delegation-summary.json":
+                continue
             if AGENT_TODO_PLACEHOLDER not in (run_dir / relative_path).read_text(encoding="utf-8"):
                 raise AssertionError(f"generated file must contain {AGENT_TODO_PLACEHOLDER}: {relative_path}")
 
@@ -206,6 +209,22 @@ def main() -> int:
             raise AssertionError("generated lane-map.json must include architecture_context")
         if lane_map.get("architecture_capabilities", {}).get("selected") != DEFAULT_ARCHITECTURE_CAPABILITIES:
             raise AssertionError("generated lane-map.json must include architecture_capabilities")
+
+        delegation_summary = json.loads((run_dir / "delegation-summary.json").read_text(encoding="utf-8"))
+        if delegation_summary.get("subagents_used") is not False:
+            raise AssertionError("generated delegation-summary.json must start with subagents_used=false")
+        if delegation_summary.get("role_lanes_used") is not False:
+            raise AssertionError("generated delegation-summary.json must start with role_lanes_used=false")
+
+        final_text = (run_dir / "final.md").read_text(encoding="utf-8")
+        for expected_line in [
+            "## Delegation Trace",
+            "Subagents Used: no",
+            "Role Lanes Used: no",
+            "Subagent Trace Evidence: none",
+        ]:
+            if expected_line not in final_text:
+                raise AssertionError(f"generated final.md missing delegation trace line: {expected_line}")
 
         lane_ids = {lane.get("id") for lane in lane_map.get("lanes", []) if isinstance(lane, dict)}
         expected_lane_ids = {

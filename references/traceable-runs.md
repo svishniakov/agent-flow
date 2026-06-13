@@ -45,6 +45,7 @@ plan.md
 definition-of-done.md
 decisions.md
 lane-map.json
+delegation-summary.json
 handoffs/
 checks/
 artifacts/
@@ -155,8 +156,39 @@ If `lane-map.json` exists, validation also checks the Lane Sharding contract:
 - successful critical lanes point to existing handoff and evidence artifacts;
 - a timed-out critical lane points to an existing replacement lane whose status is `pass` or `pass-with-risks`;
 - a `subagent` lane with active or successful status has a matching spawned trace event with `codex_thread_id`;
+- a successful `subagent` lane also has a terminal handoff trace event with the same lane id and handoff artifact;
 - `role-lane` entries do not require a `codex_thread_id`;
+- schema v2 positive lane-map runs require `delegation-summary.json` and a final `Delegation Trace` section;
 - `Verdict: ship` is rejected while any critical lane is unresolved, failed, blocked, or missing replacement evidence.
+
+## Delegation Trace Gate
+
+For schema v2 lane-map runs with `Verdict: ship` or `Verdict:
+pass-with-risks`, `delegation-summary.json` is required at the run root:
+
+```json
+{
+  "version": 1,
+  "subagents_used": false,
+  "role_lanes_used": true,
+  "subagents": [],
+  "role_lanes": [
+    {
+      "lane_id": "architecture-contract",
+      "role": "architect",
+      "reason": "Architecture Contract Gate executed as role-lane."
+    }
+  ],
+  "notes": "No spawned subagents were used. Role lanes are not subagent execution."
+}
+```
+
+`final.md` must include `Delegation Trace` with these canonical lines:
+`Subagents Used`, `Role Lanes Used`, `Subagent Lanes`, `Role Lanes`, and
+`Subagent Trace Evidence`. If `subagents_used=false`, run-owned narrative files
+must not claim sidecar/subagent work. If a real subagent was used, the summary
+must point to `agents/<role>/trace.jsonl`, the lane handoff, and the matching
+`codex_thread_id`.
 
 Schema v2 adds the Architecture Contract Gate:
 
@@ -355,13 +387,30 @@ python3 scripts/record-agent-trace.py \
   --lane-id backend-cli \
   --wave 2 \
   --critical \
+  --stage spawned \
+  --status active \
+  --codex-thread-id <thread-id> \
+  --summary "Spawned python-worker for backend-cli." \
+  --next-step "handoff"
+```
+
+Then record the terminal handoff:
+
+```bash
+python3 scripts/record-agent-trace.py \
+  --run-dir <run-dir> \
+  --role python-worker \
+  --execution-mode subagent \
+  --lane-id backend-cli \
+  --wave 2 \
+  --critical \
   --stable-agent-name "Python Worker" \
   --stable-agent-slug python-worker \
   --stage handoff \
   --status pass \
   --summary "Python worker completed helper changes and verification." \
   --next-step "orchestrator review" \
-  --artifact handoffs/python-worker.md
+  --artifact handoffs/backend-cli.md
 ```
 
 Pass each owned artifact with repeated `--artifact` flags. The helper indexes
@@ -379,4 +428,8 @@ Do not call a role lane a subagent unless an actual subagent/spawn tool was used
 - Actual spawned subagent: record `--execution-mode subagent`, include a `stage=spawned` event with `--codex-thread-id`, then record the terminal handoff/blocked/fail event.
 - Role lane without a spawned runtime: record `--execution-mode role-lane`, or keep it as an orchestrator note outside `agents/<role>/`. Its output is a scoped role review, not subagent execution.
 
-`validate-run.py` fails agent traces that look like subagents but have no spawned event with `codex_thread_id`. This is intentional: the trace must distinguish real parallel/delegated execution from role-labeled orchestration.
+`validate-run.py` fails agent traces that look like subagents but have no
+spawned event with `codex_thread_id`, no terminal handoff, or a narrative
+sidecar/subagent claim without trace evidence. This is intentional: the trace
+must distinguish real parallel/delegated execution from role-labeled
+orchestration.

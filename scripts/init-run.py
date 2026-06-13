@@ -24,7 +24,17 @@ RUN_FILES = {
     "plan.md": "# Plan\n\n",
     "definition-of-done.md": "# Definition Of Done\n\n",
     "decisions.md": "# Decisions\n\n",
-    "final.md": "# Final\n\nVerdict: pending\n\n## Worktree Hygiene\n\n",
+    "final.md": (
+        "# Final\n\n"
+        "Verdict: pending\n\n"
+        "## Delegation Trace\n\n"
+        "Subagents Used: no\n"
+        "Role Lanes Used: no\n"
+        "Subagent Lanes: none\n"
+        "Role Lanes: none\n"
+        "Subagent Trace Evidence: none\n\n"
+        "## Worktree Hygiene\n\n"
+    ),
 }
 LANE_MAP = {
     "schema_version": 1,
@@ -41,6 +51,17 @@ The machine-readable source of truth is `lane-map.json`.
 | Lane | Acceptance Area | Evidence | Status | Notes |
 | --- | --- | --- | --- | --- |
 """
+
+
+def empty_delegation_summary() -> dict:
+    return {
+        "version": 1,
+        "subagents_used": False,
+        "role_lanes_used": False,
+        "subagents": [],
+        "role_lanes": [],
+        "notes": "No lanes have executed yet. Update before any positive final verdict.",
+    }
 
 
 def slugify(value: str) -> str:
@@ -546,6 +567,12 @@ def main() -> int:
                 else LANE_MAP
             )
             lane_map.write_text(json.dumps(lane_map_data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        delegation_summary = run_dir / "delegation-summary.json"
+        if not delegation_summary.exists():
+            delegation_summary.write_text(
+                json.dumps(empty_delegation_summary(), ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
         coverage_matrix = run_dir / "checks" / "coverage-matrix.md"
         if not coverage_matrix.exists():
             coverage_matrix.write_text(COVERAGE_MATRIX, encoding="utf-8")

@@ -94,6 +94,7 @@ Only after the budget and task shape justify subagents:
 - Enforce Mitigation Gate before `pass-with-risks`: write `risk-mitigations.json`, mark every risk as `identified`, include `problem`, `impact`, `affected_scope`, evidence, and `next_gate=resolution`, record the ids in `Risk Mitigations`, then route reviewer `Risk Mitigation Review`.
 - Enforce Resolution Gate after Mitigation Gate before `pass-with-risks`: write `risk-resolutions.json`, create one record per identified risk, include `resolution_type`, concrete `resolution`, evidence, `verification`, `verified_by`, `reviewed_by`, record the ids in `Risk Resolutions`, route QA `Risk Resolution Verification`, and route reviewer `Risk Resolution Review`; only `fixed`, `mitigated`, or `contained` may close `pass-with-risks`, while `unresolved` is only valid for `blocked` or `fail`.
 - Enforce Blocked Resolution Gate inside Resolution Gate: blocked attempts require `blocked_lesson`, `rollback`, `forbidden_repeat`, and a Blocked Recovery Path; attempt 1 blocked routes to Senior QA `Senior QA Test Design Review` and architect `Resolution Architect Review` before attempt 2; attempt 2 blocked routes to `Supervising Architect Review` before attempt 3; a third blocked attempt ends as `blocked` or `fail`.
+- Enforce Delegation Trace Gate for positive schema v2 lane-map runs: keep `delegation-summary.json`, final `Delegation Trace`, `Subagents Used`, `Role Lanes Used`, and `Subagent Trace Evidence` synchronized with actual trace evidence.
 - For lane-map schema v2, set `budget`, `architecture_contract_required`, `architecture_contract_independent`, `architecture_context`, and `architecture_capabilities` explicitly.
 - Send rejected, regressed, or uncertain architecture attempts through the Architecture Approval Gate before retrying implementation.
 - Treat regression demotion as immediate: a reused approach that regresses is no longer auto-applicable until reviewed.
@@ -139,13 +140,14 @@ Before final answer:
 1. Check latest user message.
 2. Verify changed files and command outputs.
 3. Confirm trace artifacts only if used.
-4. If `implementation-notes.md` gained Evidence Records, run or account for the evidence analyzer before relying on a learned practice.
-5. If product changes must be committed, create the product commit after checks and before final trace closure. Do not include `.agent-work/` in the product commit unless the user explicitly requested it.
-6. Run the Task Status Completion Gate for the current `.agent-work/tasks/todo.md` section. If the checklist is complete, verification is recorded, no blocker remains, and the requested commit succeeded, set `Status: done`; otherwise record the missing item and keep `Status: in_progress` or `Status: blocked`.
-7. If a trace timeline exists and a product commit was created, append an orchestrator `stage=commit` event with the commit hash.
-8. Compare the initial worktree snapshot with current `git status --short`.
-9. In `final.md`, record run-owned changes, product commit hash when applicable, pre-existing dirty files left untouched, and pre-existing dirty files touched by the run.
-10. If a trace timeline exists, append the final orchestrator event after `final.md` records the verdict and commit hash.
-11. Run final trace validation.
-12. Record residual risks.
-13. Keep final answer short and evidence-based.
+4. Confirm Delegation Trace Gate: no role-lane is described as sidecar/subagent unless spawned trace evidence and terminal handoff exist.
+5. If `implementation-notes.md` gained Evidence Records, run or account for the evidence analyzer before relying on a learned practice.
+6. If product changes must be committed, create the product commit after checks and before final trace closure. Do not include `.agent-work/` in the product commit unless the user explicitly requested it.
+7. Run the Task Status Completion Gate for the current `.agent-work/tasks/todo.md` section. If the checklist is complete, verification is recorded, no blocker remains, and the requested commit succeeded, set `Status: done`; otherwise record the missing item and keep `Status: in_progress` or `Status: blocked`.
+8. If a trace timeline exists and a product commit was created, append an orchestrator `stage=commit` event with the commit hash.
+9. Compare the initial worktree snapshot with current `git status --short`.
+10. In `final.md`, record run-owned changes, product commit hash when applicable, pre-existing dirty files left untouched, and pre-existing dirty files touched by the run.
+11. If a trace timeline exists, append the final orchestrator event after `final.md` records the verdict and commit hash.
+12. Run final trace validation.
+13. Record residual risks.
+14. Keep final answer short and evidence-based.

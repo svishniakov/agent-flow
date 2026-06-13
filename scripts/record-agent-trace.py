@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Record one subagent or role-lane event in Agent Flow traces."""
+"""Record one subagent or role-lane event in Agent Flow traces.
+
+For a real subagent, record `stage=spawned` with `--codex-thread-id`, then a
+terminal handoff/blocked/fail event. Successful subagent lanes need a terminal
+handoff event that references the lane handoff artifact.
+"""
 
 from __future__ import annotations
 

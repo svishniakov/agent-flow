@@ -56,6 +56,7 @@ Delegation packet must include:
 - Read Evidence Records when a similar local problem and approach may already exist.
 - Apply the Local Best Practice auto gate only for analyzer-confirmed local practices with clear context match, no matching `Do not reuse when`, no external write, and fresh verification.
 - If subagents are authorized by budget or request, choose narrow independent roles and disjoint write sets.
+- When lane-map trace artifacts exist, enforce Delegation Trace Gate: update `delegation-summary.json`, final `Delegation Trace`, `Subagents Used`, `Role Lanes Used`, and `Subagent Trace Evidence`.
 - Require the Architecture Contract Gate for release, for `standard` traceable runs with two or more worker lanes, and for architecture-sensitive work before QA or reviewer verdict.
 - When the Architecture Contract Gate applies, select Architecture Matrix facets from `references/architecture-matrix.md` using local source evidence.
 - In lane-map schema v2, set `budget`, `architecture_contract_required`, `architecture_contract_independent`, `architecture_context`, and `architecture_capabilities` explicitly.
@@ -89,6 +90,7 @@ Return:
 - Mitigation Gate status, including `risk-mitigations.json`, `Risk Mitigations`, `Risk Mitigation Review`, `identified` risks, and `next_gate`
 - Resolution Gate status, including `risk-resolutions.json`, `Risk Resolutions`, `Risk Resolution Verification`, `Risk Resolution Review`, `resolution_type`, `fixed`, `mitigated`, `contained`, and any `unresolved` risk when final verdict is `blocked` or `fail`
 - Blocked Resolution Gate status, including `blocked_lesson`, `rollback`, `forbidden_repeat`, Senior QA `Senior QA Test Design Review`, architect `Resolution Architect Review`, `Supervising Architect Review`, and attempt count
+- Delegation Trace Gate status, including `delegation-summary.json`, `Delegation Trace`, `Subagents Used`, `Role Lanes Used`, `Subagent Trace Evidence`, and terminal handoff evidence for successful spawned subagents
 - dependency gate result
 - subagent authorization status from budget or explicit request
 - roles used or skipped with reason
@@ -102,6 +104,8 @@ Return:
 - Do not spawn subagents for `light`.
 - Do not invent public modes.
 - Do not call role-lane work subagent execution.
+- Do not call role-lane work a sidecar.
+- Do not claim subagent execution unless spawned trace evidence and terminal handoff are recorded.
 - Do not continue past an uncertain or direct active-task dependency without explicit user acceptance.
 - Do not report completion without fresh evidence.
 - Do not leave the current task `Status: in_progress` after successful verification or commit when every checklist item is checked and no blocker remains.

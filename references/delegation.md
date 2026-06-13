@@ -308,10 +308,26 @@ Actual spawned subagents and role lanes are different:
 
 - Use `--execution-mode subagent` only when a real subagent/spawn tool was used.
 - A real subagent trace must include a `stage=spawned` event with `--codex-thread-id`.
+- A successful real subagent trace must include a terminal handoff event with the same lane id, status `pass` or `pass-with-risks`, and the lane handoff artifact.
 - Use `--execution-mode role-lane` when the main agent performed a scoped role review or checklist without a spawned runtime.
 - Do not report `role-lane` work as subagent execution in the final answer or performance analysis.
 
 This is mandatory only for delegated subagents in a traceable run. A handoff file without a matching role-owned timeline event is an incomplete traceable run. A trace that calls itself subagent work but has no spawned event with `codex_thread_id` is also incomplete.
+
+## Delegation Trace Gate
+
+For positive schema v2 lane-map runs, the orchestrator writes
+`delegation-summary.json` and keeps it synchronized with `lane-map.json`,
+`timeline.jsonl`, and `agents/<role>/trace.jsonl`.
+
+`final.md` must include `Delegation Trace` with `Subagents Used`, `Role Lanes Used`,
+`Subagent Lanes`, `Role Lanes`, and `Subagent Trace Evidence`. If no
+spawned subagent exists, `Subagents Used: no` and `Subagent Trace Evidence:
+none` are required, and run-owned narrative files must not claim sidecar,
+spawned subagent, or subagent-returned work.
+
+Role lanes are scoped role reviews done by the main agent. They remain useful,
+but they are not sidecars and not subagent execution.
 
 ## Integration
 

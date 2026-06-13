@@ -88,6 +88,7 @@ PASS all Agent Flow checks
 - Resolution Gate is required after Mitigation Gate for `pass-with-risks`: `risk-resolutions.json`, `Risk Resolutions`, QA `Risk Resolution Verification`, and reviewer `Risk Resolution Review` must show what was done now and close each risk as `fixed`, `mitigated`, or `contained`.
 - Blocked Resolution Gate keeps blocked resolution attempts inside the Resolution Gate: blocked attempts record `blocked_lesson`, `rollback`, and a Blocked Recovery Path before any retry.
 - Golden Trace Runs are the architecture-layer acceptance pack: persisted full trace directories must pass or fail through `scripts/test-golden-traces.py` with the expected validator result.
+- Delegation Trace Gate prevents false sidecar/subagent claims: positive lane-map runs need `delegation-summary.json`, final `Delegation Trace`, `Subagents Used`, `Role Lanes Used`, `Subagent Trace Evidence`, and terminal handoff evidence for every real spawned subagent.
 - Evidence Records in `implementation-notes.md` are structured local learning data, not free-form notes.
 - Local Best Practice auto gate can reuse a learned approach only after analyzer confirmation, clear context match, no matching `Do not reuse when`, no external write, and fresh verification.
 - A failed or regressed reuse demotes or freezes the practice until architecture review resolves it.
@@ -118,6 +119,11 @@ Mitigation Gate applies to every traceable run that ends with `Verdict: pass-wit
 Resolution Gate follows Mitigation Gate for every `Verdict: pass-with-risks`. The run must include `risk-resolutions.json`; every identified risk must have a resolution record with `resolution_type`, concrete action, evidence, verification, and status `fixed`, `mitigated`, or `contained`. `final.md` must include `Risk Resolutions` and every risk id. When `lane-map.json` exists, QA writes `Risk Resolution Verification`, reviewer writes `Risk Resolution Review`, and both cover every resolved risk id. `unresolved` is allowed only for `blocked` or `fail`.
 
 Blocked Resolution Gate extends `risk-resolutions.json` when an attempt blocks. Attempt 1 blocked requires `blocked_lesson`, `rollback`, Senior QA `Senior QA Test Design Review`, and architect `Resolution Architect Review` before attempt 2. If attempt 2 blocks, `Supervising Architect Review` is required before attempt 3. A third blocked attempt can end only as `blocked` or `fail`; `pass-with-risks` stays blocked.
+
+Delegation Trace Gate applies to positive lane-map runs. The run records
+`delegation-summary.json` and final `Delegation Trace`; role lanes may be used,
+but they cannot be described as sidecar or subagent execution unless a spawned
+subagent trace and terminal handoff exist.
 
 ### Dependency Gate
 
@@ -264,6 +270,7 @@ PASS all Agent Flow checks
 - Resolution Gate обязателен после Mitigation Gate для `pass-with-risks`: `risk-resolutions.json`, `Risk Resolutions`, QA `Risk Resolution Verification` и reviewer `Risk Resolution Review` показывают, что агент сделал сейчас, и закрывают каждый риск как `fixed`, `mitigated` или `contained`.
 - Blocked Resolution Gate остаётся внутри Resolution Gate: заблокированная попытка фиксирует `blocked_lesson`, `rollback` и Blocked Recovery Path перед новым заходом.
 - Golden Trace Runs проверяют архитектурный слой на целых traceable runs: сохранённые директории должны проходить или падать через `scripts/test-golden-traces.py` с ожидаемым результатом.
+- Delegation Trace Gate запрещает ложные sidecar/subagent claims: positive lane-map runs требуют `delegation-summary.json`, финальную секцию `Delegation Trace`, `Subagents Used`, `Role Lanes Used`, `Subagent Trace Evidence` и terminal handoff evidence для каждого настоящего spawned subagent.
 - Evidence Records в `implementation-notes.md` - структурированные данные для локального обучения, а не свободные заметки.
 - Local Best Practice auto gate переиспользует подход только после подтверждения analyzer, ясного совпадения контекста, отсутствия совпадения с `Do not reuse when`, отсутствия внешней записи и свежей проверки.
 - Если переиспользованный подход дал failure или regression, practice демотируется или замораживается до архитектурного разбора.
@@ -294,6 +301,11 @@ Mitigation Gate применяется к каждому traceable run с `Verdi
 Resolution Gate идёт сразу после Mitigation Gate для каждого `Verdict: pass-with-risks`. В run должен быть `risk-resolutions.json`; каждый identified risk получает resolution record с `resolution_type`, сделанным действием, evidence, verification и статусом `fixed`, `mitigated` или `contained`. `final.md` содержит `Risk Resolutions` и каждый risk id. Если есть `lane-map.json`, QA пишет `Risk Resolution Verification`, reviewer пишет `Risk Resolution Review`, и обе секции покрывают каждый resolved risk id. `unresolved` допустим только для `blocked` или `fail`.
 
 Blocked Resolution Gate расширяет `risk-resolutions.json`, когда resolution-попытка блокируется. После первой блокировки нужны `blocked_lesson`, `rollback`, Senior QA `Senior QA Test Design Review` и architect `Resolution Architect Review`; только после этого worker может идти во вторую попытку. Если вторая попытка тоже блокируется, перед третьей нужен `Supervising Architect Review`. Третья заблокированная попытка завершается только как `blocked` или `fail`; `pass-with-risks` запрещён.
+
+Delegation Trace Gate применяется к positive lane-map runs. Run записывает
+`delegation-summary.json` и финальную секцию `Delegation Trace`; role lanes
+допустимы, но их нельзя описывать как sidecar или subagent execution без
+spawned subagent trace и terminal handoff.
 
 ### Dependency Gate
 

@@ -45,6 +45,8 @@ FINAL_VERDICTS = {"ship", "pass-with-risks", "blocked", "fail"}
 POSITIVE_FINAL_VERDICTS = {"ship", "pass-with-risks"}
 AGENT_TODO_PLACEHOLDER = "TODO(agent):"
 AGENT_EXECUTION_MODES = {"subagent", "role-lane"}
+DELEGATION_SUMMARY_PATH = "delegation-summary.json"
+DELEGATION_TRACE_SECTION = "Delegation Trace"
 LANE_TYPES = {"architecture", "implementation", "integration", "qa", "review"}
 TRACE_BUDGETS = {"release", "standard"}
 WORKER_LANE_TYPES = {"implementation", "integration"}
@@ -1571,7 +1573,14 @@ def load_lane_trace_events(run_dir: Path, role: str, lane_id: str) -> tuple[list
     return [event for event in events if event.get("lane_id") == lane_id], []
 
 
-def validate_subagent_lane_trace(run_dir: Path, lane_id: str, role: str) -> list[str]:
+def validate_subagent_lane_trace(
+    run_dir: Path,
+    lane_id: str,
+    role: str,
+    *,
+    lane_status: str | None = None,
+    handoff: str | None = None,
+) -> list[str]:
     events, errors = load_lane_trace_events(run_dir, role, lane_id)
     if errors:
         return errors
@@ -1583,7 +1592,301 @@ def validate_subagent_lane_trace(run_dir: Path, lane_id: str, role: str) -> list
         return [f"lane-map.json: lane {lane_id} missing spawned trace event"]
     if not any(event.get("codex_thread_id") for event in spawned_events):
         return [f"lane-map.json: lane {lane_id} spawned trace event missing codex_thread_id"]
+
+    if lane_status in SUCCESSFUL_LANE_STATUSES:
+        terminal_events = [
+            event
+            for event in events
+            if event.get("stage") == "handoff"
+            and event.get("status") in SUCCESSFUL_LANE_STATUSES
+        ]
+        if not terminal_events:
+            return [f"lane-map.json: lane {lane_id} missing terminal handoff trace event"]
+        if handoff and not any(handoff in event.get("artifacts", []) for event in terminal_events):
+            return [
+                f"lane-map.json: lane {lane_id} "
+                "terminal handoff trace event missing handoff artifact"
+            ]
     return []
+
+
+def require_non_empty_string(
+    data: dict,
+    field: str,
+    label: str,
+    errors: list[str],
+) -> str | None:
+    value = data.get(field)
+    if not isinstance(value, str) or not value.strip():
+        errors.append(f"{label}.{field} must be a non-empty string")
+        return None
+    return value
+
+
+def delegation_summary_ids(records: object, field: str, label: str, errors: list[str]) -> list[str]:
+    if not isinstance(records, list):
+        errors.append(f"{label}.{field} must be an array")
+        return []
+    ids: list[str] = []
+    for index, record in enumerate(records):
+        record_label = f"{label}.{field}[{index}]"
+        if not isinstance(record, dict):
+            errors.append(f"{record_label} must be an object")
+            continue
+        lane_id = record.get("lane_id")
+        if isinstance(lane_id, str) and lane_id:
+            ids.append(lane_id)
+    return ids
+
+
+def validate_delegation_summary_record_paths(
+    run_dir: Path,
+    record: dict,
+    lane: dict,
+    record_label: str,
+    errors: list[str],
+) -> None:
+    trace = require_non_empty_string(record, "trace", record_label, errors)
+    if trace is not None:
+        trace_path = resolve_run_path(run_dir, trace)
+        if not trace_path.exists():
+            errors.append(f"{record_label}.trace not found: {trace}")
+        role = record.get("role")
+        if isinstance(role, str) and role:
+            expected_trace = f"agents/{role}/trace.jsonl"
+            if trace != expected_trace:
+                errors.append(f"{record_label}.trace must be {expected_trace}")
+
+    handoff = require_non_empty_string(record, "handoff", record_label, errors)
+    lane_handoff = lane.get("handoff")
+    if handoff is not None:
+        if not resolve_run_path(run_dir, handoff).exists():
+            errors.append(f"{record_label}.handoff not found: {handoff}")
+        if isinstance(lane_handoff, str) and lane_handoff and handoff != lane_handoff:
+            errors.append(f"{record_label}.handoff must match lane handoff: {lane_handoff}")
+
+
+def validate_delegation_summary(
+    run_dir: Path,
+    lanes: list[dict],
+    lane_by_id: dict[str, dict],
+    final_verdict: str | None,
+    *,
+    required: bool,
+) -> tuple[dict | None, list[str]]:
+    path = run_dir / DELEGATION_SUMMARY_PATH
+    if not path.exists():
+        if required:
+            return None, [f"{DELEGATION_SUMMARY_PATH} is required for positive lane-map run"]
+        return None, []
+
+    data, load_errors = load_json(path, DELEGATION_SUMMARY_PATH)
+    errors = list(load_errors)
+    if errors:
+        return None, errors
+    if not isinstance(data, dict):
+        return None, [f"{DELEGATION_SUMMARY_PATH} must be a JSON object"]
+
+    if data.get("version") != 1:
+        errors.append(f"{DELEGATION_SUMMARY_PATH}: version must be 1")
+
+    subagents_used = data.get("subagents_used")
+    role_lanes_used = data.get("role_lanes_used")
+    if not isinstance(subagents_used, bool):
+        errors.append(f"{DELEGATION_SUMMARY_PATH}: subagents_used must be a boolean")
+        subagents_used = False
+    if not isinstance(role_lanes_used, bool):
+        errors.append(f"{DELEGATION_SUMMARY_PATH}: role_lanes_used must be a boolean")
+        role_lanes_used = False
+
+    subagents = data.get("subagents")
+    role_lanes = data.get("role_lanes")
+    subagent_ids = delegation_summary_ids(subagents, "subagents", DELEGATION_SUMMARY_PATH, errors)
+    role_lane_ids = delegation_summary_ids(role_lanes, "role_lanes", DELEGATION_SUMMARY_PATH, errors)
+
+    notes = data.get("notes")
+    if not isinstance(notes, str) or not notes.strip():
+        errors.append(f"{DELEGATION_SUMMARY_PATH}: notes must be a non-empty string")
+
+    if subagents_used is False and subagent_ids:
+        errors.append(f"{DELEGATION_SUMMARY_PATH}: subagents_used=false forbids subagents")
+    if subagents_used is True and not subagent_ids:
+        errors.append(f"{DELEGATION_SUMMARY_PATH}: subagents_used=true requires subagents")
+    if role_lanes_used is False and role_lane_ids:
+        errors.append(f"{DELEGATION_SUMMARY_PATH}: role_lanes_used=false forbids role_lanes")
+    if role_lanes_used is True and not role_lane_ids:
+        errors.append(f"{DELEGATION_SUMMARY_PATH}: role_lanes_used=true requires role_lanes")
+
+    expected_subagent_ids = sorted(
+        lane["id"]
+        for lane in lanes
+        if normalize_execution_mode(lane.get("execution_mode")) == "subagent"
+        and normalize_lane_status(lane.get("status")) not in {"planned", "timed-out", "replaced"}
+    )
+    expected_role_lane_ids = sorted(
+        lane["id"]
+        for lane in lanes
+        if normalize_execution_mode(lane.get("execution_mode")) == "role-lane"
+        and normalize_lane_status(lane.get("status")) not in {"planned", "timed-out", "replaced"}
+    )
+    if sorted(subagent_ids) != expected_subagent_ids:
+        errors.append(
+            f"{DELEGATION_SUMMARY_PATH}: subagents must cover execution_mode=subagent lanes"
+        )
+    if sorted(role_lane_ids) != expected_role_lane_ids:
+        errors.append(
+            f"{DELEGATION_SUMMARY_PATH}: role_lanes must cover execution_mode=role-lane lanes"
+        )
+
+    if isinstance(subagents, list):
+        for index, record in enumerate(subagents):
+            record_label = f"{DELEGATION_SUMMARY_PATH}.subagents[{index}]"
+            if not isinstance(record, dict):
+                continue
+            lane_id = require_non_empty_string(record, "lane_id", record_label, errors)
+            role = require_non_empty_string(record, "role", record_label, errors)
+            codex_thread_id = require_non_empty_string(record, "codex_thread_id", record_label, errors)
+            if lane_id is None:
+                continue
+            lane = lane_by_id.get(lane_id)
+            if lane is None:
+                errors.append(f"{DELEGATION_SUMMARY_PATH}: unknown lane id: {lane_id}")
+                continue
+            if normalize_execution_mode(lane.get("execution_mode")) != "subagent":
+                errors.append(f"{DELEGATION_SUMMARY_PATH}: lane {lane_id} is not execution_mode=subagent")
+            if role is not None and lane.get("role") != role:
+                errors.append(f"{record_label}.role must match lane role: {lane.get('role')}")
+            validate_delegation_summary_record_paths(run_dir, record, lane, record_label, errors)
+            if role is not None and codex_thread_id is not None:
+                events, event_errors = load_lane_trace_events(run_dir, role, lane_id)
+                errors.extend(event_errors)
+                if events and not any(
+                    event.get("codex_thread_id") == codex_thread_id for event in events
+                ):
+                    errors.append(f"{record_label}.codex_thread_id missing from lane trace events")
+
+    if isinstance(role_lanes, list):
+        for index, record in enumerate(role_lanes):
+            record_label = f"{DELEGATION_SUMMARY_PATH}.role_lanes[{index}]"
+            if not isinstance(record, dict):
+                continue
+            lane_id = require_non_empty_string(record, "lane_id", record_label, errors)
+            role = require_non_empty_string(record, "role", record_label, errors)
+            require_non_empty_string(record, "reason", record_label, errors)
+            if lane_id is None:
+                continue
+            lane = lane_by_id.get(lane_id)
+            if lane is None:
+                errors.append(f"{DELEGATION_SUMMARY_PATH}: unknown lane id: {lane_id}")
+                continue
+            if normalize_execution_mode(lane.get("execution_mode")) != "role-lane":
+                errors.append(f"{DELEGATION_SUMMARY_PATH}: lane {lane_id} is not execution_mode=role-lane")
+            if role is not None and lane.get("role") != role:
+                errors.append(f"{record_label}.role must match lane role: {lane.get('role')}")
+
+    if final_verdict in POSITIVE_FINAL_VERDICTS:
+        errors.extend(validate_final_delegation_trace(run_dir / "final.md", data))
+        if not subagent_ids:
+            errors.extend(validate_no_unbacked_subagent_claims(run_dir))
+
+    return data, errors
+
+
+def validate_final_delegation_trace(final_path: Path, summary: dict) -> list[str]:
+    errors: list[str] = []
+    if not final_path.exists():
+        return errors
+    text = final_path.read_text(encoding="utf-8")
+    if not has_markdown_heading(text, DELEGATION_TRACE_SECTION):
+        return [f"final.md missing section: {DELEGATION_TRACE_SECTION}"]
+    section = markdown_section_text(text, DELEGATION_TRACE_SECTION)
+
+    expected_subagents = "yes" if summary.get("subagents_used") else "no"
+    expected_role_lanes = "yes" if summary.get("role_lanes_used") else "no"
+    if f"Subagents Used: {expected_subagents}" not in section:
+        errors.append(f"final.md Delegation Trace missing Subagents Used: {expected_subagents}")
+    if f"Role Lanes Used: {expected_role_lanes}" not in section:
+        errors.append(f"final.md Delegation Trace missing Role Lanes Used: {expected_role_lanes}")
+
+    subagent_records = summary.get("subagents") if isinstance(summary.get("subagents"), list) else []
+    role_lane_records = summary.get("role_lanes") if isinstance(summary.get("role_lanes"), list) else []
+    subagent_ids = [
+        record.get("lane_id")
+        for record in subagent_records
+        if isinstance(record, dict) and isinstance(record.get("lane_id"), str)
+    ]
+    role_lane_ids = [
+        record.get("lane_id")
+        for record in role_lane_records
+        if isinstance(record, dict) and isinstance(record.get("lane_id"), str)
+    ]
+    traces = [
+        record.get("trace")
+        for record in subagent_records
+        if isinstance(record, dict) and isinstance(record.get("trace"), str)
+    ]
+    if not subagent_ids and "Subagent Lanes: none" not in section:
+        errors.append("final.md Delegation Trace missing Subagent Lanes: none")
+    for lane_id in subagent_ids:
+        if not contains_facet_id(section, lane_id):
+            errors.append(f"final.md Delegation Trace missing subagent lane id: {lane_id}")
+    if not role_lane_ids and "Role Lanes: none" not in section:
+        errors.append("final.md Delegation Trace missing Role Lanes: none")
+    for lane_id in role_lane_ids:
+        if not contains_facet_id(section, lane_id):
+            errors.append(f"final.md Delegation Trace missing role lane id: {lane_id}")
+    if not traces and "Subagent Trace Evidence: none" not in section:
+        errors.append("final.md Delegation Trace missing Subagent Trace Evidence: none")
+    for trace in traces:
+        if trace not in section:
+            errors.append(f"final.md Delegation Trace missing subagent trace path: {trace}")
+    return errors
+
+
+def validate_no_unbacked_subagent_claims(run_dir: Path) -> list[str]:
+    errors: list[str] = []
+    allowed_fragments = [
+        "subagents used: no",
+        "subagent lanes: none",
+        "subagent trace evidence: none",
+        "no subagents",
+        "no spawned subagents",
+        "subagents skipped",
+        "spawn_agent unavailable",
+        "role-lane is not subagent",
+        "role lanes are not subagent",
+        "role-lane work is not subagent",
+        "not subagent execution",
+    ]
+    banned_phrases = [
+        "sidecar",
+        "spawned subagent",
+        "subagent found",
+        "subagent returned",
+        "subagent completed",
+        "explorer subagent",
+        "explorer sidecar",
+    ]
+    for relative in ["final.md", "route.md", "manifest.md"]:
+        path = run_dir / relative
+        if not path.exists() or not path.is_file():
+            continue
+        for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+            normalized = " ".join(line.lower().split())
+            if not normalized:
+                continue
+            if any(fragment in normalized for fragment in allowed_fragments):
+                continue
+            if any(phrase in normalized for phrase in banned_phrases):
+                errors.append(
+                    f"{relative}:{line_number}: claims subagent/sidecar without spawned trace evidence"
+                )
+                continue
+            if "subagent" in normalized and "subagents" not in normalized:
+                errors.append(
+                    f"{relative}:{line_number}: claims subagent/sidecar without spawned trace evidence"
+                )
+    return errors
 
 
 def has_markdown_heading(text: str, heading: str) -> bool:
@@ -2094,7 +2397,15 @@ def validate_lane_map(
             and role
             and status not in {"planned", "timed-out", "replaced"}
         ):
-            errors.extend(validate_subagent_lane_trace(run_dir, lane_id, role))
+            errors.extend(
+                validate_subagent_lane_trace(
+                    run_dir,
+                    lane_id,
+                    role,
+                    lane_status=status,
+                    handoff=handoff if isinstance(handoff, str) else None,
+                )
+            )
 
         if lane_type == "architecture":
             architecture_lane_ids.append(lane_id)
@@ -2236,6 +2547,17 @@ def validate_lane_map(
             )
 
     final_verdict = read_single_field(run_dir / "final.md", "Verdict")
+    delegation_summary_required = (
+        schema_version == 2 and final_verdict in POSITIVE_FINAL_VERDICTS
+    )
+    _delegation_summary, delegation_summary_errors = validate_delegation_summary(
+        run_dir,
+        [lane for lane in lanes if isinstance(lane, dict)],
+        lane_by_id,
+        final_verdict,
+        required=delegation_summary_required,
+    )
+    errors.extend(delegation_summary_errors)
 
     if schema_version == 2:
         if budget == "standard" and worker_lane_count >= 2 and architecture_contract_required is not True:

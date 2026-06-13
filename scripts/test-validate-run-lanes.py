@@ -50,6 +50,7 @@ ARCHITECTURE_COMPLIANCE_SECTION = "Architecture Compliance"
 ARCHITECTURE_INVARIANTS_SECTION = "Architecture Invariants"
 ARCHITECTURE_MATRIX_MISMATCHES_SECTION = "Architecture Matrix Mismatches"
 CONTRACT_DRIFT_SECTION = "Contract Drift"
+DELEGATION_TRACE_SECTION = "Delegation Trace"
 RISK_MITIGATIONS_SECTION = "Risk Mitigations"
 RISK_MITIGATION_REVIEW_SECTION = "Risk Mitigation Review"
 RISK_RESOLUTIONS_SECTION = "Risk Resolutions"
@@ -473,6 +474,68 @@ def risk_resolution_section(risk_ids: list[str] | None = None) -> str:
     return f"\n## {RISK_RESOLUTIONS_SECTION}\n\nResolved risks:\n{facet_lines(ids)}\n"
 
 
+def delegation_summary(lanes: list[dict[str, Any]]) -> dict[str, Any]:
+    subagents: list[dict[str, str]] = []
+    role_lanes: list[dict[str, str]] = []
+    for lane_data in lanes:
+        if lane_data.get("status") in {"planned", "timed-out", "replaced"}:
+            continue
+        lane_id = lane_data["id"]
+        role = lane_data["role"]
+        if lane_data.get("execution_mode") == "subagent":
+            subagents.append(
+                {
+                    "lane_id": lane_id,
+                    "role": role,
+                    "codex_thread_id": f"thread-{lane_id}",
+                    "trace": f"agents/{role}/trace.jsonl",
+                    "handoff": lane_data.get("handoff") or f"handoffs/{lane_id}.md",
+                }
+            )
+        elif lane_data.get("execution_mode") == "role-lane":
+            role_lanes.append(
+                {
+                    "lane_id": lane_id,
+                    "role": role,
+                    "reason": f"{lane_id} executed as role-lane.",
+                }
+            )
+    return {
+        "version": 1,
+        "subagents_used": bool(subagents),
+        "role_lanes_used": bool(role_lanes),
+        "subagents": subagents,
+        "role_lanes": role_lanes,
+        "notes": "Generated fixture delegation summary.",
+    }
+
+
+def delegation_trace_section(summary: dict[str, Any]) -> str:
+    subagents = [
+        item.get("lane_id", "")
+        for item in summary.get("subagents", [])
+        if isinstance(item, dict) and item.get("lane_id")
+    ]
+    role_lanes = [
+        item.get("lane_id", "")
+        for item in summary.get("role_lanes", [])
+        if isinstance(item, dict) and item.get("lane_id")
+    ]
+    traces = [
+        item.get("trace", "")
+        for item in summary.get("subagents", [])
+        if isinstance(item, dict) and item.get("trace")
+    ]
+    return (
+        f"\n## {DELEGATION_TRACE_SECTION}\n\n"
+        f"Subagents Used: {'yes' if summary.get('subagents_used') else 'no'}\n"
+        f"Role Lanes Used: {'yes' if summary.get('role_lanes_used') else 'no'}\n"
+        f"Subagent Lanes: {', '.join(subagents) if subagents else 'none'}\n"
+        f"Role Lanes: {', '.join(role_lanes) if role_lanes else 'none'}\n"
+        f"Subagent Trace Evidence: {', '.join(traces) if traces else 'none'}\n"
+    )
+
+
 def write_run(
     root: Path,
     *,
@@ -480,6 +543,9 @@ def write_run(
     lanes: list[dict[str, Any]] | None = None,
     trace_events: dict[str, list[dict[str, Any]]] | None = None,
     lane_map_extra: dict[str, Any] | None = None,
+    delegation_summary_data: Any = DEFAULT,
+    final_extra: str = "",
+    route_extra: str = "",
     risk_mitigations_data: Any = DEFAULT,
     final_risk_ids: Any = DEFAULT,
     risk_resolutions_data: Any = DEFAULT,
@@ -497,6 +563,11 @@ def write_run(
             content += f"Verdict: {verdict}\n"
         (run_dir / name).write_text(content, encoding="utf-8")
     final_text = f"# Final\n\nVerdict: {verdict}\n"
+    if lanes is not None and delegation_summary_data is DEFAULT:
+        final_text += delegation_trace_section(delegation_summary(lanes))
+    elif isinstance(delegation_summary_data, dict):
+        final_text += delegation_trace_section(delegation_summary_data)
+    final_text += final_extra
     if (
         verdict == "pass-with-risks"
         and risk_mitigations_data is not OMIT
@@ -556,6 +627,22 @@ def write_run(
         timeline_events.extend(events)
 
     if lanes is not None:
+        if delegation_summary_data is DEFAULT:
+            (run_dir / "delegation-summary.json").write_text(
+                json.dumps(delegation_summary(lanes), ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+        elif delegation_summary_data is not OMIT:
+            if isinstance(delegation_summary_data, str):
+                (run_dir / "delegation-summary.json").write_text(
+                    delegation_summary_data,
+                    encoding="utf-8",
+                )
+            else:
+                (run_dir / "delegation-summary.json").write_text(
+                    json.dumps(delegation_summary_data, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8",
+                )
         for lane in lanes:
             handoff = lane.get("handoff")
             if isinstance(handoff, str):
@@ -648,6 +735,10 @@ def write_run(
             json.dumps(lane_map, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
+
+    if route_extra:
+        route_path = run_dir / "route.md"
+        route_path.write_text(route_path.read_text(encoding="utf-8") + route_extra, encoding="utf-8")
 
     timeline_events.append(
         timeline_event("final", summary="Fixture final event.", next_step="handoff")
@@ -794,6 +885,24 @@ def spawned_trace(role: str, lane_id: str) -> dict[str, Any]:
         status="active",
         summary=f"Spawned {lane_id}.",
         next_step="handoff",
+        execution_mode="subagent",
+        agent_trace=f"agents/{role}/trace.jsonl",
+        agent_artifact_dir=f"artifacts/agents/{role}",
+        codex_thread_id=f"thread-{lane_id}",
+        lane_id=lane_id,
+        wave=3,
+        critical=True,
+    )
+
+
+def subagent_handoff_trace(role: str, lane_id: str) -> dict[str, Any]:
+    return timeline_event(
+        "handoff",
+        role=role,
+        status="pass",
+        summary=f"{lane_id} handed off completed work.",
+        next_step="orchestrator review",
+        artifacts=[f"handoffs/{lane_id}.md"],
         execution_mode="subagent",
         agent_trace=f"agents/{role}/trace.jsonl",
         agent_artifact_dir=f"artifacts/agents/{role}",
@@ -1119,8 +1228,152 @@ def main() -> int:
             write_run(
                 temp / "valid-subagent",
                 lanes=[lane("qa-live-feed", execution_mode="subagent")],
+                trace_events={
+                    "qa-verifier": [
+                        spawned_trace("qa-verifier", "qa-live-feed"),
+                        subagent_handoff_trace("qa-verifier", "qa-live-feed"),
+                    ]
+                },
+            ),
+        )
+
+        expect_fail(
+            "positive lane-map run requires delegation summary",
+            write_run(
+                temp / "lane-map-no-delegation-summary",
+                lanes=[lane("qa-trace")],
+                lane_map_extra={"schema_version": 2, "budget": "standard"},
+                delegation_summary_data=OMIT,
+            ),
+            "delegation-summary.json is required for positive lane-map run",
+        )
+
+        expect_pass(
+            "role-lane only delegation summary passes",
+            write_run(
+                temp / "role-lane-delegation-summary",
+                lanes=[lane("qa-trace")],
+                lane_map_extra={"schema_version": 2, "budget": "standard"},
+            ),
+        )
+
+        expect_fail(
+            "subagents false cannot narrate explorer sidecar",
+            write_run(
+                temp / "sidecar-claim-without-subagent",
+                lanes=[lane("qa-trace")],
+                lane_map_extra={"schema_version": 2, "budget": "standard"},
+                final_extra="\nExplorer sidecar found a broader auth/session improvement.\n",
+            ),
+            "claims subagent/sidecar without spawned trace evidence",
+        )
+
+        summary_claims_unknown = delegation_summary([lane("qa-trace")])
+        summary_claims_unknown["role_lanes"][0]["lane_id"] = "missing-lane"
+        expect_fail(
+            "delegation summary unknown lane id fails",
+            write_run(
+                temp / "delegation-summary-unknown-lane",
+                lanes=[lane("qa-trace")],
+                lane_map_extra={"schema_version": 2, "budget": "standard"},
+                delegation_summary_data=summary_claims_unknown,
+            ),
+            "delegation-summary.json: unknown lane id: missing-lane",
+        )
+
+        summary_claims_subagent = delegation_summary([lane("qa-trace")])
+        summary_claims_subagent["subagents_used"] = True
+        summary_claims_subagent["subagents"] = [
+            {
+                "lane_id": "qa-trace",
+                "role": "qa-verifier",
+                "codex_thread_id": "thread-qa-trace",
+                "trace": "agents/qa-verifier/trace.jsonl",
+                "handoff": "handoffs/qa-trace.md",
+            }
+        ]
+        summary_claims_subagent["role_lanes"] = []
+        summary_claims_subagent["role_lanes_used"] = False
+        expect_fail(
+            "delegation summary cannot call role lane a subagent",
+            write_run(
+                temp / "delegation-summary-role-lane-as-subagent",
+                lanes=[lane("qa-trace")],
+                lane_map_extra={"schema_version": 2, "budget": "standard"},
+                delegation_summary_data=summary_claims_subagent,
+            ),
+            "delegation-summary.json: lane qa-trace is not execution_mode=subagent",
+        )
+
+        expect_fail(
+            "subagent spawned trace without terminal handoff fails",
+            write_run(
+                temp / "subagent-no-terminal-handoff",
+                lanes=[lane("qa-live-feed", execution_mode="subagent")],
+                lane_map_extra={"schema_version": 2, "budget": "standard"},
                 trace_events={"qa-verifier": [spawned_trace("qa-verifier", "qa-live-feed")]},
             ),
+            "missing terminal handoff trace event",
+        )
+
+        expect_pass(
+            "subagent spawned trace with terminal handoff passes",
+            write_run(
+                temp / "subagent-terminal-handoff",
+                lanes=[lane("qa-live-feed", execution_mode="subagent")],
+                lane_map_extra={"schema_version": 2, "budget": "standard"},
+                trace_events={
+                    "qa-verifier": [
+                        spawned_trace("qa-verifier", "qa-live-feed"),
+                        subagent_handoff_trace("qa-verifier", "qa-live-feed"),
+                    ]
+                },
+            ),
+        )
+
+        expect_fail(
+            "subagent terminal handoff requires matching lane id",
+            write_run(
+                temp / "subagent-terminal-wrong-lane",
+                lanes=[lane("qa-live-feed", execution_mode="subagent")],
+                lane_map_extra={"schema_version": 2, "budget": "standard"},
+                trace_events={
+                    "qa-verifier": [
+                        spawned_trace("qa-verifier", "qa-live-feed"),
+                        subagent_handoff_trace("qa-verifier", "other-lane"),
+                    ]
+                },
+            ),
+            "missing terminal handoff trace event",
+        )
+
+        terminal_without_handoff_artifact = subagent_handoff_trace("qa-verifier", "qa-live-feed")
+        terminal_without_handoff_artifact["artifacts"] = []
+        expect_fail(
+            "subagent terminal handoff requires handoff artifact",
+            write_run(
+                temp / "subagent-terminal-no-handoff-artifact",
+                lanes=[lane("qa-live-feed", execution_mode="subagent")],
+                lane_map_extra={"schema_version": 2, "budget": "standard"},
+                trace_events={
+                    "qa-verifier": [
+                        spawned_trace("qa-verifier", "qa-live-feed"),
+                        terminal_without_handoff_artifact,
+                    ]
+                },
+            ),
+            "terminal handoff trace event missing handoff artifact",
+        )
+
+        expect_fail(
+            "route cannot call role lane a subagent",
+            write_run(
+                temp / "route-role-lane-called-subagent",
+                lanes=[lane("qa-trace")],
+                lane_map_extra={"schema_version": 2, "budget": "standard"},
+                route_extra="\nThe qa-trace subagent returned clean evidence.\n",
+            ),
+            "claims subagent/sidecar without spawned trace evidence",
         )
 
         expect_fail(
@@ -3689,7 +3942,12 @@ def main() -> int:
             write_run(
                 temp / "architecture-independent-subagent",
                 lanes=[architecture_lane(execution_mode="subagent"), qa_lane()],
-                trace_events={"architect": [spawned_trace("architect", "architecture-contract")]},
+                trace_events={
+                    "architect": [
+                        spawned_trace("architect", "architecture-contract"),
+                        subagent_handoff_trace("architect", "architecture-contract"),
+                    ]
+                },
                 lane_map_extra={
                     **architecture_control_extra(),
                     "budget": "release",

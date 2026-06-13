@@ -66,10 +66,11 @@ Inside Agent Flow, the orchestrator owns the outcome:
 8. Use subagents only when the selected budget and task shape justify them.
 9. Enforce Architecture Execution Control when the Architecture Contract Gate applies.
 10. Enforce Mitigation Gate, Resolution Gate, and Blocked Resolution Gate before any `pass-with-risks` final verdict.
-11. Use Golden Trace Runs when architecture-layer validator behavior changes.
-12. Verify evidence before any completion claim.
-13. Close the current project-memory task status before final handoff.
-14. Return the final answer with residual risks.
+11. Enforce Delegation Trace Gate for traceable lane runs.
+12. Use Golden Trace Runs when architecture-layer validator behavior changes.
+13. Verify evidence before any completion claim.
+14. Close the current project-memory task status before final handoff.
+15. Return the final answer with residual risks.
 
 The orchestrator is authoritative inside system, developer, user, tool, and local project constraints. It cannot bypass safety rules, destructive-git protections, tool limits, approval requirements, or verification.
 
@@ -159,6 +160,13 @@ Blocked Resolution Gate runs inside Resolution Gate when a resolution attempt bl
 
 Golden Trace Runs are the persisted acceptance pack for the architecture layer. `scripts/test-golden-traces.py` validates `testdata/golden-traces/` with real full trace directories, including expected failures.
 
+Delegation Trace Gate applies to positive traceable lane-map runs. The
+orchestrator writes `delegation-summary.json` and a `Delegation Trace` section
+in `final.md` with `Subagents Used`, `Role Lanes Used`, and
+`Subagent Trace Evidence`. A real subagent needs spawned trace evidence plus a
+terminal handoff event; role-lane work must not be called sidecar or subagent
+execution.
+
 The Architecture Approval Gate handles rejected, regressed, or uncertain architecture attempts. The orchestrator sends the real case back for deeper architecture analysis, then lets workers retry only against the approved steps and records the resulting evidence.
 
 Model/reasoning upgrade is not the default fix. Escalate model or reasoning only when the resolver trigger is justified by task risk; otherwise improve context, architecture contract, evidence, or verification first.
@@ -239,6 +247,11 @@ Create `.agent-work/runs/YYYY-MM-DD-task-slug/` for:
 - explicit user request for trace artifacts;
 - subagent delegation where handoffs need persistence.
 
+For lane-map traceable runs, keep `delegation-summary.json` synchronized with
+`lane-map.json`, `timeline.jsonl`, and per-agent traces. Positive final
+verdicts must not claim sidecar/subagent work unless a real spawned subagent
+trace and terminal handoff are recorded.
+
 Do not create run directories for short consultation, one-off shell checks, or tiny one-file edits unless risk grows.
 
 For traceable implementation runs inside git repos, capture `git status --short` before edits and report worktree hygiene in `final.md`: run-owned changes, pre-existing dirty files, and any pre-existing file touched by the run.
@@ -262,6 +275,12 @@ Inside Agent Flow, delegation is allowed when the selected budget permits it and
 - subagent tool is available in the current environment.
 
 For each subagent, provide a self-contained delegation packet and require a handoff file when a run directory exists.
+
+When a run directory exists, record real subagents with
+`scripts/record-agent-trace.py`: first `stage=spawned` with `codex_thread_id`,
+then a terminal handoff/blocked/fail event. Update `delegation-summary.json`
+and `final.md` `Delegation Trace`; role lanes remain `role-lane` and are not
+sidecars.
 
 Before launching a subagent, read the bundled role file `agents/<role>.md` and resolve `stable_agent_name` plus `stable_agent_slug` from `agents/agent-identities.json`.
 

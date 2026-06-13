@@ -156,6 +156,39 @@
       "covers": [
         "Blocked Resolution Gate"
       ]
+    },
+    {
+      "id": "role-lane-called-sidecar",
+      "path": "invalid/role-lane-called-sidecar",
+      "mode": "full",
+      "expected": "fail",
+      "expected_error": "claims subagent/sidecar without spawned trace evidence",
+      "covers": [
+        "Delegation Trace Gate",
+        "narrative claim guard"
+      ]
+    },
+    {
+      "id": "subagent-lane-without-terminal-handoff",
+      "path": "invalid/subagent-lane-without-terminal-handoff",
+      "mode": "full",
+      "expected": "fail",
+      "expected_error": "missing terminal handoff trace event",
+      "covers": [
+        "Delegation Trace Gate",
+        "terminal handoff"
+      ]
+    },
+    {
+      "id": "delegation-summary-claims-subagent-without-spawned-trace",
+      "path": "invalid/delegation-summary-claims-subagent-without-spawned-trace",
+      "mode": "full",
+      "expected": "fail",
+      "expected_error": "lane worker-a is not execution_mode=subagent",
+      "covers": [
+        "Delegation Trace Gate",
+        "delegation-summary.json"
+      ]
     }
   ]
 }

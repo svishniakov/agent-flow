@@ -54,6 +54,7 @@ For full `release` trace:
 - timeline has exactly one final orchestrator event;
 - initial and final worktree states are recorded when the run edits a git repo;
 - every delegated subagent has `agents/<role>/trace.jsonl` and matching run-level timeline events;
+- Delegation Trace Gate is covered: positive schema v2 lane-map runs include `delegation-summary.json`, final `Delegation Trace`, `Subagents Used`, `Role Lanes Used`, `Subagent Trace Evidence`, and terminal handoff trace evidence for every successful spawned subagent;
 - when Lane Sharding is used, `lane-map.json` is valid and every critical lane is covered by evidence or a valid replacement lane;
 - when the Architecture Contract Gate is required, `lane-map.json` uses schema v2, records `budget`, `architecture_context`, and `architecture_capabilities`, includes a critical `architecture` lane, and blocks `ship` until that lane has handoff and evidence with the required contract sections;
 - Architecture Design Mode is covered: every successful critical `architecture` lane records `architecture_design_brief`, the Architecture Design Brief includes `Selected Matrix Facets`, and `Decision` contains `Status: approved` before any positive final verdict;
@@ -98,6 +99,7 @@ For full `release` trace:
 
 - Workflow patterns are recipes, not public modes.
 - Subagent patterns ran only under `standard` or `release`, or after explicit user request.
+- Role-lane work was not described as sidecar or subagent execution unless a real spawned subagent trace and terminal handoff existed.
 - Loop-until-done has max iterations, budget cap, stop condition, failure condition, and handoff state.
 - Tournament has bracket size or max comparisons, stable rubric, tie-breakers, and winner rationale.
 - Fan-out work has deterministic item ownership and synthesis by the orchestrator.

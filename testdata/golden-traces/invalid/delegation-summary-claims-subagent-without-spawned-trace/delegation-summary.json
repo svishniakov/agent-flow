@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "subagents_used": true,
+  "role_lanes_used": false,
+  "subagents": [
+    {
+      "lane_id": "worker-a",
+      "role": "typescript-worker",
+      "codex_thread_id": "thread-worker-a",
+      "trace": "agents/typescript-worker/trace.jsonl",
+      "handoff": "handoffs/worker-a.md"
+    }
+  ],
+  "role_lanes": [],
+  "notes": "Invalid case: role-lane is incorrectly claimed as subagent."
+}
