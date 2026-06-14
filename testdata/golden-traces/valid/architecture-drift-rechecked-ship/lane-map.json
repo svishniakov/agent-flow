@@ -46,10 +46,12 @@
       ],
       "replacement": null,
       "handoff_sections": [
-        "Architecture Compliance"
+        "Architecture Compliance",
+        "Engineering Simplicity"
       ],
       "handoff_section_bodies": {
-        "Architecture Compliance": "Matrix facets:\n- `backend-service`\n- `monolith`"
+        "Architecture Compliance": "Matrix facets:\n- `backend-service`\n- `monolith`",
+        "Engineering Simplicity": "Checks:\n- `no-extra-work`\n- `stdlib-native-first`\n- `existing-helper-first`\n- `dependency-justified`\n- `abstraction-justified`\n- `smallest-working-diff`\n- `tests-fit-risk`\n\nScope coverage:\n- `api-service`\n\nStatus: pass"
       },
       "architecture_compliance": {
         "status": "drift",
@@ -79,7 +81,17 @@
           "actions": [
             "Routed the lane through architecture re-check before QA and reviewer."
           ],
-          "notes": "Engineering Simplicity drift routed through existing architecture-drift / architecture-recheck path."
+          "notes": "Engineering Simplicity drift routed through existing architecture-drift / architecture-recheck path.",
+          "scope_coverage": {
+            "primary_surfaces": [
+              "api-service"
+            ],
+            "secondary_surfaces": [],
+            "evidence": [
+              "checks/engineering-simplicity-scope.md"
+            ],
+            "notes": "Golden worker audited the primary product-code surface."
+          }
         }
       }
     },
@@ -114,10 +126,12 @@
       ],
       "replacement": null,
       "handoff_sections": [
-        "Architecture Invariants"
+        "Architecture Invariants",
+        "Engineering Simplicity Scope"
       ],
       "handoff_section_bodies": {
-        "Architecture Invariants": "Covered gates:\n- `migrations`\n- `unit`\n- `integration`"
+        "Architecture Invariants": "Covered gates:\n- `migrations`\n- `unit`\n- `integration`",
+        "Engineering Simplicity Scope": "Verified primary surfaces:\n- `api-service`"
       },
       "verification_results": {
         "status": "pass",
@@ -171,7 +185,7 @@
       ],
       "handoff_section_bodies": {
         "Architecture Matrix Mismatches": "Checked facets:\n- `saas-service`\n- `backend-service`\n- `monolith`\n- `go`\n- `migrations`\n- `unit`\n- `integration`\n\nChecked capabilities:\n- `saas-platform-architecture`\n- `go-backend-service-architecture`\n- `modular-monolith-architecture`",
-        "Contract Drift": "No contract drift for selected Architecture Matrix facets and architecture capabilities."
+        "Contract Drift": "Engineering Simplicity primary surface `api-service` checked; rejected peripheral-only closure.\n\nNo contract drift for selected Architecture Matrix facets and architecture capabilities."
       }
     }
   ],
@@ -211,5 +225,17 @@
     "lanes": [
       "verification-readiness-1"
     ]
+  },
+  "engineering_simplicity_scope": {
+    "primary_surfaces": [
+      "api-service"
+    ],
+    "secondary_surfaces": [
+      "smoke-tests"
+    ],
+    "evidence": [
+      "checks/engineering-simplicity-scope.md"
+    ],
+    "notes": "Golden trace primary product-code surface; smoke checks are secondary."
   }
 }

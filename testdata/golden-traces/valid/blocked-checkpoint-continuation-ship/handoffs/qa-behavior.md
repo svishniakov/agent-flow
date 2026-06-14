@@ -22,3 +22,8 @@ Revalidated continuation items:
 - `verification-env-missing`
 - `worker-a`
 - `worker-b`
+
+## Engineering Simplicity Scope
+
+Verified primary surfaces:
+- `api-service`

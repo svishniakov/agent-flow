@@ -64,7 +64,7 @@ Return:
 - Architecture Design Brief constraints followed when Architecture Design Mode applies
 - Architecture Artifact Authoring Automation status for worker-owned `TODO(agent):` placeholders
 - Architecture Compliance: compliant or drift, contract sections touched, selected `matrix_facets`, notes, and re-check need
-- Engineering Simplicity: status `pass`, `fixed`, or `drift`; checks; findings/actions; notes; exact action text in the handoff when fixed; and selected capability citation for any retained dependency or abstraction
+- Engineering Simplicity: status `pass`, `fixed`, or `drift`; checks; findings/actions; notes; exact action text in the handoff when fixed; scope_coverage for covered primary/secondary surfaces; and selected capability citation for any retained dependency or abstraction
 - DoD status
 - risks
 

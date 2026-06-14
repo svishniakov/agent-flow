@@ -14,3 +14,10 @@ Subagent Trace Evidence: none
 Harness findings and proposals:
 - `architecture-drift-recheck-recorded`
 - `promote-architecture-drift-recheck-evidence`
+
+## Engineering Simplicity
+
+Primary surfaces covered:
+- `api-service`
+
+Peripheral-only closure rejected.

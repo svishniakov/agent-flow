@@ -354,6 +354,19 @@ Schema v2 also enforces Architecture Execution Control and Engineering Simplicit
   `stdlib-native-first`, `existing-helper-first`, `dependency-justified`,
   `abstraction-justified`, `smallest-working-diff`, and `tests-fit-risk`;
 - Simplicity Gate is not a reporting gate: fix now if fixable;
+- Simplicity Scope Coverage prevents peripheral-only closure: positive
+  architecture-gated runs with worker lanes must include
+  `engineering_simplicity_scope` with non-empty unique kebab-case
+  `primary_surfaces`, optional `secondary_surfaces`, evidence, and notes;
+- every successful worker lane must include
+  `architecture_compliance.engineering_simplicity.scope_coverage`;
+- worker `scope_coverage.primary_surfaces` and `secondary_surfaces` may only
+  reference surfaces declared in top-level `engineering_simplicity_scope`;
+- every top-level primary surface must be covered by at least one successful
+  worker lane, and scope evidence files must mention the covered surface ids
+  literally;
+- worker `Engineering Simplicity` handoffs must mention every covered surface
+  id;
 - `pass` Engineering Simplicity cannot report fixable overengineering,
   duplicated helper, unnecessary abstraction, dependency/stack drift, or
   wider-than-needed implementation;
@@ -370,6 +383,10 @@ Schema v2 also enforces Architecture Execution Control and Engineering Simplicit
   `Engineering Simplicity`;
 - reviewer `Contract Drift` must reject reporting-only simplicity closure and
   mention `Engineering Simplicity` plus every fixed worker lane id;
+- QA handoff must include `Engineering Simplicity Scope` and every primary
+  surface; reviewer `Contract Drift` must mention every primary surface and
+  reject peripheral-only closure; final `Engineering Simplicity` must mention
+  every primary surface;
 - worker `Architecture Compliance` sections must include every facet id declared
   in `architecture_compliance.matrix_facets`;
 - `compliant` worker lanes must not set `recheck_lane`;

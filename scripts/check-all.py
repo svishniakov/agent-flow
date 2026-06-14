@@ -174,6 +174,14 @@ ENGINEERING_SIMPLICITY_WORKER_REMEDIATION_GUARD_TERMS = [
     "wider-than-needed implementation",
     "architect re-check",
 ]
+SIMPLICITY_SCOPE_COVERAGE_GUARD_TERMS = [
+    "Simplicity Scope Coverage",
+    "engineering_simplicity_scope",
+    "primary_surfaces",
+    "secondary_surfaces",
+    "scope_coverage",
+    "peripheral-only closure",
+]
 
 REQUIRED_RUNTIME_TEXT = {
     "SKILL.md": [
@@ -199,6 +207,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Execution Control",
         *ENGINEERING_SIMPLICITY_GATE_GUARD_TERMS,
         *ENGINEERING_SIMPLICITY_REMEDIATION_GUARD_TERMS,
+        *SIMPLICITY_SCOPE_COVERAGE_GUARD_TERMS,
         "not AI Slop Gate",
         *MITIGATION_GATE_GUARD_TERMS,
         *RESOLUTION_GATE_GUARD_TERMS,
@@ -234,6 +243,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Contract Drift",
         *ENGINEERING_SIMPLICITY_GATE_GUARD_TERMS,
         *ENGINEERING_SIMPLICITY_REMEDIATION_GUARD_TERMS,
+        *SIMPLICITY_SCOPE_COVERAGE_GUARD_TERMS,
         "not AI Slop Gate",
         *MITIGATION_GATE_GUARD_TERMS,
         *RESOLUTION_GATE_GUARD_TERMS,
@@ -281,6 +291,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Contract Drift",
         *ENGINEERING_SIMPLICITY_GATE_GUARD_TERMS,
         *ENGINEERING_SIMPLICITY_REMEDIATION_GUARD_TERMS,
+        *SIMPLICITY_SCOPE_COVERAGE_GUARD_TERMS,
         *MITIGATION_GATE_GUARD_TERMS,
         *RESOLUTION_GATE_GUARD_TERMS,
         *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
@@ -317,6 +328,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Contract Drift",
         *ENGINEERING_SIMPLICITY_GATE_GUARD_TERMS,
         *ENGINEERING_SIMPLICITY_REMEDIATION_GUARD_TERMS,
+        *SIMPLICITY_SCOPE_COVERAGE_GUARD_TERMS,
         *MITIGATION_GATE_GUARD_TERMS,
         *RESOLUTION_GATE_GUARD_TERMS,
         *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
@@ -353,6 +365,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Contract Drift",
         *ENGINEERING_SIMPLICITY_GATE_GUARD_TERMS,
         *ENGINEERING_SIMPLICITY_REMEDIATION_GUARD_TERMS,
+        *SIMPLICITY_SCOPE_COVERAGE_GUARD_TERMS,
         *MITIGATION_GATE_GUARD_TERMS,
         *RESOLUTION_GATE_GUARD_TERMS,
         *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
@@ -490,6 +503,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Simplicity Gate is not a reporting gate",
         "fix now if fixable",
         "reporting-only",
+        *SIMPLICITY_SCOPE_COVERAGE_GUARD_TERMS,
         *VERIFICATION_READINESS_GATE_GUARD_TERMS,
         "No role should ask the human",
         *CLAIM_EVIDENCE_AUTHORING_GUARD_TERMS,
@@ -574,6 +588,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Contract Drift",
         "Engineering Simplicity",
         "reporting-only",
+        *SIMPLICITY_SCOPE_COVERAGE_GUARD_TERMS,
         "fixed worker lane id",
         *VERIFICATION_READINESS_GATE_GUARD_TERMS,
         *CONTINUATION_GATE_GUARD_TERMS,
@@ -593,6 +608,7 @@ REQUIRED_RUNTIME_TEXT = {
         "architecture_context",
         "Engineering Simplicity",
         "simplicity remediation",
+        *SIMPLICITY_SCOPE_COVERAGE_GUARD_TERMS,
         *ARCHITECTURE_CAPABILITY_GUARD_TERMS,
         "Architecture Context Propagation",
         "Architecture Invariants",
@@ -754,6 +770,7 @@ REQUIRED_RUNTIME_TEXT = {
         *ENGINEERING_SIMPLICITY_RUNTIME_GUARD_TERMS,
         "fix now if fixable",
         "route as drift only when architect re-check is needed",
+        *SIMPLICITY_SCOPE_COVERAGE_GUARD_TERMS,
         *CLAIM_EVIDENCE_AUTHORING_GUARD_TERMS,
     ],
     "scripts/test-init-run.py": [
@@ -765,6 +782,7 @@ REQUIRED_RUNTIME_TEXT = {
         "TODO(agent):",
         "fix now if fixable",
         "Engineering Simplicity remediation instruction",
+        *SIMPLICITY_SCOPE_COVERAGE_GUARD_TERMS,
     ],
     "scripts/validate-architecture-capabilities.py": [
         "Architecture Capability Router",
@@ -781,6 +799,7 @@ REQUIRED_RUNTIME_TEXT = {
         "standard-multilane-architecture-ship",
         "worker-without-engineering-simplicity",
         "Engineering Simplicity Gate",
+        *SIMPLICITY_SCOPE_COVERAGE_GUARD_TERMS,
         "release-independent-architecture-ship",
         "blocked-resolution-third-attempt-blocked",
         "blocked-checkpoint-continuation-ship",

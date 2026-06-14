@@ -21,3 +21,10 @@ Resolved blockers and revalidated lanes:
 Harness findings and proposals:
 - `readiness-before-workers-recovery`
 - `promote-continuation-revalidation-evidence`
+
+## Engineering Simplicity
+
+Primary surfaces covered:
+- `api-service`
+
+Peripheral-only closure rejected.

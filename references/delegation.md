@@ -147,6 +147,15 @@ approach. Retained dependency or abstraction must cite selected
 the orchestrator routes the case to architect re-check before `ship` or
 `pass-with-risks`; the drift is not closed by worker-only follow-up.
 
+Simplicity Scope Coverage is part of the same control. The orchestrator records
+`engineering_simplicity_scope.primary_surfaces` for core task surfaces and
+`secondary_surfaces` for peripheral proof such as smoke scripts or docs.
+Workers record `scope_coverage` under
+`architecture_compliance.engineering_simplicity` and must audit or remediate
+assigned primary surfaces before QA. QA writes `Engineering Simplicity Scope`.
+Reviewer `Contract Drift` must mention every primary surface and reject
+peripheral-only closure.
+
 Architecture Context Propagation carries the selected `architecture_context`
 through execution. Workers must set `architecture_compliance.matrix_facets` to
 the selected facets they actually touched and mention those facet ids in

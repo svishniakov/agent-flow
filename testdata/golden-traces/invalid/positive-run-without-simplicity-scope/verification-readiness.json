@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "status": "ready",
+  "attempts": [
+    {
+      "id": "readiness-1",
+      "lane": "verification-readiness-1",
+      "status": "ready",
+      "gates": [
+        {
+          "axis": "risk_gates",
+          "facet": "migrations",
+          "readiness": "ready",
+          "check": "golden readiness check for migrations",
+          "evidence": [
+            "checks/verification-readiness.md"
+          ],
+          "notes": "migrations ready in golden trace."
+        },
+        {
+          "axis": "verification_gates",
+          "facet": "unit",
+          "readiness": "ready",
+          "check": "golden readiness check for unit",
+          "evidence": [
+            "checks/verification-readiness.md"
+          ],
+          "notes": "unit ready in golden trace."
+        },
+        {
+          "axis": "verification_gates",
+          "facet": "integration",
+          "readiness": "ready",
+          "check": "golden readiness check for integration",
+          "evidence": [
+            "checks/verification-readiness.md"
+          ],
+          "notes": "integration ready in golden trace."
+        }
+      ],
+      "blockers": [],
+      "approval_requests": []
+    }
+  ],
+  "approval_requests": [],
+  "approval_executions": []
+}

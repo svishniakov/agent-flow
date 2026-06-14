@@ -49,6 +49,7 @@ EXPECTED_ARCHITECTURE_GATE_FILES = [
     "handoffs/review-contract.md",
     "checks/architecture-contract.md",
     "checks/verification-readiness.md",
+    "checks/engineering-simplicity-scope.md",
     "checks/worker-a.md",
     "checks/qa-behavior.md",
     "checks/review-contract.md",
@@ -222,10 +223,23 @@ def main() -> int:
             raise AssertionError("generated lane-map.json must include architecture_context")
         if lane_map.get("architecture_capabilities", {}).get("selected") != DEFAULT_ARCHITECTURE_CAPABILITIES:
             raise AssertionError("generated lane-map.json must include architecture_capabilities")
+        simplicity_scope = lane_map.get("engineering_simplicity_scope")
+        if not isinstance(simplicity_scope, dict):
+            raise AssertionError("generated lane-map.json must include engineering_simplicity_scope")
+        if "primary_surfaces" not in simplicity_scope or "secondary_surfaces" not in simplicity_scope:
+            raise AssertionError("generated engineering_simplicity_scope must include surfaces")
+        if simplicity_scope.get("evidence") != ["checks/engineering-simplicity-scope.md"]:
+            raise AssertionError("generated engineering_simplicity_scope must include evidence path")
 
         worker_handoff = (run_dir / "handoffs/worker-a.md").read_text(encoding="utf-8")
         if "## Engineering Simplicity" not in worker_handoff:
             raise AssertionError("worker handoff missing Engineering Simplicity section")
+        if "scope_coverage" not in worker_handoff:
+            raise AssertionError("worker handoff missing Engineering Simplicity scope_coverage")
+        if "Simplicity Scope Coverage" not in worker_handoff:
+            raise AssertionError("worker handoff missing Simplicity Scope Coverage")
+        if "Primary scope must be audited before peripheral fixes can close the Gate" not in worker_handoff:
+            raise AssertionError("worker handoff missing primary scope closure rule")
         for check in ENGINEERING_SIMPLICITY_CHECKS:
             if check not in worker_handoff:
                 raise AssertionError(f"worker handoff missing engineering simplicity check: {check}")
@@ -233,6 +247,14 @@ def main() -> int:
             raise AssertionError("worker handoff missing Engineering Simplicity TODO(agent)")
         if "fix now if fixable" not in worker_handoff:
             raise AssertionError("worker handoff missing Engineering Simplicity remediation instruction")
+
+        qa_handoff = (run_dir / "handoffs/qa-behavior.md").read_text(encoding="utf-8")
+        if "## Engineering Simplicity Scope" not in qa_handoff:
+            raise AssertionError("QA handoff missing Engineering Simplicity Scope section")
+
+        reviewer_handoff = (run_dir / "handoffs/review-contract.md").read_text(encoding="utf-8")
+        if "peripheral-only closure" not in reviewer_handoff:
+            raise AssertionError("reviewer handoff missing peripheral-only closure rule")
 
         delegation_summary = json.loads((run_dir / "delegation-summary.json").read_text(encoding="utf-8"))
         if delegation_summary.get("subagents_used") is not False:

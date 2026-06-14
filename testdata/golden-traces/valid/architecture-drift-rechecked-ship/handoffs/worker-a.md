@@ -26,3 +26,6 @@ Actions:
 - Routed the lane through architecture re-check before QA and reviewer.
 
 Notes: Engineering Simplicity drift routed through existing architecture-drift / architecture-recheck path.
+
+Scope coverage:
+- `api-service`

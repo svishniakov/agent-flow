@@ -362,6 +362,48 @@
         "Claim Evidence Gate",
         "marker-backed evidence"
       ]
+    },
+    {
+      "id": "positive-run-without-simplicity-scope",
+      "path": "invalid/positive-run-without-simplicity-scope",
+      "mode": "full",
+      "expected": "fail",
+      "expected_error": "positive architecture-gated worker run requires engineering_simplicity_scope",
+      "covers": [
+        "Simplicity Scope Coverage",
+        "engineering_simplicity_scope",
+        "primary_surfaces",
+        "secondary_surfaces",
+        "scope_coverage"
+      ]
+    },
+    {
+      "id": "secondary-only-simplicity-closure",
+      "path": "invalid/secondary-only-simplicity-closure",
+      "mode": "full",
+      "expected": "fail",
+      "expected_error": "engineering_simplicity_scope primary surface not covered by worker: api-service",
+      "covers": [
+        "Simplicity Scope Coverage",
+        "peripheral-only closure",
+        "primary_surfaces",
+        "secondary_surfaces",
+        "scope_coverage"
+      ]
+    },
+    {
+      "id": "simplicity-primary-surface-not-reviewed",
+      "path": "invalid/simplicity-primary-surface-not-reviewed",
+      "mode": "full",
+      "expected": "fail",
+      "expected_error": "Contract Drift missing Engineering Simplicity primary surface: api-service",
+      "covers": [
+        "Simplicity Scope Coverage",
+        "reviewer scope coverage",
+        "primary_surfaces",
+        "secondary_surfaces",
+        "scope_coverage"
+      ]
     }
   ]
 }

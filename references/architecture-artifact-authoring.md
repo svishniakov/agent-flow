@@ -52,12 +52,12 @@ The scan covers Architecture Design Brief, Architecture Contract, worker handoff
 
 ## Role Ownership
 
-- Orchestrator chooses `architecture_context` and `architecture_capabilities`, creates the skeleton with `--architecture-gate`, and keeps lanes blocked until placeholders are gone.
+- Orchestrator chooses `architecture_context`, `architecture_capabilities`, and Simplicity Scope Coverage through `engineering_simplicity_scope.primary_surfaces`, `secondary_surfaces`, evidence, and notes; it creates the skeleton with `--architecture-gate` and keeps lanes blocked until placeholders are gone.
 - Architect fills Architecture Design Brief and Architecture Contract before workers start.
 - QA fills the pre-worker Verification Readiness Gate artifact, including `verification_readiness`, `needs-approval`, `paused-blocked`, `approval_requests`, `approval_executions`, `resume_phrase`, and later `Verification Gate Results` coverage.
-- Workers fill their own `Architecture Compliance` and `Engineering Simplicity` handoff sections, then update lane-map `architecture_compliance.engineering_simplicity`. They fix now if fixable; Simplicity Gate is not a reporting gate.
-- QA fills `Architecture Invariants` from selected `risk_gates`, `verification_gates`, and contract QA gates.
+- Workers fill their own `Architecture Compliance` and `Engineering Simplicity` handoff sections, then update lane-map `architecture_compliance.engineering_simplicity` and worker `scope_coverage`. They fix now if fixable; Simplicity Gate is not a reporting gate. Primary surfaces must be audited before secondary surfaces can help close the gate.
+- QA fills `Architecture Invariants` from selected `risk_gates`, `verification_gates`, and contract QA gates, plus `Engineering Simplicity Scope` with every primary surface.
 - QA and reviewer fill Claim Evidence Gate data in `claim-evidence.json`: each `Claim Evidence` id gets an `owner_lane`, `supported` or `gap`, subjects, evidence paths, and literal `markers`.
-- Reviewer fills `Architecture Matrix Mismatches` and `Contract Drift` for every selected facet and capability; `Contract Drift` must cover Engineering Simplicity, reject reporting-only closure, and mention fixed worker lane ids.
+- Reviewer fills `Architecture Matrix Mismatches` and `Contract Drift` for every selected facet and capability; `Contract Drift` must cover Engineering Simplicity, reject reporting-only closure, reject peripheral-only closure, mention every primary surface, and mention fixed worker lane ids.
 
 No role should ask the human to write these sections manually.

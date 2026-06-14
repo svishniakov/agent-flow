@@ -55,6 +55,7 @@ WORKER_LANE_TYPES = {"implementation", "integration"}
 VERIFICATION_READINESS_PATH = "verification-readiness.json"
 CLAIM_EVIDENCE_PATH = "claim-evidence.json"
 DEFAULT_CLAIM_ID = "architecture-contract-claim"
+ENGINEERING_SIMPLICITY_SCOPE_EVIDENCE = "checks/engineering-simplicity-scope.md"
 COVERAGE_MATRIX = """# Coverage Matrix
 
 Use this file as the human-readable coverage summary for Lane Sharding runs.
@@ -360,6 +361,10 @@ Required checks:
 Selected architecture capabilities:
 {markdown_id_list(capabilities)}
 
+Scope coverage field: `architecture_compliance.engineering_simplicity.scope_coverage`
+
+{AGENT_TODO_PLACEHOLDER} Simplicity Scope Coverage: record primary/secondary surfaces covered by this worker. Primary scope must be audited before peripheral fixes can close the Gate.
+
 {AGENT_TODO_PLACEHOLDER} Record pass, fixed, or drift; fix now if fixable; route as drift only when architect re-check is needed; list findings/actions; cite selected capabilities for retained dependency or abstraction.
 """
 
@@ -380,6 +385,10 @@ Claim evidence:
 - Claim Evidence: `architecture-contract-claim`
 
 {AGENT_TODO_PLACEHOLDER} Verify behavior plus architecture invariants for the selected gates.
+
+## Engineering Simplicity Scope
+
+{AGENT_TODO_PLACEHOLDER} Verify that every primary surface from `engineering_simplicity_scope.primary_surfaces` was audited or remediated before QA closure.
 
 ## Verification Gate Results
 
@@ -479,7 +488,7 @@ Selected architecture capabilities:
 Claim evidence:
 - Claim Evidence: `architecture-contract-claim`
 
-{AGENT_TODO_PLACEHOLDER} Report no drift or name the exact drift and required architect re-check.
+{AGENT_TODO_PLACEHOLDER} Report no drift or name the exact drift and required architect re-check. Mention every primary surface and reject peripheral-only closure.
 """
 
 
@@ -601,13 +610,19 @@ def architecture_gate_lane_map(
         "architecture_contract_required": True,
         "architecture_contract_independent": False,
         "architecture_context": context,
-        "architecture_capabilities": {
-            "selected": capabilities,
-            "notes": "Generated from Architecture Matrix context; orchestrator must refine before implementation.",
-        },
-        "verification_readiness": {
-            "artifact": VERIFICATION_READINESS_PATH,
-            "lanes": ["verification-readiness-1"],
+            "architecture_capabilities": {
+                "selected": capabilities,
+                "notes": "Generated from Architecture Matrix context; orchestrator must refine before implementation.",
+            },
+            "engineering_simplicity_scope": {
+                "primary_surfaces": [],
+                "secondary_surfaces": [],
+                "evidence": [ENGINEERING_SIMPLICITY_SCOPE_EVIDENCE],
+                "notes": "TODO(agent): Simplicity Scope Coverage; choose primary surfaces from task scope and Architecture Contract ownership; secondary surfaces cannot close the gate by themselves.",
+            },
+            "verification_readiness": {
+                "artifact": VERIFICATION_READINESS_PATH,
+                "lanes": ["verification-readiness-1"],
         },
         "lanes": lanes,
     }
@@ -643,6 +658,10 @@ def write_architecture_gate_artifacts(
     write_if_missing(
         run_dir / "checks" / "verification-readiness.md",
         check_template("Verification Readiness Evidence"),
+    )
+    write_if_missing(
+        run_dir / ENGINEERING_SIMPLICITY_SCOPE_EVIDENCE,
+        check_template("Engineering Simplicity Scope Evidence"),
     )
     write_if_missing(
         run_dir / VERIFICATION_READINESS_PATH,

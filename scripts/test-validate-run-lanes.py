@@ -48,6 +48,7 @@ ARCHITECTURE_DESIGN_BRIEF_SECTIONS = [
 ]
 ARCHITECTURE_COMPLIANCE_SECTION = "Architecture Compliance"
 ENGINEERING_SIMPLICITY_SECTION = "Engineering Simplicity"
+ENGINEERING_SIMPLICITY_SCOPE_SECTION = "Engineering Simplicity Scope"
 ENGINEERING_SIMPLICITY_CHECKS = [
     "no-extra-work",
     "stdlib-native-first",
@@ -103,6 +104,9 @@ DEFAULT_ARCHITECTURE_CAPABILITIES = [
     "modular-monolith-architecture",
 ]
 DEFAULT_WORKER_MATRIX_FACETS = ["backend-service", "monolith"]
+DEFAULT_PRIMARY_SURFACES = ["api-service"]
+DEFAULT_SECONDARY_SURFACES = ["smoke-tests"]
+DEFAULT_SIMPLICITY_SCOPE_EVIDENCE = "checks/engineering-simplicity-scope.md"
 DEFAULT_CLAIM_ID = "architecture-contract-claim"
 DEFAULT_RISK_ID = "browser-proof-gap"
 OMIT = object()
@@ -297,13 +301,21 @@ def architecture_design_brief_text(
 
 def default_worker_handoff_bodies(
     matrix_facets: list[str] | None = None,
+    primary_surfaces: list[str] | None = None,
+    secondary_surfaces: list[str] | None = None,
 ) -> dict[str, str]:
     facets = DEFAULT_WORKER_MATRIX_FACETS if matrix_facets is None else matrix_facets
+    primary = DEFAULT_PRIMARY_SURFACES if primary_surfaces is None else primary_surfaces
+    secondary = DEFAULT_SECONDARY_SURFACES if secondary_surfaces is None else secondary_surfaces
     return {
         ARCHITECTURE_COMPLIANCE_SECTION: "Matrix facets:\n" + facet_lines(facets),
         ENGINEERING_SIMPLICITY_SECTION: (
             "Checks:\n"
             + facet_lines(ENGINEERING_SIMPLICITY_CHECKS)
+            + "\n\nPrimary surfaces:\n"
+            + facet_lines(primary)
+            + "\n\nSecondary surfaces:\n"
+            + facet_lines(secondary)
             + "\n\nStatus: pass\n"
             "Notes: No needless dependency, abstraction, or scope expansion found."
         ),
@@ -317,7 +329,9 @@ def default_qa_handoff_bodies(
     verification_status: str = "pass",
     continuation_ids: list[str] | None = None,
     claim_ids: list[str] | None = None,
+    primary_surfaces: list[str] | None = None,
 ) -> dict[str, str]:
+    primary = DEFAULT_PRIMARY_SURFACES if primary_surfaces is None else primary_surfaces
     facets = [
         *architecture_context_axis_facets("risk_gates", context),
         *architecture_context_axis_facets("verification_gates", context),
@@ -325,6 +339,9 @@ def default_qa_handoff_bodies(
     body = "Covered gates:\n" + facet_lines(facets) if facets else "Covered gates: none."
     bodies = {
         ARCHITECTURE_INVARIANTS_SECTION: body + claim_evidence_lines(claim_ids),
+        ENGINEERING_SIMPLICITY_SCOPE_SECTION: (
+            "Verified primary simplicity surfaces:\n" + facet_lines(primary)
+        ),
     }
     if risk_resolution_ids:
         bodies[RISK_RESOLUTION_VERIFICATION_SECTION] = (
@@ -455,9 +472,11 @@ def default_reviewer_handoff_bodies(
     continuation_ids: list[str] | None = None,
     harness_review_ids: list[str] | None = None,
     claim_ids: list[str] | None = None,
+    primary_surfaces: list[str] | None = None,
 ) -> dict[str, str]:
     facets = architecture_context_facets(context)
     selected_capabilities = DEFAULT_ARCHITECTURE_CAPABILITIES if capabilities is None else capabilities
+    primary = DEFAULT_PRIMARY_SURFACES if primary_surfaces is None else primary_surfaces
     bodies = {
         ARCHITECTURE_MATRIX_MISMATCHES_SECTION: (
             "Checked facets:\n"
@@ -467,6 +486,10 @@ def default_reviewer_handoff_bodies(
         ),
         CONTRACT_DRIFT_SECTION: (
             "Engineering Simplicity checked. "
+            + "Primary surfaces: "
+            + ", ".join(primary)
+            + ". Rejected peripheral-only closure. "
+            +
             "No contract drift for selected Architecture Matrix facets and "
             "architecture capabilities."
             + claim_evidence_lines(claim_ids)
@@ -984,6 +1007,18 @@ def delegation_trace_section(summary: dict[str, Any]) -> str:
     )
 
 
+def engineering_simplicity_final_section(
+    primary_surfaces: list[str] | None = None,
+) -> str:
+    primary = DEFAULT_PRIMARY_SURFACES if primary_surfaces is None else primary_surfaces
+    return (
+        f"\n## {ENGINEERING_SIMPLICITY_SECTION}\n\n"
+        "Primary surfaces covered:\n"
+        f"{facet_lines(primary)}\n\n"
+        "Peripheral-only closure rejected.\n"
+    )
+
+
 def write_run(
     root: Path,
     *,
@@ -1003,6 +1038,7 @@ def write_run(
     harness_evaluation_data: Any = DEFAULT,
     final_harness_ids: Any = DEFAULT,
     claim_evidence_data: Any = DEFAULT,
+    include_simplicity_final: bool = True,
 ) -> Path:
     run_dir = root / "run"
     (run_dir / "handoffs").mkdir(parents=True)
@@ -1011,6 +1047,14 @@ def write_run(
     (run_dir / "checks" / "smoke.md").write_text("# Smoke\n\npass\n", encoding="utf-8")
     (run_dir / "checks" / "verification-readiness.md").write_text(
         "# Verification Readiness\n\npass\n",
+        encoding="utf-8",
+    )
+    (run_dir / DEFAULT_SIMPLICITY_SCOPE_EVIDENCE).write_text(
+        "# Engineering Simplicity Scope\n\n"
+        "Primary surfaces:\n"
+        f"{facet_lines(DEFAULT_PRIMARY_SURFACES)}\n\n"
+        "Secondary surfaces:\n"
+        f"{facet_lines(DEFAULT_SECONDARY_SURFACES)}\n",
         encoding="utf-8",
     )
 
@@ -1111,6 +1155,26 @@ def write_run(
         final_text += delegation_trace_section(delegation_summary(lanes))
     elif isinstance(delegation_summary_data, dict):
         final_text += delegation_trace_section(delegation_summary_data)
+    if (
+        lanes is not None
+        and lane_map_extra
+        and lane_map_extra.get("architecture_contract_required") is True
+        and verdict in {"ship", "pass-with-risks"}
+        and include_simplicity_final
+        and any(
+            isinstance(lane_data, dict)
+            and lane_data.get("type") in {"implementation", "integration"}
+            for lane_data in lanes
+        )
+    ):
+        raw_scope = lane_map_extra.get("engineering_simplicity_scope")
+        primary_surfaces = (
+            raw_scope.get("primary_surfaces")
+            if isinstance(raw_scope, dict)
+            and isinstance(raw_scope.get("primary_surfaces"), list)
+            else DEFAULT_PRIMARY_SURFACES
+        )
+        final_text += engineering_simplicity_final_section(primary_surfaces)
     final_text += final_extra
     if (
         verdict == "pass-with-risks"
@@ -1769,12 +1833,46 @@ def engineering_simplicity_gate(
     findings: list[str] | None = None,
     actions: list[str] | None = None,
     notes: str = "No needless dependency, abstraction, or scope expansion found.",
+    scope_coverage: Any = DEFAULT,
 ) -> dict[str, Any]:
-    return {
+    gate = {
         "status": status,
         "checks": list(ENGINEERING_SIMPLICITY_CHECKS) if checks is None else checks,
         "findings": [] if findings is None else findings,
         "actions": [] if actions is None else actions,
+        "notes": notes,
+    }
+    if scope_coverage is DEFAULT:
+        gate["scope_coverage"] = engineering_simplicity_scope_coverage()
+    elif scope_coverage is not OMIT:
+        gate["scope_coverage"] = scope_coverage
+    return gate
+
+
+def engineering_simplicity_scope() -> dict[str, Any]:
+    return {
+        "primary_surfaces": list(DEFAULT_PRIMARY_SURFACES),
+        "secondary_surfaces": list(DEFAULT_SECONDARY_SURFACES),
+        "evidence": [DEFAULT_SIMPLICITY_SCOPE_EVIDENCE],
+        "notes": "Core task scope; secondary smoke coverage cannot close primary work.",
+    }
+
+
+def engineering_simplicity_scope_coverage(
+    *,
+    primary_surfaces: list[str] | None = None,
+    secondary_surfaces: list[str] | None = None,
+    evidence: list[str] | None = None,
+    notes: str = "Audited primary implementation scope before peripheral fixes.",
+) -> dict[str, Any]:
+    return {
+        "primary_surfaces": list(DEFAULT_PRIMARY_SURFACES)
+        if primary_surfaces is None
+        else primary_surfaces,
+        "secondary_surfaces": []
+        if secondary_surfaces is None
+        else secondary_surfaces,
+        "evidence": [DEFAULT_SIMPLICITY_SCOPE_EVIDENCE] if evidence is None else evidence,
         "notes": notes,
     }
 
@@ -1888,6 +1986,7 @@ def qa_control_lane(
         if handoff_sections is not None
         else [
             ARCHITECTURE_INVARIANTS_SECTION,
+            ENGINEERING_SIMPLICITY_SCOPE_SECTION,
             *([VERIFICATION_GATE_RESULTS_SECTION] if include_verification_results else []),
             *([RISK_RESOLUTION_VERIFICATION_SECTION] if risk_resolution_ids else []),
             *([CONTINUATION_REVALIDATION_SECTION] if continuation_revalidation_ids else []),
@@ -2122,6 +2221,7 @@ def supervising_architect_review_lane(
 def architecture_control_extra(
     context: dict[str, Any] | None = None,
     capabilities: Any = DEFAULT,
+    simplicity_scope: Any = DEFAULT,
 ) -> dict[str, Any]:
     extra = {
         "schema_version": 2,
@@ -2133,6 +2233,10 @@ def architecture_control_extra(
         extra["architecture_capabilities"] = architecture_capabilities()
     elif capabilities is not OMIT:
         extra["architecture_capabilities"] = capabilities
+    if simplicity_scope is DEFAULT:
+        extra["engineering_simplicity_scope"] = engineering_simplicity_scope()
+    elif simplicity_scope is not OMIT:
+        extra["engineering_simplicity_scope"] = simplicity_scope
     return extra
 
 
@@ -4603,6 +4707,10 @@ def main() -> int:
                             wave=3,
                             handoff_section_bodies={
                                 ARCHITECTURE_INVARIANTS_SECTION: crm_qa_body,
+                                ENGINEERING_SIMPLICITY_SCOPE_SECTION: (
+                                    "Verified primary simplicity surfaces:\n"
+                                    + facet_lines(DEFAULT_PRIMARY_SURFACES)
+                                ),
                                 VERIFICATION_GATE_RESULTS_SECTION: verification_gate_result_lines(),
                             },
                         ),
@@ -4660,6 +4768,10 @@ def main() -> int:
                             wave=3,
                             handoff_section_bodies={
                                 ARCHITECTURE_INVARIANTS_SECTION: crm_qa_body,
+                                ENGINEERING_SIMPLICITY_SCOPE_SECTION: (
+                                    "Verified primary simplicity surfaces:\n"
+                                    + facet_lines(DEFAULT_PRIMARY_SURFACES)
+                                ),
                                 VERIFICATION_GATE_RESULTS_SECTION: verification_gate_result_lines(),
                             },
                         ),
@@ -6438,6 +6550,332 @@ def main() -> int:
         )
 
         expect_fail(
+            "positive architecture-gated run without engineering simplicity scope fails",
+            write_run(
+                temp / "simplicity-scope-missing",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(simplicity_scope=OMIT),
+            ),
+            "lane-map.json: positive architecture-gated worker run requires engineering_simplicity_scope",
+        )
+
+        expect_fail(
+            "engineering simplicity scope empty primary surfaces fails",
+            write_run(
+                temp / "simplicity-scope-empty-primary",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(
+                    simplicity_scope={
+                        **engineering_simplicity_scope(),
+                        "primary_surfaces": [],
+                    }
+                ),
+            ),
+            "engineering_simplicity_scope.primary_surfaces must be a non-empty array",
+        )
+
+        expect_fail(
+            "engineering simplicity scope non-kebab primary surface fails",
+            write_run(
+                temp / "simplicity-scope-non-kebab-primary",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(
+                    simplicity_scope={
+                        **engineering_simplicity_scope(),
+                        "primary_surfaces": ["API Service"],
+                    }
+                ),
+            ),
+            "engineering_simplicity_scope.primary_surfaces[0] must be kebab-case",
+        )
+
+        expect_fail(
+            "engineering simplicity scope duplicate primary surface fails",
+            write_run(
+                temp / "simplicity-scope-duplicate-primary",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(
+                    simplicity_scope={
+                        **engineering_simplicity_scope(),
+                        "primary_surfaces": ["api-service", "api-service"],
+                    }
+                ),
+            ),
+            "engineering_simplicity_scope.primary_surfaces duplicate surface: api-service",
+        )
+
+        expect_fail(
+            "worker without engineering simplicity scope coverage fails",
+            write_run(
+                temp / "simplicity-worker-missing-scope-coverage",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(
+                        architecture_compliance_data=architecture_compliance(
+                            engineering_simplicity=engineering_simplicity_gate(
+                                scope_coverage=OMIT
+                            )
+                        )
+                    ),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "missing architecture_compliance.engineering_simplicity.scope_coverage",
+        )
+
+        expect_fail(
+            "worker engineering simplicity covers undeclared surface fails",
+            write_extra_file(
+                write_run(
+                    temp / "simplicity-worker-undeclared-surface",
+                    lanes=[
+                        architecture_lane(),
+                        worker_lane(
+                            architecture_compliance_data=architecture_compliance(
+                                engineering_simplicity=engineering_simplicity_gate(
+                                    scope_coverage=engineering_simplicity_scope_coverage(
+                                        primary_surfaces=["unknown-surface"]
+                                    )
+                                )
+                            ),
+                            handoff_section_bodies=default_worker_handoff_bodies(
+                                primary_surfaces=["unknown-surface"],
+                                secondary_surfaces=[],
+                            ),
+                        ),
+                        qa_control_lane(wave=3),
+                        reviewer_control_lane(wave=4),
+                    ],
+                    lane_map_extra=architecture_control_extra(),
+                ),
+                DEFAULT_SIMPLICITY_SCOPE_EVIDENCE,
+                "# Engineering Simplicity Scope\n\nunknown-surface\n",
+            ),
+            "scope_coverage covers undeclared surface: unknown-surface",
+        )
+
+        expect_fail(
+            "required primary surface not covered by worker fails",
+            write_run(
+                temp / "simplicity-primary-surface-not-covered",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(),
+                    qa_control_lane(
+                        wave=3,
+                        handoff_section_bodies=default_qa_handoff_bodies(
+                            primary_surfaces=["api-service", "participant-miniapp"]
+                        ),
+                    ),
+                    reviewer_control_lane(
+                        wave=4,
+                        handoff_section_bodies=default_reviewer_handoff_bodies(
+                            primary_surfaces=["api-service", "participant-miniapp"]
+                        ),
+                    ),
+                ],
+                lane_map_extra=architecture_control_extra(
+                    simplicity_scope={
+                        **engineering_simplicity_scope(),
+                        "primary_surfaces": ["api-service", "participant-miniapp"],
+                    }
+                ),
+            ),
+            "engineering_simplicity_scope primary surface not covered by worker: participant-miniapp",
+        )
+
+        expect_fail(
+            "worker scope coverage missing evidence path fails",
+            write_run(
+                temp / "simplicity-worker-missing-scope-evidence",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(
+                        architecture_compliance_data=architecture_compliance(
+                            engineering_simplicity=engineering_simplicity_gate(
+                                scope_coverage=engineering_simplicity_scope_coverage(
+                                    evidence=["checks/missing-core-scope.md"]
+                                )
+                            )
+                        )
+                    ),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "scope_coverage.evidence[0] not found: checks/missing-core-scope.md",
+        )
+
+        expect_fail(
+            "worker scope coverage evidence without surface id fails",
+            write_extra_file(
+                write_run(
+                    temp / "simplicity-worker-evidence-missing-surface",
+                    lanes=[
+                        architecture_lane(),
+                        worker_lane(),
+                        qa_control_lane(wave=3),
+                        reviewer_control_lane(wave=4),
+                    ],
+                    lane_map_extra=architecture_control_extra(),
+                ),
+                DEFAULT_SIMPLICITY_SCOPE_EVIDENCE,
+                "# Engineering Simplicity Scope\n\nNo surface marker here.\n",
+            ),
+            "scope_coverage evidence missing surface: api-service",
+        )
+
+        expect_fail(
+            "worker handoff without covered surface id fails",
+            write_run(
+                temp / "simplicity-worker-handoff-missing-surface",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(
+                        handoff_section_bodies={
+                            **default_worker_handoff_bodies(primary_surfaces=[]),
+                            ENGINEERING_SIMPLICITY_SECTION: (
+                                "Checks:\n"
+                                + facet_lines(ENGINEERING_SIMPLICITY_CHECKS)
+                                + "\n\nStatus: pass\n"
+                                "Notes: Surface marker intentionally omitted."
+                            ),
+                        }
+                    ),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "Engineering Simplicity missing scope surface: api-service",
+        )
+
+        expect_fail(
+            "qa handoff without engineering simplicity scope section fails",
+            write_run(
+                temp / "simplicity-qa-missing-scope-section",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(),
+                    qa_control_lane(
+                        wave=3,
+                        handoff_sections=[ARCHITECTURE_INVARIANTS_SECTION],
+                    ),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "handoff missing section: Engineering Simplicity Scope",
+        )
+
+        expect_fail(
+            "reviewer contract drift without primary surface fails",
+            write_run(
+                temp / "simplicity-reviewer-missing-primary-surface",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(
+                        wave=4,
+                        handoff_section_bodies={
+                            **default_reviewer_handoff_bodies(primary_surfaces=[]),
+                            CONTRACT_DRIFT_SECTION: (
+                                "Engineering Simplicity checked. "
+                                "Rejected peripheral-only closure. "
+                                "No contract drift."
+                            ),
+                        },
+                    ),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "Contract Drift missing Engineering Simplicity primary surface: api-service",
+        )
+
+        expect_fail(
+            "final engineering simplicity without primary surface fails",
+            write_run(
+                temp / "simplicity-final-missing-primary-surface",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+                include_simplicity_final=False,
+                final_extra="\n## Engineering Simplicity\n\nPeripheral-only closure rejected.\n",
+            ),
+            "final.md Engineering Simplicity missing primary surface: api-service",
+        )
+
+        expect_fail(
+            "secondary-only simplicity closure fails",
+            write_run(
+                temp / "simplicity-secondary-only-closure",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(
+                        architecture_compliance_data=architecture_compliance(
+                            engineering_simplicity=engineering_simplicity_gate(
+                                scope_coverage=engineering_simplicity_scope_coverage(
+                                    primary_surfaces=[],
+                                    secondary_surfaces=["smoke-tests"],
+                                )
+                            )
+                        ),
+                        handoff_section_bodies=default_worker_handoff_bodies(
+                            primary_surfaces=[],
+                            secondary_surfaces=["smoke-tests"],
+                        ),
+                    ),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "engineering_simplicity_scope primary surface not covered by worker: api-service",
+        )
+
+        expect_pass(
+            "primary surfaces audited with no fixable issue passes",
+            write_run(
+                temp / "simplicity-primary-surface-audited",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+        )
+
+        expect_fail(
             "engineering simplicity pass with fixable finding fails",
             write_run(
                 temp / "worker-engineering-simplicity-pass-fixable-finding",
@@ -6491,6 +6929,8 @@ def main() -> int:
         fixed_worker_handoff[ENGINEERING_SIMPLICITY_SECTION] = (
             "Checks:\n"
             + facet_lines(ENGINEERING_SIMPLICITY_CHECKS)
+            + "\n\nPrimary surfaces:\n"
+            + facet_lines(DEFAULT_PRIMARY_SURFACES)
             + "\n\nStatus: fixed\n"
             "Findings:\n"
             "- Fixture extra helper removed.\n"
@@ -6546,6 +6986,8 @@ def main() -> int:
                             **default_reviewer_handoff_bodies(),
                             CONTRACT_DRIFT_SECTION: (
                                 "Engineering Simplicity fixed for worker-a. "
+                                "Primary surfaces: api-service. "
+                                "Rejected peripheral-only closure. "
                                 f"Remediation action: {fixed_action} "
                                 "No contract drift for selected Architecture Matrix facets "
                                 "and architecture capabilities."
@@ -6569,6 +7011,8 @@ def main() -> int:
                             **default_reviewer_handoff_bodies(),
                             CONTRACT_DRIFT_SECTION: (
                                 "Engineering Simplicity fixed for worker-a. "
+                                "Primary surfaces: api-service. "
+                                "Rejected peripheral-only closure. "
                                 f"Remediation action: {fixed_action} "
                                 "No contract drift for selected Architecture Matrix facets "
                                 "and architecture capabilities."

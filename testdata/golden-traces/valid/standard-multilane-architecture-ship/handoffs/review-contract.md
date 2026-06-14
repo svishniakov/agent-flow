@@ -18,6 +18,8 @@ Checked capabilities:
 
 ## Contract Drift
 
+Engineering Simplicity primary surface `api-service` checked; rejected peripheral-only closure.
+
 Engineering Simplicity checked.
 
 No contract drift for selected Architecture Matrix facets and architecture capabilities.

@@ -26,3 +26,6 @@ Actions:
 - none
 
 Notes: No needless dependency, abstraction, or scope expansion found.
+
+Scope coverage:
+- `api-service`

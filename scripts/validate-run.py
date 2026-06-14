@@ -144,6 +144,8 @@ ARCHITECTURE_DESIGN_MATRIX_SECTION = "Selected Matrix Facets"
 ARCHITECTURE_COMPLIANCE_STATUSES = {"compliant", "drift"}
 ARCHITECTURE_COMPLIANCE_SECTION = "Architecture Compliance"
 ENGINEERING_SIMPLICITY_SECTION = "Engineering Simplicity"
+ENGINEERING_SIMPLICITY_SCOPE_FIELD = "engineering_simplicity_scope"
+ENGINEERING_SIMPLICITY_SCOPE_SECTION = "Engineering Simplicity Scope"
 ENGINEERING_SIMPLICITY_STATUSES = {"pass", "fixed", "drift"}
 ENGINEERING_SIMPLICITY_REQUIRED_CHECKS = [
     "no-extra-work",
@@ -3473,6 +3475,212 @@ def validate_non_empty_string_array(
     return errors
 
 
+def validate_surface_id_array(
+    value: object,
+    *,
+    prefix: str,
+    field: str,
+    required: bool,
+) -> tuple[list[str], list[str]]:
+    label = f"{prefix}.{field}"
+    if not isinstance(value, list):
+        return [], [f"lane-map.json: {label} must be an array"]
+    if required and not value:
+        return [], [f"lane-map.json: {label} must be a non-empty array"]
+
+    surfaces: list[str] = []
+    errors: list[str] = []
+    seen: set[str] = set()
+    for index, item in enumerate(value):
+        if not isinstance(item, str) or not item.strip():
+            errors.append(
+                f"lane-map.json: {label}[{index}] must be a non-empty string"
+            )
+            continue
+        if not KEBAB_CASE_PATTERN.fullmatch(item):
+            errors.append(f"lane-map.json: {label}[{index}] must be kebab-case")
+            continue
+        if item in seen:
+            errors.append(f"lane-map.json: {label} duplicate surface: {item}")
+            continue
+        seen.add(item)
+        surfaces.append(item)
+    return surfaces, errors
+
+
+def validate_scope_evidence_paths(
+    run_dir: Path,
+    value: object,
+    *,
+    prefix: str,
+    required: bool,
+) -> tuple[list[str], str, list[str]]:
+    label = f"{prefix}.evidence"
+    if not isinstance(value, list):
+        return [], "", [f"lane-map.json: {label} must be an array"]
+    if required and not value:
+        return [], "", [f"lane-map.json: {label} must be a non-empty array"]
+
+    paths: list[str] = []
+    text_parts: list[str] = []
+    errors: list[str] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, str) or not item:
+            errors.append(
+                f"lane-map.json: {label}[{index}] must be a non-empty string"
+            )
+            continue
+        paths.append(item)
+        path = resolve_run_path(run_dir, item)
+        if not path.exists():
+            errors.append(f"lane-map.json: {label}[{index}] not found: {item}")
+            continue
+        text_parts.append(path.read_text(encoding="utf-8"))
+    return paths, "\n".join(text_parts), errors
+
+
+def validate_engineering_simplicity_scope(
+    run_dir: Path,
+    data: dict,
+    *,
+    required: bool,
+    allow_pending: bool,
+) -> tuple[list[str], list[str], set[str], list[str]]:
+    raw_scope = data.get(ENGINEERING_SIMPLICITY_SCOPE_FIELD)
+    if raw_scope is None:
+        if required and not allow_pending:
+            return [], [], set(), [
+                "lane-map.json: positive architecture-gated worker run "
+                f"requires {ENGINEERING_SIMPLICITY_SCOPE_FIELD}"
+            ]
+        return [], [], set(), []
+    if not isinstance(raw_scope, dict):
+        return [], [], set(), [
+            f"lane-map.json: {ENGINEERING_SIMPLICITY_SCOPE_FIELD} must be an object"
+        ]
+
+    strict_required = required and not allow_pending
+    primary_surfaces, primary_errors = validate_surface_id_array(
+        raw_scope.get("primary_surfaces"),
+        prefix=ENGINEERING_SIMPLICITY_SCOPE_FIELD,
+        field="primary_surfaces",
+        required=strict_required,
+    )
+    secondary_surfaces, secondary_errors = validate_surface_id_array(
+        raw_scope.get("secondary_surfaces", []),
+        prefix=ENGINEERING_SIMPLICITY_SCOPE_FIELD,
+        field="secondary_surfaces",
+        required=False,
+    )
+
+    errors = [*primary_errors, *secondary_errors]
+    overlap = sorted(set(primary_surfaces) & set(secondary_surfaces))
+    for surface in overlap:
+        errors.append(
+            "lane-map.json: engineering_simplicity_scope surface cannot be both "
+            f"primary and secondary: {surface}"
+        )
+
+    evidence_value = raw_scope.get("evidence", [])
+    _paths, _text, evidence_errors = validate_scope_evidence_paths(
+        run_dir,
+        evidence_value,
+        prefix=ENGINEERING_SIMPLICITY_SCOPE_FIELD,
+        required=strict_required,
+    )
+    errors.extend(evidence_errors)
+
+    notes = raw_scope.get("notes")
+    if strict_required and (not isinstance(notes, str) or not notes.strip()):
+        errors.append(
+            "lane-map.json: engineering_simplicity_scope.notes "
+            "must be a non-empty string"
+        )
+
+    declared_surfaces = set(primary_surfaces) | set(secondary_surfaces)
+    return primary_surfaces, secondary_surfaces, declared_surfaces, errors
+
+
+def validate_engineering_simplicity_scope_coverage(
+    run_dir: Path,
+    *,
+    simplicity: dict,
+    label: str,
+    declared_primary_surfaces: set[str],
+    declared_secondary_surfaces: set[str],
+) -> tuple[list[str], list[str], list[str]]:
+    prefix = (
+        f"lane {label} "
+        "architecture_compliance.engineering_simplicity.scope_coverage"
+    )
+    raw_coverage = simplicity.get("scope_coverage")
+    if not isinstance(raw_coverage, dict):
+        return [], [], [
+            f"lane-map.json: lane {label} missing "
+            "architecture_compliance.engineering_simplicity.scope_coverage"
+        ]
+
+    primary_surfaces, primary_errors = validate_surface_id_array(
+        raw_coverage.get("primary_surfaces", []),
+        prefix=prefix,
+        field="primary_surfaces",
+        required=False,
+    )
+    secondary_surfaces, secondary_errors = validate_surface_id_array(
+        raw_coverage.get("secondary_surfaces", []),
+        prefix=prefix,
+        field="secondary_surfaces",
+        required=False,
+    )
+    errors = [*primary_errors, *secondary_errors]
+
+    covered_surfaces = [*primary_surfaces, *secondary_surfaces]
+    if not covered_surfaces:
+        errors.append(
+            f"lane-map.json: lane {label} "
+            "architecture_compliance.engineering_simplicity.scope_coverage "
+            "must cover at least one primary or secondary surface"
+        )
+
+    for surface in primary_surfaces:
+        if surface not in declared_primary_surfaces:
+            errors.append(
+                f"lane-map.json: lane {label} scope_coverage "
+                f"covers undeclared surface: {surface}"
+            )
+    for surface in secondary_surfaces:
+        if surface not in declared_secondary_surfaces:
+            errors.append(
+                f"lane-map.json: lane {label} scope_coverage "
+                f"covers undeclared surface: {surface}"
+            )
+
+    _paths, evidence_text, evidence_errors = validate_scope_evidence_paths(
+        run_dir,
+        raw_coverage.get("evidence"),
+        prefix=prefix,
+        required=True,
+    )
+    errors.extend(evidence_errors)
+    if evidence_text:
+        for surface in covered_surfaces:
+            if not contains_facet_id(evidence_text, surface):
+                errors.append(
+                    f"lane-map.json: lane {label} "
+                    f"scope_coverage evidence missing surface: {surface}"
+                )
+
+    notes = raw_coverage.get("notes")
+    if not isinstance(notes, str) or not notes.strip():
+        errors.append(
+            f"lane-map.json: lane {label} "
+            "architecture_compliance.engineering_simplicity.scope_coverage.notes "
+            "must be a non-empty string"
+        )
+
+    return primary_surfaces, secondary_surfaces, errors
+
+
 def validate_engineering_simplicity_shape(
     compliance: dict,
     label: str,
@@ -3807,6 +4015,34 @@ def validate_lane_map(
         errors.append("lane-map.json field 'lanes' must be an array")
         return errors
 
+    final_verdict = read_single_field(run_dir / "final.md", "Verdict")
+    raw_worker_lane_count = sum(
+        1
+        for lane in lanes
+        if isinstance(lane, dict) and lane.get("type") in WORKER_LANE_TYPES
+    )
+    simplicity_scope_required = (
+        schema_version == 2
+        and architecture_contract_required
+        and raw_worker_lane_count > 0
+        and final_verdict in POSITIVE_FINAL_VERDICTS
+    )
+    (
+        simplicity_primary_surfaces,
+        simplicity_secondary_surfaces,
+        simplicity_declared_surfaces,
+        simplicity_scope_errors,
+    ) = validate_engineering_simplicity_scope(
+        run_dir,
+        data,
+        required=simplicity_scope_required,
+        allow_pending=allow_pending,
+    )
+    errors.extend(simplicity_scope_errors)
+    simplicity_declared_primary_surfaces = set(simplicity_primary_surfaces)
+    simplicity_declared_secondary_surfaces = set(simplicity_secondary_surfaces)
+    covered_primary_surfaces: set[str] = set()
+
     verification_readiness_lane_ids: set[str] = set()
     raw_verification_readiness = data.get("verification_readiness")
     if isinstance(raw_verification_readiness, dict):
@@ -3856,7 +4092,6 @@ def validate_lane_map(
     mitigation_risk_ids = risk_mitigation_ids(mitigation_risks)
     resolution_records = resolution_records or []
     resolution_risk_ids = risk_resolution_ids(resolution_records)
-    final_verdict = read_single_field(run_dir / "final.md", "Verdict")
     claim_evidence_candidate = (
         schema_version == 2
         and architecture_contract_required
@@ -4081,6 +4316,38 @@ def validate_lane_map(
                         )
                     if compliance:
                         simplicity = compliance.get("engineering_simplicity")
+                        if (
+                            simplicity_scope_required
+                            and isinstance(simplicity, dict)
+                            and simplicity_primary_surfaces
+                        ):
+                            (
+                                worker_primary_surfaces,
+                                worker_secondary_surfaces,
+                                coverage_errors,
+                            ) = validate_engineering_simplicity_scope_coverage(
+                                run_dir,
+                                simplicity=simplicity,
+                                label=label,
+                                declared_primary_surfaces=simplicity_declared_primary_surfaces,
+                                declared_secondary_surfaces=simplicity_declared_secondary_surfaces,
+                            )
+                            errors.extend(coverage_errors)
+                            covered_primary_surfaces.update(worker_primary_surfaces)
+                            covered_surfaces = [
+                                *worker_primary_surfaces,
+                                *worker_secondary_surfaces,
+                            ]
+                            for surface in missing_facets_in_markdown_sections(
+                                handoff_path,
+                                [ENGINEERING_SIMPLICITY_SECTION],
+                                covered_surfaces,
+                            ):
+                                errors.append(
+                                    f"lane-map.json: lane {label} "
+                                    "Engineering Simplicity missing scope surface: "
+                                    f"{surface}"
+                                )
                         if isinstance(simplicity, dict) and simplicity.get("status") == "fixed":
                             handoff_text = (
                                 handoff_path.read_text(encoding="utf-8")
@@ -4129,6 +4396,14 @@ def validate_lane_map(
                                 else None,
                             )
                         )
+
+    if simplicity_scope_required and not allow_pending:
+        for surface in simplicity_primary_surfaces:
+            if surface not in covered_primary_surfaces:
+                errors.append(
+                    "lane-map.json: engineering_simplicity_scope primary surface "
+                    f"not covered by worker: {surface}"
+                )
 
     for lane_id, _worker_wave, recheck_lane_id in simplicity_drifting_worker_lanes:
         if not recheck_lane_id:
@@ -4370,6 +4645,24 @@ def validate_lane_map(
                         [ARCHITECTURE_INVARIANTS_SECTION],
                     ):
                         errors.append(f"lane-map.json: lane {lane_id} handoff missing section: {section}")
+                    if simplicity_scope_required:
+                        for section in missing_markdown_headings(
+                            handoff_path,
+                            [ENGINEERING_SIMPLICITY_SCOPE_SECTION],
+                        ):
+                            errors.append(
+                                f"lane-map.json: lane {lane_id} handoff missing section: {section}"
+                            )
+                        for surface in missing_facets_in_markdown_sections(
+                            handoff_path,
+                            [ENGINEERING_SIMPLICITY_SCOPE_SECTION],
+                            simplicity_primary_surfaces,
+                        ):
+                            errors.append(
+                                f"lane-map.json: lane {lane_id} "
+                                "Engineering Simplicity Scope missing primary surface: "
+                                f"{surface}"
+                            )
                     for facet in missing_facets_in_markdown_sections(
                         handoff_path,
                         [ARCHITECTURE_INVARIANTS_SECTION],
@@ -4464,6 +4757,22 @@ def validate_lane_map(
                                     "missing fixed Engineering Simplicity lane: "
                                     f"{worker_lane_id}"
                                 )
+                        if simplicity_scope_required:
+                            for surface in simplicity_primary_surfaces:
+                                if not contains_facet_id(contract_drift_text, surface):
+                                    errors.append(
+                                        f"lane-map.json: lane {lane_id} Contract Drift "
+                                        "missing Engineering Simplicity primary surface: "
+                                        f"{surface}"
+                                    )
+                            if not contains_facet_id(
+                                contract_drift_text,
+                                "peripheral-only closure",
+                            ):
+                                errors.append(
+                                    f"lane-map.json: lane {lane_id} Contract Drift "
+                                    "must reject peripheral-only closure"
+                                )
 
         if successful_reviewer_lanes:
             if successful_architecture_waves:
@@ -4499,6 +4808,24 @@ def validate_lane_map(
                     "lane-map.json: positive final Verdict requires ready "
                     "Verification Readiness Gate"
                 )
+            if simplicity_scope_required:
+                final_path = run_dir / "final.md"
+                final_text = final_path.read_text(encoding="utf-8") if final_path.exists() else ""
+                if not has_markdown_heading(final_text, ENGINEERING_SIMPLICITY_SECTION):
+                    errors.append(
+                        "final.md missing section: Engineering Simplicity"
+                    )
+                else:
+                    simplicity_final_text = markdown_section_text(
+                        final_text,
+                        ENGINEERING_SIMPLICITY_SECTION,
+                    )
+                    for surface in simplicity_primary_surfaces:
+                        if not contains_facet_id(simplicity_final_text, surface):
+                            errors.append(
+                                "final.md Engineering Simplicity missing "
+                                f"primary surface: {surface}"
+                            )
 
         if final_verdict == "ship" and successful_worker_lanes:
             if not successful_qa_lanes:

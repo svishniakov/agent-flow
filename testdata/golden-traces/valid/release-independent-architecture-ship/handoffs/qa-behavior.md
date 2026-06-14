@@ -15,3 +15,8 @@ Covered gates:
 - `risk_gates` `migrations` `pass`
 - `verification_gates` `unit` `pass`
 - `verification_gates` `integration` `pass`
+
+## Engineering Simplicity Scope
+
+Verified primary surfaces:
+- `api-service`
