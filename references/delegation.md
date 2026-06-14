@@ -127,11 +127,19 @@ The architecture handoff must include these sections: `Selected Architecture`,
 Contracts`, `Worker Ownership`, `Forbidden Changes`, `QA Gates`, `Reviewer
 Checklist`, and `Stop Conditions`.
 
-Architecture Execution Control applies after the contract exists. Successful
+Architecture Execution Control includes Engineering Simplicity Gate after the
+contract exists. Successful
 `implementation` and `integration` lanes must record `architecture_compliance`
-in `lane-map.json` and write an `Architecture Compliance` handoff section. If a
-worker finds architecture drift, the orchestrator routes the case to architect
-re-check before `ship`; the drift is not closed by worker-only follow-up.
+in `lane-map.json` and write `Architecture Compliance` plus `Engineering
+Simplicity` handoff sections. `architecture_compliance.engineering_simplicity`
+must include status `pass`, `fixed`, or `drift`; all seven checks
+(`no-extra-work`, `stdlib-native-first`, `existing-helper-first`,
+`dependency-justified`, `abstraction-justified`, `smallest-working-diff`,
+`tests-fit-risk`); findings; actions; and notes. `fixed` requires findings and
+actions. Retained dependency or abstraction must cite selected
+`architecture_capabilities`. If a worker finds architecture or simplicity drift,
+the orchestrator routes the case to architect re-check before `ship` or
+`pass-with-risks`; the drift is not closed by worker-only follow-up.
 
 Architecture Context Propagation carries the selected `architecture_context`
 through execution. Workers must set `architecture_compliance.matrix_facets` to
@@ -205,7 +213,8 @@ blocked attempt ends the run as `blocked` or `fail`.
 When worker lanes exist under the Architecture Contract Gate, QA must run after
 the workers and any architect re-check, and its handoff must include
 `Architecture Invariants`. Reviewer must run after QA and write
-`Architecture Matrix Mismatches` and `Contract Drift`.
+`Architecture Matrix Mismatches` and `Contract Drift`; `Contract Drift` must
+cover Engineering Simplicity.
 
 If the architect rejects the proposed approach, do not treat that reject as a
 reason to raise model/reasoning by default. Model/reasoning upgrade is not the default fix.

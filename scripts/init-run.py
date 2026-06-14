@@ -41,6 +41,15 @@ LANE_MAP = {
     "lanes": [],
 }
 AGENT_TODO_PLACEHOLDER = "TODO(agent):"
+ENGINEERING_SIMPLICITY_CHECKS = [
+    "no-extra-work",
+    "stdlib-native-first",
+    "existing-helper-first",
+    "dependency-justified",
+    "abstraction-justified",
+    "smallest-working-diff",
+    "tests-fit-risk",
+]
 TRACE_BUDGETS = {"standard", "release"}
 WORKER_LANE_TYPES = {"implementation", "integration"}
 VERIFICATION_READINESS_PATH = "verification-readiness.json"
@@ -340,6 +349,18 @@ Selected architecture capabilities:
 {markdown_id_list(capabilities)}
 
 {AGENT_TODO_PLACEHOLDER} Record actual touched facets, contract sections, compliance status, drift, and evidence.
+
+## Engineering Simplicity
+
+Lane-map field: `architecture_compliance.engineering_simplicity`
+
+Required checks:
+{markdown_id_list(ENGINEERING_SIMPLICITY_CHECKS)}
+
+Selected architecture capabilities:
+{markdown_id_list(capabilities)}
+
+{AGENT_TODO_PLACEHOLDER} Record pass, fixed, or drift; list findings/actions; cite selected capabilities for retained dependency or abstraction.
 """
 
 

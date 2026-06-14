@@ -47,7 +47,26 @@
           "monolith"
         ],
         "notes": "Fixture architecture compliance.",
-        "recheck_lane": null
+        "recheck_lane": null,
+        "engineering_simplicity": {
+          "status": "drift",
+          "checks": [
+            "no-extra-work",
+            "stdlib-native-first",
+            "existing-helper-first",
+            "dependency-justified",
+            "abstraction-justified",
+            "smallest-working-diff",
+            "tests-fit-risk"
+          ],
+          "findings": [
+            "Engineering Simplicity found architecture drift that needs architect re-check."
+          ],
+          "actions": [
+            "Routed the lane through architecture re-check before QA and reviewer."
+          ],
+          "notes": "Engineering Simplicity drift routed through existing architecture-drift / architecture-recheck path."
+        }
       }
     },
     {

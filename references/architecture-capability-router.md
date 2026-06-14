@@ -50,6 +50,10 @@ Rules:
 - reviewer `Architecture Matrix Mismatches` and `Contract Drift` cover every
   selected capability id when reviewer control applies.
 
+Engineering Simplicity Gate uses the selected `architecture_capabilities` only
+as citation context for retained dependency or abstraction. Do not add a
+separate simplicity capability, Matrix facet, or registry entry for it.
+
 ## Role Responsibilities
 
 The orchestrator selects `architecture_context`, then selects the smallest

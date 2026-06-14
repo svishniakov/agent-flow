@@ -47,6 +47,16 @@ ARCHITECTURE_DESIGN_BRIEF_SECTIONS = [
     "Decision",
 ]
 ARCHITECTURE_COMPLIANCE_SECTION = "Architecture Compliance"
+ENGINEERING_SIMPLICITY_SECTION = "Engineering Simplicity"
+ENGINEERING_SIMPLICITY_CHECKS = [
+    "no-extra-work",
+    "stdlib-native-first",
+    "existing-helper-first",
+    "dependency-justified",
+    "abstraction-justified",
+    "smallest-working-diff",
+    "tests-fit-risk",
+]
 ARCHITECTURE_INVARIANTS_SECTION = "Architecture Invariants"
 ARCHITECTURE_MATRIX_MISMATCHES_SECTION = "Architecture Matrix Mismatches"
 CONTRACT_DRIFT_SECTION = "Contract Drift"
@@ -291,6 +301,12 @@ def default_worker_handoff_bodies(
     facets = DEFAULT_WORKER_MATRIX_FACETS if matrix_facets is None else matrix_facets
     return {
         ARCHITECTURE_COMPLIANCE_SECTION: "Matrix facets:\n" + facet_lines(facets),
+        ENGINEERING_SIMPLICITY_SECTION: (
+            "Checks:\n"
+            + facet_lines(ENGINEERING_SIMPLICITY_CHECKS)
+            + "\n\nStatus: pass\n"
+            "Notes: No needless dependency, abstraction, or scope expansion found."
+        ),
     }
 
 
@@ -450,6 +466,7 @@ def default_reviewer_handoff_bodies(
             + facet_lines(selected_capabilities)
         ),
         CONTRACT_DRIFT_SECTION: (
+            "Engineering Simplicity checked. "
             "No contract drift for selected Architecture Matrix facets and "
             "architecture capabilities."
             + claim_evidence_lines(claim_ids)
@@ -1727,8 +1744,9 @@ def architecture_compliance(
     matrix_facets: list[str] | None = None,
     notes: str = "Fixture architecture compliance.",
     recheck_lane: str | None = None,
+    engineering_simplicity: Any = DEFAULT,
 ) -> dict[str, Any]:
-    return {
+    compliance = {
         "status": status,
         "contract_sections": contract_sections or ["Module Boundaries"],
         "matrix_facets": list(DEFAULT_WORKER_MATRIX_FACETS)
@@ -1736,6 +1754,28 @@ def architecture_compliance(
         else matrix_facets,
         "notes": notes,
         "recheck_lane": recheck_lane,
+    }
+    if engineering_simplicity is DEFAULT:
+        compliance["engineering_simplicity"] = engineering_simplicity_gate()
+    elif engineering_simplicity is not OMIT:
+        compliance["engineering_simplicity"] = engineering_simplicity
+    return compliance
+
+
+def engineering_simplicity_gate(
+    *,
+    status: str = "pass",
+    checks: list[str] | None = None,
+    findings: list[str] | None = None,
+    actions: list[str] | None = None,
+    notes: str = "No needless dependency, abstraction, or scope expansion found.",
+) -> dict[str, Any]:
+    return {
+        "status": status,
+        "checks": list(ENGINEERING_SIMPLICITY_CHECKS) if checks is None else checks,
+        "findings": [] if findings is None else findings,
+        "actions": [] if actions is None else actions,
+        "notes": notes,
     }
 
 
@@ -1758,7 +1798,7 @@ def worker_lane(
         wave=wave,
         handoff_sections=handoff_sections
         if handoff_sections is not None
-        else [ARCHITECTURE_COMPLIANCE_SECTION],
+        else [ARCHITECTURE_COMPLIANCE_SECTION, ENGINEERING_SIMPLICITY_SECTION],
         handoff_section_bodies=handoff_section_bodies
         if handoff_section_bodies is not None
         else default_worker_handoff_bodies(),
@@ -6238,6 +6278,188 @@ def main() -> int:
         )
 
         expect_fail(
+            "worker without engineering simplicity fails",
+            write_run(
+                temp / "worker-no-engineering-simplicity",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(
+                        architecture_compliance_data=architecture_compliance(
+                            engineering_simplicity=OMIT
+                        )
+                    ),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "missing architecture_compliance.engineering_simplicity",
+        )
+
+        expect_fail(
+            "worker handoff without engineering simplicity section fails",
+            write_run(
+                temp / "worker-no-engineering-simplicity-section",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(handoff_sections=[ARCHITECTURE_COMPLIANCE_SECTION]),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "handoff missing section: Engineering Simplicity",
+        )
+
+        expect_fail(
+            "worker engineering simplicity missing required check fails",
+            write_run(
+                temp / "worker-engineering-simplicity-missing-check",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(
+                        architecture_compliance_data=architecture_compliance(
+                            engineering_simplicity=engineering_simplicity_gate(
+                                checks=[
+                                    check
+                                    for check in ENGINEERING_SIMPLICITY_CHECKS
+                                    if check != "tests-fit-risk"
+                                ]
+                            )
+                        ),
+                        handoff_section_bodies=default_worker_handoff_bodies(),
+                    ),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "engineering_simplicity.checks missing required check: tests-fit-risk",
+        )
+
+        expect_fail(
+            "fixed engineering simplicity without actions fails",
+            write_run(
+                temp / "worker-engineering-simplicity-fixed-no-actions",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(
+                        architecture_compliance_data=architecture_compliance(
+                            engineering_simplicity=engineering_simplicity_gate(
+                                status="fixed",
+                                findings=["Fixture scope expansion removed."],
+                                actions=[],
+                            )
+                        )
+                    ),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "fixed engineering_simplicity requires non-empty actions",
+        )
+
+        expect_fail(
+            "engineering simplicity drift without parent drift fails",
+            write_run(
+                temp / "worker-engineering-simplicity-drift-without-parent-drift",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(
+                        architecture_compliance_data=architecture_compliance(
+                            engineering_simplicity=engineering_simplicity_gate(status="drift")
+                        )
+                    ),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "engineering_simplicity drift requires architecture_compliance.status=drift",
+        )
+
+        expect_fail(
+            "engineering simplicity retained dependency without capability citation fails",
+            write_run(
+                temp / "worker-engineering-simplicity-retained-dependency-no-capability",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(
+                        architecture_compliance_data=architecture_compliance(
+                            engineering_simplicity=engineering_simplicity_gate(
+                                notes="Retained dependency after worker review."
+                            )
+                        )
+                    ),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "retained dependency or abstraction must cite a selected architecture capability",
+        )
+
+        expect_pass(
+            "worker engineering simplicity pass accepted",
+            write_run(
+                temp / "worker-engineering-simplicity-pass",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+        )
+
+        expect_pass(
+            "engineering simplicity retained dependency with capability citation passes",
+            write_run(
+                temp / "worker-engineering-simplicity-retained-dependency-capability",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(
+                        architecture_compliance_data=architecture_compliance(
+                            engineering_simplicity=engineering_simplicity_gate(
+                                notes=(
+                                    "Retained dependency justified by "
+                                    "`go-backend-service-architecture`."
+                                )
+                            )
+                        )
+                    ),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+        )
+
+        expect_pass(
+            "worker engineering simplicity fixed accepted",
+            write_run(
+                temp / "worker-engineering-simplicity-fixed",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(
+                        architecture_compliance_data=architecture_compliance(
+                            engineering_simplicity=engineering_simplicity_gate(
+                                status="fixed",
+                                findings=["Fixture extra helper removed."],
+                                actions=["Kept the smallest working diff inside approved facets."],
+                            )
+                        )
+                    ),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+        )
+
+        expect_fail(
             "worker architecture compliance invalid status fails",
             write_run(
                 temp / "worker-compliance-invalid-status",
@@ -6591,6 +6813,62 @@ def main() -> int:
             ),
         )
 
+        expect_pass(
+            "engineering simplicity drift with later architecture recheck passes",
+            write_run(
+                temp / "worker-engineering-simplicity-drift-with-recheck",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(
+                        wave=2,
+                        architecture_compliance_data=architecture_compliance(
+                            status="drift",
+                            recheck_lane="architecture-recheck",
+                            engineering_simplicity=engineering_simplicity_gate(
+                                status="drift",
+                                findings=["Fixture simplicity issue changes approved boundary."],
+                                actions=["Escalated to architecture-recheck before QA."],
+                                notes=(
+                                    "Engineering Simplicity drift routed through "
+                                    "architecture re-check."
+                                ),
+                            ),
+                        ),
+                    ),
+                    architecture_lane("architecture-recheck", wave=3),
+                    qa_control_lane(wave=4),
+                    reviewer_control_lane(wave=5),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+        )
+
+        expect_fail(
+            "engineering simplicity drift with missing recheck lane fails",
+            write_run(
+                temp / "worker-engineering-simplicity-drift-missing-recheck",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(
+                        wave=2,
+                        architecture_compliance_data=architecture_compliance(
+                            status="drift",
+                            recheck_lane="architecture-recheck",
+                            engineering_simplicity=engineering_simplicity_gate(
+                                status="drift",
+                                findings=["Fixture simplicity issue changes approved boundary."],
+                                actions=["Escalated to missing architecture-recheck."],
+                            ),
+                        ),
+                    ),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "engineering_simplicity recheck_lane not found: architecture-recheck",
+        )
+
         expect_fail(
             "ship with worker lanes requires qa lane",
             write_run(
@@ -6752,6 +7030,35 @@ def main() -> int:
                 lane_map_extra=architecture_control_extra(),
             ),
             "handoff missing section: Contract Drift",
+        )
+
+        expect_fail(
+            "reviewer contract drift must cover engineering simplicity",
+            write_run(
+                temp / "reviewer-contract-drift-missing-engineering-simplicity",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(
+                        wave=4,
+                        handoff_section_bodies={
+                            ARCHITECTURE_MATRIX_MISMATCHES_SECTION: (
+                                "Checked facets:\n"
+                                + facet_lines(architecture_context_facets())
+                                + "\n\nChecked capabilities:\n"
+                                + facet_lines(DEFAULT_ARCHITECTURE_CAPABILITIES)
+                            ),
+                            CONTRACT_DRIFT_SECTION: (
+                                "No contract drift for selected Architecture Matrix facets and "
+                                "architecture capabilities."
+                            ),
+                        },
+                    ),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "Contract Drift missing Engineering Simplicity",
         )
 
         expect_fail(

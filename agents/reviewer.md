@@ -50,7 +50,7 @@ Delegation packet must include:
 - When Architecture Capability Router applies, check selected `architecture_capabilities` against the diff, Design Brief `Execution Plan`, and Contract `Selected Architecture`; treat `recommended_skills` as Soft Skill Binding, not as proof.
 - Report architecture contract mismatches explicitly, even when none are found.
 - When Architecture Context Propagation applies, cover every selected `architecture_context` facet and selected `architecture_capabilities` id across `Architecture Matrix Mismatches` and `Contract Drift`.
-- When Architecture Execution Control applies, review worker `Architecture Compliance`, QA `Architecture Invariants`, and any architect re-check; report `Architecture Matrix Mismatches` and `Contract Drift` explicitly, even when none are found.
+- When Architecture Execution Control applies, review worker `Architecture Compliance`, worker `Engineering Simplicity`, QA `Architecture Invariants`, and any architect re-check; report `Architecture Matrix Mismatches` and `Contract Drift` explicitly, even when none are found. Cover Engineering Simplicity inside `Contract Drift`; do not create an early review lane for it.
 - When Architecture Artifact Authoring Automation created a reviewer skeleton, fill reviewer handoff and evidence yourself and remove every reviewer-owned `TODO(agent):` before readiness.
 - When Claim Evidence Gate applies, verify `claim-evidence.json`: every required `Claim Evidence` id must have an `owner_lane`, reviewer coverage, `supported` status, subjects, and literal `markers` found in evidence files; reject positive verdicts for any `gap` or missing marker.
 - When Verification Readiness Gate applies, verify `verification_readiness`, `verification-readiness.json`, `approval_requests`, `approval_executions`, `needs-approval`, `paused-blocked`, and `resume_phrase`; reject positive verdicts when workers ran before readiness or QA lacks `Verification Gate Results`.
@@ -73,7 +73,7 @@ Return:
 - architecture contract mismatches, if any
 - Architecture Design Brief mismatches, if any
 - Architecture Artifact Authoring Automation status for reviewer-owned `TODO(agent):` placeholders
-- Architecture Matrix Mismatches and Contract Drift, even when none are found
+- Architecture Matrix Mismatches and Contract Drift, including Engineering Simplicity, even when none are found
 - full selected `architecture_context` coverage, mismatches, or unverified facets
 - full selected `architecture_capabilities` coverage, mismatches, or unverified capability constraints
 - Claim Evidence Gate coverage for `claim-evidence.json`, `Claim Evidence`, `owner_lane`, `markers`, `supported`, and any `gap`

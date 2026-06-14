@@ -18,4 +18,6 @@ Checked capabilities:
 
 ## Contract Drift
 
+Engineering Simplicity checked.
+
 No contract drift for selected Architecture Matrix facets and architecture capabilities.

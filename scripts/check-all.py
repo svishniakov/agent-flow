@@ -139,6 +139,29 @@ CLAIM_EVIDENCE_AUTHORING_GUARD_TERMS = [
     "markers",
     "gap",
 ]
+ENGINEERING_SIMPLICITY_GATE_GUARD_TERMS = [
+    "Engineering Simplicity Gate",
+    "Engineering Simplicity",
+    "engineering_simplicity",
+    "no-extra-work",
+    "stdlib-native-first",
+    "existing-helper-first",
+    "dependency-justified",
+    "abstraction-justified",
+    "smallest-working-diff",
+    "tests-fit-risk",
+]
+ENGINEERING_SIMPLICITY_RUNTIME_GUARD_TERMS = [
+    "Engineering Simplicity",
+    "engineering_simplicity",
+    "no-extra-work",
+    "stdlib-native-first",
+    "existing-helper-first",
+    "dependency-justified",
+    "abstraction-justified",
+    "smallest-working-diff",
+    "tests-fit-risk",
+]
 
 REQUIRED_RUNTIME_TEXT = {
     "SKILL.md": [
@@ -162,6 +185,8 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Context Propagation",
         "matrix_facets",
         "Architecture Execution Control",
+        *ENGINEERING_SIMPLICITY_GATE_GUARD_TERMS,
+        "not AI Slop Gate",
         *MITIGATION_GATE_GUARD_TERMS,
         *RESOLUTION_GATE_GUARD_TERMS,
         *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
@@ -194,6 +219,8 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Invariants",
         "Architecture Matrix Mismatches",
         "Contract Drift",
+        *ENGINEERING_SIMPLICITY_GATE_GUARD_TERMS,
+        "not AI Slop Gate",
         *MITIGATION_GATE_GUARD_TERMS,
         *RESOLUTION_GATE_GUARD_TERMS,
         *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
@@ -238,6 +265,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Invariants",
         "Architecture Matrix Mismatches",
         "Contract Drift",
+        *ENGINEERING_SIMPLICITY_GATE_GUARD_TERMS,
         *MITIGATION_GATE_GUARD_TERMS,
         *RESOLUTION_GATE_GUARD_TERMS,
         *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
@@ -272,6 +300,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Invariants",
         "Architecture Matrix Mismatches",
         "Contract Drift",
+        *ENGINEERING_SIMPLICITY_GATE_GUARD_TERMS,
         *MITIGATION_GATE_GUARD_TERMS,
         *RESOLUTION_GATE_GUARD_TERMS,
         *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
@@ -306,6 +335,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Invariants",
         "Architecture Matrix Mismatches",
         "Contract Drift",
+        *ENGINEERING_SIMPLICITY_GATE_GUARD_TERMS,
         *MITIGATION_GATE_GUARD_TERMS,
         *RESOLUTION_GATE_GUARD_TERMS,
         *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
@@ -426,6 +456,8 @@ REQUIRED_RUNTIME_TEXT = {
         "Selected Architecture",
         "Architecture Matrix Mismatches",
         "Contract Drift",
+        "Engineering Simplicity Gate",
+        "Do not add a",
         "do not add skill hints",
     ],
     "references/architecture-artifact-authoring.md": [
@@ -437,6 +469,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Invariants",
         "Architecture Matrix Mismatches",
         "Contract Drift",
+        "Engineering Simplicity",
         *VERIFICATION_READINESS_GATE_GUARD_TERMS,
         "No role should ask the human",
         *CLAIM_EVIDENCE_AUTHORING_GUARD_TERMS,
@@ -465,6 +498,7 @@ REQUIRED_RUNTIME_TEXT = {
         "matrix_facets",
         "Architecture Execution Control",
         "Architecture Compliance",
+        "Engineering Simplicity",
         "architecture drift",
         "Architecture Invariants",
         "Architecture Matrix Mismatches",
@@ -496,6 +530,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Context Propagation",
         "Architecture Execution Control",
         "architecture drift",
+        "Engineering Simplicity",
         "architect re-check",
         *CLAIM_EVIDENCE_GATE_GUARD_TERMS,
         "Blocked Resolution Gate",
@@ -515,6 +550,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Report architecture contract mismatches explicitly",
         "Architecture Matrix Mismatches",
         "Contract Drift",
+        "Engineering Simplicity",
         *VERIFICATION_READINESS_GATE_GUARD_TERMS,
         *CONTINUATION_GATE_GUARD_TERMS,
         *HARNESS_EVALUATION_GUARD_TERMS,
@@ -531,6 +567,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Execution Control",
         "architecture invariants",
         "architecture_context",
+        "Engineering Simplicity",
         *ARCHITECTURE_CAPABILITY_GUARD_TERMS,
         "Architecture Context Propagation",
         "Architecture Invariants",
@@ -559,6 +596,7 @@ REQUIRED_RUNTIME_TEXT = {
     ],
     "agents/backend-worker.md": [
         "Architecture Compliance",
+        "Engineering Simplicity",
         *ARCHITECTURE_DESIGN_ROLE_GUARD_TERMS,
         *ARCHITECTURE_AUTHORING_ROLE_GUARD_TERMS,
         "Architecture Context Propagation",
@@ -567,6 +605,7 @@ REQUIRED_RUNTIME_TEXT = {
     ],
     "agents/frontend-worker.md": [
         "Architecture Compliance",
+        "Engineering Simplicity",
         *ARCHITECTURE_DESIGN_ROLE_GUARD_TERMS,
         *ARCHITECTURE_AUTHORING_ROLE_GUARD_TERMS,
         "Architecture Context Propagation",
@@ -575,6 +614,7 @@ REQUIRED_RUNTIME_TEXT = {
     ],
     "agents/typescript-worker.md": [
         "Architecture Compliance",
+        "Engineering Simplicity",
         *ARCHITECTURE_DESIGN_ROLE_GUARD_TERMS,
         *ARCHITECTURE_AUTHORING_ROLE_GUARD_TERMS,
         "Architecture Context Propagation",
@@ -583,6 +623,7 @@ REQUIRED_RUNTIME_TEXT = {
     ],
     "agents/bun-worker.md": [
         "Architecture Compliance",
+        "Engineering Simplicity",
         *ARCHITECTURE_DESIGN_ROLE_GUARD_TERMS,
         *ARCHITECTURE_AUTHORING_ROLE_GUARD_TERMS,
         "Architecture Context Propagation",
@@ -591,6 +632,7 @@ REQUIRED_RUNTIME_TEXT = {
     ],
     "agents/python-worker.md": [
         "Architecture Compliance",
+        "Engineering Simplicity",
         *ARCHITECTURE_DESIGN_ROLE_GUARD_TERMS,
         *ARCHITECTURE_AUTHORING_ROLE_GUARD_TERMS,
         "Architecture Context Propagation",
@@ -599,6 +641,7 @@ REQUIRED_RUNTIME_TEXT = {
     ],
     "agents/golang-worker.md": [
         "Architecture Compliance",
+        "Engineering Simplicity",
         *ARCHITECTURE_DESIGN_ROLE_GUARD_TERMS,
         *ARCHITECTURE_AUTHORING_ROLE_GUARD_TERMS,
         "Architecture Context Propagation",
@@ -607,6 +650,7 @@ REQUIRED_RUNTIME_TEXT = {
     ],
     "agents/ios-worker.md": [
         "Architecture Compliance",
+        "Engineering Simplicity",
         *ARCHITECTURE_DESIGN_ROLE_GUARD_TERMS,
         *ARCHITECTURE_AUTHORING_ROLE_GUARD_TERMS,
         "Architecture Context Propagation",
@@ -615,6 +659,7 @@ REQUIRED_RUNTIME_TEXT = {
     ],
     "agents/rag-retrieval-engineer.md": [
         "Architecture Compliance",
+        "Engineering Simplicity",
         *ARCHITECTURE_DESIGN_ROLE_GUARD_TERMS,
         *ARCHITECTURE_AUTHORING_ROLE_GUARD_TERMS,
         "Architecture Context Propagation",
@@ -644,6 +689,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Invariants",
         "Architecture Matrix Mismatches",
         "Contract Drift",
+        *ENGINEERING_SIMPLICITY_RUNTIME_GUARD_TERMS,
         *VERIFICATION_READINESS_GATE_GUARD_TERMS,
         *CONTINUATION_GATE_GUARD_TERMS,
         *MITIGATION_GATE_GUARD_TERMS,
@@ -672,6 +718,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Invariants",
         "Architecture Matrix Mismatches",
         "Contract Drift",
+        *ENGINEERING_SIMPLICITY_RUNTIME_GUARD_TERMS,
         *CLAIM_EVIDENCE_AUTHORING_GUARD_TERMS,
     ],
     "scripts/test-init-run.py": [
@@ -679,6 +726,8 @@ REQUIRED_RUNTIME_TEXT = {
         "generated pending run",
         "unknown architecture capability",
         "malformed worker lane",
+        "Engineering Simplicity",
+        "TODO(agent):",
     ],
     "scripts/validate-architecture-capabilities.py": [
         "Architecture Capability Router",
@@ -693,6 +742,8 @@ REQUIRED_RUNTIME_TEXT = {
     "testdata/golden-traces/manifest.json": [
         "Golden Trace Runs",
         "standard-multilane-architecture-ship",
+        "worker-without-engineering-simplicity",
+        "Engineering Simplicity Gate",
         "release-independent-architecture-ship",
         "blocked-resolution-third-attempt-blocked",
         "blocked-checkpoint-continuation-ship",
@@ -837,6 +888,10 @@ def main() -> int:
         ("old harness slash proposal guard", "Matrix/capability/validator/prompt/golden-trace"),
         ("old harness approval true guard", "requires_human_approval=" + "true"),
         ("old harness human-approved guard", "human-" + "approved changes"),
+        ("engineering simplicity schema v3 json guard", '"schema_version": ' + "3"),
+        ("engineering simplicity schema v3 assignment guard", "schema_version=" + "3"),
+        ("engineering simplicity new lane type json guard", '"type": "' + "engineering-simplicity" + '"'),
+        ("engineering simplicity new lane type compact guard", '"type":"' + "engineering-simplicity" + '"'),
     ]
 
     failures = 0

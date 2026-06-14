@@ -154,6 +154,8 @@ Architecture Capability Router runs after Architecture Matrix selection when `ar
 
 Architecture Context Propagation is required when worker lanes exist under the Architecture Contract Gate. Workers record `architecture_compliance.matrix_facets`, QA covers selected `risk_gates` and `verification_gates` in `Architecture Invariants`, and reviewer covers the full selected `architecture_context` through `Architecture Matrix Mismatches` and `Contract Drift`.
 
+Engineering Simplicity Gate is part of Architecture Execution Control, after each successful `implementation` or `integration` worker lane and before QA/reviewer. Workers must record `architecture_compliance.engineering_simplicity` with status `pass`, `fixed`, or `drift`, include all required checks (`no-extra-work`, `stdlib-native-first`, `existing-helper-first`, `dependency-justified`, `abstraction-justified`, `smallest-working-diff`, `tests-fit-risk`), and write `## Engineering Simplicity` in the worker handoff. `fixed` requires findings and actions. `drift` requires parent `architecture_compliance.status=drift` plus an architect `recheck_lane`; unresolved simplicity drift blocks `ship` and `pass-with-risks`. Retained dependency or abstraction must cite selected `architecture_capabilities`. This gate is not AI Slop Gate, adds no schema v3, no new lane type, no new subagent, and no new Architecture Matrix or capability registry entry.
+
 Claim Evidence Gate is required for positive architecture-gated runs. The Architecture Contract `QA Gates` and `Reviewer Checklist` sections must include `Claim Evidence` ids. The orchestrator writes `claim-evidence.json`; each claim record names `owner_lane`, reviewer lane, `supported` or `gap`, subjects, evidence paths, and literal `markers`. `ship` and `pass-with-risks` require every required claim to be `supported` and every marker to appear in the referenced evidence file.
 
 Verification Readiness Gate runs after an approved Architecture Design Brief and before worker lanes when architecture-gated runs have workers. The orchestrator records `verification_readiness` in `lane-map.json` and writes `verification-readiness.json` to prove every selected `risk_gates` and `verification_gates` facet is ready. If documented infra or environment startup is needed, readiness becomes `needs-approval`; the agent asks the user, runs only approved documented safe commands, records `approval_requests` and `approval_executions`, and retries readiness. If the user declines, the run stops immediately as `paused-blocked` with final `blocked`, manual instructions, and `resume_phrase` set to `Готово`. Positive verdicts require the latest readiness attempt to be `ready`, and QA records `Verification Gate Results`.
@@ -331,6 +333,8 @@ Non-trivial frontend/UI implementation needs an approved design source before co
 ## AI Slop Gate
 
 Read `references/ai-slop-gate.md` for user-facing text, UI/design, generated code, docs, tests, and public artifacts. Simulate the checklist in the main agent by default for `light`; use `ai-slops-hunter` only when `standard` or `release` delegation makes the added check worthwhile. Keep fixes minimal and within scope.
+
+Engineering Simplicity Gate is not AI Slop Gate. Keep it in Architecture Execution Control after worker implementation/integration lanes, because it may require worker retry or architect re-check before QA and reviewer.
 
 ## Scripts
 

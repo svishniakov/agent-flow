@@ -337,7 +337,7 @@ Architecture Matrix, capability registry, role prompts, validator guards, and
 Golden Trace Runs remain canonical runtime artifacts and are not promotion
 targets for project traces.
 
-Schema v2 also enforces Architecture Execution Control when
+Schema v2 also enforces Architecture Execution Control and Engineering Simplicity Gate when
 `architecture_contract_required=true`:
 
 - successful `implementation` and `integration` lanes must include
@@ -348,12 +348,24 @@ Schema v2 also enforces Architecture Execution Control when
 - Architecture Context Propagation requires
   `architecture_compliance.matrix_facets` as a non-empty selected
   `architecture_context` subset for each successful worker lane;
-- successful worker handoffs must include `Architecture Compliance`;
+- `architecture_compliance.engineering_simplicity` is required for every
+  successful worker lane, with status `pass`, `fixed`, or `drift`;
+- `engineering_simplicity.checks` must include `no-extra-work`,
+  `stdlib-native-first`, `existing-helper-first`, `dependency-justified`,
+  `abstraction-justified`, `smallest-working-diff`, and `tests-fit-risk`;
+- `fixed` Engineering Simplicity requires non-empty findings and actions;
+- `drift` Engineering Simplicity requires parent
+  `architecture_compliance.status=drift` and an architect `recheck_lane`;
+- retained dependency or abstraction in Engineering Simplicity notes/actions
+  must cite a selected `architecture_capabilities` id;
+- successful worker handoffs must include `Architecture Compliance` and
+  `Engineering Simplicity`;
 - worker `Architecture Compliance` sections must include every facet id declared
   in `architecture_compliance.matrix_facets`;
 - `compliant` worker lanes must not set `recheck_lane`;
-- architecture drift blocks `ship` until `recheck_lane` points to a later,
-  successful, critical `architecture` lane with contract handoff and evidence;
+- architecture or simplicity drift blocks `ship` and `pass-with-risks` until
+  `recheck_lane` points to a later, successful, critical `architecture` lane
+  with contract handoff and evidence;
 - when worker lanes exist, final `ship` requires successful QA and reviewer lanes;
 - QA must pass after workers and any architecture re-check, and QA handoff must
   include `Architecture Invariants` with every selected `risk_gates` and
@@ -361,7 +373,8 @@ Schema v2 also enforces Architecture Execution Control when
 - reviewer must pass after architecture, workers, and QA, and reviewer handoff
   must include `Architecture Matrix Mismatches` and `Contract Drift` covering
   every selected `architecture_context` facet and selected
-  `architecture_capabilities` id.
+  `architecture_capabilities` id; `Contract Drift` must cover Engineering
+  Simplicity.
 
 Mitigation Gate applies to every traceable run with `Verdict: pass-with-risks`:
 

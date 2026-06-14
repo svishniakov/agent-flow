@@ -27,6 +27,15 @@ DEFAULT_ARCHITECTURE_CAPABILITIES = [
     "go-backend-service-architecture",
     "modular-monolith-architecture",
 ]
+ENGINEERING_SIMPLICITY_CHECKS = [
+    "no-extra-work",
+    "stdlib-native-first",
+    "existing-helper-first",
+    "dependency-justified",
+    "abstraction-justified",
+    "smallest-working-diff",
+    "tests-fit-risk",
+]
 AGENT_TODO_PLACEHOLDER = "TODO(agent):"
 EXPECTED_ARCHITECTURE_GATE_FILES = [
     "delegation-summary.json",
@@ -213,6 +222,15 @@ def main() -> int:
             raise AssertionError("generated lane-map.json must include architecture_context")
         if lane_map.get("architecture_capabilities", {}).get("selected") != DEFAULT_ARCHITECTURE_CAPABILITIES:
             raise AssertionError("generated lane-map.json must include architecture_capabilities")
+
+        worker_handoff = (run_dir / "handoffs/worker-a.md").read_text(encoding="utf-8")
+        if "## Engineering Simplicity" not in worker_handoff:
+            raise AssertionError("worker handoff missing Engineering Simplicity section")
+        for check in ENGINEERING_SIMPLICITY_CHECKS:
+            if check not in worker_handoff:
+                raise AssertionError(f"worker handoff missing engineering simplicity check: {check}")
+        if AGENT_TODO_PLACEHOLDER not in worker_handoff:
+            raise AssertionError("worker handoff missing Engineering Simplicity TODO(agent)")
 
         delegation_summary = json.loads((run_dir / "delegation-summary.json").read_text(encoding="utf-8"))
         if delegation_summary.get("subagents_used") is not False:

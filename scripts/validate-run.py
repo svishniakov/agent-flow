@@ -143,6 +143,18 @@ ARCHITECTURE_DESIGN_EXECUTION_PLAN_SECTION = "Execution Plan"
 ARCHITECTURE_DESIGN_MATRIX_SECTION = "Selected Matrix Facets"
 ARCHITECTURE_COMPLIANCE_STATUSES = {"compliant", "drift"}
 ARCHITECTURE_COMPLIANCE_SECTION = "Architecture Compliance"
+ENGINEERING_SIMPLICITY_SECTION = "Engineering Simplicity"
+ENGINEERING_SIMPLICITY_STATUSES = {"pass", "fixed", "drift"}
+ENGINEERING_SIMPLICITY_REQUIRED_CHECKS = [
+    "no-extra-work",
+    "stdlib-native-first",
+    "existing-helper-first",
+    "dependency-justified",
+    "abstraction-justified",
+    "smallest-working-diff",
+    "tests-fit-risk",
+]
+ENGINEERING_SIMPLICITY_CHECK_SET = set(ENGINEERING_SIMPLICITY_REQUIRED_CHECKS)
 ARCHITECTURE_INVARIANTS_SECTION = "Architecture Invariants"
 ARCHITECTURE_MATRIX_MISMATCHES_SECTION = "Architecture Matrix Mismatches"
 CONTRACT_DRIFT_SECTION = "Contract Drift"
@@ -3400,12 +3412,192 @@ def missing_markdown_headings(path: Path, headings: list[str]) -> list[str]:
     return [heading for heading in headings if not has_markdown_heading(text, heading)]
 
 
+def requires_architecture_capability_citation(text: str) -> bool:
+    normalized = text.lower()
+    retained_complexity_phrases = [
+        "retained dependency",
+        "retained dependencies",
+        "kept dependency",
+        "kept dependencies",
+        "dependency retained",
+        "dependencies retained",
+        "justified dependency",
+        "dependency justified",
+        "retained abstraction",
+        "retained abstractions",
+        "kept abstraction",
+        "kept abstractions",
+        "abstraction retained",
+        "abstractions retained",
+        "justified abstraction",
+        "abstraction justified",
+    ]
+    return any(phrase in normalized for phrase in retained_complexity_phrases)
+
+
+def validate_non_empty_string_array(
+    value: object,
+    *,
+    label: str,
+    field: str,
+    required: bool,
+) -> list[str]:
+    if not isinstance(value, list):
+        return [f"lane-map.json: lane {label} {field} must be an array"]
+    if required and not value:
+        return [f"lane-map.json: lane {label} {field} must be a non-empty array"]
+    errors: list[str] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, str) or not item.strip():
+            errors.append(
+                f"lane-map.json: lane {label} {field}[{index}] "
+                "must be a non-empty string"
+            )
+    return errors
+
+
+def validate_engineering_simplicity_shape(
+    compliance: dict,
+    label: str,
+    *,
+    selected_capabilities: list[str],
+) -> list[str]:
+    errors: list[str] = []
+    simplicity = compliance.get("engineering_simplicity")
+    if not isinstance(simplicity, dict):
+        return [
+            f"lane-map.json: lane {label} "
+            "missing architecture_compliance.engineering_simplicity"
+        ]
+
+    status = simplicity.get("status")
+    if status not in ENGINEERING_SIMPLICITY_STATUSES:
+        allowed = ", ".join(sorted(ENGINEERING_SIMPLICITY_STATUSES))
+        errors.append(
+            f"lane-map.json: lane {label} invalid "
+            f"architecture_compliance.engineering_simplicity.status '{status}' "
+            f"(expected one of: {allowed})"
+        )
+
+    checks = simplicity.get("checks")
+    if not isinstance(checks, list) or not checks:
+        errors.append(
+            f"lane-map.json: lane {label} "
+            "architecture_compliance.engineering_simplicity.checks "
+            "must be a non-empty array"
+        )
+        present_checks: set[str] = set()
+    else:
+        present_checks = set()
+        for index, check in enumerate(checks):
+            if not isinstance(check, str) or not check.strip():
+                errors.append(
+                    f"lane-map.json: lane {label} "
+                    "architecture_compliance.engineering_simplicity.checks"
+                    f"[{index}] must be a non-empty string"
+                )
+                continue
+            if check not in ENGINEERING_SIMPLICITY_CHECK_SET:
+                errors.append(
+                    f"lane-map.json: lane {label} "
+                    "architecture_compliance.engineering_simplicity.checks"
+                    f"[{index}] unknown check: {check}"
+                )
+                continue
+            present_checks.add(check)
+        for check in ENGINEERING_SIMPLICITY_REQUIRED_CHECKS:
+            if check not in present_checks:
+                errors.append(
+                    f"lane-map.json: lane {label} "
+                    "architecture_compliance.engineering_simplicity.checks "
+                    f"missing required check: {check}"
+                )
+
+    findings = simplicity.get("findings")
+    actions = simplicity.get("actions")
+    errors.extend(
+        validate_non_empty_string_array(
+            findings,
+            label=label,
+            field="architecture_compliance.engineering_simplicity.findings",
+            required=False,
+        )
+    )
+    errors.extend(
+        validate_non_empty_string_array(
+            actions,
+            label=label,
+            field="architecture_compliance.engineering_simplicity.actions",
+            required=False,
+        )
+    )
+
+    notes = simplicity.get("notes")
+    if not isinstance(notes, str) or not notes.strip():
+        errors.append(
+            f"lane-map.json: lane {label} "
+            "architecture_compliance.engineering_simplicity.notes "
+            "must be a non-empty string"
+        )
+
+    if status == "fixed":
+        if not isinstance(findings, list) or not findings:
+            errors.append(
+                f"lane-map.json: lane {label} "
+                "fixed engineering_simplicity requires non-empty findings"
+            )
+        if not isinstance(actions, list) or not actions:
+            errors.append(
+                f"lane-map.json: lane {label} "
+                "fixed engineering_simplicity requires non-empty actions"
+            )
+
+    parent_status = compliance.get("status")
+    recheck_lane = compliance.get("recheck_lane")
+    if status == "drift":
+        if parent_status != "drift":
+            errors.append(
+                f"lane-map.json: lane {label} "
+                "engineering_simplicity drift requires "
+                "architecture_compliance.status=drift"
+            )
+        if not isinstance(recheck_lane, str) or not recheck_lane:
+            errors.append(
+                f"lane-map.json: lane {label} "
+                "engineering_simplicity drift requires recheck_lane"
+            )
+    elif parent_status != "drift" and status not in {"pass", "fixed"}:
+        errors.append(
+            f"lane-map.json: lane {label} successful worker lane accepts only "
+            "engineering_simplicity pass or fixed unless architecture_compliance.status=drift"
+        )
+
+    citation_parts = [notes if isinstance(notes, str) else ""]
+    if isinstance(findings, list):
+        citation_parts.extend(finding for finding in findings if isinstance(finding, str))
+    if isinstance(actions, list):
+        citation_parts.extend(action for action in actions if isinstance(action, str))
+    citation_text = "\n".join(citation_parts)
+    if requires_architecture_capability_citation(citation_text):
+        if not any(
+            contains_facet_id(citation_text, capability)
+            for capability in selected_capabilities
+        ):
+            errors.append(
+                f"lane-map.json: lane {label} retained dependency or abstraction "
+                "must cite a selected architecture capability"
+            )
+
+    return errors
+
+
 def validate_architecture_compliance_shape(
     lane: dict,
     label: str,
     *,
     selected_matrix_facets: set[str],
     known_matrix_facets: set[str],
+    selected_capabilities: list[str],
 ) -> tuple[dict | None, list[str]]:
     errors: list[str] = []
     compliance = lane.get("architecture_compliance")
@@ -3482,6 +3674,14 @@ def validate_architecture_compliance_shape(
             f"lane-map.json: lane {label} compliant architecture_compliance "
             "must not set recheck_lane"
         )
+
+    errors.extend(
+        validate_engineering_simplicity_shape(
+            compliance,
+            label,
+            selected_capabilities=selected_capabilities,
+        )
+    )
 
     return compliance, errors
 
@@ -3596,6 +3796,7 @@ def validate_lane_map(
     successful_qa_lanes: list[tuple[str, int, str | None]] = []
     successful_worker_lanes: list[tuple[str, int, str | None]] = []
     drifting_worker_lanes: list[tuple[str, int | None, str | None]] = []
+    simplicity_drifting_worker_lanes: list[tuple[str, int | None, str | None]] = []
     worker_lane_count = 0
     mitigation_risks = mitigation_risks or []
     mitigation_risk_ids = risk_mitigation_ids(mitigation_risks)
@@ -3788,13 +3989,14 @@ def validate_lane_map(
                     label,
                     selected_matrix_facets=set(architecture_context_facets),
                     known_matrix_facets=known_matrix_facets,
+                    selected_capabilities=architecture_capabilities,
                 )
                 errors.extend(compliance_errors)
                 if isinstance(handoff, str) and handoff:
                     handoff_path = resolve_run_path(run_dir, handoff)
                     for section in missing_markdown_headings(
                         handoff_path,
-                        [ARCHITECTURE_COMPLIANCE_SECTION],
+                        [ARCHITECTURE_COMPLIANCE_SECTION, ENGINEERING_SIMPLICITY_SECTION],
                     ):
                         errors.append(f"lane-map.json: lane {label} handoff missing section: {section}")
                     if compliance and isinstance(compliance.get("matrix_facets"), list):
@@ -3813,6 +4015,16 @@ def validate_lane_map(
                                 "Architecture Compliance missing "
                                 f"Architecture Matrix facet: {facet}"
                             )
+                    for check in missing_facets_in_markdown_sections(
+                        handoff_path,
+                        [ENGINEERING_SIMPLICITY_SECTION],
+                        ENGINEERING_SIMPLICITY_REQUIRED_CHECKS,
+                    ):
+                        errors.append(
+                            f"lane-map.json: lane {label} "
+                            "Engineering Simplicity missing check: "
+                            f"{check}"
+                        )
                 else:
                     errors.append(
                         f"lane-map.json: lane {label} "
@@ -3827,6 +4039,30 @@ def validate_lane_map(
                             recheck_lane if isinstance(recheck_lane, str) and recheck_lane else None,
                         )
                     )
+                    simplicity = compliance.get("engineering_simplicity")
+                    if isinstance(simplicity, dict) and simplicity.get("status") == "drift":
+                        simplicity_drifting_worker_lanes.append(
+                            (
+                                lane_id,
+                                worker_wave,
+                                recheck_lane
+                                if isinstance(recheck_lane, str) and recheck_lane
+                                else None,
+                            )
+                        )
+
+    for lane_id, _worker_wave, recheck_lane_id in simplicity_drifting_worker_lanes:
+        if not recheck_lane_id:
+            errors.append(
+                f"lane-map.json: lane {lane_id} "
+                "engineering_simplicity drift requires recheck_lane"
+            )
+            continue
+        if recheck_lane_id not in lane_by_id:
+            errors.append(
+                f"lane-map.json: lane {lane_id} "
+                f"engineering_simplicity recheck_lane not found: {recheck_lane_id}"
+            )
 
     for lane_id, lane in lane_by_id.items():
         if lane.get("critical") is not True:
@@ -4131,6 +4367,17 @@ def validate_lane_map(
                             f"lane-map.json: lane {lane_id} reviewer handoff "
                             f"missing architecture capability: {capability}"
                         )
+                    if handoff_path.exists():
+                        handoff_text = handoff_path.read_text(encoding="utf-8")
+                        contract_drift_text = markdown_section_text(
+                            handoff_text,
+                            CONTRACT_DRIFT_SECTION,
+                        )
+                        if not contains_facet_id(contract_drift_text, ENGINEERING_SIMPLICITY_SECTION):
+                            errors.append(
+                                f"lane-map.json: lane {lane_id} Contract Drift "
+                                "missing Engineering Simplicity"
+                            )
 
         if successful_reviewer_lanes:
             if successful_architecture_waves:
@@ -4172,6 +4419,8 @@ def validate_lane_map(
                 errors.append("lane-map.json: final Verdict ship requires successful qa lane")
             if not successful_reviewer_lanes:
                 errors.append("lane-map.json: final Verdict ship requires successful reviewer lane")
+
+        if final_verdict in {"ship", "pass-with-risks"} and successful_worker_lanes:
             for lane_id, worker_wave, recheck_lane_id in drifting_worker_lanes:
                 if not recheck_lane_id:
                     errors.append(f"lane-map.json: lane {lane_id} architecture drift requires recheck_lane")

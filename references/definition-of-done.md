@@ -61,7 +61,7 @@ For full `release` trace:
 - Architecture Artifact Authoring Automation is covered: `init-run.py --architecture-gate` can create the skeleton, roles fill their own artifacts, and no positive final verdict ships with `TODO(agent):` left in referenced architecture artifacts;
 - when Architecture Matrix facets apply, `architecture_context` records the selected facets and the architecture handoff `Selected Architecture` section includes those facet ids before QA/reviewer gates cover facet-driven invariants;
 - Architecture Capability Router is covered: selected `architecture_capabilities` from `registries/architecture-capabilities.json` cover selected Matrix facets, Architecture Design Brief `Execution Plan` includes the capability ids, Architecture Contract `Selected Architecture` includes them, and Soft Skill Binding handles `recommended_skills` through registry checks;
-- when Architecture Execution Control applies, worker lanes record `Architecture Compliance`, architecture drift has architect re-check before `ship`, QA records `Architecture Invariants`, and reviewer records `Architecture Matrix Mismatches` plus `Contract Drift`;
+- when Architecture Execution Control applies, worker lanes record `Architecture Compliance` and `Engineering Simplicity`, architecture or simplicity drift has architect re-check before `ship` or `pass-with-risks`, QA records `Architecture Invariants`, and reviewer records `Architecture Matrix Mismatches` plus `Contract Drift` including Engineering Simplicity;
 - Architecture Context Propagation is covered: workers declare selected `matrix_facets`, QA covers selected `risk_gates` and `verification_gates`, and reviewer covers the full selected `architecture_context` plus selected `architecture_capabilities`;
 - Claim Evidence Gate is covered for positive architecture-gated runs: Architecture Contract `QA Gates` and `Reviewer Checklist` list `Claim Evidence` ids, `claim-evidence.json` maps every id to `owner_lane`, reviewer, `supported` status, subjects, evidence paths, and literal `markers`; any `gap` blocks `ship` and `pass-with-risks`;
 - Verification Readiness Gate is covered before worker lanes: `lane-map.json` records `verification_readiness`, `verification-readiness.json` covers selected `risk_gates` and `verification_gates`, `needs-approval` uses documented safe commands only after user approval, `approval_requests` and `approval_executions` are recorded, `paused-blocked` stops as final `blocked` with `resume_phrase=Готово`, and QA records `Verification Gate Results`;
@@ -85,7 +85,8 @@ For full `release` trace:
 - Code review touching architecture, public contracts, APIs, data flow, security, migrations, or multiple subsystems has an architect-owned review contract and reviewer verdict against it.
 - Standard traceable runs with at least two worker lanes and all release traceable runs used `architecture_contract_required=true`.
 - Architecture Design Mode blocked `ship` and `pass-with-risks` until an Architecture Design Brief had `Status: approved` and worker lanes ran after it.
-- Architecture Execution Control blocked `ship` until worker `Architecture Compliance`, QA `Architecture Invariants`, reviewer `Contract Drift`, and any architecture drift re-check were covered.
+- Architecture Execution Control blocked `ship` until worker `Architecture Compliance`, worker `Engineering Simplicity`, QA `Architecture Invariants`, reviewer `Contract Drift`, and any architecture or simplicity drift re-check were covered.
+- Engineering Simplicity Gate evidence uses `architecture_compliance.engineering_simplicity` and covers `no-extra-work`, `stdlib-native-first`, `existing-helper-first`, `dependency-justified`, `abstraction-justified`, `smallest-working-diff`, and `tests-fit-risk`.
 - Architecture Context Propagation blocked `ship` until worker `matrix_facets`, QA `risk_gates` and `verification_gates`, reviewer selected-context coverage, and selected `architecture_capabilities` coverage were present.
 - Verification Readiness Gate blocked worker start and positive verdicts until selected `risk_gates` and `verification_gates` were ready; user-declined startup stopped immediately as `paused-blocked` with manual instruction and `resume_phrase=Готово`.
 - Continuation Gate blocked positive resumed runs unless `continuation-summary.json`, `blocked-checkpoint`, timeline `lane_id` evidence, `Continuation Summary`, QA `Continuation Revalidation`, reviewer `Continuation Review`, and `revalidated_lanes` proved the resumed order honestly.
@@ -138,6 +139,7 @@ For full `release` trace:
 
 ## AI Slop Gates
 
+- Engineering Simplicity Gate is not AI Slop Gate; it belongs to Architecture Execution Control after worker lanes and before QA/reviewer.
 - For user-facing output, docs, UI/design, generated code, tests, or public artifacts, run the AI slop checklist.
 - Simulate the checklist in the main agent by default.
 - Use `ai-slops-hunter` only when the selected budget permits subagents and the added check is worthwhile.

@@ -22,7 +22,8 @@
         "Architecture Capability Router",
         "Architecture Design Mode",
         "Architecture Execution Control",
-        "Architecture Context Propagation"
+        "Architecture Context Propagation",
+        "Engineering Simplicity Gate"
       ]
     },
     {
@@ -53,6 +54,7 @@
       "expected": "pass",
       "covers": [
         "Architecture Execution Control",
+        "Engineering Simplicity Gate",
         "drift recheck"
       ]
     },
@@ -145,6 +147,17 @@
       "expected": "fail",
       "expected_error": "architecture drift requires recheck_lane",
       "covers": [
+        "Architecture Execution Control"
+      ]
+    },
+    {
+      "id": "worker-without-engineering-simplicity",
+      "path": "invalid/worker-without-engineering-simplicity",
+      "mode": "full",
+      "expected": "fail",
+      "expected_error": "missing architecture_compliance.engineering_simplicity",
+      "covers": [
+        "Engineering Simplicity Gate",
         "Architecture Execution Control"
       ]
     },

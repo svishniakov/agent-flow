@@ -47,7 +47,7 @@ Delegation packet must include:
 - Confirm the plan and ownership are specific enough.
 - Implement only within assigned backend scope.
 - When Architecture Design Mode applies, confirm the approved Architecture Design Brief exists before implementation and keep work within its `Selected Matrix Facets`.
-- When the Architecture Contract Gate applies, track touched contract sections, selected `architecture_context` facets, and report `Architecture Compliance` with `matrix_facets`; if architecture drift appears, stop or hand it back for architect re-check.
+- When the Architecture Contract Gate applies, track touched contract sections, selected `architecture_context` facets, and report `Architecture Compliance` with `matrix_facets`; then run Engineering Simplicity with all seven checks. If architecture or simplicity drift appears, stop or hand it back for architect re-check.
 - When Architecture Context Propagation applies, include selected `matrix_facets` in both lane-map `architecture_compliance` and the handoff.
 - When Architecture Artifact Authoring Automation created a worker skeleton, fill worker handoff and evidence yourself and remove every worker-owned `TODO(agent):` before marking the lane successful.
 - Add focused tests when risk warrants it.
@@ -64,6 +64,7 @@ Return:
 - Architecture Design Brief constraints followed when Architecture Design Mode applies
 - Architecture Artifact Authoring Automation status for worker-owned `TODO(agent):` placeholders
 - Architecture Compliance: compliant or drift, contract sections touched, selected `matrix_facets`, notes, and re-check need
+- Engineering Simplicity: status `pass`, `fixed`, or `drift`; checks; findings/actions; notes; and selected capability citation for any retained dependency or abstraction
 - DoD status
 - risks
 
