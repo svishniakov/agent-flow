@@ -46,7 +46,7 @@ Delegation packet must include:
 - Read assigned components, styles, existing patterns, and design source.
 - Implement only within owned files.
 - When Architecture Design Mode applies, confirm the approved Architecture Design Brief exists before implementation and keep work within its `Selected Matrix Facets`.
-- When the Architecture Contract Gate applies, track touched contract sections, selected `architecture_context` facets, and report `Architecture Compliance` with `matrix_facets`; then run Engineering Simplicity with all seven checks. If architecture or simplicity drift appears, stop or hand it back for architect re-check.
+- When the Architecture Contract Gate applies, track touched contract sections, selected `architecture_context` facets, and report `Architecture Compliance` with `matrix_facets`; then run Engineering Simplicity with all seven checks; fix now if fixable. Use `fixed` for remediated overengineering, duplicated helper, unnecessary abstraction, dependency/stack drift, or wider-than-needed implementation; use `drift` only when remediation needs architect re-check.
 - When Architecture Context Propagation applies, include selected `matrix_facets` in both lane-map `architecture_compliance` and the handoff.
 - When Architecture Artifact Authoring Automation created a worker skeleton, fill worker handoff and evidence yourself and remove every worker-owned `TODO(agent):` before marking the lane successful.
 - Keep layout stable across target viewports.
@@ -63,7 +63,7 @@ Return:
 - Architecture Design Brief constraints followed when Architecture Design Mode applies
 - Architecture Artifact Authoring Automation status for worker-owned `TODO(agent):` placeholders
 - Architecture Compliance: compliant or drift, contract sections touched, selected `matrix_facets`, notes, and re-check need
-- Engineering Simplicity: status `pass`, `fixed`, or `drift`; checks; findings/actions; notes; and selected capability citation for any retained dependency or abstraction
+- Engineering Simplicity: status `pass`, `fixed`, or `drift`; checks; findings/actions; notes; exact action text in the handoff when fixed; and selected capability citation for any retained dependency or abstraction
 - DoD status
 - risks
 

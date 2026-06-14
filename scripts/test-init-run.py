@@ -231,6 +231,8 @@ def main() -> int:
                 raise AssertionError(f"worker handoff missing engineering simplicity check: {check}")
         if AGENT_TODO_PLACEHOLDER not in worker_handoff:
             raise AssertionError("worker handoff missing Engineering Simplicity TODO(agent)")
+        if "fix now if fixable" not in worker_handoff:
+            raise AssertionError("worker handoff missing Engineering Simplicity remediation instruction")
 
         delegation_summary = json.loads((run_dir / "delegation-summary.json").read_text(encoding="utf-8"))
         if delegation_summary.get("subagents_used") is not False:

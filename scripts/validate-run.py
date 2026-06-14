@@ -155,6 +155,18 @@ ENGINEERING_SIMPLICITY_REQUIRED_CHECKS = [
     "tests-fit-risk",
 ]
 ENGINEERING_SIMPLICITY_CHECK_SET = set(ENGINEERING_SIMPLICITY_REQUIRED_CHECKS)
+ENGINEERING_SIMPLICITY_FIXABLE_PHRASES = [
+    "fixable",
+    "overengineering",
+    "over-engineering",
+    "duplicated helper",
+    "duplicate helper",
+    "unnecessary abstraction",
+    "dependency drift",
+    "stack drift",
+    "wider-than-needed",
+    "wider than needed",
+]
 ARCHITECTURE_INVARIANTS_SECTION = "Architecture Invariants"
 ARCHITECTURE_MATRIX_MISMATCHES_SECTION = "Architecture Matrix Mismatches"
 CONTRACT_DRIFT_SECTION = "Contract Drift"
@@ -3435,6 +3447,11 @@ def requires_architecture_capability_citation(text: str) -> bool:
     return any(phrase in normalized for phrase in retained_complexity_phrases)
 
 
+def contains_fixable_simplicity_problem(text: str) -> bool:
+    normalized = text.lower()
+    return any(phrase in normalized for phrase in ENGINEERING_SIMPLICITY_FIXABLE_PHRASES)
+
+
 def validate_non_empty_string_array(
     value: object,
     *,
@@ -3551,6 +3568,25 @@ def validate_engineering_simplicity_shape(
                 f"lane-map.json: lane {label} "
                 "fixed engineering_simplicity requires non-empty actions"
             )
+
+    remediation_text_parts: list[str] = []
+    if isinstance(findings, list):
+        remediation_text_parts.extend(
+            finding for finding in findings if isinstance(finding, str)
+        )
+    if isinstance(actions, list):
+        remediation_text_parts.extend(
+            action for action in actions if isinstance(action, str)
+        )
+    if isinstance(notes, str):
+        remediation_text_parts.append(notes)
+    if status == "pass" and any(
+        contains_fixable_simplicity_problem(part) for part in remediation_text_parts
+    ):
+        errors.append(
+            f"lane-map.json: lane {label} "
+            "engineering_simplicity status=pass cannot report fixable remediation findings"
+        )
 
     parent_status = compliance.get("status")
     recheck_lane = compliance.get("recheck_lane")
@@ -3797,6 +3833,24 @@ def validate_lane_map(
     successful_worker_lanes: list[tuple[str, int, str | None]] = []
     drifting_worker_lanes: list[tuple[str, int | None, str | None]] = []
     simplicity_drifting_worker_lanes: list[tuple[str, int | None, str | None]] = []
+    fixed_simplicity_worker_lane_ids: list[str] = []
+    for lane in lanes:
+        if not isinstance(lane, dict):
+            continue
+        lane_id = lane.get("id")
+        if not isinstance(lane_id, str) or not lane_id:
+            continue
+        if lane.get("type") not in WORKER_LANE_TYPES:
+            continue
+        if normalize_lane_status(lane.get("status")) not in SUCCESSFUL_LANE_STATUSES:
+            continue
+        compliance = lane.get("architecture_compliance")
+        if not isinstance(compliance, dict):
+            continue
+        simplicity = compliance.get("engineering_simplicity")
+        if isinstance(simplicity, dict) and simplicity.get("status") == "fixed":
+            if lane_id not in fixed_simplicity_worker_lane_ids:
+                fixed_simplicity_worker_lane_ids.append(lane_id)
     worker_lane_count = 0
     mitigation_risks = mitigation_risks or []
     mitigation_risk_ids = risk_mitigation_ids(mitigation_risks)
@@ -4025,6 +4079,31 @@ def validate_lane_map(
                             "Engineering Simplicity missing check: "
                             f"{check}"
                         )
+                    if compliance:
+                        simplicity = compliance.get("engineering_simplicity")
+                        if isinstance(simplicity, dict) and simplicity.get("status") == "fixed":
+                            handoff_text = (
+                                handoff_path.read_text(encoding="utf-8")
+                                if handoff_path.exists()
+                                else ""
+                            )
+                            simplicity_text = markdown_section_text(
+                                handoff_text,
+                                ENGINEERING_SIMPLICITY_SECTION,
+                            )
+                            actions = simplicity.get("actions")
+                            if isinstance(actions, list):
+                                for action in actions:
+                                    if (
+                                        isinstance(action, str)
+                                        and action.strip()
+                                        and action not in simplicity_text
+                                    ):
+                                        errors.append(
+                                            f"lane-map.json: lane {label} "
+                                            "Engineering Simplicity missing action: "
+                                            f"{action}"
+                                        )
                 else:
                     errors.append(
                         f"lane-map.json: lane {label} "
@@ -4378,6 +4457,13 @@ def validate_lane_map(
                                 f"lane-map.json: lane {lane_id} Contract Drift "
                                 "missing Engineering Simplicity"
                             )
+                        for worker_lane_id in fixed_simplicity_worker_lane_ids:
+                            if not contains_facet_id(contract_drift_text, worker_lane_id):
+                                errors.append(
+                                    f"lane-map.json: lane {lane_id} Contract Drift "
+                                    "missing fixed Engineering Simplicity lane: "
+                                    f"{worker_lane_id}"
+                                )
 
         if successful_reviewer_lanes:
             if successful_architecture_waves:

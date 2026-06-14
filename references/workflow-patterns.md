@@ -95,7 +95,7 @@ Rules:
 - give every lane an id, role, type, wave, critical flag, status, handoff, and evidence policy;
 - set schema v2 `budget`; `release` and `standard` runs with two or more worker lanes require an Architecture Contract Gate;
 - select Architecture Matrix facets before the architecture lane writes its contract when product or stack constraints matter;
-- when the Architecture Contract Gate applies, use Architecture Execution Control: worker lanes report `Architecture Compliance`, architecture drift gets architect re-check, QA reports `Architecture Invariants`, and reviewer reports `Architecture Matrix Mismatches` plus `Contract Drift`;
+- when the Architecture Contract Gate applies, use Architecture Execution Control: worker lanes report `Architecture Compliance`, Engineering Simplicity fixes now if fixable, architecture or simplicity drift gets architect re-check, QA reports `Architecture Invariants`, and reviewer reports `Architecture Matrix Mismatches` plus `Contract Drift`;
 - mark shared files as orchestrator-owned or integration-lane-owned before workers start;
 - a timed-out critical lane needs a replacement lane or orchestrator-owned evidence;
 - `validate-run.py` must block `Verdict: ship` while any critical lane is unresolved.

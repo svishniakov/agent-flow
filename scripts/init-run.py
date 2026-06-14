@@ -360,7 +360,7 @@ Required checks:
 Selected architecture capabilities:
 {markdown_id_list(capabilities)}
 
-{AGENT_TODO_PLACEHOLDER} Record pass, fixed, or drift; list findings/actions; cite selected capabilities for retained dependency or abstraction.
+{AGENT_TODO_PLACEHOLDER} Record pass, fixed, or drift; fix now if fixable; route as drift only when architect re-check is needed; list findings/actions; cite selected capabilities for retained dependency or abstraction.
 """
 
 

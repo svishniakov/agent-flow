@@ -136,7 +136,13 @@ must include status `pass`, `fixed`, or `drift`; all seven checks
 (`no-extra-work`, `stdlib-native-first`, `existing-helper-first`,
 `dependency-justified`, `abstraction-justified`, `smallest-working-diff`,
 `tests-fit-risk`); findings; actions; and notes. `fixed` requires findings and
-actions. Retained dependency or abstraction must cite selected
+actions that are repeated literally in the worker `Engineering Simplicity`
+handoff. Simplicity Gate is not a reporting gate: fix now if fixable. Fixable
+overengineering, duplicated helper, unnecessary abstraction, dependency/stack
+drift, or wider-than-needed implementation is remediated before QA/reviewer.
+`pass` cannot report a fixable issue. `drift` is only for remediation that
+changes boundaries, public contracts, selected capabilities, or architecture
+approach. Retained dependency or abstraction must cite selected
 `architecture_capabilities`. If a worker finds architecture or simplicity drift,
 the orchestrator routes the case to architect re-check before `ship` or
 `pass-with-risks`; the drift is not closed by worker-only follow-up.
@@ -214,7 +220,8 @@ When worker lanes exist under the Architecture Contract Gate, QA must run after
 the workers and any architect re-check, and its handoff must include
 `Architecture Invariants`. Reviewer must run after QA and write
 `Architecture Matrix Mismatches` and `Contract Drift`; `Contract Drift` must
-cover Engineering Simplicity.
+cover Engineering Simplicity, reject reporting-only simplicity closure, and
+mention each fixed worker lane id when `engineering_simplicity.status=fixed`.
 
 If the architect rejects the proposed approach, do not treat that reject as a
 reason to raise model/reasoning by default. Model/reasoning upgrade is not the default fix.

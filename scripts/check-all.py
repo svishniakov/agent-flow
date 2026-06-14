@@ -162,6 +162,18 @@ ENGINEERING_SIMPLICITY_RUNTIME_GUARD_TERMS = [
     "smallest-working-diff",
     "tests-fit-risk",
 ]
+ENGINEERING_SIMPLICITY_REMEDIATION_GUARD_TERMS = [
+    "Simplicity Gate is not a reporting gate",
+    "fix now if fixable",
+    "wider-than-needed implementation",
+    "reporting-only",
+    "architect re-check",
+]
+ENGINEERING_SIMPLICITY_WORKER_REMEDIATION_GUARD_TERMS = [
+    "fix now if fixable",
+    "wider-than-needed implementation",
+    "architect re-check",
+]
 
 REQUIRED_RUNTIME_TEXT = {
     "SKILL.md": [
@@ -186,6 +198,7 @@ REQUIRED_RUNTIME_TEXT = {
         "matrix_facets",
         "Architecture Execution Control",
         *ENGINEERING_SIMPLICITY_GATE_GUARD_TERMS,
+        *ENGINEERING_SIMPLICITY_REMEDIATION_GUARD_TERMS,
         "not AI Slop Gate",
         *MITIGATION_GATE_GUARD_TERMS,
         *RESOLUTION_GATE_GUARD_TERMS,
@@ -220,6 +233,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Matrix Mismatches",
         "Contract Drift",
         *ENGINEERING_SIMPLICITY_GATE_GUARD_TERMS,
+        *ENGINEERING_SIMPLICITY_REMEDIATION_GUARD_TERMS,
         "not AI Slop Gate",
         *MITIGATION_GATE_GUARD_TERMS,
         *RESOLUTION_GATE_GUARD_TERMS,
@@ -266,6 +280,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Matrix Mismatches",
         "Contract Drift",
         *ENGINEERING_SIMPLICITY_GATE_GUARD_TERMS,
+        *ENGINEERING_SIMPLICITY_REMEDIATION_GUARD_TERMS,
         *MITIGATION_GATE_GUARD_TERMS,
         *RESOLUTION_GATE_GUARD_TERMS,
         *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
@@ -301,6 +316,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Matrix Mismatches",
         "Contract Drift",
         *ENGINEERING_SIMPLICITY_GATE_GUARD_TERMS,
+        *ENGINEERING_SIMPLICITY_REMEDIATION_GUARD_TERMS,
         *MITIGATION_GATE_GUARD_TERMS,
         *RESOLUTION_GATE_GUARD_TERMS,
         *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
@@ -336,6 +352,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Matrix Mismatches",
         "Contract Drift",
         *ENGINEERING_SIMPLICITY_GATE_GUARD_TERMS,
+        *ENGINEERING_SIMPLICITY_REMEDIATION_GUARD_TERMS,
         *MITIGATION_GATE_GUARD_TERMS,
         *RESOLUTION_GATE_GUARD_TERMS,
         *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
@@ -470,6 +487,9 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Matrix Mismatches",
         "Contract Drift",
         "Engineering Simplicity",
+        "Simplicity Gate is not a reporting gate",
+        "fix now if fixable",
+        "reporting-only",
         *VERIFICATION_READINESS_GATE_GUARD_TERMS,
         "No role should ask the human",
         *CLAIM_EVIDENCE_AUTHORING_GUARD_TERMS,
@@ -500,6 +520,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Compliance",
         "Engineering Simplicity",
         "architecture drift",
+        *ENGINEERING_SIMPLICITY_REMEDIATION_GUARD_TERMS,
         "Architecture Invariants",
         "Architecture Matrix Mismatches",
         "Contract Drift",
@@ -532,6 +553,7 @@ REQUIRED_RUNTIME_TEXT = {
         "architecture drift",
         "Engineering Simplicity",
         "architect re-check",
+        "Simplicity Gate is not a reporting gate",
         *CLAIM_EVIDENCE_GATE_GUARD_TERMS,
         "Blocked Resolution Gate",
         "Resolution Architect Review",
@@ -551,6 +573,8 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Matrix Mismatches",
         "Contract Drift",
         "Engineering Simplicity",
+        "reporting-only",
+        "fixed worker lane id",
         *VERIFICATION_READINESS_GATE_GUARD_TERMS,
         *CONTINUATION_GATE_GUARD_TERMS,
         *HARNESS_EVALUATION_GUARD_TERMS,
@@ -568,6 +592,7 @@ REQUIRED_RUNTIME_TEXT = {
         "architecture invariants",
         "architecture_context",
         "Engineering Simplicity",
+        "simplicity remediation",
         *ARCHITECTURE_CAPABILITY_GUARD_TERMS,
         "Architecture Context Propagation",
         "Architecture Invariants",
@@ -602,6 +627,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Context Propagation",
         "matrix_facets",
         "architecture drift",
+        *ENGINEERING_SIMPLICITY_WORKER_REMEDIATION_GUARD_TERMS,
     ],
     "agents/frontend-worker.md": [
         "Architecture Compliance",
@@ -611,6 +637,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Context Propagation",
         "matrix_facets",
         "architecture drift",
+        *ENGINEERING_SIMPLICITY_WORKER_REMEDIATION_GUARD_TERMS,
     ],
     "agents/typescript-worker.md": [
         "Architecture Compliance",
@@ -620,6 +647,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Context Propagation",
         "matrix_facets",
         "architecture drift",
+        *ENGINEERING_SIMPLICITY_WORKER_REMEDIATION_GUARD_TERMS,
     ],
     "agents/bun-worker.md": [
         "Architecture Compliance",
@@ -629,6 +657,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Context Propagation",
         "matrix_facets",
         "architecture drift",
+        *ENGINEERING_SIMPLICITY_WORKER_REMEDIATION_GUARD_TERMS,
     ],
     "agents/python-worker.md": [
         "Architecture Compliance",
@@ -638,6 +667,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Context Propagation",
         "matrix_facets",
         "architecture drift",
+        *ENGINEERING_SIMPLICITY_WORKER_REMEDIATION_GUARD_TERMS,
     ],
     "agents/golang-worker.md": [
         "Architecture Compliance",
@@ -647,6 +677,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Context Propagation",
         "matrix_facets",
         "architecture drift",
+        *ENGINEERING_SIMPLICITY_WORKER_REMEDIATION_GUARD_TERMS,
     ],
     "agents/ios-worker.md": [
         "Architecture Compliance",
@@ -656,6 +687,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Context Propagation",
         "matrix_facets",
         "architecture drift",
+        *ENGINEERING_SIMPLICITY_WORKER_REMEDIATION_GUARD_TERMS,
     ],
     "agents/rag-retrieval-engineer.md": [
         "Architecture Compliance",
@@ -665,6 +697,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Context Propagation",
         "matrix_facets",
         "architecture drift",
+        *ENGINEERING_SIMPLICITY_WORKER_REMEDIATION_GUARD_TERMS,
     ],
     "scripts/validate-run.py": [
         "architecture_compliance",
@@ -719,6 +752,8 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Matrix Mismatches",
         "Contract Drift",
         *ENGINEERING_SIMPLICITY_RUNTIME_GUARD_TERMS,
+        "fix now if fixable",
+        "route as drift only when architect re-check is needed",
         *CLAIM_EVIDENCE_AUTHORING_GUARD_TERMS,
     ],
     "scripts/test-init-run.py": [
@@ -728,6 +763,8 @@ REQUIRED_RUNTIME_TEXT = {
         "malformed worker lane",
         "Engineering Simplicity",
         "TODO(agent):",
+        "fix now if fixable",
+        "Engineering Simplicity remediation instruction",
     ],
     "scripts/validate-architecture-capabilities.py": [
         "Architecture Capability Router",

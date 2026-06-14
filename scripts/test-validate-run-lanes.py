@@ -6437,6 +6437,92 @@ def main() -> int:
             ),
         )
 
+        expect_fail(
+            "engineering simplicity pass with fixable finding fails",
+            write_run(
+                temp / "worker-engineering-simplicity-pass-fixable-finding",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(
+                        architecture_compliance_data=architecture_compliance(
+                            engineering_simplicity=engineering_simplicity_gate(
+                                status="pass",
+                                findings=[
+                                    "Fixable overengineering found: duplicated helper can be removed."
+                                ],
+                            )
+                        )
+                    ),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "engineering_simplicity status=pass cannot report fixable remediation findings",
+        )
+
+        expect_fail(
+            "fixed engineering simplicity without action handoff coverage fails",
+            write_run(
+                temp / "worker-engineering-simplicity-fixed-action-missing-handoff",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(
+                        architecture_compliance_data=architecture_compliance(
+                            engineering_simplicity=engineering_simplicity_gate(
+                                status="fixed",
+                                findings=["Fixture extra helper removed."],
+                                actions=[
+                                    "Removed duplicated helper and reused existing tenant helper."
+                                ],
+                            )
+                        )
+                    ),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "Engineering Simplicity missing action: Removed duplicated helper and reused existing tenant helper.",
+        )
+
+        fixed_action = "Removed duplicated helper and reused existing tenant helper."
+        fixed_worker_handoff = default_worker_handoff_bodies()
+        fixed_worker_handoff[ENGINEERING_SIMPLICITY_SECTION] = (
+            "Checks:\n"
+            + facet_lines(ENGINEERING_SIMPLICITY_CHECKS)
+            + "\n\nStatus: fixed\n"
+            "Findings:\n"
+            "- Fixture extra helper removed.\n"
+            "Actions:\n"
+            f"- {fixed_action}\n"
+            "Notes: fix now if fixable; no architect re-check needed."
+        )
+
+        expect_fail(
+            "fixed engineering simplicity reviewer missing worker lane id fails",
+            write_run(
+                temp / "worker-engineering-simplicity-fixed-reviewer-missing-lane",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(
+                        architecture_compliance_data=architecture_compliance(
+                            engineering_simplicity=engineering_simplicity_gate(
+                                status="fixed",
+                                findings=["Fixture extra helper removed."],
+                                actions=[fixed_action],
+                            )
+                        ),
+                        handoff_section_bodies=fixed_worker_handoff,
+                    ),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "Contract Drift missing fixed Engineering Simplicity lane: worker-a",
+        )
+
         expect_pass(
             "worker engineering simplicity fixed accepted",
             write_run(
@@ -6448,12 +6534,58 @@ def main() -> int:
                             engineering_simplicity=engineering_simplicity_gate(
                                 status="fixed",
                                 findings=["Fixture extra helper removed."],
-                                actions=["Kept the smallest working diff inside approved facets."],
+                                actions=[fixed_action],
                             )
-                        )
+                        ),
+                        handoff_section_bodies=fixed_worker_handoff,
                     ),
                     qa_control_lane(wave=3),
-                    reviewer_control_lane(wave=4),
+                    reviewer_control_lane(
+                        wave=4,
+                        handoff_section_bodies={
+                            **default_reviewer_handoff_bodies(),
+                            CONTRACT_DRIFT_SECTION: (
+                                "Engineering Simplicity fixed for worker-a. "
+                                f"Remediation action: {fixed_action} "
+                                "No contract drift for selected Architecture Matrix facets "
+                                "and architecture capabilities."
+                            ),
+                        },
+                    ),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+        )
+
+        expect_pass(
+            "fixed engineering simplicity reviewer coverage is order independent",
+            write_run(
+                temp / "worker-engineering-simplicity-fixed-reviewer-before-worker",
+                lanes=[
+                    architecture_lane(),
+                    reviewer_control_lane(
+                        wave=4,
+                        handoff_section_bodies={
+                            **default_reviewer_handoff_bodies(),
+                            CONTRACT_DRIFT_SECTION: (
+                                "Engineering Simplicity fixed for worker-a. "
+                                f"Remediation action: {fixed_action} "
+                                "No contract drift for selected Architecture Matrix facets "
+                                "and architecture capabilities."
+                            ),
+                        },
+                    ),
+                    worker_lane(
+                        architecture_compliance_data=architecture_compliance(
+                            engineering_simplicity=engineering_simplicity_gate(
+                                status="fixed",
+                                findings=["Fixture extra helper removed."],
+                                actions=[fixed_action],
+                            )
+                        ),
+                        handoff_section_bodies=fixed_worker_handoff,
+                    ),
+                    qa_control_lane(wave=3),
                 ],
                 lane_map_extra=architecture_control_extra(),
             ),

@@ -353,13 +353,23 @@ Schema v2 also enforces Architecture Execution Control and Engineering Simplicit
 - `engineering_simplicity.checks` must include `no-extra-work`,
   `stdlib-native-first`, `existing-helper-first`, `dependency-justified`,
   `abstraction-justified`, `smallest-working-diff`, and `tests-fit-risk`;
-- `fixed` Engineering Simplicity requires non-empty findings and actions;
+- Simplicity Gate is not a reporting gate: fix now if fixable;
+- `pass` Engineering Simplicity cannot report fixable overengineering,
+  duplicated helper, unnecessary abstraction, dependency/stack drift, or
+  wider-than-needed implementation;
+- `fixed` Engineering Simplicity requires non-empty findings and actions, and
+  every action must appear literally in the worker `Engineering Simplicity`
+  handoff;
 - `drift` Engineering Simplicity requires parent
   `architecture_compliance.status=drift` and an architect `recheck_lane`;
+- true simplicity drift routes to architect re-check instead of reporting-only
+  closure;
 - retained dependency or abstraction in Engineering Simplicity notes/actions
   must cite a selected `architecture_capabilities` id;
 - successful worker handoffs must include `Architecture Compliance` and
   `Engineering Simplicity`;
+- reviewer `Contract Drift` must reject reporting-only simplicity closure and
+  mention `Engineering Simplicity` plus every fixed worker lane id;
 - worker `Architecture Compliance` sections must include every facet id declared
   in `architecture_compliance.matrix_facets`;
 - `compliant` worker lanes must not set `recheck_lane`;
