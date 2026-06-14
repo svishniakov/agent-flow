@@ -42,16 +42,19 @@
       "status": "pass",
       "handoff": "handoffs/worker-a.md",
       "evidence": [
-        "checks/worker-a.md"
+        "checks/worker-a.md",
+        "checks/lane-boundary-worker-a.json"
       ],
       "replacement": null,
       "handoff_sections": [
         "Architecture Compliance",
-        "Engineering Simplicity"
+        "Engineering Simplicity",
+        "Boundary Evidence"
       ],
       "handoff_section_bodies": {
         "Architecture Compliance": "Matrix facets:\n- `backend-service`\n- `monolith`",
-        "Engineering Simplicity": "Checks:\n- `no-extra-work`\n- `stdlib-native-first`\n- `existing-helper-first`\n- `dependency-justified`\n- `abstraction-justified`\n- `smallest-working-diff`\n- `tests-fit-risk`\n\nScope coverage:\n- `api-service`\n\nStatus: pass"
+        "Engineering Simplicity": "Checks:\n- `no-extra-work`\n- `stdlib-native-first`\n- `existing-helper-first`\n- `dependency-justified`\n- `abstraction-justified`\n- `smallest-working-diff`\n- `tests-fit-risk`\n\nScope coverage:\n- `api-service`\n\nStatus: pass",
+        "Boundary Evidence": "Lane: `worker-a`\nArtifact: `checks/lane-boundary-worker-a.json`\nChanged paths:\n- `apps/api-service/src/routes/settings.ts`\n\nNo out-of-bound product changes found."
       },
       "architecture_compliance": {
         "status": "drift",
@@ -93,6 +96,19 @@
             "notes": "Golden worker audited the primary product-code surface."
           }
         }
+      },
+      "boundary": {
+        "allowed_paths": [
+          "apps/api-service/src/**",
+          "apps/shared/src/**"
+        ],
+        "forbidden_paths": [
+          "references/**",
+          "registries/**",
+          "testdata/golden-traces/**"
+        ],
+        "changed_paths_artifact": "checks/lane-boundary-worker-a.json",
+        "notes": "Allowed paths come from Architecture Contract Worker Ownership."
       }
     },
     {

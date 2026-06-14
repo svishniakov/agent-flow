@@ -53,6 +53,7 @@ Delegation packet must include:
 - When Architecture Context Propagation applies, cover selected `risk_gates` and `verification_gates` explicitly in `Architecture Invariants`.
 - When Architecture Execution Control applies, run after worker lanes, Engineering Simplicity remediation, any worker retry, and any architect re-check; record `Architecture Invariants` with covered boundaries, public contracts, forbidden changes, and unverified areas. Verify that fixed simplicity remediation did not break behavior or architecture gates.
 - When Simplicity Scope Coverage applies, write `Engineering Simplicity Scope`, mention every `engineering_simplicity_scope.primary_surfaces` id, check worker `scope_coverage`, and reject QA pass if workers only covered `secondary_surfaces`, peripheral evidence, or a peripheral-only closure.
+- When Lane Boundary Evidence Gate applies, use worker `Boundary Evidence`, `scripts/record-lane-boundary.py` output, and `checks/lane-boundary-<lane-id>.json` to confirm no out-of-bound product-code changes; mention `Boundary Evidence` and every worker lane id in `Architecture Invariants`.
 - When Claim Evidence Gate applies, create or update `claim-evidence.json`: every owned `Claim Evidence` id must name this QA `owner_lane`, the reviewer lane, `supported` or `gap`, concrete subjects, evidence paths, and literal `markers`; mention the claim id in the owner handoff section.
 - When Verification Readiness Gate applies before workers, check selected `risk_gates` and `verification_gates`, write `verification-readiness.json`, set `verification_readiness` status, use `needs-approval` only for documented safe commands, record `approval_requests`, `approval_executions`, `paused-blocked`, and `resume_phrase=Готово` when needed, and do not let workers start until readiness is `ready`.
 - After workers, write `Verification Gate Results`; QA may pass only when required verification results passed, and blocked gate results must return QA `blocked`.
@@ -74,6 +75,7 @@ Return:
 - Architecture Invariants coverage when architecture contract is required
 - `architecture_context` `risk_gates` and `verification_gates` covered or left unverified
 - selected `architecture_capabilities` coverage or unverified capability constraints
+- Lane Boundary Evidence Gate coverage for `boundary.allowed_paths`, `boundary.forbidden_paths`, `changed_paths_artifact`, `changed_paths`, `Boundary Evidence`, and every worker lane id
 - Claim Evidence Gate evidence, including `claim-evidence.json`, `Claim Evidence` ids, `owner_lane`, `markers`, `supported`, and any `gap`
 - Verification Readiness Gate evidence, including `verification-readiness.json`, `verification_readiness`, `needs-approval`, `paused-blocked`, `approval_requests`, `approval_executions`, `resume_phrase`, and `Verification Gate Results`
 - Continuation Gate evidence, including `continuation-summary.json`, `blocked-checkpoint`, `Continuation Summary`, `Continuation Revalidation`, `Continuation Review` inputs, `historical_worker_lanes`, `new_worker_lanes`, and `revalidated_lanes`

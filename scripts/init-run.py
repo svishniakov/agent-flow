@@ -33,6 +33,8 @@ RUN_FILES = {
         "Subagent Lanes: none\n"
         "Role Lanes: none\n"
         "Subagent Trace Evidence: none\n\n"
+        "## Boundary Evidence\n\n"
+        "TODO(agent): summarize worker lane boundary artifacts and out-of-bound product-code status.\n\n"
         "## Worktree Hygiene\n\n"
     ),
 }
@@ -56,6 +58,7 @@ VERIFICATION_READINESS_PATH = "verification-readiness.json"
 CLAIM_EVIDENCE_PATH = "claim-evidence.json"
 DEFAULT_CLAIM_ID = "architecture-contract-claim"
 ENGINEERING_SIMPLICITY_SCOPE_EVIDENCE = "checks/engineering-simplicity-scope.md"
+LANE_BOUNDARY_NOTES = "Allowed paths come from Architecture Contract Worker Ownership."
 COVERAGE_MATRIX = """# Coverage Matrix
 
 Use this file as the human-readable coverage summary for Lane Sharding runs.
@@ -90,6 +93,29 @@ def markdown_id_list(values: list[str]) -> str:
     if not values:
         return "- none"
     return "\n".join(f"- `{value}`" for value in values)
+
+
+def lane_boundary_artifact_path(lane_id: str) -> str:
+    return f"checks/lane-boundary-{lane_id}.json"
+
+
+def lane_boundary_template(lane_id: str) -> str:
+    return json.dumps(
+        {
+            "version": 1,
+            "lane_id": lane_id,
+            "status": "captured",
+            "base_ref": "TODO(agent): base git ref before worker changes.",
+            "head_ref": "working-tree",
+            "changed_paths": [],
+            "tracked_changed_paths": [],
+            "untracked_paths": [],
+            "command": "TODO(agent): run scripts/record-lane-boundary.py for this lane.",
+            "notes": f"Boundary evidence for {lane_id}.",
+        },
+        ensure_ascii=False,
+        indent=2,
+    ) + "\n"
 
 
 def selected_context_facets(context: dict[str, list[str]]) -> list[str]:
@@ -366,6 +392,16 @@ Scope coverage field: `architecture_compliance.engineering_simplicity.scope_cove
 {AGENT_TODO_PLACEHOLDER} Simplicity Scope Coverage: record primary/secondary surfaces covered by this worker. Primary scope must be audited before peripheral fixes can close the Gate.
 
 {AGENT_TODO_PLACEHOLDER} Record pass, fixed, or drift; fix now if fixable; route as drift only when architect re-check is needed; list findings/actions; cite selected capabilities for retained dependency or abstraction.
+
+## Boundary Evidence
+
+Lane Boundary Evidence Gate
+
+Lane-map field: `boundary`
+
+Artifact: `{lane_boundary_artifact_path(worker['id'])}`
+
+{AGENT_TODO_PLACEHOLDER} Run `python3 scripts/record-lane-boundary.py --run-dir <run-dir> --lane-id {worker['id']}` after this worker's product-code changes, then confirm every changed product path is inside `boundary.allowed_paths` and outside `boundary.forbidden_paths`.
 """
 
 
@@ -385,6 +421,8 @@ Claim evidence:
 - Claim Evidence: `architecture-contract-claim`
 
 {AGENT_TODO_PLACEHOLDER} Verify behavior plus architecture invariants for the selected gates.
+
+{AGENT_TODO_PLACEHOLDER} Confirm Boundary Evidence for every worker lane and block closure if any product-code change falls outside the allowed paths.
 
 ## Engineering Simplicity Scope
 
@@ -463,8 +501,13 @@ def verification_readiness_template(context: dict[str, list[str]]) -> str:
     ) + "\n"
 
 
-def reviewer_handoff_template(context: dict[str, list[str]], capabilities: list[str]) -> str:
+def reviewer_handoff_template(
+    context: dict[str, list[str]],
+    capabilities: list[str],
+    workers: list[dict[str, str]],
+) -> str:
     selected_facets = selected_context_facets(context)
+    worker_ids = [worker["id"] for worker in workers]
     return f"""# Review Contract Handoff
 
 ## Architecture Matrix Mismatches
@@ -488,7 +531,10 @@ Selected architecture capabilities:
 Claim evidence:
 - Claim Evidence: `architecture-contract-claim`
 
-{AGENT_TODO_PLACEHOLDER} Report no drift or name the exact drift and required architect re-check. Mention every primary surface and reject peripheral-only closure.
+Boundary Evidence worker lanes:
+{markdown_id_list(worker_ids)}
+
+{AGENT_TODO_PLACEHOLDER} Report no drift or name the exact drift and required architect re-check. Mention Boundary Evidence for every worker lane id, mention every primary surface, and reject peripheral-only closure.
 """
 
 
@@ -571,8 +617,17 @@ def architecture_gate_lane_map(
             "execution_mode": "role-lane",
             "status": "planned",
             "handoff": f"handoffs/{worker['id']}.md",
-            "evidence": [f"checks/{worker['id']}.md"],
+            "evidence": [
+                f"checks/{worker['id']}.md",
+                lane_boundary_artifact_path(worker["id"]),
+            ],
             "replacement": None,
+            "boundary": {
+                "allowed_paths": [],
+                "forbidden_paths": [],
+                "changed_paths_artifact": lane_boundary_artifact_path(worker["id"]),
+                "notes": LANE_BOUNDARY_NOTES,
+            },
         }
         for worker in workers
     )
@@ -680,11 +735,15 @@ def write_architecture_gate_artifacts(
             run_dir / "checks" / f"{worker['id']}.md",
             check_template(f"{worker['id']} Evidence"),
         )
+        write_if_missing(
+            run_dir / lane_boundary_artifact_path(worker["id"]),
+            lane_boundary_template(worker["id"]),
+        )
     write_if_missing(run_dir / "handoffs" / "qa-behavior.md", qa_handoff_template(context))
     write_if_missing(run_dir / "checks" / "qa-behavior.md", check_template("QA Behavior Evidence"))
     write_if_missing(
         run_dir / "handoffs" / "review-contract.md",
-        reviewer_handoff_template(context, capabilities),
+        reviewer_handoff_template(context, capabilities, workers),
     )
     write_if_missing(
         run_dir / "checks" / "review-contract.md",

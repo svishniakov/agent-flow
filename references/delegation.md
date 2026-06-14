@@ -156,6 +156,18 @@ assigned primary surfaces before QA. QA writes `Engineering Simplicity Scope`.
 Reviewer `Contract Drift` must mention every primary surface and reject
 peripheral-only closure.
 
+Lane Boundary Evidence Gate is also part of Architecture Execution Control.
+For schema v2 positive architecture-gated runs, each successful
+`implementation` or `integration` worker records `boundary.allowed_paths`,
+optional `boundary.forbidden_paths`, `changed_paths_artifact`, and a worker
+`Boundary Evidence` handoff section. The orchestrator or worker runs
+`scripts/record-lane-boundary.py --run-dir <run-dir> --lane-id <lane-id>` to
+write `checks/lane-boundary-<lane-id>.json`. The validator checks explicit
+repo-relative POSIX `changed_paths` with `fnmatch.fnmatchcase`; every path must
+match `allowed_paths`, and `forbidden_paths` wins. QA `Architecture
+Invariants`, reviewer `Contract Drift`, and final `Boundary Evidence` must
+mention every worker lane id.
+
 Architecture Context Propagation carries the selected `architecture_context`
 through execution. Workers must set `architecture_compliance.matrix_facets` to
 the selected facets they actually touched and mention those facet ids in

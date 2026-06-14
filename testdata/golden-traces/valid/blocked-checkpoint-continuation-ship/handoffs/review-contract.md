@@ -27,6 +27,10 @@ No contract drift for selected Architecture Matrix facets and architecture capab
 Claim evidence:
 - Claim Evidence: `architecture-contract-claim`
 
+Boundary Evidence checked for worker lanes:
+- `worker-a`
+- `worker-b`
+
 ## Continuation Review
 
 Reviewed continuation items:

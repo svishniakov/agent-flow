@@ -10,6 +10,9 @@ Covered gates:
 - `unit`
 - `integration`
 
+Boundary Evidence: no out-of-bound product changes for worker lanes:
+- `worker-a`
+
 ## Verification Gate Results
 
 - `risk_gates` `migrations` `pass`

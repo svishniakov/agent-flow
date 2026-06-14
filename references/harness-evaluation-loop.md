@@ -2,7 +2,9 @@
 
 Harness Evaluation Loop turns validated trace evidence into a structured learning
 record. It runs after the architecture, readiness, continuation, mitigation, and
-resolution gates have produced persisted artifacts.
+resolution gates have produced persisted artifacts, including Lane Boundary
+Evidence Gate failures or recoveries when a worker changed product code outside
+`boundary.allowed_paths` or inside `boundary.forbidden_paths`.
 
 The loop is signal-only for the canonical Agent Flow runtime. It writes
 `harness-evaluation.json` and Evidence Records proposals for the current
@@ -73,6 +75,8 @@ Reviewer also rejects evaluation records that:
 - mark a proposal as applied;
 - target Architecture Matrix, capability registry, role prompts, validator
   guards, or Golden Trace Runs;
+- try to promote Lane Boundary Evidence into runtime artifacts instead of
+  project-local Evidence Records;
 - set `requires_human_approval` to true.
 
 ## Output Sections

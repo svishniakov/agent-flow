@@ -182,6 +182,15 @@ SIMPLICITY_SCOPE_COVERAGE_GUARD_TERMS = [
     "scope_coverage",
     "peripheral-only closure",
 ]
+LANE_BOUNDARY_EVIDENCE_GUARD_TERMS = [
+    "Lane Boundary Evidence Gate",
+    "Boundary Evidence",
+    "boundary.allowed_paths",
+    "boundary.forbidden_paths",
+    "changed_paths_artifact",
+    "changed_paths",
+    "record-lane-boundary.py",
+]
 
 REQUIRED_RUNTIME_TEXT = {
     "SKILL.md": [
@@ -208,6 +217,7 @@ REQUIRED_RUNTIME_TEXT = {
         *ENGINEERING_SIMPLICITY_GATE_GUARD_TERMS,
         *ENGINEERING_SIMPLICITY_REMEDIATION_GUARD_TERMS,
         *SIMPLICITY_SCOPE_COVERAGE_GUARD_TERMS,
+        *LANE_BOUNDARY_EVIDENCE_GUARD_TERMS,
         "not AI Slop Gate",
         *MITIGATION_GATE_GUARD_TERMS,
         *RESOLUTION_GATE_GUARD_TERMS,
@@ -244,6 +254,7 @@ REQUIRED_RUNTIME_TEXT = {
         *ENGINEERING_SIMPLICITY_GATE_GUARD_TERMS,
         *ENGINEERING_SIMPLICITY_REMEDIATION_GUARD_TERMS,
         *SIMPLICITY_SCOPE_COVERAGE_GUARD_TERMS,
+        *LANE_BOUNDARY_EVIDENCE_GUARD_TERMS,
         "not AI Slop Gate",
         *MITIGATION_GATE_GUARD_TERMS,
         *RESOLUTION_GATE_GUARD_TERMS,
@@ -292,6 +303,7 @@ REQUIRED_RUNTIME_TEXT = {
         *ENGINEERING_SIMPLICITY_GATE_GUARD_TERMS,
         *ENGINEERING_SIMPLICITY_REMEDIATION_GUARD_TERMS,
         *SIMPLICITY_SCOPE_COVERAGE_GUARD_TERMS,
+        *LANE_BOUNDARY_EVIDENCE_GUARD_TERMS,
         *MITIGATION_GATE_GUARD_TERMS,
         *RESOLUTION_GATE_GUARD_TERMS,
         *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
@@ -329,6 +341,7 @@ REQUIRED_RUNTIME_TEXT = {
         *ENGINEERING_SIMPLICITY_GATE_GUARD_TERMS,
         *ENGINEERING_SIMPLICITY_REMEDIATION_GUARD_TERMS,
         *SIMPLICITY_SCOPE_COVERAGE_GUARD_TERMS,
+        *LANE_BOUNDARY_EVIDENCE_GUARD_TERMS,
         *MITIGATION_GATE_GUARD_TERMS,
         *RESOLUTION_GATE_GUARD_TERMS,
         *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
@@ -366,6 +379,7 @@ REQUIRED_RUNTIME_TEXT = {
         *ENGINEERING_SIMPLICITY_GATE_GUARD_TERMS,
         *ENGINEERING_SIMPLICITY_REMEDIATION_GUARD_TERMS,
         *SIMPLICITY_SCOPE_COVERAGE_GUARD_TERMS,
+        *LANE_BOUNDARY_EVIDENCE_GUARD_TERMS,
         *MITIGATION_GATE_GUARD_TERMS,
         *RESOLUTION_GATE_GUARD_TERMS,
         *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
@@ -504,6 +518,7 @@ REQUIRED_RUNTIME_TEXT = {
         "fix now if fixable",
         "reporting-only",
         *SIMPLICITY_SCOPE_COVERAGE_GUARD_TERMS,
+        *LANE_BOUNDARY_EVIDENCE_GUARD_TERMS,
         *VERIFICATION_READINESS_GATE_GUARD_TERMS,
         "No role should ask the human",
         *CLAIM_EVIDENCE_AUTHORING_GUARD_TERMS,
@@ -589,6 +604,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Engineering Simplicity",
         "reporting-only",
         *SIMPLICITY_SCOPE_COVERAGE_GUARD_TERMS,
+        *LANE_BOUNDARY_EVIDENCE_GUARD_TERMS,
         "fixed worker lane id",
         *VERIFICATION_READINESS_GATE_GUARD_TERMS,
         *CONTINUATION_GATE_GUARD_TERMS,
@@ -609,6 +625,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Engineering Simplicity",
         "simplicity remediation",
         *SIMPLICITY_SCOPE_COVERAGE_GUARD_TERMS,
+        *LANE_BOUNDARY_EVIDENCE_GUARD_TERMS,
         *ARCHITECTURE_CAPABILITY_GUARD_TERMS,
         "Architecture Context Propagation",
         "Architecture Invariants",
@@ -644,6 +661,7 @@ REQUIRED_RUNTIME_TEXT = {
         "matrix_facets",
         "architecture drift",
         *ENGINEERING_SIMPLICITY_WORKER_REMEDIATION_GUARD_TERMS,
+        *LANE_BOUNDARY_EVIDENCE_GUARD_TERMS,
     ],
     "agents/frontend-worker.md": [
         "Architecture Compliance",
@@ -654,6 +672,7 @@ REQUIRED_RUNTIME_TEXT = {
         "matrix_facets",
         "architecture drift",
         *ENGINEERING_SIMPLICITY_WORKER_REMEDIATION_GUARD_TERMS,
+        *LANE_BOUNDARY_EVIDENCE_GUARD_TERMS,
     ],
     "agents/typescript-worker.md": [
         "Architecture Compliance",
@@ -664,6 +683,7 @@ REQUIRED_RUNTIME_TEXT = {
         "matrix_facets",
         "architecture drift",
         *ENGINEERING_SIMPLICITY_WORKER_REMEDIATION_GUARD_TERMS,
+        *LANE_BOUNDARY_EVIDENCE_GUARD_TERMS,
     ],
     "agents/bun-worker.md": [
         "Architecture Compliance",
@@ -674,6 +694,7 @@ REQUIRED_RUNTIME_TEXT = {
         "matrix_facets",
         "architecture drift",
         *ENGINEERING_SIMPLICITY_WORKER_REMEDIATION_GUARD_TERMS,
+        *LANE_BOUNDARY_EVIDENCE_GUARD_TERMS,
     ],
     "agents/python-worker.md": [
         "Architecture Compliance",
@@ -684,6 +705,7 @@ REQUIRED_RUNTIME_TEXT = {
         "matrix_facets",
         "architecture drift",
         *ENGINEERING_SIMPLICITY_WORKER_REMEDIATION_GUARD_TERMS,
+        *LANE_BOUNDARY_EVIDENCE_GUARD_TERMS,
     ],
     "agents/golang-worker.md": [
         "Architecture Compliance",
@@ -694,6 +716,7 @@ REQUIRED_RUNTIME_TEXT = {
         "matrix_facets",
         "architecture drift",
         *ENGINEERING_SIMPLICITY_WORKER_REMEDIATION_GUARD_TERMS,
+        *LANE_BOUNDARY_EVIDENCE_GUARD_TERMS,
     ],
     "agents/ios-worker.md": [
         "Architecture Compliance",
@@ -704,6 +727,7 @@ REQUIRED_RUNTIME_TEXT = {
         "matrix_facets",
         "architecture drift",
         *ENGINEERING_SIMPLICITY_WORKER_REMEDIATION_GUARD_TERMS,
+        *LANE_BOUNDARY_EVIDENCE_GUARD_TERMS,
     ],
     "agents/rag-retrieval-engineer.md": [
         "Architecture Compliance",
@@ -714,6 +738,7 @@ REQUIRED_RUNTIME_TEXT = {
         "matrix_facets",
         "architecture drift",
         *ENGINEERING_SIMPLICITY_WORKER_REMEDIATION_GUARD_TERMS,
+        *LANE_BOUNDARY_EVIDENCE_GUARD_TERMS,
     ],
     "scripts/validate-run.py": [
         "architecture_compliance",
@@ -746,6 +771,23 @@ REQUIRED_RUNTIME_TEXT = {
         *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
         *HARNESS_EVALUATION_GUARD_TERMS,
         *CLAIM_EVIDENCE_GATE_GUARD_TERMS,
+        *LANE_BOUNDARY_EVIDENCE_GUARD_TERMS,
+    ],
+    "scripts/record-lane-boundary.py": [
+        "record-lane-boundary.py",
+        "changed_paths",
+        "tracked_changed_paths",
+        "untracked_paths",
+        "git diff --name-only",
+        "git ls-files --others --exclude-standard",
+        "Boundary evidence",
+    ],
+    "scripts/test-record-lane-boundary.py": [
+        "record-lane-boundary.py",
+        "tracked_changed_paths",
+        "untracked_paths",
+        ".agent-work",
+        "Boundary evidence",
     ],
     "scripts/architecture_capabilities.py": [
         "Architecture Capability Router",
@@ -771,6 +813,7 @@ REQUIRED_RUNTIME_TEXT = {
         "fix now if fixable",
         "route as drift only when architect re-check is needed",
         *SIMPLICITY_SCOPE_COVERAGE_GUARD_TERMS,
+        *LANE_BOUNDARY_EVIDENCE_GUARD_TERMS,
         *CLAIM_EVIDENCE_AUTHORING_GUARD_TERMS,
     ],
     "scripts/test-init-run.py": [
@@ -783,6 +826,7 @@ REQUIRED_RUNTIME_TEXT = {
         "fix now if fixable",
         "Engineering Simplicity remediation instruction",
         *SIMPLICITY_SCOPE_COVERAGE_GUARD_TERMS,
+        *LANE_BOUNDARY_EVIDENCE_GUARD_TERMS,
     ],
     "scripts/validate-architecture-capabilities.py": [
         "Architecture Capability Router",
@@ -800,6 +844,7 @@ REQUIRED_RUNTIME_TEXT = {
         "worker-without-engineering-simplicity",
         "Engineering Simplicity Gate",
         *SIMPLICITY_SCOPE_COVERAGE_GUARD_TERMS,
+        *LANE_BOUNDARY_EVIDENCE_GUARD_TERMS,
         "release-independent-architecture-ship",
         "blocked-resolution-third-attempt-blocked",
         "blocked-checkpoint-continuation-ship",
@@ -919,6 +964,7 @@ def main() -> int:
         ("init-run fixtures", [sys.executable, "scripts/test-init-run.py"]),
         ("evidence record analyzer fixtures", [sys.executable, "scripts/test-analyze-evidence-records.py"]),
         ("harness evaluation promotion fixtures", [sys.executable, "scripts/test-promote-harness-evaluation.py"]),
+        ("lane boundary recorder fixtures", [sys.executable, "scripts/test-record-lane-boundary.py"]),
         ("lane fixture tests", [sys.executable, "scripts/test-validate-run-lanes.py"]),
         ("golden trace runs", [sys.executable, "scripts/test-golden-traces.py"]),
         ("git diff hygiene", ["git", "diff", "--check"]),

@@ -49,6 +49,7 @@ ARCHITECTURE_DESIGN_BRIEF_SECTIONS = [
 ARCHITECTURE_COMPLIANCE_SECTION = "Architecture Compliance"
 ENGINEERING_SIMPLICITY_SECTION = "Engineering Simplicity"
 ENGINEERING_SIMPLICITY_SCOPE_SECTION = "Engineering Simplicity Scope"
+LANE_BOUNDARY_SECTION = "Boundary Evidence"
 ENGINEERING_SIMPLICITY_CHECKS = [
     "no-extra-work",
     "stdlib-native-first",
@@ -107,6 +108,13 @@ DEFAULT_WORKER_MATRIX_FACETS = ["backend-service", "monolith"]
 DEFAULT_PRIMARY_SURFACES = ["api-service"]
 DEFAULT_SECONDARY_SURFACES = ["smoke-tests"]
 DEFAULT_SIMPLICITY_SCOPE_EVIDENCE = "checks/engineering-simplicity-scope.md"
+DEFAULT_BOUNDARY_ALLOWED_PATHS = ["apps/api-service/src/**", "apps/shared/src/**"]
+DEFAULT_BOUNDARY_FORBIDDEN_PATHS = [
+    "references/**",
+    "registries/**",
+    "testdata/golden-traces/**",
+]
+DEFAULT_BOUNDARY_CHANGED_PATH = "apps/api-service/src/routes/settings.ts"
 DEFAULT_CLAIM_ID = "architecture-contract-claim"
 DEFAULT_RISK_ID = "browser-proof-gap"
 OMIT = object()
@@ -303,10 +311,14 @@ def default_worker_handoff_bodies(
     matrix_facets: list[str] | None = None,
     primary_surfaces: list[str] | None = None,
     secondary_surfaces: list[str] | None = None,
+    lane_id: str = "worker-a",
+    changed_paths: list[str] | None = None,
 ) -> dict[str, str]:
     facets = DEFAULT_WORKER_MATRIX_FACETS if matrix_facets is None else matrix_facets
     primary = DEFAULT_PRIMARY_SURFACES if primary_surfaces is None else primary_surfaces
     secondary = DEFAULT_SECONDARY_SURFACES if secondary_surfaces is None else secondary_surfaces
+    boundary_paths = [DEFAULT_BOUNDARY_CHANGED_PATH] if changed_paths is None else changed_paths
+    changed_path_text = facet_lines(boundary_paths) if boundary_paths else "- none"
     return {
         ARCHITECTURE_COMPLIANCE_SECTION: "Matrix facets:\n" + facet_lines(facets),
         ENGINEERING_SIMPLICITY_SECTION: (
@@ -319,6 +331,13 @@ def default_worker_handoff_bodies(
             + "\n\nStatus: pass\n"
             "Notes: No needless dependency, abstraction, or scope expansion found."
         ),
+        LANE_BOUNDARY_SECTION: (
+            f"Lane: `{lane_id}`\n"
+            f"Artifact: `{lane_boundary_artifact_path(lane_id)}`\n"
+            "Changed paths:\n"
+            f"{changed_path_text}\n\n"
+            "No out-of-bound product changes found."
+        ),
     }
 
 
@@ -330,15 +349,23 @@ def default_qa_handoff_bodies(
     continuation_ids: list[str] | None = None,
     claim_ids: list[str] | None = None,
     primary_surfaces: list[str] | None = None,
+    boundary_worker_ids: list[str] | None = None,
 ) -> dict[str, str]:
     primary = DEFAULT_PRIMARY_SURFACES if primary_surfaces is None else primary_surfaces
+    boundary_workers = ["worker-a"] if boundary_worker_ids is None else boundary_worker_ids
     facets = [
         *architecture_context_axis_facets("risk_gates", context),
         *architecture_context_axis_facets("verification_gates", context),
     ]
     body = "Covered gates:\n" + facet_lines(facets) if facets else "Covered gates: none."
+    boundary_text = (
+        "\n\nBoundary Evidence: no out-of-bound product changes for worker lanes:\n"
+        + (facet_lines(boundary_workers) if boundary_workers else "- none")
+    )
     bodies = {
-        ARCHITECTURE_INVARIANTS_SECTION: body + claim_evidence_lines(claim_ids),
+        ARCHITECTURE_INVARIANTS_SECTION: (
+            body + boundary_text + claim_evidence_lines(claim_ids)
+        ),
         ENGINEERING_SIMPLICITY_SCOPE_SECTION: (
             "Verified primary simplicity surfaces:\n" + facet_lines(primary)
         ),
@@ -473,10 +500,12 @@ def default_reviewer_handoff_bodies(
     harness_review_ids: list[str] | None = None,
     claim_ids: list[str] | None = None,
     primary_surfaces: list[str] | None = None,
+    boundary_worker_ids: list[str] | None = None,
 ) -> dict[str, str]:
     facets = architecture_context_facets(context)
     selected_capabilities = DEFAULT_ARCHITECTURE_CAPABILITIES if capabilities is None else capabilities
     primary = DEFAULT_PRIMARY_SURFACES if primary_surfaces is None else primary_surfaces
+    boundary_workers = ["worker-a"] if boundary_worker_ids is None else boundary_worker_ids
     bodies = {
         ARCHITECTURE_MATRIX_MISMATCHES_SECTION: (
             "Checked facets:\n"
@@ -489,6 +518,9 @@ def default_reviewer_handoff_bodies(
             + "Primary surfaces: "
             + ", ".join(primary)
             + ". Rejected peripheral-only closure. "
+            + "Boundary Evidence checked for worker lanes: "
+            + ", ".join(boundary_workers)
+            + ". "
             +
             "No contract drift for selected Architecture Matrix facets and "
             "architecture capabilities."
@@ -1039,6 +1071,7 @@ def write_run(
     final_harness_ids: Any = DEFAULT,
     claim_evidence_data: Any = DEFAULT,
     include_simplicity_final: bool = True,
+    include_boundary_final: bool = True,
 ) -> Path:
     run_dir = root / "run"
     (run_dir / "handoffs").mkdir(parents=True)
@@ -1175,6 +1208,23 @@ def write_run(
             else DEFAULT_PRIMARY_SURFACES
         )
         final_text += engineering_simplicity_final_section(primary_surfaces)
+    if (
+        lanes is not None
+        and lane_map_extra
+        and lane_map_extra.get("architecture_contract_required") is True
+        and verdict in {"ship", "pass-with-risks"}
+        and include_boundary_final
+    ):
+        boundary_worker_ids = [
+            lane_data["id"]
+            for lane_data in lanes
+            if isinstance(lane_data, dict)
+            and lane_data.get("type") in {"implementation", "integration"}
+            and lane_data.get("status") in {"pass", "pass-with-risks"}
+            and isinstance(lane_data.get("id"), str)
+        ]
+        if boundary_worker_ids:
+            final_text += boundary_evidence_final_section(boundary_worker_ids)
     final_text += final_extra
     if (
         verdict == "pass-with-risks"
@@ -1508,11 +1558,47 @@ def write_run(
                     )
             for evidence in lane.get("evidence", []):
                 if isinstance(evidence, str):
+                    boundary = lane.get("boundary")
+                    if (
+                        lane.get("boundary_artifact_data") is OMIT
+                        and isinstance(boundary, dict)
+                        and evidence == boundary.get("changed_paths_artifact")
+                    ):
+                        continue
                     path = run_dir / evidence
                     path.parent.mkdir(parents=True, exist_ok=True)
+                    if path.exists():
+                        continue
                     path.write_text(f"# {lane['id']} evidence\n", encoding="utf-8")
+            boundary = lane.get("boundary")
+            if isinstance(boundary, dict):
+                artifact_path = boundary.get("changed_paths_artifact")
+                if isinstance(artifact_path, str) and artifact_path:
+                    path = run_dir / artifact_path
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    artifact_data = lane.get("boundary_artifact_data")
+                    if artifact_data is OMIT:
+                        continue
+                    if artifact_data is DEFAULT or artifact_data is None:
+                        artifact_data = lane_boundary_artifact(lane.get("id", "worker-a"))
+                    if isinstance(artifact_data, str):
+                        path.write_text(artifact_data, encoding="utf-8")
+                    else:
+                        path.write_text(
+                            json.dumps(artifact_data, ensure_ascii=False, indent=2) + "\n",
+                            encoding="utf-8",
+                        )
 
-        lane_map = {"schema_version": 1, "lanes": lanes}
+        serialized_lanes = []
+        for lane_data in lanes:
+            if isinstance(lane_data, dict):
+                serialized_lane = dict(lane_data)
+                serialized_lane.pop("boundary_artifact_data", None)
+                serialized_lanes.append(serialized_lane)
+            else:
+                serialized_lanes.append(lane_data)
+
+        lane_map = {"schema_version": 1, "lanes": serialized_lanes}
         lane_map.update(lane_map_extra or {})
         (run_dir / "lane-map.json").write_text(
             json.dumps(lane_map, ensure_ascii=False, indent=2) + "\n",
@@ -1877,6 +1963,68 @@ def engineering_simplicity_scope_coverage(
     }
 
 
+def lane_boundary_artifact_path(lane_id: str = "worker-a") -> str:
+    return f"checks/lane-boundary-{lane_id}.json"
+
+
+def lane_boundary(
+    lane_id: str = "worker-a",
+    *,
+    allowed_paths: list[str] | None = None,
+    forbidden_paths: list[str] | None = None,
+    changed_paths_artifact: str | None = None,
+    notes: str = "Allowed paths come from Architecture Contract Worker Ownership.",
+) -> dict[str, Any]:
+    return {
+        "allowed_paths": list(DEFAULT_BOUNDARY_ALLOWED_PATHS)
+        if allowed_paths is None
+        else allowed_paths,
+        "forbidden_paths": list(DEFAULT_BOUNDARY_FORBIDDEN_PATHS)
+        if forbidden_paths is None
+        else forbidden_paths,
+        "changed_paths_artifact": changed_paths_artifact or lane_boundary_artifact_path(lane_id),
+        "notes": notes,
+    }
+
+
+def lane_boundary_artifact(
+    lane_id: str = "worker-a",
+    *,
+    changed_paths: list[str] | None = None,
+    tracked_changed_paths: list[str] | None = None,
+    untracked_paths: list[str] | None = None,
+) -> dict[str, Any]:
+    tracked = (
+        [DEFAULT_BOUNDARY_CHANGED_PATH]
+        if tracked_changed_paths is None and changed_paths is None
+        else tracked_changed_paths
+    )
+    untracked = [] if untracked_paths is None else untracked_paths
+    if changed_paths is None:
+        changed_paths = [*(tracked or []), *untracked]
+    return {
+        "version": 1,
+        "lane_id": lane_id,
+        "status": "captured",
+        "base_ref": "HEAD",
+        "head_ref": "working-tree",
+        "changed_paths": changed_paths,
+        "tracked_changed_paths": [] if tracked is None else tracked,
+        "untracked_paths": untracked,
+        "command": "git diff --name-only HEAD",
+        "notes": f"Boundary evidence for {lane_id}.",
+    }
+
+
+def boundary_evidence_final_section(worker_ids: list[str]) -> str:
+    return (
+        f"\n## {LANE_BOUNDARY_SECTION}\n\n"
+        "Boundary Evidence checked for worker lanes:\n"
+        f"{facet_lines(worker_ids)}\n\n"
+        "No out-of-bound product changes found.\n"
+    )
+
+
 def worker_lane(
     lane_id: str = "worker-a",
     *,
@@ -1885,6 +2033,8 @@ def worker_lane(
     lane_type: str = "implementation",
     role: str = "typescript-worker",
     architecture_compliance_data: Any = OMIT,
+    boundary: Any = DEFAULT,
+    boundary_artifact_data: Any = DEFAULT,
     handoff_sections: list[str] | None = None,
     handoff_section_bodies: dict[str, str] | None = None,
 ) -> dict[str, Any]:
@@ -1896,15 +2046,29 @@ def worker_lane(
         wave=wave,
         handoff_sections=handoff_sections
         if handoff_sections is not None
-        else [ARCHITECTURE_COMPLIANCE_SECTION, ENGINEERING_SIMPLICITY_SECTION],
+        else [
+            ARCHITECTURE_COMPLIANCE_SECTION,
+            ENGINEERING_SIMPLICITY_SECTION,
+            LANE_BOUNDARY_SECTION,
+        ],
         handoff_section_bodies=handoff_section_bodies
         if handoff_section_bodies is not None
-        else default_worker_handoff_bodies(),
+        else default_worker_handoff_bodies(lane_id=lane_id),
     )
     if architecture_compliance_data is OMIT:
         lane_data["architecture_compliance"] = architecture_compliance()
     elif architecture_compliance_data is not None:
         lane_data["architecture_compliance"] = architecture_compliance_data
+    if boundary is DEFAULT and status in {"pass", "pass-with-risks"}:
+        lane_data["boundary"] = lane_boundary(lane_id)
+    elif boundary is not OMIT:
+        lane_data["boundary"] = boundary
+    if isinstance(lane_data.get("boundary"), dict):
+        artifact = lane_data["boundary"].get("changed_paths_artifact")
+        if isinstance(artifact, str) and artifact not in lane_data["evidence"]:
+            lane_data["evidence"].append(artifact)
+    if boundary_artifact_data is not DEFAULT:
+        lane_data["boundary_artifact_data"] = boundary_artifact_data
     return lane_data
 
 
@@ -4692,6 +4856,8 @@ def main() -> int:
             "- `migrations`\n"
             "- `unit`\n"
             "- `integration`\n\n"
+            "Boundary Evidence: no out-of-bound product changes for worker lanes:\n"
+            "- `worker-a`\n\n"
             "Claim evidence:\n"
             f"- Claim Evidence: `{crm_claim_id}`\n\n"
             "Viewer-forbidden unsupported stream endpoints are covered."
@@ -6876,6 +7042,253 @@ def main() -> int:
         )
 
         expect_fail(
+            "positive architecture-gated worker without lane boundary fails",
+            write_run(
+                temp / "lane-boundary-missing",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(boundary=OMIT),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "lane-map.json: lane worker-a successful worker lane requires boundary",
+        )
+
+        expect_fail(
+            "lane boundary missing allowed paths fails",
+            write_run(
+                temp / "lane-boundary-missing-allowed",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(
+                        boundary={
+                            **lane_boundary(),
+                            "allowed_paths": [],
+                        }
+                    ),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "boundary.allowed_paths must be a non-empty array",
+        )
+
+        expect_fail(
+            "lane boundary missing changed paths artifact fails",
+            write_run(
+                temp / "lane-boundary-missing-artifact",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(
+                        boundary={
+                            **lane_boundary(),
+                            "changed_paths_artifact": "checks/missing-boundary.json",
+                        },
+                        boundary_artifact_data=OMIT,
+                    ),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "boundary.changed_paths_artifact not found: checks/missing-boundary.json",
+        )
+
+        unlisted_artifact_lane = worker_lane()
+        unlisted_artifact_lane["evidence"] = ["checks/worker-a.md"]
+        expect_fail(
+            "lane boundary artifact not listed in evidence fails",
+            write_run(
+                temp / "lane-boundary-artifact-not-evidence",
+                lanes=[
+                    architecture_lane(),
+                    unlisted_artifact_lane,
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "boundary.changed_paths_artifact must be listed in lane evidence",
+        )
+
+        expect_fail(
+            "lane boundary artifact wrong lane id fails",
+            write_run(
+                temp / "lane-boundary-wrong-lane-id",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(
+                        boundary_artifact_data=lane_boundary_artifact(lane_id="worker-b")
+                    ),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "lane-boundary-worker-a.json lane_id must match lane worker-a",
+        )
+
+        expect_fail(
+            "lane boundary absolute changed path fails",
+            write_run(
+                temp / "lane-boundary-absolute-path",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(
+                        boundary_artifact_data=lane_boundary_artifact(
+                            changed_paths=["/apps/api-service/src/routes/settings.ts"],
+                            tracked_changed_paths=[
+                                "/apps/api-service/src/routes/settings.ts"
+                            ],
+                        )
+                    ),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "changed_paths[0] must be a repo-relative POSIX path",
+        )
+
+        expect_fail(
+            "lane boundary parent traversal changed path fails",
+            write_run(
+                temp / "lane-boundary-parent-traversal",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(
+                        boundary_artifact_data=lane_boundary_artifact(
+                            changed_paths=["apps/api-service/src/../settings.ts"],
+                            tracked_changed_paths=[
+                                "apps/api-service/src/../settings.ts"
+                            ],
+                        )
+                    ),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "changed_paths[0] must be a repo-relative POSIX path",
+        )
+
+        expect_fail(
+            "lane boundary outside allowed paths fails",
+            write_run(
+                temp / "lane-boundary-outside-allowed",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(
+                        boundary_artifact_data=lane_boundary_artifact(
+                            changed_paths=["docs/usage.md"],
+                            tracked_changed_paths=["docs/usage.md"],
+                        )
+                    ),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "changed path outside allowed_paths: docs/usage.md",
+        )
+
+        expect_fail(
+            "lane boundary forbidden path wins over allowed path",
+            write_run(
+                temp / "lane-boundary-forbidden-path",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(
+                        boundary=lane_boundary(
+                            allowed_paths=["**"],
+                            forbidden_paths=["references/**"],
+                        ),
+                        boundary_artifact_data=lane_boundary_artifact(
+                            changed_paths=["references/orchestrator.md"],
+                            tracked_changed_paths=["references/orchestrator.md"],
+                        ),
+                    ),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "changed path matches forbidden_paths: references/orchestrator.md",
+        )
+
+        expect_pass(
+            "valid lane boundary with changed paths passes",
+            write_run(
+                temp / "lane-boundary-valid-changed-paths",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+        )
+
+        expect_pass(
+            "valid lane boundary with no changed paths passes",
+            write_run(
+                temp / "lane-boundary-valid-empty-changes",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(
+                        handoff_section_bodies=default_worker_handoff_bodies(
+                            changed_paths=[]
+                        ),
+                        boundary_artifact_data=lane_boundary_artifact(
+                            changed_paths=[],
+                            tracked_changed_paths=[],
+                            untracked_paths=[],
+                        ),
+                    ),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+        )
+
+        expect_pass(
+            "schema v1 worker without lane boundary remains compatible",
+            write_run(
+                temp / "lane-boundary-schema-v1-compatible",
+                lanes=[worker_lane(boundary=OMIT)],
+            ),
+        )
+
+        expect_pass(
+            "schema v2 without architecture gate keeps lane boundary optional",
+            write_run(
+                temp / "lane-boundary-schema-v2-no-architecture",
+                lanes=[worker_lane(boundary=OMIT)],
+                lane_map_extra={"schema_version": 2, "budget": "standard"},
+            ),
+        )
+
+        expect_pass(
+            "blocked architecture-gated worker without lane boundary remains compatible",
+            write_run(
+                temp / "lane-boundary-blocked-compatible",
+                verdict="blocked",
+                lanes=[
+                    architecture_lane(),
+                    worker_lane(boundary=OMIT),
+                    qa_control_lane(wave=3),
+                    reviewer_control_lane(wave=4),
+                ],
+                lane_map_extra=architecture_control_extra(),
+            ),
+        )
+
+        expect_fail(
             "engineering simplicity pass with fixable finding fails",
             write_run(
                 temp / "worker-engineering-simplicity-pass-fixable-finding",
@@ -6988,6 +7401,7 @@ def main() -> int:
                                 "Engineering Simplicity fixed for worker-a. "
                                 "Primary surfaces: api-service. "
                                 "Rejected peripheral-only closure. "
+                                "Boundary Evidence checked for worker lanes: worker-a. "
                                 f"Remediation action: {fixed_action} "
                                 "No contract drift for selected Architecture Matrix facets "
                                 "and architecture capabilities."
@@ -7013,6 +7427,7 @@ def main() -> int:
                                 "Engineering Simplicity fixed for worker-a. "
                                 "Primary surfaces: api-service. "
                                 "Rejected peripheral-only closure. "
+                                "Boundary Evidence checked for worker lanes: worker-a. "
                                 f"Remediation action: {fixed_action} "
                                 "No contract drift for selected Architecture Matrix facets "
                                 "and architecture capabilities."

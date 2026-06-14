@@ -29,3 +29,12 @@ Notes: No needless dependency, abstraction, or scope expansion found.
 
 Scope coverage:
 - `api-service`
+
+## Boundary Evidence
+
+Lane: `worker-a`
+Artifact: `checks/lane-boundary-worker-a.json`
+Changed paths:
+- `apps/api-service/src/routes/settings.ts`
+
+No out-of-bound product changes found.

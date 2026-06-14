@@ -162,6 +162,54 @@
       ]
     },
     {
+      "id": "positive-run-without-lane-boundary",
+      "path": "invalid/positive-run-without-lane-boundary",
+      "mode": "full",
+      "expected": "fail",
+      "expected_error": "successful worker lane requires boundary",
+      "covers": [
+        "Lane Boundary Evidence Gate",
+        "boundary.allowed_paths",
+        "boundary.forbidden_paths",
+        "changed_paths_artifact",
+        "changed_paths",
+        "record-lane-boundary.py",
+        "Architecture Execution Control"
+      ]
+    },
+    {
+      "id": "lane-boundary-out-of-bounds",
+      "path": "invalid/lane-boundary-out-of-bounds",
+      "mode": "full",
+      "expected": "fail",
+      "expected_error": "changed path outside allowed_paths",
+      "covers": [
+        "Lane Boundary Evidence Gate",
+        "boundary.allowed_paths",
+        "boundary.forbidden_paths",
+        "changed_paths_artifact",
+        "changed_paths",
+        "record-lane-boundary.py",
+        "allowed_paths"
+      ]
+    },
+    {
+      "id": "lane-boundary-forbidden-path",
+      "path": "invalid/lane-boundary-forbidden-path",
+      "mode": "full",
+      "expected": "fail",
+      "expected_error": "changed path matches forbidden_paths",
+      "covers": [
+        "Lane Boundary Evidence Gate",
+        "boundary.allowed_paths",
+        "boundary.forbidden_paths",
+        "changed_paths_artifact",
+        "changed_paths",
+        "record-lane-boundary.py",
+        "forbidden_paths"
+      ]
+    },
+    {
       "id": "pass-with-risks-without-resolution",
       "path": "invalid/pass-with-risks-without-resolution",
       "mode": "full",

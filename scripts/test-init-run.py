@@ -51,6 +51,7 @@ EXPECTED_ARCHITECTURE_GATE_FILES = [
     "checks/verification-readiness.md",
     "checks/engineering-simplicity-scope.md",
     "checks/worker-a.md",
+    "checks/lane-boundary-worker-a.json",
     "checks/qa-behavior.md",
     "checks/review-contract.md",
 ]
@@ -230,10 +231,40 @@ def main() -> int:
             raise AssertionError("generated engineering_simplicity_scope must include surfaces")
         if simplicity_scope.get("evidence") != ["checks/engineering-simplicity-scope.md"]:
             raise AssertionError("generated engineering_simplicity_scope must include evidence path")
+        worker_lane = next(
+            (lane for lane in lane_map.get("lanes", []) if lane.get("id") == "worker-a"),
+            None,
+        )
+        if not isinstance(worker_lane, dict):
+            raise AssertionError("generated lane-map.json must include worker-a lane")
+        boundary = worker_lane.get("boundary")
+        if not isinstance(boundary, dict):
+            raise AssertionError("generated worker lane must include boundary skeleton")
+        if "allowed_paths" not in boundary or "forbidden_paths" not in boundary:
+            raise AssertionError("generated boundary skeleton must include path arrays")
+        if boundary.get("changed_paths_artifact") != "checks/lane-boundary-worker-a.json":
+            raise AssertionError("generated boundary skeleton must include artifact path")
+        if "checks/lane-boundary-worker-a.json" not in worker_lane.get("evidence", []):
+            raise AssertionError("generated worker evidence must include boundary artifact")
+        boundary_artifact = json.loads(
+            (run_dir / "checks/lane-boundary-worker-a.json").read_text(encoding="utf-8")
+        )
+        if boundary_artifact.get("version") != 1 or boundary_artifact.get("lane_id") != "worker-a":
+            raise AssertionError("generated boundary artifact must match schema and lane id")
+        if boundary_artifact.get("changed_paths") != []:
+            raise AssertionError("generated boundary artifact must start with empty changed paths")
 
         worker_handoff = (run_dir / "handoffs/worker-a.md").read_text(encoding="utf-8")
         if "## Engineering Simplicity" not in worker_handoff:
             raise AssertionError("worker handoff missing Engineering Simplicity section")
+        if "## Boundary Evidence" not in worker_handoff:
+            raise AssertionError("worker handoff missing Boundary Evidence section")
+        if "Lane Boundary Evidence Gate" not in worker_handoff:
+            raise AssertionError("worker handoff missing Lane Boundary Evidence Gate label")
+        if "record-lane-boundary.py" not in worker_handoff:
+            raise AssertionError("worker handoff missing lane boundary recorder instruction")
+        if "boundary.allowed_paths" not in worker_handoff or "boundary.forbidden_paths" not in worker_handoff:
+            raise AssertionError("worker handoff missing boundary path field instructions")
         if "scope_coverage" not in worker_handoff:
             raise AssertionError("worker handoff missing Engineering Simplicity scope_coverage")
         if "Simplicity Scope Coverage" not in worker_handoff:
@@ -251,10 +282,14 @@ def main() -> int:
         qa_handoff = (run_dir / "handoffs/qa-behavior.md").read_text(encoding="utf-8")
         if "## Engineering Simplicity Scope" not in qa_handoff:
             raise AssertionError("QA handoff missing Engineering Simplicity Scope section")
+        if "Boundary Evidence" not in qa_handoff:
+            raise AssertionError("QA handoff missing Boundary Evidence invariant")
 
         reviewer_handoff = (run_dir / "handoffs/review-contract.md").read_text(encoding="utf-8")
         if "peripheral-only closure" not in reviewer_handoff:
             raise AssertionError("reviewer handoff missing peripheral-only closure rule")
+        if "Boundary Evidence" not in reviewer_handoff or "worker-a" not in reviewer_handoff:
+            raise AssertionError("reviewer handoff missing Boundary Evidence worker lane id")
 
         delegation_summary = json.loads((run_dir / "delegation-summary.json").read_text(encoding="utf-8"))
         if delegation_summary.get("subagents_used") is not False:

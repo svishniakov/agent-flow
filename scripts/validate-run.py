@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Validate traceable runs, Architecture Capability Router, Architecture Artifact Authoring Automation, Claim Evidence Gate, and Harness Evaluation Loop gates."""
+"""Validate traceable runs, Architecture Capability Router, Architecture Artifact Authoring Automation, Claim Evidence Gate, Lane Boundary Evidence Gate, `boundary.allowed_paths`, `boundary.forbidden_paths`, `changed_paths_artifact`, `scripts/record-lane-boundary.py`, and Harness Evaluation Loop gates."""
 
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
 import re
 from datetime import datetime, timezone
@@ -146,6 +147,10 @@ ARCHITECTURE_COMPLIANCE_SECTION = "Architecture Compliance"
 ENGINEERING_SIMPLICITY_SECTION = "Engineering Simplicity"
 ENGINEERING_SIMPLICITY_SCOPE_FIELD = "engineering_simplicity_scope"
 ENGINEERING_SIMPLICITY_SCOPE_SECTION = "Engineering Simplicity Scope"
+LANE_BOUNDARY_FIELD = "boundary"
+LANE_BOUNDARY_SECTION = "Boundary Evidence"
+LANE_BOUNDARY_ARTIFACT_VERSION = 1
+LANE_BOUNDARY_ARTIFACT_STATUS = "captured"
 ENGINEERING_SIMPLICITY_STATUSES = {"pass", "fixed", "drift"}
 ENGINEERING_SIMPLICITY_REQUIRED_CHECKS = [
     "no-extra-work",
@@ -1994,6 +1999,16 @@ def contains_facet_id(text: str, facet: str) -> bool:
     return bool(pattern.search(text))
 
 
+def contains_fixed_simplicity_lane(text: str, lane_id: str) -> bool:
+    lane_pattern = rf"(?<![A-Za-z0-9_-]){re.escape(lane_id)}(?![A-Za-z0-9_-])"
+    patterns = [
+        rf"(?is)fixed[^\n.]*Engineering Simplicity[^\n.]*{lane_pattern}",
+        rf"(?is)Engineering Simplicity[^\n.]*fixed[^\n.]*{lane_pattern}",
+        rf"(?is)Fixed Engineering Simplicity[^\n.]*{lane_pattern}",
+    ]
+    return any(re.search(pattern, text) for pattern in patterns)
+
+
 def successful_lane_event_indexes(timeline_events: list[dict], lane_id: str) -> list[int]:
     return [
         index
@@ -3539,6 +3554,206 @@ def validate_scope_evidence_paths(
     return paths, "\n".join(text_parts), errors
 
 
+def is_repo_relative_posix_path(value: str) -> bool:
+    if not value or value.startswith("/") or "\\" in value:
+        return False
+    if re.match(r"^[A-Za-z]:", value):
+        return False
+    parts = value.split("/")
+    return all(part not in {"", ".", ".."} for part in parts)
+
+
+def validate_repo_path_array(
+    value: object,
+    *,
+    prefix: str,
+    field: str,
+    required: bool,
+) -> tuple[list[str], list[str]]:
+    label = f"{prefix}.{field}"
+    if not isinstance(value, list):
+        return [], [f"lane-map.json: {label} must be an array"]
+    if required and not value:
+        return [], [f"lane-map.json: {label} must be a non-empty array"]
+
+    paths: list[str] = []
+    errors: list[str] = []
+    seen: set[str] = set()
+    for index, item in enumerate(value):
+        item_label = f"{label}[{index}]"
+        if not isinstance(item, str) or not item:
+            errors.append(f"lane-map.json: {item_label} must be a non-empty string")
+            continue
+        if not is_repo_relative_posix_path(item):
+            errors.append(
+                f"lane-map.json: {item_label} must be a repo-relative POSIX path"
+            )
+            continue
+        if item in seen:
+            errors.append(f"lane-map.json: {label} duplicate path: {item}")
+            continue
+        seen.add(item)
+        paths.append(item)
+    return paths, errors
+
+
+def validate_lane_boundary_artifact(
+    artifact_path: Path,
+    artifact_name: str,
+    lane_id: str,
+) -> tuple[list[str], list[str]]:
+    data, load_errors = load_json(artifact_path, artifact_name)
+    errors = list(load_errors)
+    if load_errors:
+        return [], errors
+    if data is None:
+        return [], [f"lane-map.json: {artifact_name} not found"]
+    if not isinstance(data, dict):
+        return [], [f"lane-map.json: {artifact_name} must be a JSON object"]
+
+    if data.get("version") != LANE_BOUNDARY_ARTIFACT_VERSION:
+        errors.append(
+            f"lane-map.json: {artifact_name} version must be {LANE_BOUNDARY_ARTIFACT_VERSION}"
+        )
+    if data.get("lane_id") != lane_id:
+        errors.append(
+            f"lane-map.json: {artifact_name} lane_id must match lane {lane_id}"
+        )
+    if data.get("status") != LANE_BOUNDARY_ARTIFACT_STATUS:
+        errors.append(
+            f"lane-map.json: {artifact_name} status must be {LANE_BOUNDARY_ARTIFACT_STATUS}"
+        )
+    for field in ["base_ref", "head_ref", "command", "notes"]:
+        if not isinstance(data.get(field), str) or not data.get(field):
+            errors.append(
+                f"lane-map.json: {artifact_name} {field} must be a non-empty string"
+            )
+
+    changed_paths, changed_errors = validate_repo_path_array(
+        data.get("changed_paths"),
+        prefix=artifact_name,
+        field="changed_paths",
+        required=False,
+    )
+    tracked_paths, tracked_errors = validate_repo_path_array(
+        data.get("tracked_changed_paths"),
+        prefix=artifact_name,
+        field="tracked_changed_paths",
+        required=False,
+    )
+    untracked_paths, untracked_errors = validate_repo_path_array(
+        data.get("untracked_paths"),
+        prefix=artifact_name,
+        field="untracked_paths",
+        required=False,
+    )
+    errors.extend([*changed_errors, *tracked_errors, *untracked_errors])
+
+    expected_changed_paths = list(dict.fromkeys([*tracked_paths, *untracked_paths]))
+    if not changed_errors and changed_paths != expected_changed_paths:
+        errors.append(
+            f"lane-map.json: {artifact_name} changed_paths must equal "
+            "tracked_changed_paths plus untracked_paths"
+        )
+
+    return changed_paths, errors
+
+
+def validate_lane_boundary(
+    run_dir: Path,
+    lane: dict,
+    label: str,
+    *,
+    required: bool,
+    allow_pending: bool,
+) -> tuple[str | None, list[str]]:
+    raw_boundary = lane.get(LANE_BOUNDARY_FIELD)
+    if raw_boundary is None:
+        if required and not allow_pending:
+            return None, [
+                f"lane-map.json: lane {label} successful worker lane requires boundary"
+            ]
+        return None, []
+    if not isinstance(raw_boundary, dict):
+        return None, [f"lane-map.json: lane {label} boundary must be an object"]
+
+    strict_required = required and not allow_pending
+    prefix = f"lane {label} boundary"
+    allowed_paths, allowed_errors = validate_repo_path_array(
+        raw_boundary.get("allowed_paths"),
+        prefix=prefix,
+        field="allowed_paths",
+        required=strict_required,
+    )
+    forbidden_paths, forbidden_errors = validate_repo_path_array(
+        raw_boundary.get("forbidden_paths", []),
+        prefix=prefix,
+        field="forbidden_paths",
+        required=False,
+    )
+    errors = [*allowed_errors, *forbidden_errors]
+
+    changed_paths_artifact = raw_boundary.get("changed_paths_artifact")
+    artifact_name: str | None = None
+    if not isinstance(changed_paths_artifact, str) or not changed_paths_artifact:
+        errors.append(
+            f"lane-map.json: lane {label} boundary.changed_paths_artifact "
+            "must be a non-empty string"
+        )
+    elif not is_repo_relative_posix_path(changed_paths_artifact):
+        errors.append(
+            f"lane-map.json: lane {label} boundary.changed_paths_artifact "
+            "must be a repo-relative POSIX path"
+        )
+    else:
+        artifact_name = changed_paths_artifact
+        evidence = lane.get("evidence")
+        if isinstance(evidence, list) and changed_paths_artifact not in evidence:
+            errors.append(
+                f"lane-map.json: lane {label} boundary.changed_paths_artifact "
+                "must be listed in lane evidence"
+            )
+        artifact_path = resolve_run_path(run_dir, changed_paths_artifact)
+        if not artifact_path.exists():
+            if strict_required:
+                errors.append(
+                    f"lane-map.json: lane {label} "
+                    f"boundary.changed_paths_artifact not found: {changed_paths_artifact}"
+                )
+        else:
+            changed_paths, artifact_errors = validate_lane_boundary_artifact(
+                artifact_path,
+                changed_paths_artifact,
+                label,
+            )
+            errors.extend(artifact_errors)
+            for changed_path in changed_paths:
+                if any(
+                    fnmatch.fnmatchcase(changed_path, pattern)
+                    for pattern in forbidden_paths
+                ):
+                    errors.append(
+                        f"lane-map.json: lane {label} changed path matches "
+                        f"forbidden_paths: {changed_path}"
+                    )
+                if not any(
+                    fnmatch.fnmatchcase(changed_path, pattern)
+                    for pattern in allowed_paths
+                ):
+                    errors.append(
+                        f"lane-map.json: lane {label} changed path outside "
+                        f"allowed_paths: {changed_path}"
+                    )
+
+    notes = raw_boundary.get("notes")
+    if strict_required and (not isinstance(notes, str) or not notes.strip()):
+        errors.append(
+            f"lane-map.json: lane {label} boundary.notes must be a non-empty string"
+        )
+
+    return artifact_name, errors
+
+
 def validate_engineering_simplicity_scope(
     run_dir: Path,
     data: dict,
@@ -4042,6 +4257,8 @@ def validate_lane_map(
     simplicity_declared_primary_surfaces = set(simplicity_primary_surfaces)
     simplicity_declared_secondary_surfaces = set(simplicity_secondary_surfaces)
     covered_primary_surfaces: set[str] = set()
+    boundary_worker_lane_ids: list[str] = []
+    boundary_artifact_by_lane: dict[str, str] = {}
 
     verification_readiness_lane_ids: set[str] = set()
     raw_verification_readiness = data.get("verification_readiness")
@@ -4273,6 +4490,23 @@ def validate_lane_map(
                 worker_wave = None
 
             if architecture_contract_required:
+                lane_boundary_required = (
+                    schema_version == 2
+                    and final_verdict in POSITIVE_FINAL_VERDICTS
+                )
+                if lane_boundary_required:
+                    boundary_worker_lane_ids.append(lane_id)
+                boundary_artifact, boundary_errors = validate_lane_boundary(
+                    run_dir,
+                    lane,
+                    label,
+                    required=lane_boundary_required,
+                    allow_pending=allow_pending,
+                )
+                errors.extend(boundary_errors)
+                if boundary_artifact:
+                    boundary_artifact_by_lane[lane_id] = boundary_artifact
+
                 compliance, compliance_errors = validate_architecture_compliance_shape(
                     lane,
                     label,
@@ -4283,11 +4517,35 @@ def validate_lane_map(
                 errors.extend(compliance_errors)
                 if isinstance(handoff, str) and handoff:
                     handoff_path = resolve_run_path(run_dir, handoff)
+                    expected_worker_sections = [
+                        ARCHITECTURE_COMPLIANCE_SECTION,
+                        ENGINEERING_SIMPLICITY_SECTION,
+                    ]
+                    if lane_boundary_required:
+                        expected_worker_sections.append(LANE_BOUNDARY_SECTION)
                     for section in missing_markdown_headings(
                         handoff_path,
-                        [ARCHITECTURE_COMPLIANCE_SECTION, ENGINEERING_SIMPLICITY_SECTION],
+                        expected_worker_sections,
                     ):
                         errors.append(f"lane-map.json: lane {label} handoff missing section: {section}")
+                    if lane_boundary_required and handoff_path.exists():
+                        handoff_text = handoff_path.read_text(encoding="utf-8")
+                        boundary_text = markdown_section_text(
+                            handoff_text,
+                            LANE_BOUNDARY_SECTION,
+                        )
+                        if not contains_facet_id(boundary_text, lane_id):
+                            errors.append(
+                                f"lane-map.json: lane {label} "
+                                "Boundary Evidence missing lane id"
+                            )
+                        boundary_artifact_path = boundary_artifact_by_lane.get(lane_id)
+                        if boundary_artifact_path and boundary_artifact_path not in boundary_text:
+                            errors.append(
+                                f"lane-map.json: lane {label} "
+                                "Boundary Evidence missing artifact: "
+                                f"{boundary_artifact_path}"
+                            )
                     if compliance and isinstance(compliance.get("matrix_facets"), list):
                         worker_matrix_facets = [
                             facet
@@ -4645,6 +4903,24 @@ def validate_lane_map(
                         [ARCHITECTURE_INVARIANTS_SECTION],
                     ):
                         errors.append(f"lane-map.json: lane {lane_id} handoff missing section: {section}")
+                    if boundary_worker_lane_ids and handoff_path.exists():
+                        handoff_text = handoff_path.read_text(encoding="utf-8")
+                        invariants_text = markdown_section_text(
+                            handoff_text,
+                            ARCHITECTURE_INVARIANTS_SECTION,
+                        )
+                        if not contains_facet_id(invariants_text, LANE_BOUNDARY_SECTION):
+                            errors.append(
+                                f"lane-map.json: lane {lane_id} "
+                                "Architecture Invariants missing Boundary Evidence"
+                            )
+                        for worker_lane_id in boundary_worker_lane_ids:
+                            if not contains_facet_id(invariants_text, worker_lane_id):
+                                errors.append(
+                                    f"lane-map.json: lane {lane_id} "
+                                    "Architecture Invariants missing Boundary Evidence lane: "
+                                    f"{worker_lane_id}"
+                                )
                     if simplicity_scope_required:
                         for section in missing_markdown_headings(
                             handoff_path,
@@ -4750,8 +5026,24 @@ def validate_lane_map(
                                 f"lane-map.json: lane {lane_id} Contract Drift "
                                 "missing Engineering Simplicity"
                             )
+                        if boundary_worker_lane_ids:
+                            if not contains_facet_id(contract_drift_text, LANE_BOUNDARY_SECTION):
+                                errors.append(
+                                    f"lane-map.json: lane {lane_id} Contract Drift "
+                                    "missing Boundary Evidence"
+                                )
+                            for worker_lane_id in boundary_worker_lane_ids:
+                                if not contains_facet_id(contract_drift_text, worker_lane_id):
+                                    errors.append(
+                                        f"lane-map.json: lane {lane_id} Contract Drift "
+                                        "missing Boundary Evidence lane: "
+                                        f"{worker_lane_id}"
+                                    )
                         for worker_lane_id in fixed_simplicity_worker_lane_ids:
-                            if not contains_facet_id(contract_drift_text, worker_lane_id):
+                            if not contains_fixed_simplicity_lane(
+                                contract_drift_text,
+                                worker_lane_id,
+                            ):
                                 errors.append(
                                     f"lane-map.json: lane {lane_id} Contract Drift "
                                     "missing fixed Engineering Simplicity lane: "
@@ -4825,6 +5117,22 @@ def validate_lane_map(
                             errors.append(
                                 "final.md Engineering Simplicity missing "
                                 f"primary surface: {surface}"
+                            )
+            if boundary_worker_lane_ids:
+                final_path = run_dir / "final.md"
+                final_text = final_path.read_text(encoding="utf-8") if final_path.exists() else ""
+                if not has_markdown_heading(final_text, LANE_BOUNDARY_SECTION):
+                    errors.append("final.md missing section: Boundary Evidence")
+                else:
+                    boundary_final_text = markdown_section_text(
+                        final_text,
+                        LANE_BOUNDARY_SECTION,
+                    )
+                    for worker_lane_id in boundary_worker_lane_ids:
+                        if not contains_facet_id(boundary_final_text, worker_lane_id):
+                            errors.append(
+                                "final.md Boundary Evidence missing worker lane: "
+                                f"{worker_lane_id}"
                             )
 
         if final_verdict == "ship" and successful_worker_lanes:

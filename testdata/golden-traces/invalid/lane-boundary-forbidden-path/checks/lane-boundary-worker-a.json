@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "lane_id": "worker-a",
+  "status": "captured",
+  "base_ref": "HEAD",
+  "head_ref": "working-tree",
+  "changed_paths": [
+    "references/orchestrator.md"
+  ],
+  "tracked_changed_paths": [
+    "references/orchestrator.md"
+  ],
+  "untracked_paths": [],
+  "command": "git diff --name-only HEAD",
+  "notes": "Boundary evidence for worker-a."
+}

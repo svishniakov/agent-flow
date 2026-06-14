@@ -381,6 +381,26 @@ Schema v2 also enforces Architecture Execution Control and Engineering Simplicit
   must cite a selected `architecture_capabilities` id;
 - successful worker handoffs must include `Architecture Compliance` and
   `Engineering Simplicity`;
+- Lane Boundary Evidence Gate applies to schema v2 positive architecture-gated
+  runs with successful worker lanes: every successful `implementation` or
+  `integration` lane must include `boundary.allowed_paths`, optional
+  `boundary.forbidden_paths`, `boundary.changed_paths_artifact`, and notes;
+- `scripts/record-lane-boundary.py --run-dir <run-dir> --lane-id <lane-id>`
+  writes `checks/lane-boundary-<lane-id>.json` with `version=1`, matching
+  `lane_id`, `changed_paths`, `tracked_changed_paths`, `untracked_paths`,
+  `base_ref`, `head_ref`, `command`, and notes;
+- `boundary.changed_paths_artifact` must exist and be listed in the lane
+  `evidence`;
+- all boundary paths and changed paths must be repo-relative POSIX paths:
+  no absolute paths, no empty paths, no backslashes, and no `..`;
+- glob matching uses Python `fnmatch.fnmatchcase`; every changed path must
+  match at least one `allowed_paths` pattern, and any `forbidden_paths` match
+  fails even when the path is also allowed;
+- empty `changed_paths` is valid because this gate checks boundaries, not
+  whether a worker was required to edit product code;
+- worker handoffs must include `Boundary Evidence`; QA `Architecture
+  Invariants`, reviewer `Contract Drift`, and final `Boundary Evidence` must
+  mention every successful worker lane id;
 - reviewer `Contract Drift` must reject reporting-only simplicity closure and
   mention `Engineering Simplicity` plus every fixed worker lane id;
 - QA handoff must include `Engineering Simplicity Scope` and every primary
