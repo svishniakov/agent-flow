@@ -4,10 +4,11 @@ Harness Evaluation Loop turns validated trace evidence into a structured learnin
 record. It runs after the architecture, readiness, continuation, mitigation, and
 resolution gates have produced persisted artifacts.
 
-The loop is signal-only in v1. It writes `harness-evaluation.json` and proposals
-that require human approval. It never edits Architecture Matrix, Architecture
-Capability Router registry, role prompts, golden traces, or project memory
-automatically.
+The loop is signal-only for the canonical Agent Flow runtime. It writes
+`harness-evaluation.json` and Evidence Records proposals for the current
+project. It never treats Architecture Matrix, Architecture Capability Router
+registry, role prompts, validator guards, or Golden Trace Runs as promotion
+targets for project traces.
 
 ## Activation
 
@@ -38,7 +39,7 @@ Runs without learning triggers do not need this artifact. If the artifact exists
 - `learning_triggers`: trigger ids that are present in the run evidence;
 - `source_artifacts`: persisted artifacts used for evaluation;
 - `findings`: what worked, failed, regressed, or should become an anti-pattern;
-- `proposals`: proposed changes that still require human approval.
+- `proposals`: proposed local Evidence Records promotions.
 
 Every finding and proposal id is kebab-case and must be mentioned in final
 `Harness Evaluation`. Positive lane-map runs with a learning trigger also require
@@ -46,14 +47,18 @@ reviewer `Harness Evaluation Review`.
 
 ## Proposal Boundary
 
-Every proposal must use `status=proposed` and
-`requires_human_approval=true`.
+Every proposal must use:
 
-Allowed proposal targets include Evidence Records, Architecture Matrix,
-Architecture Capability Router, verification gates, role prompts, validator
-guards, and Golden Trace Runs. A proposal is not an applied change. Promotion to
-Evidence Records or any runtime rule update happens in a separate, explicit
-human-approved step.
+- `type=evidence-record`;
+- `target=Evidence Records`;
+- `status=proposed`;
+- `requires_human_approval=false`.
+
+`scripts/promote-harness-evaluation.py` can promote validated findings into the
+current project's Project Memory `## Evidence Records` after
+`validate-run.py --mode full` passes. Promotion is project-local. Canonical
+runtime artifacts are read-only from real-project trace learning.
+Canonical runtime artifacts are not promotion targets.
 
 ## Reviewer Responsibility
 
@@ -66,7 +71,9 @@ Reviewer also rejects evaluation records that:
 - reference unselected `architecture_context` facets;
 - reference unknown or unselected `architecture_capabilities`;
 - mark a proposal as applied;
-- set `requires_human_approval=false`.
+- target Architecture Matrix, capability registry, role prompts, validator
+  guards, or Golden Trace Runs;
+- set `requires_human_approval` to true.
 
 ## Output Sections
 

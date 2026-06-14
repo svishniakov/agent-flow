@@ -320,7 +320,8 @@ learning trigger exists:
 - `source_artifacts` with existing evidence paths;
 - non-empty `findings` and `proposals` for `evaluated` and `needs-review`;
 - `blocked_reason` and evidence when status is `blocked-learning`;
-- proposal `status=proposed` and `requires_human_approval=true`.
+- proposal `type=evidence-record`, `target=Evidence Records`,
+  `status=proposed`, and `requires_human_approval=false`.
 
 Every finding and proposal id must be kebab-case, unique within its array, backed
 by existing evidence, and mentioned in final `Harness Evaluation`. Findings may
@@ -329,10 +330,12 @@ reference selected `architecture_context` facets and selected
 validation.
 
 Positive lane-map runs with a learning trigger require reviewer
-`Harness Evaluation Review` covering every finding and proposal id. The loop is
-signal-only: it can propose Evidence Records, Architecture Matrix changes,
-capability registry changes, role prompt updates, validator guards, or Golden
-Trace Runs, but it never applies those changes automatically.
+`Harness Evaluation Review` covering every finding and proposal id. The loop can
+promote validated findings only into the current project's Project Memory
+`## Evidence Records` through `scripts/promote-harness-evaluation.py`.
+Architecture Matrix, capability registry, role prompts, validator guards, and
+Golden Trace Runs remain canonical runtime artifacts and are not promotion
+targets for project traces.
 
 Schema v2 also enforces Architecture Execution Control when
 `architecture_contract_required=true`:

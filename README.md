@@ -66,12 +66,13 @@ PASS all Agent Flow checks
 | `references/architecture-matrix.md` | reusable architecture matrix facets for product, surface, stack, risk, and verification context |
 | `references/architecture-capability-router.md` | Architecture Capability Router and Soft Skill Binding contract |
 | `references/architecture-artifact-authoring.md` | Architecture Artifact Authoring Automation for agent-filled architecture templates |
-| `references/harness-evaluation-loop.md` | Harness Evaluation Loop for trace learning records and human-approved proposals |
+| `references/harness-evaluation-loop.md` | Harness Evaluation Loop for trace learning records and project-local Evidence Records proposals |
 | `references/role-catalog.md` | role lifecycle, use cases, exclusions, overlap notes |
 | `registries/agent-skills.json` | metadata for role skill dependencies |
 | `registries/architecture-capabilities.json` | capability routing from Matrix facets to soft skill bindings |
 | `scripts/check-all.py` | repository validation suite |
 | `scripts/analyze-evidence-records.py` | Evidence Records analyzer for local learning |
+| `scripts/promote-harness-evaluation.py` | promote validated Harness Evaluation findings into project Evidence Records |
 | `scripts/resolve-agent-config.py` | model/reasoning resolver for `spawn_agent` |
 | `scripts/validate-run.py` | traceable run and lane-map validator |
 | `scripts/validate-architecture-capabilities.py` | Architecture Capability Router registry validator |
@@ -120,7 +121,7 @@ Verification Readiness Gate runs after approved architecture design and before w
 
 Continuation Gate protects resumed runs. If `timeline.jsonl` contains `blocked-checkpoint` or `continuation` and the run later ends with `ship` or `pass-with-risks`, `continuation-summary.json` must identify the blocked checkpoint snapshot, resolved blockers, `historical_worker_lanes`, `new_worker_lanes`, and `revalidated_lanes`. Workers cannot run after the checkpoint until Verification Readiness is ready. `final.md` includes `Continuation Summary`; QA writes `Continuation Revalidation`; reviewer writes `Continuation Review`.
 
-Harness Evaluation Loop records what AgentFlow learned from triggered runs. When continuation, risk/resolution, blocked recovery, architecture drift/recheck, readiness recovery, or nonpositive architecture-final triggers exist, the run writes `harness-evaluation.json`; `final.md` includes `Harness Evaluation`; positive lane-map runs require reviewer `Harness Evaluation Review`. Proposals stay `proposed` with `requires_human_approval=true` and never auto-edit Matrix, registries, prompts, golden traces, or project memory.
+Harness Evaluation Loop records what AgentFlow learned from triggered runs. When continuation, risk/resolution, blocked recovery, architecture drift/recheck, readiness recovery, or nonpositive architecture-final triggers exist, the run writes `harness-evaluation.json`; `final.md` includes `Harness Evaluation`; positive lane-map runs require reviewer `Harness Evaluation Review`. Proposals are limited to project-local Evidence Records with `requires_human_approval=false`; canonical runtime artifacts such as Matrix, registries, prompts, validator guards, and golden traces are not promotion targets for project traces.
 
 Mitigation Gate applies to every traceable run that ends with `Verdict: pass-with-risks`. The run must include `risk-mitigations.json` with at least one `identified` risk, concrete `problem`, `impact`, `affected_scope`, evidence, and `next_gate=resolution`. `final.md` must include `Risk Mitigations` and every risk id. When `lane-map.json` exists, a successful reviewer lane must include `Risk Mitigation Review` and every risk id.
 
@@ -153,6 +154,12 @@ Promotion is conservative:
 - repeated failures or rejects -> `Anti-pattern`.
 
 Unknown outcomes are reported as incomplete, not as promotion evidence. Missing reuse boundaries block promotion. A Local Best Practice can be auto-applied only through the auto gate; the analyzer never edits the notes file.
+
+Harness Evaluation findings can be promoted into the current project's Evidence Records after run validation:
+
+```bash
+python3 scripts/promote-harness-evaluation.py --run-dir <run-dir>
+```
 
 Run the analyzer directly when needed:
 
@@ -257,12 +264,13 @@ PASS all Agent Flow checks
 | `agents/agent-identities.json` | стабильные identities ролей для trace и handoff |
 | `references/architecture-matrix.md` | переиспользуемая Architecture Matrix по типу продукта, приложению, стеку, рискам и проверкам |
 | `references/architecture-capability-router.md` | Architecture Capability Router и Soft Skill Binding |
-| `references/harness-evaluation-loop.md` | Harness Evaluation Loop для записей обучения по trace и proposals с human approval |
+| `references/harness-evaluation-loop.md` | Harness Evaluation Loop для записей обучения по trace и локальных Evidence Records proposals |
 | `references/role-catalog.md` | сценарии ролей, ограничения и пересечения |
 | `registries/agent-skills.json` | metadata зависимостей role skills |
 | `registries/architecture-capabilities.json` | routing capabilities от Matrix facets к мягким skill-связям |
 | `scripts/check-all.py` | полный набор проверок репозитория |
 | `scripts/analyze-evidence-records.py` | analyzer для Evidence Records и локального обучения |
+| `scripts/promote-harness-evaluation.py` | promotion из Harness Evaluation в Evidence Records текущего проекта |
 | `scripts/resolve-agent-config.py` | resolver model/reasoning для `spawn_agent` |
 | `scripts/validate-run.py` | validator traceable runs и lane-map |
 | `scripts/validate-architecture-capabilities.py` | validator Architecture Capability Router registry |
@@ -283,7 +291,7 @@ PASS all Agent Flow checks
 - Delegation Trace Gate запрещает ложные sidecar/subagent claims: positive lane-map runs требуют `delegation-summary.json`, финальную секцию `Delegation Trace`, `Subagents Used`, `Role Lanes Used`, `Subagent Trace Evidence` и terminal handoff evidence для каждого настоящего spawned subagent.
 - Verification Readiness Gate запускается до workers в architecture-gated lane runs: `verification-readiness.json` и `verification_readiness` доказывают готовность выбранных `risk_gates` и `verification_gates` или останавливают проход как `paused-blocked` после отказа пользователя с `resume_phrase=Готово`.
 - Continuation Gate защищает resumed runs: после `blocked-checkpoint` положительный итог требует `continuation-summary.json`, `Continuation Summary`, QA `Continuation Revalidation`, reviewer `Continuation Review`, `historical_worker_lanes` и `revalidated_lanes`; новая worker-работа запрещена до ready Verification Readiness.
-- Harness Evaluation Loop записывает уроки из triggered runs: при continuation, risk/resolution, blocked recovery, architecture drift/recheck, readiness recovery или nonpositive architecture-final нужен `harness-evaluation.json`; `final.md` содержит `Harness Evaluation`; positive lane-map runs требуют reviewer `Harness Evaluation Review`. Proposals остаются `proposed`, требуют `requires_human_approval=true` и не меняют Matrix, registries, prompts, golden traces или project memory автоматически.
+- Harness Evaluation Loop записывает уроки из triggered runs: при continuation, risk/resolution, blocked recovery, architecture drift/recheck, readiness recovery или nonpositive architecture-final нужен `harness-evaluation.json`; `final.md` содержит `Harness Evaluation`; positive lane-map runs требуют reviewer `Harness Evaluation Review`. Proposals пишутся только в Evidence Records текущего проекта с `requires_human_approval=false`; Matrix, registries, prompts, validator guards и golden traces остаются каноном и не меняются из project traces.
 - Evidence Records в `implementation-notes.md` - структурированные данные для локального обучения, а не свободные заметки.
 - Local Best Practice auto gate переиспользует подход только после подтверждения analyzer, ясного совпадения контекста, отсутствия совпадения с `Do not reuse when`, отсутствия внешней записи и свежей проверки.
 - Если переиспользованный подход дал failure или regression, practice демотируется или замораживается до архитектурного разбора.
@@ -319,7 +327,7 @@ Resolution Gate идёт сразу после Mitigation Gate для каждо
 
 Blocked Resolution Gate расширяет `risk-resolutions.json`, когда resolution-попытка блокируется. После первой блокировки нужны `blocked_lesson`, `rollback`, Senior QA `Senior QA Test Design Review` и architect `Resolution Architect Review`; только после этого worker может идти во вторую попытку. Если вторая попытка тоже блокируется, перед третьей нужен `Supervising Architect Review`. Третья заблокированная попытка завершается только как `blocked` или `fail`; `pass-with-risks` запрещён.
 
-Harness Evaluation Loop превращает validated trace в проверяемую запись обучения. Если run содержит learning-trigger, он пишет `harness-evaluation.json`, финальную секцию `Harness Evaluation`, а positive lane-map run ещё и reviewer `Harness Evaluation Review`. Запись может предложить Evidence Record, Matrix/capability/validator/prompt/golden-trace изменение, но proposal не применяется автоматически и всегда требует отдельного подтверждения.
+Harness Evaluation Loop превращает validated trace в проверяемую запись обучения. Если run содержит learning-trigger, он пишет `harness-evaluation.json`, финальную секцию `Harness Evaluation`, а positive lane-map run ещё и reviewer `Harness Evaluation Review`. Запись может промоутиться только в Evidence Records текущего проекта. Matrix, capability registry, prompts, validator guards и golden traces остаются каноническими runtime artifacts.
 
 Delegation Trace Gate применяется к positive lane-map runs. Run записывает
 `delegation-summary.json` и финальную секцию `Delegation Trace`; role lanes
@@ -346,6 +354,12 @@ Promotion работает осторожно:
 - повторные failures или rejects -> `Anti-pattern`.
 
 Unknown outcomes попадают в incomplete, но не продвигают practice. Без reuse boundaries promotion блокируется. Local Best Practice применяется автоматически только через auto gate; analyzer не редактирует notes file.
+
+Findings из Harness Evaluation можно промоутить в Evidence Records текущего проекта после проверки run:
+
+```bash
+python3 scripts/promote-harness-evaluation.py --run-dir <run-dir>
+```
 
 Analyzer можно запустить напрямую:
 

@@ -622,7 +622,7 @@ def harness_evaluation(
                 "target": "Evidence Records",
                 "rationale": "The recovery pattern passed validation and has reusable boundaries.",
                 "evidence": ["checks/verification-readiness.md"],
-                "requires_human_approval": True,
+                "requires_human_approval": False,
             }
         ]
     data = {
@@ -2701,11 +2701,11 @@ def main() -> int:
         )
 
         expect_fail(
-            "harness evaluation proposal requires human approval fails",
+            "harness evaluation runtime proposal type fails",
             write_harness_evaluation_file(
                 write_continuation_summary_file(
                     write_run(
-                        temp / "harness-proposal-no-approval",
+                        temp / "harness-runtime-proposal-type",
                         lanes=continuation_lanes(),
                         lane_map_extra=continuation_lane_map_extra,
                         verification_readiness_data=continuation_readiness_data(),
@@ -2713,9 +2713,45 @@ def main() -> int:
                         final_extra=continuation_summary_section(),
                     ),
                 ),
-                harness_evaluation(proposals=[{**default_proposal, "requires_human_approval": False}]),
+                harness_evaluation(proposals=[{**default_proposal, "type": "architecture-matrix"}]),
             ),
-            "harness-evaluation.json proposals[0].requires_human_approval must be true",
+            "harness-evaluation.json proposals[0].type must be evidence-record",
+        )
+
+        expect_fail(
+            "harness evaluation runtime proposal target fails",
+            write_harness_evaluation_file(
+                write_continuation_summary_file(
+                    write_run(
+                        temp / "harness-runtime-proposal-target",
+                        lanes=continuation_lanes(),
+                        lane_map_extra=continuation_lane_map_extra,
+                        verification_readiness_data=continuation_readiness_data(),
+                        ordered_trace_events=continuation_trace_events(),
+                        final_extra=continuation_summary_section(),
+                    ),
+                ),
+                harness_evaluation(proposals=[{**default_proposal, "target": "Architecture Matrix"}]),
+            ),
+            "harness-evaluation.json proposals[0].target must be Evidence Records",
+        )
+
+        expect_fail(
+            "harness evaluation evidence record human approval fails",
+            write_harness_evaluation_file(
+                write_continuation_summary_file(
+                    write_run(
+                        temp / "harness-evidence-record-human-approval",
+                        lanes=continuation_lanes(),
+                        lane_map_extra=continuation_lane_map_extra,
+                        verification_readiness_data=continuation_readiness_data(),
+                        ordered_trace_events=continuation_trace_events(),
+                        final_extra=continuation_summary_section(),
+                    ),
+                ),
+                harness_evaluation(proposals=[{**default_proposal, "requires_human_approval": True}]),
+            ),
+            "harness-evaluation.json proposals[0].requires_human_approval must be false",
         )
 
         expect_fail(

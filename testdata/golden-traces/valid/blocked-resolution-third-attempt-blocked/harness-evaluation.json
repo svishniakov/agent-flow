@@ -37,7 +37,7 @@
       "evidence": [
         "checks/smoke.md"
       ],
-      "requires_human_approval": true
+      "requires_human_approval": false
     }
   ]
 }

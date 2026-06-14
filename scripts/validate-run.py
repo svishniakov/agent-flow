@@ -98,15 +98,8 @@ HARNESS_FINDING_TYPES = {
     "local-practice-candidate",
 }
 HARNESS_OUTCOMES = {"success", "failure", "regression", "rejected", "unknown"}
-HARNESS_PROPOSAL_TYPES = {
-    "evidence-record",
-    "architecture-matrix",
-    "architecture-capability",
-    "verification-gate",
-    "role-prompt",
-    "validator-guard",
-    "golden-trace",
-}
+HARNESS_PROPOSAL_TYPES = {"evidence-record"}
+HARNESS_PROPOSAL_TARGET = "Evidence Records"
 CLAIM_EVIDENCE_STATUSES = {"supported", "gap"}
 CLAIM_EVIDENCE_OWNER_TYPES = {"qa", "review"}
 COMMIT_HASH_PATTERN = re.compile(r"\b[0-9a-f]{7,40}\b", re.IGNORECASE)
@@ -2658,13 +2651,16 @@ def validate_harness_proposal(
         seen_ids.add(proposal_id)
 
     if proposal.get("type") not in HARNESS_PROPOSAL_TYPES:
-        errors.append(f"{label}.type invalid")
+        errors.append(f"{label}.type must be evidence-record")
     if proposal.get("status") != "proposed":
         errors.append(f"{label}.status must be proposed")
-    if proposal.get("requires_human_approval") is not True:
-        errors.append(f"{label}.requires_human_approval must be true")
-    for field in ["target", "rationale"]:
-        validate_string(proposal.get(field), f"{label}.{field}", errors)
+    if proposal.get("target") != HARNESS_PROPOSAL_TARGET:
+        errors.append(f"{label}.target must be Evidence Records")
+    else:
+        validate_string(proposal.get("target"), f"{label}.target", errors)
+    if proposal.get("requires_human_approval") is not False:
+        errors.append(f"{label}.requires_human_approval must be false")
+    validate_string(proposal.get("rationale"), f"{label}.rationale", errors)
     validate_existing_path_list(run_dir, proposal.get("evidence"), f"{label}.evidence", errors)
     return proposal_id
 

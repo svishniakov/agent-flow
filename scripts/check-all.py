@@ -121,6 +121,7 @@ HARNESS_EVALUATION_GUARD_TERMS = [
     "Harness Evaluation Review",
     "learning_triggers",
     "requires_human_approval",
+    "Evidence Records",
 ]
 CLAIM_EVIDENCE_GATE_GUARD_TERMS = [
     "Claim Evidence Gate",
@@ -317,8 +318,11 @@ REQUIRED_RUNTIME_TEXT = {
         *HARNESS_EVALUATION_GUARD_TERMS,
         "Architecture Matrix",
         "Architecture Capability Router",
-        "Evidence Records",
-        "never edits",
+        "Project Memory",
+        "promote-harness-evaluation.py",
+        "target=Evidence Records",
+        "requires_human_approval=false",
+        "not promotion targets",
         "proposal",
     ],
     "references/architecture-matrix.md": [
@@ -807,6 +811,7 @@ def main() -> int:
         ("validate-run CLI", [sys.executable, "scripts/validate-run.py", "--help"]),
         ("init-run fixtures", [sys.executable, "scripts/test-init-run.py"]),
         ("evidence record analyzer fixtures", [sys.executable, "scripts/test-analyze-evidence-records.py"]),
+        ("harness evaluation promotion fixtures", [sys.executable, "scripts/test-promote-harness-evaluation.py"]),
         ("lane fixture tests", [sys.executable, "scripts/test-validate-run-lanes.py"]),
         ("golden trace runs", [sys.executable, "scripts/test-golden-traces.py"]),
         ("git diff hygiene", ["git", "diff", "--check"]),
@@ -825,6 +830,13 @@ def main() -> int:
         ("old browser extension dashboard surface guard", "browser-extension-" + "local-dashboard"),
         ("old ios app surface guard", "`ios-" + "app`"),
         ("old macos utility surface guard", "`macos-" + "utility`"),
+        ("old harness matrix proposal guard", "Architecture Matrix " + "changes"),
+        ("old harness capability proposal guard", "capability registry " + "changes"),
+        ("old harness prompt proposal guard", "role prompt " + "updates"),
+        ("old harness golden proposal guard", "Golden Trace Runs, but it never"),
+        ("old harness slash proposal guard", "Matrix/capability/validator/prompt/golden-trace"),
+        ("old harness approval true guard", "requires_human_approval=" + "true"),
+        ("old harness human-approved guard", "human-" + "approved changes"),
     ]
 
     failures = 0
