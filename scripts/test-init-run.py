@@ -31,6 +31,7 @@ AGENT_TODO_PLACEHOLDER = "TODO(agent):"
 EXPECTED_ARCHITECTURE_GATE_FILES = [
     "delegation-summary.json",
     "verification-readiness.json",
+    "claim-evidence.json",
     "handoffs/architecture-design.md",
     "handoffs/architecture-contract.md",
     "handoffs/verification-readiness.md",

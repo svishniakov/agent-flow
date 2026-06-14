@@ -20,6 +20,9 @@ Checked capabilities:
 
 No contract drift for selected Architecture Matrix facets and architecture capabilities.
 
+Claim evidence:
+- Claim Evidence: `architecture-contract-claim`
+
 ## Continuation Review
 
 Reviewed continuation items:

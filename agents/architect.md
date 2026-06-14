@@ -54,6 +54,7 @@ Delegation packet must include:
 - When Architecture Design Mode applies, write an Architecture Design Brief before implementation and have the lane record `architecture_design_brief` with `Selected Matrix Facets`, `Execution Plan`, `Decision`, and `Status: approved` before workers start. `Execution Plan` must include every selected `architecture_capabilities` id.
 - When Architecture Artifact Authoring Automation created skeleton files, fill the Architecture Design Brief and Architecture Contract yourself and remove every `TODO(agent):` in architect-owned artifacts before approving worker start.
 - When producing an Architecture Contract Gate handoff, include every selected `architecture_context` facet id and `architecture_capabilities` id in `Selected Architecture`, and include `Selected Architecture`, `Rejected Alternatives`, `Module Boundaries`, `Data And State Flow`, `Public Contracts`, `Worker Ownership`, `Forbidden Changes`, `QA Gates`, `Reviewer Checklist`, and `Stop Conditions`.
+- For Claim Evidence Gate, write explicit `Claim Evidence` ids in `QA Gates` and `Reviewer Checklist`; each id must be concrete enough for QA or reviewer to prove through `claim-evidence.json`, `owner_lane`, `supported` or `gap`, subjects, and literal evidence `markers`.
 - Architecture Context Propagation depends on this handoff: make selected facets concrete enough for workers, QA, and reviewer to cite later.
 - For Architecture Execution Control, perform architect re-check when a worker reports architecture drift; either confirm the original contract still holds, revise the contract, or reject the drifted implementation path before `ship`.
 - For Blocked Resolution Gate, run `Resolution Architect Review` after Senior QA `Senior QA Test Design Review`: read the blocked attempt, `blocked_lesson`, `rollback`, `forbidden_repeat`, acceptance criteria changes, and QA evidence; then approve a revised or confirmed instruction before any worker starts attempt 2.
@@ -71,6 +72,7 @@ Return:
 - selected Architecture Matrix facets and facet-driven constraints
 - selected `architecture_context` axes and facet ids
 - selected `architecture_capabilities`, capability-driven constraints, and Soft Skill Binding `recommended_skills` gaps when relevant
+- Claim Evidence Gate ids that QA/reviewer must prove through `claim-evidence.json`
 - alternatives rejected
 - affected modules
 - ownership boundaries

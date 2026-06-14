@@ -52,6 +52,7 @@ Delegation packet must include:
 - When Architecture Context Propagation applies, cover every selected `architecture_context` facet and selected `architecture_capabilities` id across `Architecture Matrix Mismatches` and `Contract Drift`.
 - When Architecture Execution Control applies, review worker `Architecture Compliance`, QA `Architecture Invariants`, and any architect re-check; report `Architecture Matrix Mismatches` and `Contract Drift` explicitly, even when none are found.
 - When Architecture Artifact Authoring Automation created a reviewer skeleton, fill reviewer handoff and evidence yourself and remove every reviewer-owned `TODO(agent):` before readiness.
+- When Claim Evidence Gate applies, verify `claim-evidence.json`: every required `Claim Evidence` id must have an `owner_lane`, reviewer coverage, `supported` status, subjects, and literal `markers` found in evidence files; reject positive verdicts for any `gap` or missing marker.
 - When Verification Readiness Gate applies, verify `verification_readiness`, `verification-readiness.json`, `approval_requests`, `approval_executions`, `needs-approval`, `paused-blocked`, and `resume_phrase`; reject positive verdicts when workers ran before readiness or QA lacks `Verification Gate Results`.
 - When Continuation Gate applies, verify `continuation-summary.json`, the `blocked-checkpoint` snapshot, timeline `lane_id` evidence, `historical_worker_lanes`, `new_worker_lanes`, `revalidated_lanes`, final `Continuation Summary`, QA `Continuation Revalidation`, and write `Continuation Review`; reject any positive resumed run where new worker work happened before ready Verification Readiness.
 - When Harness Evaluation Loop applies, verify `harness-evaluation.json`, `learning_triggers`, source evidence, final `Harness Evaluation`, and write `Harness Evaluation Review`; reject findings not backed by persisted artifacts, unselected context/capability references, proposal `status` other than `proposed`, or `requires_human_approval=false`.
@@ -75,6 +76,7 @@ Return:
 - Architecture Matrix Mismatches and Contract Drift, even when none are found
 - full selected `architecture_context` coverage, mismatches, or unverified facets
 - full selected `architecture_capabilities` coverage, mismatches, or unverified capability constraints
+- Claim Evidence Gate coverage for `claim-evidence.json`, `Claim Evidence`, `owner_lane`, `markers`, `supported`, and any `gap`
 - Verification Readiness Gate coverage for `verification-readiness.json`, `verification_readiness`, `needs-approval`, `paused-blocked`, `approval_requests`, `approval_executions`, `resume_phrase`, and `Verification Gate Results`
 - Continuation Gate coverage for `continuation-summary.json`, `blocked-checkpoint`, `Continuation Summary`, `Continuation Revalidation`, `Continuation Review`, `historical_worker_lanes`, `new_worker_lanes`, and `revalidated_lanes`
 - Harness Evaluation Loop coverage for `harness-evaluation.json`, `Harness Evaluation`, `Harness Evaluation Review`, `learning_triggers`, findings, proposals, and `requires_human_approval`

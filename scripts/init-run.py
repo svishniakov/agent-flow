@@ -44,6 +44,8 @@ AGENT_TODO_PLACEHOLDER = "TODO(agent):"
 TRACE_BUDGETS = {"standard", "release"}
 WORKER_LANE_TYPES = {"implementation", "integration"}
 VERIFICATION_READINESS_PATH = "verification-readiness.json"
+CLAIM_EVIDENCE_PATH = "claim-evidence.json"
+DEFAULT_CLAIM_ID = "architecture-contract-claim"
 COVERAGE_MATRIX = """# Coverage Matrix
 
 Use this file as the human-readable coverage summary for Lane Sharding runs.
@@ -303,9 +305,15 @@ Architecture capabilities:
 
 ## QA Gates
 
+Claim evidence:
+- Claim Evidence: `architecture-contract-claim`
+
 {AGENT_TODO_PLACEHOLDER} Define mandatory behavior, architecture, risk, and verification checks.
 
 ## Reviewer Checklist
+
+Claim evidence:
+- Claim Evidence: `architecture-contract-claim`
 
 {AGENT_TODO_PLACEHOLDER} List architecture invariants the reviewer must confirm.
 
@@ -346,6 +354,9 @@ def qa_handoff_template(context: dict[str, list[str]]) -> str:
 
 Selected risk and verification gates:
 {markdown_id_list(gates)}
+
+Claim evidence:
+- Claim Evidence: `architecture-contract-claim`
 
 {AGENT_TODO_PLACEHOLDER} Verify behavior plus architecture invariants for the selected gates.
 
@@ -444,8 +455,38 @@ Selected Matrix facets:
 Selected architecture capabilities:
 {markdown_id_list(capabilities)}
 
+Claim evidence:
+- Claim Evidence: `architecture-contract-claim`
+
 {AGENT_TODO_PLACEHOLDER} Report no drift or name the exact drift and required architect re-check.
 """
+
+
+def claim_evidence_template() -> str:
+    return json.dumps(
+        {
+            "version": 1,
+            "claims": [
+                {
+                    "id": DEFAULT_CLAIM_ID,
+                    "owner_lane": "qa-behavior",
+                    "reviewed_by": "review-contract",
+                    "section": "Architecture Invariants",
+                    "status": "gap",
+                    "claim": "TODO(agent): state the exact QA/reviewer readiness claim.",
+                    "subjects": ["TODO(agent): exact test name, scenario id, API method, UI state, or invariant"],
+                    "evidence": [
+                        {
+                            "path": "checks/qa-behavior.md",
+                            "markers": ["TODO(agent): exact marker from evidence file"],
+                        }
+                    ],
+                }
+            ],
+        },
+        ensure_ascii=False,
+        indent=2,
+    ) + "\n"
 
 
 def check_template(title: str) -> str:
@@ -585,6 +626,10 @@ def write_architecture_gate_artifacts(
     write_if_missing(
         run_dir / VERIFICATION_READINESS_PATH,
         verification_readiness_template(context),
+    )
+    write_if_missing(
+        run_dir / CLAIM_EVIDENCE_PATH,
+        claim_evidence_template(),
     )
     for worker in workers:
         write_if_missing(

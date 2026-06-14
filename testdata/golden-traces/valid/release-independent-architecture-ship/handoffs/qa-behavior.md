@@ -2,6 +2,9 @@
 
 ## Architecture Invariants
 
+Claim evidence:
+- Claim Evidence: `architecture-contract-claim`
+
 Covered gates:
 - `migrations`
 - `unit`

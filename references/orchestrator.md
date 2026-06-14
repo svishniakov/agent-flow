@@ -144,14 +144,15 @@ Before final answer:
 2. Verify changed files and command outputs.
 3. Confirm trace artifacts only if used.
 4. Confirm Delegation Trace Gate: no role-lane is described as sidecar/subagent unless spawned trace evidence and terminal handoff exist.
-5. If a traceable run has learning triggers, create `harness-evaluation.json` before final validation and keep it signal-only.
-6. If `implementation-notes.md` gained Evidence Records, run or account for the evidence analyzer before relying on a learned practice.
-7. If product changes must be committed, create the product commit after checks and before final trace closure. Do not include `.agent-work/` in the product commit unless the user explicitly requested it.
-8. Run the Task Status Completion Gate for the current `.agent-work/tasks/todo.md` section. If the checklist is complete, verification is recorded, no blocker remains, and the requested commit succeeded, set `Status: done`; otherwise record the missing item and keep `Status: in_progress` or `Status: blocked`.
-9. If a trace timeline exists and a product commit was created, append an orchestrator `stage=commit` event with the commit hash.
-10. Compare the initial worktree snapshot with current `git status --short`.
-11. In `final.md`, record run-owned changes, product commit hash when applicable, pre-existing dirty files left untouched, and pre-existing dirty files touched by the run.
-12. If a trace timeline exists, append the final orchestrator event after `final.md` records the verdict and commit hash.
-13. Run final trace validation.
-14. Record residual risks.
-15. Keep final answer short and evidence-based.
+5. Confirm Claim Evidence Gate when architecture governance applies: `claim-evidence.json` exists, every `Claim Evidence` id has an `owner_lane`, `supported` status, evidence `markers`, and no unresolved `gap` before a positive final verdict.
+6. If a traceable run has learning triggers, create `harness-evaluation.json` before final validation and keep it signal-only.
+7. If `implementation-notes.md` gained Evidence Records, run or account for the evidence analyzer before relying on a learned practice.
+8. If product changes must be committed, create the product commit after checks and before final trace closure. Do not include `.agent-work/` in the product commit unless the user explicitly requested it.
+9. Run the Task Status Completion Gate for the current `.agent-work/tasks/todo.md` section. If the checklist is complete, verification is recorded, no blocker remains, and the requested commit succeeded, set `Status: done`; otherwise record the missing item and keep `Status: in_progress` or `Status: blocked`.
+10. If a trace timeline exists and a product commit was created, append an orchestrator `stage=commit` event with the commit hash.
+11. Compare the initial worktree snapshot with current `git status --short`.
+12. In `final.md`, record run-owned changes, product commit hash when applicable, pre-existing dirty files left untouched, and pre-existing dirty files touched by the run.
+13. If a trace timeline exists, append the final orchestrator event after `final.md` records the verdict and commit hash.
+14. Run final trace validation.
+15. Record residual risks.
+16. Keep final answer short and evidence-based.

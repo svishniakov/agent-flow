@@ -44,9 +44,15 @@ Fixture forbidden changes.
 
 Fixture qa gates.
 
+Claim evidence:
+- Claim Evidence: `architecture-contract-claim`
+
 ## Reviewer Checklist
 
 Fixture reviewer checklist.
+
+Claim evidence:
+- Claim Evidence: `architecture-contract-claim`
 
 ## Stop Conditions
 

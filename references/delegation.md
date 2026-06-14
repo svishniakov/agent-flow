@@ -141,6 +141,13 @@ the selected facets they actually touched and mention those facet ids in
 selected facet and selected capability id across `Architecture Matrix
 Mismatches` and `Contract Drift`.
 
+Claim Evidence Gate applies to positive architecture-gated runs. The architect
+adds `Claim Evidence` ids to `QA Gates` and `Reviewer Checklist`; QA or reviewer
+owns each claim in `claim-evidence.json` through `owner_lane`, `supported` or
+`gap`, subjects, evidence paths, and literal `markers`. Reviewer checks that
+each required claim is marker-backed before accepting `ship` or
+`pass-with-risks`.
+
 Verification Readiness Gate runs before workers when an architecture-gated run
 has worker lanes. The orchestrator writes `verification_readiness` in
 `lane-map.json` and `verification-readiness.json`. The readiness QA lane checks

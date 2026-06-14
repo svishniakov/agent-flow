@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate traceable runs, Architecture Capability Router, Architecture Artifact Authoring Automation, and Harness Evaluation Loop gates."""
+"""Validate traceable runs, Architecture Capability Router, Architecture Artifact Authoring Automation, Claim Evidence Gate, and Harness Evaluation Loop gates."""
 
 from __future__ import annotations
 
@@ -54,6 +54,8 @@ CONTINUATION_REVIEW_SECTION = "Continuation Review"
 HARNESS_EVALUATION_PATH = "harness-evaluation.json"
 HARNESS_EVALUATION_SECTION = "Harness Evaluation"
 HARNESS_EVALUATION_REVIEW_SECTION = "Harness Evaluation Review"
+CLAIM_EVIDENCE_PATH = "claim-evidence.json"
+CLAIM_EVIDENCE_LABEL = "Claim Evidence"
 LANE_TYPES = {"architecture", "implementation", "integration", "qa", "review"}
 TRACE_BUDGETS = {"release", "standard"}
 WORKER_LANE_TYPES = {"implementation", "integration"}
@@ -105,6 +107,8 @@ HARNESS_PROPOSAL_TYPES = {
     "validator-guard",
     "golden-trace",
 }
+CLAIM_EVIDENCE_STATUSES = {"supported", "gap"}
+CLAIM_EVIDENCE_OWNER_TYPES = {"qa", "review"}
 COMMIT_HASH_PATTERN = re.compile(r"\b[0-9a-f]{7,40}\b", re.IGNORECASE)
 COMMIT_DECLARATION_PATTERN = re.compile(
     r"(?i)(^\s*(?:[-*]\s*)?(?:product\s+)?commit\s*:|committed\s+as)"
@@ -253,6 +257,7 @@ ARCHITECTURE_CONTEXT_AXES = {
 ARCHITECTURE_MATRIX_PATH = Path(__file__).resolve().parents[1] / "references" / "architecture-matrix.md"
 MATRIX_FACET_PATTERN = re.compile(r"^\s*-\s+`([^`]+)`\s*:")
 MARKDOWN_HEADING_PATTERN = re.compile(r"^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$")
+CLAIM_EVIDENCE_PATTERN = re.compile(r"^\s*-\s+Claim Evidence:\s+`([^`]+)`\s*$")
 
 
 def detect_mode(run_dir: Path, requested_mode: str) -> str:
@@ -2036,6 +2041,208 @@ def validate_markdown_section_coverage(
             errors.append(f"{missing_id_error_prefix}: {required_id}")
 
 
+def claim_evidence_ids_from_contract(path: Path) -> tuple[list[str], list[str]]:
+    if not path.exists():
+        return [], []
+    text = path.read_text(encoding="utf-8")
+    errors: list[str] = []
+    claim_ids: list[str] = []
+    seen: set[str] = set()
+
+    for section in ["QA Gates", "Reviewer Checklist"]:
+        if missing_markdown_headings(path, [section]):
+            continue
+        section_text = markdown_section_text(text, section)
+        section_ids: list[str] = []
+        for line in section_text.splitlines():
+            match = CLAIM_EVIDENCE_PATTERN.match(line)
+            if not match:
+                continue
+            claim_id_value = match.group(1).strip()
+            if not KEBAB_CASE_PATTERN.fullmatch(claim_id_value):
+                errors.append(
+                    f"architecture contract handoff {section} "
+                    f"Claim Evidence id must be kebab-case: {claim_id_value}"
+                )
+                continue
+            section_ids.append(claim_id_value)
+            if claim_id_value not in seen:
+                seen.add(claim_id_value)
+                claim_ids.append(claim_id_value)
+        if not section_ids:
+            errors.append(f"architecture contract handoff {section} missing Claim Evidence")
+
+    return claim_ids, errors
+
+
+def validate_claim_evidence_records(
+    run_dir: Path,
+    *,
+    required_claim_ids: list[str],
+    required: bool,
+    final_verdict: str | None,
+    lane_by_id: dict[str, dict],
+    normalized_status_by_id: dict[str, str],
+) -> list[str]:
+    path = run_dir / CLAIM_EVIDENCE_PATH
+    if not path.exists():
+        if required:
+            return [f"{CLAIM_EVIDENCE_PATH} is required for positive architecture contract run"]
+        return []
+
+    data, load_errors = load_json(path, CLAIM_EVIDENCE_PATH)
+    if load_errors:
+        return load_errors
+    if not isinstance(data, dict):
+        return [f"{CLAIM_EVIDENCE_PATH} must be a JSON object"]
+
+    errors: list[str] = []
+    if data.get("version") != 1:
+        errors.append(f"{CLAIM_EVIDENCE_PATH} field 'version' must be 1")
+
+    claims = data.get("claims")
+    if not isinstance(claims, list) or not claims:
+        errors.append(f"{CLAIM_EVIDENCE_PATH} field 'claims' must be a non-empty array")
+        return errors
+
+    seen_claim_ids: set[str] = set()
+    for index, claim_record in enumerate(claims):
+        label = f"claims[{index}]"
+        if not isinstance(claim_record, dict):
+            errors.append(f"{CLAIM_EVIDENCE_PATH} {label} must be an object")
+            continue
+
+        claim_id_value = validate_string(claim_record.get("id"), f"{CLAIM_EVIDENCE_PATH} {label}.id", errors)
+        if claim_id_value:
+            if not KEBAB_CASE_PATTERN.fullmatch(claim_id_value):
+                errors.append(f"{CLAIM_EVIDENCE_PATH} {label}.id must be kebab-case")
+            elif claim_id_value in seen_claim_ids:
+                errors.append(f"{CLAIM_EVIDENCE_PATH} duplicate claim id: {claim_id_value}")
+            else:
+                seen_claim_ids.add(claim_id_value)
+
+        owner_lane_id = validate_string(
+            claim_record.get("owner_lane"),
+            f"{CLAIM_EVIDENCE_PATH} {label}.owner_lane",
+            errors,
+        )
+        reviewed_by_id = validate_string(
+            claim_record.get("reviewed_by"),
+            f"{CLAIM_EVIDENCE_PATH} {label}.reviewed_by",
+            errors,
+        )
+        section = validate_string(
+            claim_record.get("section"),
+            f"{CLAIM_EVIDENCE_PATH} {label}.section",
+            errors,
+        )
+
+        owner_lane = lane_by_id.get(owner_lane_id) if owner_lane_id else None
+        if owner_lane_id and owner_lane is None:
+            errors.append(f"{CLAIM_EVIDENCE_PATH} {label}.owner_lane not found: {owner_lane_id}")
+        elif owner_lane_id and owner_lane is not None:
+            owner_status = normalized_status_by_id.get(owner_lane_id)
+            if (
+                owner_lane.get("type") not in CLAIM_EVIDENCE_OWNER_TYPES
+                or owner_status not in SUCCESSFUL_LANE_STATUSES
+            ):
+                errors.append(
+                    f"{CLAIM_EVIDENCE_PATH} {label}.owner_lane must reference "
+                    "successful qa or review lane"
+                )
+
+        reviewer_lane = lane_by_id.get(reviewed_by_id) if reviewed_by_id else None
+        if reviewed_by_id and reviewer_lane is None:
+            errors.append(f"{CLAIM_EVIDENCE_PATH} {label}.reviewed_by not found: {reviewed_by_id}")
+        elif reviewed_by_id and reviewer_lane is not None:
+            reviewer_status = normalized_status_by_id.get(reviewed_by_id)
+            if reviewer_lane.get("type") != "review" or reviewer_status not in SUCCESSFUL_LANE_STATUSES:
+                errors.append(
+                    f"{CLAIM_EVIDENCE_PATH} {label}.reviewed_by must reference "
+                    "successful review lane"
+                )
+
+        if owner_lane is not None and section and claim_id_value:
+            handoff = owner_lane.get("handoff")
+            if not isinstance(handoff, str) or not handoff:
+                errors.append(f"{CLAIM_EVIDENCE_PATH} {label}.owner_lane has no handoff")
+            else:
+                handoff_path = resolve_run_path(run_dir, handoff)
+                if not handoff_path.exists():
+                    errors.append(f"{CLAIM_EVIDENCE_PATH} {label}.owner handoff not found: {handoff}")
+                elif missing_markdown_headings(handoff_path, [section]):
+                    errors.append(
+                        f"{CLAIM_EVIDENCE_PATH} {label}.section missing from "
+                        f"owner handoff: {section}"
+                    )
+                else:
+                    section_text = markdown_section_text(
+                        handoff_path.read_text(encoding="utf-8"),
+                        section,
+                    )
+                    if not contains_facet_id(section_text, claim_id_value):
+                        errors.append(
+                            f"{CLAIM_EVIDENCE_PATH} {label}.owner handoff section "
+                            f"missing claim id: {claim_id_value}"
+                        )
+
+        status = claim_record.get("status")
+        if status not in CLAIM_EVIDENCE_STATUSES:
+            allowed = ", ".join(sorted(CLAIM_EVIDENCE_STATUSES))
+            errors.append(f"{CLAIM_EVIDENCE_PATH} {label}.status must be one of: {allowed}")
+        elif final_verdict in POSITIVE_FINAL_VERDICTS and status != "supported":
+            errors.append(
+                f"{CLAIM_EVIDENCE_PATH} {label}.status must be supported for "
+                "positive final Verdict"
+            )
+
+        validate_string(claim_record.get("claim"), f"{CLAIM_EVIDENCE_PATH} {label}.claim", errors)
+        validate_string_list(claim_record.get("subjects"), f"{CLAIM_EVIDENCE_PATH} {label}.subjects", errors)
+
+        evidence_records = claim_record.get("evidence")
+        if not isinstance(evidence_records, list) or not evidence_records:
+            errors.append(f"{CLAIM_EVIDENCE_PATH} {label}.evidence must be a non-empty array")
+            continue
+        for evidence_index, evidence_record in enumerate(evidence_records):
+            evidence_label = f"{label}.evidence[{evidence_index}]"
+            if not isinstance(evidence_record, dict):
+                errors.append(f"{CLAIM_EVIDENCE_PATH} {evidence_label} must be an object")
+                continue
+            evidence_path_value = validate_string(
+                evidence_record.get("path"),
+                f"{CLAIM_EVIDENCE_PATH} {evidence_label}.path",
+                errors,
+            )
+            evidence_text = ""
+            if evidence_path_value:
+                evidence_path = resolve_run_path(run_dir, evidence_path_value)
+                if not evidence_path.exists():
+                    errors.append(
+                        f"{CLAIM_EVIDENCE_PATH} {evidence_label}.path not found: "
+                        f"{evidence_path_value}"
+                    )
+                elif evidence_path.is_file():
+                    evidence_text = evidence_path.read_text(encoding="utf-8")
+            markers = validate_string_list(
+                evidence_record.get("markers"),
+                f"{CLAIM_EVIDENCE_PATH} {evidence_label}.markers",
+                errors,
+            )
+            if evidence_text:
+                for marker_index, marker in enumerate(markers):
+                    if marker not in evidence_text:
+                        errors.append(
+                            f"{CLAIM_EVIDENCE_PATH} {evidence_label}.markers[{marker_index}] "
+                            f"not found in {evidence_path_value}"
+                        )
+
+    for required_claim_id in required_claim_ids:
+        if required_claim_id not in seen_claim_ids:
+            errors.append(f"{CLAIM_EVIDENCE_PATH} missing required claim id: {required_claim_id}")
+
+    return errors
+
+
 def validate_continuation_summary(
     run_dir: Path,
     *,
@@ -3398,6 +3605,15 @@ def validate_lane_map(
     mitigation_risk_ids = risk_mitigation_ids(mitigation_risks)
     resolution_records = resolution_records or []
     resolution_risk_ids = risk_resolution_ids(resolution_records)
+    final_verdict = read_single_field(run_dir / "final.md", "Verdict")
+    claim_evidence_candidate = (
+        schema_version == 2
+        and architecture_contract_required
+        and final_verdict in POSITIVE_FINAL_VERDICTS
+        and not allow_pending
+    )
+    required_claim_ids: list[str] = []
+    claim_evidence_contract_errors: list[str] = []
 
     for index, lane in enumerate(lanes):
         if not isinstance(lane, dict):
@@ -3533,6 +3749,15 @@ def validate_lane_map(
                     for contract_error in validate_architecture_contract_handoff(contract_path):
                         errors.append(f"lane-map.json: lane {label} {contract_error}")
                     if architecture_contract_required:
+                        if claim_evidence_candidate:
+                            contract_claim_ids, contract_claim_errors = claim_evidence_ids_from_contract(
+                                contract_path
+                            )
+                            required_claim_ids.extend(contract_claim_ids)
+                            for contract_claim_error in contract_claim_errors:
+                                claim_evidence_contract_errors.append(
+                                    f"lane-map.json: lane {label} {contract_claim_error}"
+                                )
                         for facet_error in validate_selected_architecture_facets(
                             contract_path,
                             architecture_context_facets,
@@ -3628,7 +3853,28 @@ def validate_lane_map(
                 f"must be pass or pass-with-risks"
             )
 
-    final_verdict = read_single_field(run_dir / "final.md", "Verdict")
+    required_claim_ids = list(dict.fromkeys(required_claim_ids))
+    claim_evidence_required = (
+        claim_evidence_candidate
+        and bool(successful_qa_lanes)
+        and bool(successful_reviewer_lanes)
+    )
+    if claim_evidence_required:
+        errors.extend(claim_evidence_contract_errors)
+    else:
+        required_claim_ids = []
+    if not allow_pending:
+        errors.extend(
+            validate_claim_evidence_records(
+                run_dir,
+                required_claim_ids=required_claim_ids,
+                required=claim_evidence_required,
+                final_verdict=final_verdict,
+                lane_by_id=lane_by_id,
+                normalized_status_by_id=normalized_status_by_id,
+            )
+        )
+
     delegation_summary_required = (
         schema_version == 2 and final_verdict in POSITIVE_FINAL_VERDICTS
     )

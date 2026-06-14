@@ -58,6 +58,8 @@ CONTINUATION_REVIEW_SECTION = "Continuation Review"
 HARNESS_EVALUATION_PATH = "harness-evaluation.json"
 HARNESS_EVALUATION_SECTION = "Harness Evaluation"
 HARNESS_EVALUATION_REVIEW_SECTION = "Harness Evaluation Review"
+CLAIM_EVIDENCE_PATH = "claim-evidence.json"
+CLAIM_EVIDENCE_LABEL = "Claim Evidence"
 RISK_MITIGATIONS_SECTION = "Risk Mitigations"
 RISK_MITIGATION_REVIEW_SECTION = "Risk Mitigation Review"
 RISK_RESOLUTIONS_SECTION = "Risk Resolutions"
@@ -91,6 +93,7 @@ DEFAULT_ARCHITECTURE_CAPABILITIES = [
     "modular-monolith-architecture",
 ]
 DEFAULT_WORKER_MATRIX_FACETS = ["backend-service", "monolith"]
+DEFAULT_CLAIM_ID = "architecture-contract-claim"
 DEFAULT_RISK_ID = "browser-proof-gap"
 OMIT = object()
 DEFAULT = object()
@@ -162,6 +165,15 @@ def facet_lines(facets: list[str]) -> str:
     return "\n".join(f"- `{facet}`" for facet in facets)
 
 
+def claim_evidence_lines(claim_ids: list[str] | None = None) -> str:
+    ids = [DEFAULT_CLAIM_ID] if claim_ids is None else claim_ids
+    if not ids:
+        return ""
+    return "\n\nClaim evidence:\n" + "\n".join(
+        f"- Claim Evidence: `{claim_id}`" for claim_id in ids
+    )
+
+
 def selected_verification_gate_facets(
     context: dict[str, Any] | None = None,
 ) -> list[tuple[str, str]]:
@@ -201,6 +213,7 @@ def architecture_contract_text(
     *,
     selected_facets: list[str] | None = None,
     selected_capabilities: list[str] | None = None,
+    claim_ids: list[str] | None = None,
 ) -> str:
     missing = missing_sections or set()
     facets = architecture_context_facets() if selected_facets is None else selected_facets
@@ -223,6 +236,8 @@ def architecture_contract_text(
                 "Architecture capabilities:\n"
                 f"{capability_lines if capability_lines else '- none'}"
             )
+        if section in {"QA Gates", "Reviewer Checklist"}:
+            body += claim_evidence_lines(claim_ids)
         sections.append(f"## {section}\n\n{body}\n")
     return "# Architecture Contract\n\n" + "\n".join(sections)
 
@@ -285,13 +300,16 @@ def default_qa_handoff_bodies(
     include_verification_results: bool = False,
     verification_status: str = "pass",
     continuation_ids: list[str] | None = None,
+    claim_ids: list[str] | None = None,
 ) -> dict[str, str]:
     facets = [
         *architecture_context_axis_facets("risk_gates", context),
         *architecture_context_axis_facets("verification_gates", context),
     ]
     body = "Covered gates:\n" + facet_lines(facets) if facets else "Covered gates: none."
-    bodies = {ARCHITECTURE_INVARIANTS_SECTION: body}
+    bodies = {
+        ARCHITECTURE_INVARIANTS_SECTION: body + claim_evidence_lines(claim_ids),
+    }
     if risk_resolution_ids:
         bodies[RISK_RESOLUTION_VERIFICATION_SECTION] = (
             "Verified risk resolutions:\n" + facet_lines(risk_resolution_ids)
@@ -420,6 +438,7 @@ def default_reviewer_handoff_bodies(
     risk_resolution_ids: list[str] | None = None,
     continuation_ids: list[str] | None = None,
     harness_review_ids: list[str] | None = None,
+    claim_ids: list[str] | None = None,
 ) -> dict[str, str]:
     facets = architecture_context_facets(context)
     selected_capabilities = DEFAULT_ARCHITECTURE_CAPABILITIES if capabilities is None else capabilities
@@ -433,6 +452,7 @@ def default_reviewer_handoff_bodies(
         CONTRACT_DRIFT_SECTION: (
             "No contract drift for selected Architecture Matrix facets and "
             "architecture capabilities."
+            + claim_evidence_lines(claim_ids)
         ),
     }
     if risk_ids:
@@ -450,6 +470,42 @@ def default_reviewer_handoff_bodies(
             "Reviewed harness evaluation items:\n" + facet_lines(harness_review_ids)
         )
     return bodies
+
+
+def claim_evidence(
+    *,
+    version: int = 1,
+    claims: Any = DEFAULT,
+    claim_id: str = DEFAULT_CLAIM_ID,
+    owner_lane: str = "qa-behavior",
+    reviewed_by: str = "review-contract",
+    section: str = ARCHITECTURE_INVARIANTS_SECTION,
+    status: str = "supported",
+    claim: str = "Fixture architecture claim is backed by exact evidence marker.",
+    subjects: list[str] | None = None,
+    evidence: Any = DEFAULT,
+) -> dict[str, Any]:
+    if evidence is DEFAULT:
+        evidence = [
+            {
+                "path": "checks/qa-behavior.md",
+                "markers": ["# qa-behavior evidence"],
+            }
+        ]
+    if claims is DEFAULT:
+        claims = [
+            {
+                "id": claim_id,
+                "owner_lane": owner_lane,
+                "reviewed_by": reviewed_by,
+                "section": section,
+                "status": status,
+                "claim": claim,
+                "subjects": subjects or ["fixture-subject"],
+                "evidence": evidence,
+            }
+        ]
+    return {"version": version, "claims": claims}
 
 
 def continuation_summary(
@@ -929,6 +985,7 @@ def write_run(
     verification_readiness_data: Any = DEFAULT,
     harness_evaluation_data: Any = DEFAULT,
     final_harness_ids: Any = DEFAULT,
+    claim_evidence_data: Any = DEFAULT,
 ) -> Path:
     run_dir = root / "run"
     (run_dir / "handoffs").mkdir(parents=True)
@@ -1168,6 +1225,32 @@ def write_run(
     elif harness_evaluation_data is not OMIT:
         write_harness_evaluation_file(run_dir, harness_evaluation_data)
 
+    claim_evidence_default_needed = bool(
+        lanes is not None
+        and lane_map_extra
+        and lane_map_extra.get("architecture_contract_required") is True
+        and verdict in {"ship", "pass-with-risks"}
+        and any(lane_data.get("type") == "qa" for lane_data in lanes)
+        and any(lane_data.get("type") == "review" for lane_data in lanes)
+    )
+    if claim_evidence_data is DEFAULT:
+        if claim_evidence_default_needed:
+            (run_dir / CLAIM_EVIDENCE_PATH).write_text(
+                json.dumps(claim_evidence(), ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+    elif claim_evidence_data is not OMIT:
+        if isinstance(claim_evidence_data, str):
+            (run_dir / CLAIM_EVIDENCE_PATH).write_text(
+                claim_evidence_data,
+                encoding="utf-8",
+            )
+        else:
+            (run_dir / CLAIM_EVIDENCE_PATH).write_text(
+                json.dumps(claim_evidence_data, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+
     timeline_events: list[dict[str, Any]] = []
     if ordered_trace_events:
         events_by_role: dict[str, list[dict[str, Any]]] = {}
@@ -1260,14 +1343,15 @@ def write_run(
                         and not isinstance(selected_capabilities, list)
                     ):
                         selected_capabilities = []
-                    path.write_text(
-                        architecture_contract_text(
+                    contract_text = lane.get("architecture_contract_text")
+                    if not isinstance(contract_text, str):
+                        contract_text = architecture_contract_text(
                             missing,
                             selected_facets=selected_facets,
                             selected_capabilities=selected_capabilities,
-                        ),
-                        encoding="utf-8",
-                    )
+                            claim_ids=lane.get("claim_evidence_ids"),
+                        )
+                    path.write_text(contract_text, encoding="utf-8")
                     design_brief = lane.get("architecture_design_brief")
                     if (
                         isinstance(design_brief, str)
@@ -1450,6 +1534,13 @@ def add_agent_placeholder(run_dir: Path, relative_path: str) -> Path:
     return run_dir
 
 
+def write_extra_file(run_dir: Path, relative_path: str, text: str) -> Path:
+    path = run_dir / relative_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    return run_dir
+
+
 def expect_pass(name: str, run_dir: Path) -> None:
     result = validate(run_dir)
     if result.returncode != 0:
@@ -1586,6 +1677,8 @@ def architecture_lane(
     design_text: str | None = None,
     selected_capabilities: list[str] | None = None,
     design_selected_capabilities: list[str] | None = None,
+    claim_evidence_ids: list[str] | None = None,
+    contract_text: str | None = None,
 ) -> dict[str, Any]:
     lane_data = lane(
         lane_id,
@@ -1620,6 +1713,10 @@ def architecture_lane(
             lane_data["design_brief_section_overrides"] = design_section_overrides
         if design_text is not None:
             lane_data["architecture_design_brief_text"] = design_text
+    if claim_evidence_ids is not None:
+        lane_data["claim_evidence_ids"] = claim_evidence_ids
+    if contract_text is not None:
+        lane_data["architecture_contract_text"] = contract_text
     return lane_data
 
 
@@ -1997,6 +2094,20 @@ def architecture_control_extra(
     elif capabilities is not OMIT:
         extra["architecture_capabilities"] = capabilities
     return extra
+
+
+def claim_gate_lanes(
+    *,
+    architecture: dict[str, Any] | None = None,
+    qa: dict[str, Any] | None = None,
+    reviewer: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    return [
+        architecture or architecture_lane(),
+        worker_lane(),
+        qa or qa_control_lane(wave=3),
+        reviewer or reviewer_control_lane(wave=4),
+    ]
 
 
 def main() -> int:
@@ -4202,8 +4313,313 @@ def main() -> int:
             "schema v2 accepts architecture lane",
             write_run(
                 temp / "schema-v2-architecture",
-                lanes=[architecture_lane(), qa_lane()],
+                lanes=[architecture_lane(), qa_control_lane(wave=2), reviewer_control_lane(wave=3)],
                 lane_map_extra=architecture_control_extra(),
+            ),
+        )
+
+        expect_fail(
+            "positive architecture run requires claim evidence artifact",
+            write_run(
+                temp / "claim-evidence-missing",
+                lanes=claim_gate_lanes(),
+                lane_map_extra=architecture_control_extra(),
+                claim_evidence_data=OMIT,
+            ),
+            "claim-evidence.json is required for positive architecture contract run",
+        )
+
+        expect_fail(
+            "architecture contract QA Gates require claim evidence ids",
+            write_run(
+                temp / "contract-qa-gates-no-claim-evidence",
+                lanes=claim_gate_lanes(architecture=architecture_lane(claim_evidence_ids=[])),
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "architecture contract handoff QA Gates missing Claim Evidence",
+        )
+
+        reviewer_missing_claim_contract = architecture_contract_text(claim_ids=[]).replace(
+            "## QA Gates\n\nFixture content for QA Gates.\n",
+            "## QA Gates\n\nFixture content for QA Gates."
+            + claim_evidence_lines([DEFAULT_CLAIM_ID])
+            + "\n",
+        )
+        expect_fail(
+            "architecture contract Reviewer Checklist requires claim evidence ids",
+            write_run(
+                temp / "contract-reviewer-checklist-no-claim-evidence",
+                lanes=claim_gate_lanes(
+                    architecture=architecture_lane(
+                        contract_text=reviewer_missing_claim_contract,
+                    )
+                ),
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "architecture contract handoff Reviewer Checklist missing Claim Evidence",
+        )
+
+        expect_fail(
+            "claim evidence missing required claim id fails",
+            write_run(
+                temp / "claim-evidence-missing-required-id",
+                lanes=claim_gate_lanes(),
+                lane_map_extra=architecture_control_extra(),
+                claim_evidence_data=claim_evidence(
+                    claim_id="other-claim",
+                    evidence=[
+                        {
+                            "path": "checks/qa-behavior.md",
+                            "markers": ["# qa-behavior evidence"],
+                        }
+                    ],
+                ),
+            ),
+            "claim-evidence.json missing required claim id: architecture-contract-claim",
+        )
+
+        expect_fail(
+            "claim evidence duplicate id fails",
+            write_run(
+                temp / "claim-evidence-duplicate-id",
+                lanes=claim_gate_lanes(),
+                lane_map_extra=architecture_control_extra(),
+                claim_evidence_data=claim_evidence(
+                    claims=[
+                        claim_evidence()["claims"][0],
+                        claim_evidence()["claims"][0],
+                    ]
+                ),
+            ),
+            "claim-evidence.json duplicate claim id: architecture-contract-claim",
+        )
+
+        expect_fail(
+            "claim evidence non kebab id fails",
+            write_run(
+                temp / "claim-evidence-non-kebab-id",
+                lanes=claim_gate_lanes(architecture=architecture_lane(claim_evidence_ids=["BadClaim"])),
+                lane_map_extra=architecture_control_extra(),
+                claim_evidence_data=claim_evidence(claim_id="BadClaim"),
+            ),
+            "claim-evidence.json claims[0].id must be kebab-case",
+        )
+
+        expect_fail(
+            "claim evidence unknown owner lane fails",
+            write_run(
+                temp / "claim-evidence-unknown-owner",
+                lanes=claim_gate_lanes(),
+                lane_map_extra=architecture_control_extra(),
+                claim_evidence_data=claim_evidence(owner_lane="missing-qa"),
+            ),
+            "claim-evidence.json claims[0].owner_lane not found: missing-qa",
+        )
+
+        expect_fail(
+            "claim evidence owner lane must be qa or review",
+            write_run(
+                temp / "claim-evidence-owner-worker",
+                lanes=claim_gate_lanes(),
+                lane_map_extra=architecture_control_extra(),
+                claim_evidence_data=claim_evidence(owner_lane="worker-a"),
+            ),
+            "claim-evidence.json claims[0].owner_lane must reference successful qa or review lane",
+        )
+
+        expect_fail(
+            "claim evidence reviewer lane must be review",
+            write_run(
+                temp / "claim-evidence-reviewer-not-review",
+                lanes=claim_gate_lanes(),
+                lane_map_extra=architecture_control_extra(),
+                claim_evidence_data=claim_evidence(reviewed_by="qa-behavior"),
+            ),
+            "claim-evidence.json claims[0].reviewed_by must reference successful review lane",
+        )
+
+        expect_fail(
+            "claim evidence missing owner handoff section fails",
+            write_run(
+                temp / "claim-evidence-missing-handoff-section",
+                lanes=claim_gate_lanes(
+                    qa=qa_control_lane(wave=3, handoff_sections=[VERIFICATION_GATE_RESULTS_SECTION])
+                ),
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "claim-evidence.json claims[0].section missing from owner handoff: Architecture Invariants",
+        )
+
+        expect_fail(
+            "claim evidence handoff section must mention claim id",
+            write_run(
+                temp / "claim-evidence-handoff-no-id",
+                lanes=claim_gate_lanes(
+                    qa=qa_control_lane(
+                        wave=3,
+                        handoff_section_bodies={
+                            ARCHITECTURE_INVARIANTS_SECTION: (
+                                "Covered gates:\n- `migrations`\n- `unit`\n- `integration`"
+                            ),
+                            VERIFICATION_GATE_RESULTS_SECTION: verification_gate_result_lines(),
+                        },
+                    )
+                ),
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "claim-evidence.json claims[0].owner handoff section missing claim id: architecture-contract-claim",
+        )
+
+        expect_fail(
+            "claim evidence missing evidence path fails",
+            write_run(
+                temp / "claim-evidence-missing-path",
+                lanes=claim_gate_lanes(),
+                lane_map_extra=architecture_control_extra(),
+                claim_evidence_data=claim_evidence(
+                    evidence=[
+                        {
+                            "path": "checks/missing.md",
+                            "markers": ["missing marker"],
+                        }
+                    ],
+                ),
+            ),
+            "claim-evidence.json claims[0].evidence[0].path not found: checks/missing.md",
+        )
+
+        expect_fail(
+            "claim evidence missing marker fails",
+            write_run(
+                temp / "claim-evidence-missing-marker",
+                lanes=claim_gate_lanes(),
+                lane_map_extra=architecture_control_extra(),
+                claim_evidence_data=claim_evidence(
+                    evidence=[
+                        {
+                            "path": "checks/qa-behavior.md",
+                            "markers": ["StreamIncomingEventsRejectsViewer"],
+                        }
+                    ],
+                ),
+            ),
+            "claim-evidence.json claims[0].evidence[0].markers[0] not found in checks/qa-behavior.md",
+        )
+
+        crm_claim_id = "auth-first-unsupported-streams"
+        crm_qa_body = (
+            "Covered gates:\n"
+            "- `migrations`\n"
+            "- `unit`\n"
+            "- `integration`\n\n"
+            "Claim evidence:\n"
+            f"- Claim Evidence: `{crm_claim_id}`\n\n"
+            "Viewer-forbidden unsupported stream endpoints are covered."
+        )
+        expect_fail(
+            "CRM-style unsupported stream coverage claim requires exact evidence markers",
+            write_extra_file(
+                write_run(
+                    temp / "crm-style-claim-no-marker-proof",
+                    lanes=claim_gate_lanes(
+                        architecture=architecture_lane(claim_evidence_ids=[crm_claim_id]),
+                        qa=qa_control_lane(
+                            wave=3,
+                            handoff_section_bodies={
+                                ARCHITECTURE_INVARIANTS_SECTION: crm_qa_body,
+                                VERIFICATION_GATE_RESULTS_SECTION: verification_gate_result_lines(),
+                            },
+                        ),
+                    ),
+                    lane_map_extra=architecture_control_extra(),
+                    claim_evidence_data=claim_evidence(
+                        claim_id=crm_claim_id,
+                        evidence=[
+                            {
+                                "path": "checks/connectrpc-unimplemented-contract.md",
+                                "markers": [
+                                    "TestUnsupportedStreamEndpointsRespectRolePermissionsBeforeUnimplemented",
+                                    "StreamIncomingEventsRejectsViewer",
+                                ],
+                            }
+                        ],
+                    ),
+                ),
+                "checks/connectrpc-unimplemented-contract.md",
+                "# ConnectRPC Evidence\n\n"
+                "TestUnsupportedStreamEndpointsRespectRolePermissionsBeforeUnimplemented\n",
+            ),
+            "claim-evidence.json claims[0].evidence[0].markers[1] "
+            "not found in checks/connectrpc-unimplemented-contract.md",
+        )
+
+        expect_fail(
+            "claim evidence gap blocks ship",
+            write_run(
+                temp / "claim-evidence-gap-ship",
+                lanes=claim_gate_lanes(),
+                lane_map_extra=architecture_control_extra(),
+                claim_evidence_data=claim_evidence(status="gap"),
+            ),
+            "claim-evidence.json claims[0].status must be supported for positive final Verdict",
+        )
+
+        expect_pass(
+            "valid marker backed claim evidence passes",
+            write_run(
+                temp / "claim-evidence-valid",
+                lanes=claim_gate_lanes(),
+                lane_map_extra=architecture_control_extra(),
+            ),
+        )
+
+        expect_pass(
+            "unsupported endpoint contract claim backed by exact markers passes",
+            write_extra_file(
+                write_run(
+                    temp / "claim-evidence-unsupported-endpoints-valid",
+                    lanes=claim_gate_lanes(
+                        architecture=architecture_lane(claim_evidence_ids=[crm_claim_id]),
+                        qa=qa_control_lane(
+                            wave=3,
+                            handoff_section_bodies={
+                                ARCHITECTURE_INVARIANTS_SECTION: crm_qa_body,
+                                VERIFICATION_GATE_RESULTS_SECTION: verification_gate_result_lines(),
+                            },
+                        ),
+                    ),
+                    lane_map_extra=architecture_control_extra(),
+                    claim_evidence_data=claim_evidence(
+                        claim_id=crm_claim_id,
+                        evidence=[
+                            {
+                                "path": "checks/connectrpc-unimplemented-contract.md",
+                                "markers": [
+                                    "TestUnsupportedStreamEndpointsRespectRolePermissionsBeforeUnimplemented",
+                                    "StreamIncomingEventsRejectsViewer",
+                                ],
+                            }
+                        ],
+                    ),
+                ),
+                "checks/connectrpc-unimplemented-contract.md",
+                "# ConnectRPC Evidence\n\n"
+                "TestUnsupportedStreamEndpointsRespectRolePermissionsBeforeUnimplemented\n"
+                "StreamIncomingEventsRejectsViewer\n",
+            ),
+        )
+
+        expect_pass(
+            "schema v2 without architecture gate does not require claim evidence",
+            write_run(
+                temp / "claim-evidence-not-required-without-architecture-gate",
+                lanes=[worker_lane(architecture_compliance_data=None)],
+                lane_map_extra={
+                    "schema_version": 2,
+                    "budget": "standard",
+                    "architecture_contract_required": False,
+                },
+                claim_evidence_data=OMIT,
             ),
         )
 
@@ -4717,7 +5133,7 @@ def main() -> int:
             "architecture context with selected facets passes",
             write_run(
                 temp / "architecture-context-valid",
-                lanes=[architecture_lane(), qa_lane()],
+                lanes=[architecture_lane(), qa_control_lane(wave=2), reviewer_control_lane(wave=3)],
                 lane_map_extra=architecture_control_extra(),
             ),
         )
@@ -5227,7 +5643,7 @@ def main() -> int:
                 temp / "architecture-pass-with-risks-approved-design",
                 lanes=[
                     architecture_lane(status="pass-with-risks"),
-                    qa_lane(),
+                    qa_control_lane(wave=3),
                     reviewer_control_lane(wave=4, risk_ids=[DEFAULT_RISK_ID]),
                 ],
                 lane_map_extra=architecture_control_extra(),

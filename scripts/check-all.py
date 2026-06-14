@@ -122,6 +122,22 @@ HARNESS_EVALUATION_GUARD_TERMS = [
     "learning_triggers",
     "requires_human_approval",
 ]
+CLAIM_EVIDENCE_GATE_GUARD_TERMS = [
+    "Claim Evidence Gate",
+    "claim-evidence.json",
+    "Claim Evidence",
+    "owner_lane",
+    "markers",
+    "supported",
+    "gap",
+]
+CLAIM_EVIDENCE_AUTHORING_GUARD_TERMS = [
+    "claim-evidence.json",
+    "Claim Evidence",
+    "owner_lane",
+    "markers",
+    "gap",
+]
 
 REQUIRED_RUNTIME_TEXT = {
     "SKILL.md": [
@@ -153,6 +169,7 @@ REQUIRED_RUNTIME_TEXT = {
         *VERIFICATION_READINESS_GATE_GUARD_TERMS,
         *CONTINUATION_GATE_GUARD_TERMS,
         *HARNESS_EVALUATION_GUARD_TERMS,
+        *CLAIM_EVIDENCE_GATE_GUARD_TERMS,
         "Architecture Approval Gate",
         "Local Best Practice auto gate",
         "regression demotion",
@@ -184,6 +201,7 @@ REQUIRED_RUNTIME_TEXT = {
         *VERIFICATION_READINESS_GATE_GUARD_TERMS,
         *CONTINUATION_GATE_GUARD_TERMS,
         *HARNESS_EVALUATION_GUARD_TERMS,
+        *CLAIM_EVIDENCE_GATE_GUARD_TERMS,
         "Architecture Approval Gate",
         "Local Best Practice auto gate",
         "regression demotion",
@@ -227,6 +245,7 @@ REQUIRED_RUNTIME_TEXT = {
         *VERIFICATION_READINESS_GATE_GUARD_TERMS,
         *CONTINUATION_GATE_GUARD_TERMS,
         *HARNESS_EVALUATION_GUARD_TERMS,
+        *CLAIM_EVIDENCE_GATE_GUARD_TERMS,
         "Local Best Practice auto gate",
         "regression demotion",
         "Model/reasoning upgrade is not the default fix",
@@ -259,6 +278,7 @@ REQUIRED_RUNTIME_TEXT = {
         *VERIFICATION_READINESS_GATE_GUARD_TERMS,
         *CONTINUATION_GATE_GUARD_TERMS,
         *HARNESS_EVALUATION_GUARD_TERMS,
+        *CLAIM_EVIDENCE_GATE_GUARD_TERMS,
         "Architecture Approval Gate",
         "Local Best Practice auto gate",
         "Model/reasoning upgrade is not the default fix",
@@ -291,6 +311,7 @@ REQUIRED_RUNTIME_TEXT = {
         *DELEGATION_TRACE_GATE_GUARD_TERMS,
         *VERIFICATION_READINESS_GATE_GUARD_TERMS,
         *HARNESS_EVALUATION_GUARD_TERMS,
+        *CLAIM_EVIDENCE_GATE_GUARD_TERMS,
     ],
     "references/harness-evaluation-loop.md": [
         *HARNESS_EVALUATION_GUARD_TERMS,
@@ -414,6 +435,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Contract Drift",
         *VERIFICATION_READINESS_GATE_GUARD_TERMS,
         "No role should ask the human",
+        *CLAIM_EVIDENCE_AUTHORING_GUARD_TERMS,
     ],
     "registries/architecture-capabilities.json": [
         "saas-platform-architecture",
@@ -449,6 +471,7 @@ REQUIRED_RUNTIME_TEXT = {
         *VERIFICATION_READINESS_GATE_GUARD_TERMS,
         *CONTINUATION_GATE_GUARD_TERMS,
         *HARNESS_EVALUATION_GUARD_TERMS,
+        *CLAIM_EVIDENCE_GATE_GUARD_TERMS,
         "Architecture Approval Gate",
         "Local Best Practice auto gate",
         "regression demotion",
@@ -470,6 +493,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Execution Control",
         "architecture drift",
         "architect re-check",
+        *CLAIM_EVIDENCE_GATE_GUARD_TERMS,
         "Blocked Resolution Gate",
         "Resolution Architect Review",
         "forbidden_repeat",
@@ -490,6 +514,7 @@ REQUIRED_RUNTIME_TEXT = {
         *VERIFICATION_READINESS_GATE_GUARD_TERMS,
         *CONTINUATION_GATE_GUARD_TERMS,
         *HARNESS_EVALUATION_GUARD_TERMS,
+        *CLAIM_EVIDENCE_GATE_GUARD_TERMS,
         *MITIGATION_GATE_GUARD_TERMS,
         *RESOLUTION_GATE_GUARD_TERMS,
         *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
@@ -507,6 +532,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Invariants",
         *VERIFICATION_READINESS_GATE_GUARD_TERMS,
         *CONTINUATION_GATE_GUARD_TERMS,
+        *CLAIM_EVIDENCE_GATE_GUARD_TERMS,
         *MITIGATION_GATE_GUARD_TERMS,
         *RESOLUTION_GATE_GUARD_TERMS,
         "Blocked Resolution Gate",
@@ -620,6 +646,7 @@ REQUIRED_RUNTIME_TEXT = {
         *RESOLUTION_GATE_GUARD_TERMS,
         *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
         *HARNESS_EVALUATION_GUARD_TERMS,
+        *CLAIM_EVIDENCE_GATE_GUARD_TERMS,
     ],
     "scripts/architecture_capabilities.py": [
         "Architecture Capability Router",
@@ -641,6 +668,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Invariants",
         "Architecture Matrix Mismatches",
         "Contract Drift",
+        *CLAIM_EVIDENCE_AUTHORING_GUARD_TERMS,
     ],
     "scripts/test-init-run.py": [
         *ARCHITECTURE_AUTHORING_GUARD_TERMS,

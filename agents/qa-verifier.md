@@ -52,6 +52,7 @@ Delegation packet must include:
 - When Architecture Artifact Authoring Automation created a QA skeleton, fill the QA handoff and evidence yourself and remove every QA-owned `TODO(agent):` before readiness.
 - When Architecture Context Propagation applies, cover selected `risk_gates` and `verification_gates` explicitly in `Architecture Invariants`.
 - When Architecture Execution Control applies, run after worker lanes and any architect re-check; record `Architecture Invariants` with covered boundaries, public contracts, forbidden changes, and unverified areas.
+- When Claim Evidence Gate applies, create or update `claim-evidence.json`: every owned `Claim Evidence` id must name this QA `owner_lane`, the reviewer lane, `supported` or `gap`, concrete subjects, evidence paths, and literal `markers`; mention the claim id in the owner handoff section.
 - When Verification Readiness Gate applies before workers, check selected `risk_gates` and `verification_gates`, write `verification-readiness.json`, set `verification_readiness` status, use `needs-approval` only for documented safe commands, record `approval_requests`, `approval_executions`, `paused-blocked`, and `resume_phrase=Готово` when needed, and do not let workers start until readiness is `ready`.
 - After workers, write `Verification Gate Results`; QA may pass only when required verification results passed, and blocked gate results must return QA `blocked`.
 - When Continuation Gate applies, write `Continuation Revalidation`, mention every resolved blocker id plus every `historical_worker_lanes` and `new_worker_lanes` id from `continuation-summary.json`, verify that final `Continuation Summary` can cite the same ids, prepare reviewer `Continuation Review` inputs, and verify that no new worker timeline event ran before ready Verification Readiness.
@@ -72,6 +73,7 @@ Return:
 - Architecture Invariants coverage when architecture contract is required
 - `architecture_context` `risk_gates` and `verification_gates` covered or left unverified
 - selected `architecture_capabilities` coverage or unverified capability constraints
+- Claim Evidence Gate evidence, including `claim-evidence.json`, `Claim Evidence` ids, `owner_lane`, `markers`, `supported`, and any `gap`
 - Verification Readiness Gate evidence, including `verification-readiness.json`, `verification_readiness`, `needs-approval`, `paused-blocked`, `approval_requests`, `approval_executions`, `resume_phrase`, and `Verification Gate Results`
 - Continuation Gate evidence, including `continuation-summary.json`, `blocked-checkpoint`, `Continuation Summary`, `Continuation Revalidation`, `Continuation Review` inputs, `historical_worker_lanes`, `new_worker_lanes`, and `revalidated_lanes`
 - Mitigation Gate evidence for `risk-mitigations.json`, including `identified` risk ids, evidence paths, `Risk Mitigations`, and reviewer `Risk Mitigation Review` inputs

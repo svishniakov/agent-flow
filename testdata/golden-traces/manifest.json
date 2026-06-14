@@ -316,6 +316,39 @@
         "Harness Evaluation Loop",
         "Architecture Matrix Router"
       ]
+    },
+    {
+      "id": "positive-run-without-claim-evidence",
+      "path": "invalid/positive-run-without-claim-evidence",
+      "mode": "full",
+      "expected": "fail",
+      "expected_error": "claim-evidence.json is required for positive architecture contract run",
+      "covers": [
+        "Claim Evidence Gate",
+        "claim-evidence.json"
+      ]
+    },
+    {
+      "id": "architecture-contract-without-claim-evidence",
+      "path": "invalid/architecture-contract-without-claim-evidence",
+      "mode": "full",
+      "expected": "fail",
+      "expected_error": "architecture contract handoff QA Gates missing Claim Evidence",
+      "covers": [
+        "Claim Evidence Gate",
+        "Architecture Contract"
+      ]
+    },
+    {
+      "id": "claim-evidence-missing-marker",
+      "path": "invalid/claim-evidence-missing-marker",
+      "mode": "full",
+      "expected": "fail",
+      "expected_error": "claim-evidence.json claims[0].evidence[0].markers[0] not found in checks/qa-behavior.md",
+      "covers": [
+        "Claim Evidence Gate",
+        "marker-backed evidence"
+      ]
     }
   ]
 }
