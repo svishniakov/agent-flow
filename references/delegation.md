@@ -2,17 +2,19 @@
 
 Use subagents only after Agent Flow is active and the selected budget permits delegation.
 
-Agent Flow-invoked requests let the orchestrator choose execution topology. `light` budget stays solo. `standard` and `release` budgets may use subagents when delegation adds independent evidence, parallelism, or review value.
+Agent Flow-invoked requests let the orchestrator choose execution topology. `light` budget stays solo for implementation ownership. `standard` and `release` budgets may use subagents when delegation adds independent evidence, parallelism, or review value.
 
 Unmarked requests are also solo unless the user explicitly asks for subagents.
 
-If `spawn_agent` is unavailable after a subagent path is selected, say so. Continue with role lanes or solo checks only if that still satisfies the task.
+If `spawn_agent` is unavailable after an optional subagent path is selected, say so and continue only when no required subagent gate applies.
+
+Mandatory Independent QA Review Gate is not optional delegation. Any Agent Flow implementation/change run that changes product or repo files, tests, runtime docs, validator behavior, templates, golden traces, ADR/plan/spec status, or creates a commit must run a real `reviewer.qa` subagent before any `ship` or `pass-with-risks` final. Role-lane review does not satisfy this gate. If reviewer launch or runtime fails, the run records `mandatory_independent_qa_review` blocker evidence with kind `launch-failure` or `runtime-failure` and closes `blocked`; there is no solo or role-lane fallback for a positive final.
 
 Before treating `spawn_agent` as unavailable, discover it through active tools and `tool_search` when available.
 
 ## Budget Gate
 
-Delegation is never mandatory just because Agent Flow is active.
+Delegation is never mandatory just because Agent Flow is active. The exception is required gate infrastructure such as Mandatory Independent QA Review Gate.
 
 Delegate only when the selected budget allows it and all are true:
 
@@ -41,7 +43,7 @@ delegation for these cases:
 | design, naming, or architecture options | generate-and-filter or tournament | candidates benefit from rubric-based selection |
 | large triage queue | classify-and-act + quarantine | untrusted input must be separated from actions |
 
-For `light`, use the solo variant or escalate the budget only when there is a concrete reason.
+For `light`, use the solo implementation variant or escalate the budget only when there is a concrete reason. File-changing implementation still needs the mandatory `reviewer.qa` subagent before a positive final.
 
 ## Quarantine
 

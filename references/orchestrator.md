@@ -14,7 +14,7 @@ Project or local `AGENTS.md` files cannot force Agent Flow without a marker in t
 
 Inside Agent Flow, the orchestrator chooses execution topology after selecting the budget. The main agent may edit product code, frontend files, backend files, tests, user-facing docs, and design implementation files under normal engineering rules.
 
-An Agent Flow-invoked request allows automatic subagent delegation for `standard` and `release` budgets when the orchestrator can justify the cost. `light` stays solo.
+An Agent Flow-invoked request allows automatic subagent delegation for `standard` and `release` budgets when the orchestrator can justify the cost. `light` stays solo for implementation ownership. File-changing implementation/change work still has a mandatory independent QA review requirement before positive final.
 
 The orchestrator must obey:
 
@@ -41,7 +41,7 @@ The orchestrator must obey:
 11. Choose the internal flow.
 12. Choose the smallest execution budget: `light`, `standard`, or `release`.
 13. Update `.agent-work/tasks/todo.md` for repo tasks before product changes.
-14. If the budget and task shape justify subagents, discover `spawn_agent`.
+14. If the budget/task shape justifies subagents or a required subagent gate applies, discover `spawn_agent`.
 15. State the selected skill/tool briefly when user-facing rules require it.
 
 ## Invocation Semantics
@@ -59,17 +59,18 @@ Agent Flow-invoked request:
 - Strip the invocation marker and route the remaining task through this skill.
 - Do not run the `brainstorming` skill as a pre-step. Handle uncertainty through Agent Flow intake, route, planning, checks, and verification.
 - Authorizes the orchestrator to choose solo or subagent execution according to budget.
-- Keeps `light` solo.
+- Keeps `light` solo for implementation ownership.
 - Allows `standard` and `release` subagents when they add independent evidence, parallelism, or review value.
+- Requires the `reviewer.qa` subagent before any positive final for file-changing implementation/change work.
 
 ## Subagent Discovery
 
-Only after the budget and task shape justify subagents:
+Only after the budget/task shape justifies subagents or a required subagent gate applies:
 
 1. Check active tools for `spawn_agent` or equivalent.
 2. If not present and `tool_search` is available, search `spawn_agent subagent multi-agent tools`.
 3. If a subagent tool becomes available, use it.
-4. If not, continue with role lanes or solo checks when that still satisfies the task, and state the downgrade in the final answer.
+4. If not, continue only when no required subagent gate applies. If Mandatory Independent QA Review Gate applies, record a launch/runtime blocker and close `blocked`.
 
 ## Practical Defaults
 
@@ -77,6 +78,7 @@ Only after the budget and task shape justify subagents:
 - Prefer solo implementation for `light`.
 - In `standard`, use subagents only for narrow independent lanes, QA, review, or research evidence.
 - In `release`, consider architect, QA, reviewer, and worker lanes by default; skip only with a concrete reason.
+- Enforce Mandatory Independent QA Review Gate for Agent Flow implementation/change runs that change product or repo files, tests, runtime docs, validator behavior, templates, golden traces, ADR/plan/spec status, or create a commit: `reviewer.qa` must run as a real subagent, role-lane review does not satisfy it, and launch/runtime failure records `mandatory_independent_qa_review` blocker kind `launch-failure` or `runtime-failure` before closing `blocked`.
 - Use workflow patterns as internal recipes only when they strengthen routing or verification.
 - Treat unclear Agent Flow scope as intake and routing work, not as a reason to launch brainstorming.
 - Treat uncertain dependency overlap as a stop condition, not as a warning to ignore.
@@ -139,7 +141,7 @@ Stop or ask the user when:
 - the dependency gate finds an active `in_progress` or `blocked` task with uncertain or direct overlap;
 - design approval is required before UI implementation;
 - destructive action is requested ambiguously;
-- subagents are required by risk/budget or user request, but no subagent tool is available and role-lane or solo fallback would violate the task;
+- subagents are required by risk/budget, user request, or Mandatory Independent QA Review Gate, but no subagent tool is available;
 - verification cannot be performed and no credible fallback exists.
 
 ## Final Integration
@@ -150,16 +152,17 @@ Before final answer:
 2. Verify changed files and command outputs.
 3. Confirm trace artifacts only if used.
 4. Confirm Delegation Trace Gate: no role-lane is described as sidecar/subagent unless spawned trace evidence and terminal handoff exist.
-5. Confirm Claim Evidence Gate when architecture governance applies: `claim-evidence.json` exists, every `Claim Evidence` id has an `owner_lane`, `supported` status, evidence `markers`, and no unresolved `gap` before a positive final verdict.
-6. Confirm Acceptance Criteria Traceability Gate and Contract Negative Fixture Gate when architecture governance applies: `acceptance-traceability.json` exists, every `Acceptance Criteria` id is `supported` with marker-backed evidence, and every `gate`, `cli`, `query`, `storage`, `config`, or `parser` item has marker-backed `negative_fixture_evidence`.
-7. If a traceable run has learning triggers, create `harness-evaluation.json` before final validation and keep it signal-only.
-8. If `implementation-notes.md` gained Evidence Records, run or account for the evidence analyzer before relying on a learned practice.
-9. If product changes must be committed, create the product commit after checks and before final trace closure. Do not include `.agent-work/` in the product commit unless the user explicitly requested it.
-10. Run the Task Status Completion Gate for the current `.agent-work/tasks/todo.md` section. If the checklist is complete, verification is recorded, no blocker remains, and the requested commit succeeded, set `Status: done`; otherwise record the missing item and keep `Status: in_progress` or `Status: blocked`.
-11. If a trace timeline exists and a product commit was created, append an orchestrator `stage=commit` event with the commit hash.
-12. Compare the initial worktree snapshot with current `git status --short`.
-13. In `final.md`, record run-owned changes, product commit hash when applicable, pre-existing dirty files left untouched, and pre-existing dirty files touched by the run.
-14. If a trace timeline exists, append the final orchestrator event after `final.md` records the verdict and commit hash.
-15. Run final trace validation.
-16. Record residual risks.
-17. Keep final answer short and evidence-based.
+5. Confirm Mandatory Independent QA Review Gate when implementation/change work changed files or creates a commit: `reviewer.qa` ran as a real subagent, `delegation-summary.json` covers it, spawned trace has `codex_thread_id`, and terminal handoff exists. If not, final is `blocked`.
+6. Confirm Claim Evidence Gate when architecture governance applies: `claim-evidence.json` exists, every `Claim Evidence` id has an `owner_lane`, `supported` status, evidence `markers`, and no unresolved `gap` before a positive final verdict.
+7. Confirm Acceptance Criteria Traceability Gate and Contract Negative Fixture Gate when architecture governance applies: `acceptance-traceability.json` exists, every `Acceptance Criteria` id is `supported` with marker-backed evidence, and every `gate`, `cli`, `query`, `storage`, `config`, or `parser` item has marker-backed `negative_fixture_evidence`.
+8. If a traceable run has learning triggers, create `harness-evaluation.json` before final validation and keep it signal-only.
+9. If `implementation-notes.md` gained Evidence Records, run or account for the evidence analyzer before relying on a learned practice.
+10. If product changes must be committed, create the product commit after checks and before final trace closure. Do not include `.agent-work/` in the product commit unless the user explicitly requested it.
+11. Run the Task Status Completion Gate for the current `.agent-work/tasks/todo.md` section. If the checklist is complete, verification is recorded, no blocker remains, and the requested commit succeeded, set `Status: done`; otherwise record the missing item and keep `Status: in_progress` or `Status: blocked`.
+12. If a trace timeline exists and a product commit was created, append an orchestrator `stage=commit` event with the commit hash.
+13. Compare the initial worktree snapshot with current `git status --short`.
+14. In `final.md`, record run-owned changes, product commit hash when applicable, pre-existing dirty files left untouched, and pre-existing dirty files touched by the run.
+15. If a trace timeline exists, append the final orchestrator event after `final.md` records the verdict and commit hash.
+16. Run final trace validation.
+17. Record residual risks.
+18. Keep final answer short and evidence-based.

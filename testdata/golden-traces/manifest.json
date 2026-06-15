@@ -8,7 +8,9 @@
       "mode": "full",
       "expected": "pass",
       "covers": [
-        "backward-compatible-standard-single-worker"
+        "backward-compatible-standard-single-worker",
+        "Mandatory Independent QA Review Gate",
+        "mandatory-independent-qa-review"
       ]
     },
     {
@@ -98,6 +100,43 @@
       "expected_error": "release budget requires architecture_contract_required=true",
       "covers": [
         "release architecture gate"
+      ]
+    },
+    {
+      "id": "mandatory-independent-qa-review-missing-subagent",
+      "path": "invalid/mandatory-independent-qa-review-missing-subagent",
+      "mode": "full",
+      "expected": "fail",
+      "expected_error": "positive implementation/change run requires reviewer.qa subagent",
+      "covers": [
+        "Mandatory Independent QA Review Gate",
+        "mandatory-independent-qa-review",
+        "missing reviewer.qa subagent"
+      ]
+    },
+    {
+      "id": "mandatory-independent-qa-review-role-lane-only",
+      "path": "invalid/mandatory-independent-qa-review-role-lane-only",
+      "mode": "full",
+      "expected": "fail",
+      "expected_error": "Mandatory Independent QA Review Gate rejects role-lane-only review",
+      "covers": [
+        "Mandatory Independent QA Review Gate",
+        "mandatory-independent-qa-review",
+        "role-lane reviewer only"
+      ]
+    },
+    {
+      "id": "mandatory-independent-qa-review-missing-delegation-summary",
+      "path": "invalid/mandatory-independent-qa-review-missing-delegation-summary",
+      "mode": "full",
+      "expected": "fail",
+      "expected_error": "Mandatory Independent QA Review Gate requires delegation-summary.json",
+      "covers": [
+        "Mandatory Independent QA Review Gate",
+        "mandatory-independent-qa-review",
+        "delegation-summary.json",
+        "schema v1 traceable run"
       ]
     },
     {

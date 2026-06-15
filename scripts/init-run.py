@@ -33,6 +33,8 @@ RUN_FILES = {
         "Subagent Lanes: none\n"
         "Role Lanes: none\n"
         "Subagent Trace Evidence: none\n\n"
+        "## Mandatory Independent QA Review\n\n"
+        "TODO(agent): Mandatory Independent QA Review Gate. Before any positive final for implementation/change work, record reviewer.qa subagent lane id, delegation-summary.json coverage, spawned trace path, and terminal handoff artifact. role-lane review cannot replace it. If reviewer.qa launch/runtime failed, close blocked with mandatory_independent_qa_review blocker evidence kind launch-failure or runtime-failure.\n\n"
         "## Boundary Evidence\n\n"
         "TODO(agent): summarize worker lane boundary artifacts and out-of-bound product-code status.\n\n"
         "## Acceptance Traceability\n\n"
@@ -565,6 +567,10 @@ Acceptance criteria:
 Boundary Evidence worker lanes:
 {markdown_id_list(worker_ids)}
 
+## Mandatory Independent QA Review
+
+{AGENT_TODO_PLACEHOLDER} This review must be completed by the real reviewer.qa subagent. Confirm spawned trace evidence, delegation-summary.json coverage, and terminal handoff before any positive final.
+
 {AGENT_TODO_PLACEHOLDER} Report no drift or name the exact drift and required architect re-check. Mention Boundary Evidence for every worker lane id, mention Acceptance Criteria Traceability and Contract Negative Fixture coverage, mention every primary surface, and reject peripheral-only closure.
 """
 
@@ -717,7 +723,7 @@ def architecture_gate_lane_map(
                 "role": "reviewer",
                 "wave": 5,
                 "critical": True,
-                "execution_mode": "role-lane",
+                "execution_mode": "subagent",
                 "status": "planned",
                 "handoff": "handoffs/review-contract.md",
                 "evidence": ["checks/review-contract.md"],
@@ -730,6 +736,12 @@ def architecture_gate_lane_map(
         "budget": budget,
         "architecture_contract_required": True,
         "architecture_contract_independent": False,
+        "mandatory_independent_qa_review": {
+            "required": True,
+            "reviewer_lane": "review-contract",
+            "status": "planned",
+            "notes": "File-changing implementation/change runs must run reviewer.qa as a real subagent before positive final.",
+        },
         "architecture_context": context,
             "architecture_capabilities": {
                 "selected": capabilities,

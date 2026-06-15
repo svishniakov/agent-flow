@@ -55,6 +55,8 @@ For full `release` trace:
 - initial and final worktree states are recorded when the run edits a git repo;
 - every delegated subagent has `agents/<role>/trace.jsonl` and matching run-level timeline events;
 - Delegation Trace Gate is covered: positive schema v2 lane-map runs include `delegation-summary.json`, final `Delegation Trace`, `Subagents Used`, `Role Lanes Used`, `Subagent Trace Evidence`, and terminal handoff trace evidence for every successful spawned subagent;
+- Mandatory Independent QA Review Gate is covered: any Agent Flow implementation/change run that changed product/repo files, tests, runtime docs, validator behavior, templates, golden traces, ADR/plan/spec status, or created a commit has a real `reviewer.qa` subagent, spawned trace with `codex_thread_id`, terminal handoff, `delegation-summary.json` coverage, and final `Mandatory Independent QA Review`; role-lane review does not satisfy it;
+- if mandatory `reviewer.qa` launch/runtime failed, the run ended `blocked` and recorded `mandatory_independent_qa_review.blocker` evidence with kind `launch-failure` or `runtime-failure` instead of using solo or role-lane review for a positive final;
 - when Lane Sharding is used, `lane-map.json` is valid and every critical lane is covered by evidence or a valid replacement lane;
 - when the Architecture Contract Gate is required, `lane-map.json` uses schema v2, records `budget`, `architecture_context`, and `architecture_capabilities`, includes a critical `architecture` lane, and blocks `ship` until that lane has handoff and evidence with the required contract sections;
 - Architecture Design Mode is covered: every successful critical `architecture` lane records `architecture_design_brief`, the Architecture Design Brief includes `Selected Matrix Facets`, and `Decision` contains `Status: approved` before any positive final verdict;
@@ -104,6 +106,7 @@ For full `release` trace:
 - Mitigation Gate blocked `pass-with-risks` until each risk was identified with evidence and `next_gate=resolution`.
 - Resolution Gate blocked `pass-with-risks` until each identified risk had a concrete resolution record, evidence, verification, QA review, reviewer review, and status `fixed`, `mitigated`, or `contained`; `unresolved` was allowed only for `blocked` or `fail`.
 - Blocked Resolution Gate blocked retry work until Senior QA reviewed acceptance criteria and test design, architect approved attempt 2, supervising architect approved attempt 3 when needed, rollback was recorded, and repeated failed approaches were listed in `forbidden_repeat`.
+- Mandatory Independent QA Review Gate blocked `ship` and `pass-with-risks` until file-changing implementation/change work had a real `reviewer.qa` subagent with terminal handoff. Role-lane review was rejected for this gate, and subagent launch/runtime failure closed `blocked`.
 - Golden Trace Runs passed when architecture-layer validator behavior changed.
 - Architecture Approval Gate reviewed any rejected, regressed, or uncertain architecture attempt before retrying implementation.
 - Local Best Practice auto gate was used only for an analyzer-confirmed local practice with clear context, no matching `Do not reuse when`, no external write, and fresh verification.

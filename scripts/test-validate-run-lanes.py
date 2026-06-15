@@ -63,6 +63,7 @@ ARCHITECTURE_INVARIANTS_SECTION = "Architecture Invariants"
 ARCHITECTURE_MATRIX_MISMATCHES_SECTION = "Architecture Matrix Mismatches"
 CONTRACT_DRIFT_SECTION = "Contract Drift"
 DELEGATION_TRACE_SECTION = "Delegation Trace"
+MANDATORY_INDEPENDENT_QA_REVIEW_SECTION = "Mandatory Independent QA Review"
 CONTINUATION_SUMMARY_PATH = "continuation-summary.json"
 CONTINUATION_SUMMARY_SECTION = "Continuation Summary"
 CONTINUATION_REVALIDATION_SECTION = "Continuation Revalidation"
@@ -1096,6 +1097,14 @@ def delegation_trace_section(summary: dict[str, Any]) -> str:
     )
 
 
+def mandatory_independent_qa_review_section(lane_id: str = "review-contract") -> str:
+    return (
+        f"\n## {MANDATORY_INDEPENDENT_QA_REVIEW_SECTION}\n\n"
+        f"reviewer.qa lane `{lane_id}` ran as a real subagent.\n"
+        f"Terminal handoff recorded in `handoffs/{lane_id}.md`.\n"
+    )
+
+
 def engineering_simplicity_final_section(
     primary_surfaces: list[str] | None = None,
 ) -> str:
@@ -1130,6 +1139,7 @@ def write_run(
     acceptance_traceability_data: Any = DEFAULT,
     include_simplicity_final: bool = True,
     include_boundary_final: bool = True,
+    include_mandatory_qa_final: bool = True,
 ) -> Path:
     run_dir = root / "run"
     (run_dir / "handoffs").mkdir(parents=True)
@@ -1196,6 +1206,27 @@ def write_run(
                 if isinstance(lane_map_extra, dict)
                 else None
             )
+        if trace_events is None:
+            trace_events = {}
+        traced_lanes = {
+            (event.get("role"), event.get("lane_id"))
+            for events in trace_events.values()
+            for event in events
+            if isinstance(event, dict)
+        }
+        for lane_data in lanes:
+            if (
+                lane_data.get("type") == "review"
+                and lane_data.get("role") in {"reviewer", "reviewer.qa"}
+                and lane_data.get("execution_mode") == "subagent"
+                and lane_data.get("status") in {"pass", "pass-with-risks"}
+                and (lane_data.get("role"), lane_data.get("id")) not in traced_lanes
+            ):
+                role = lane_data["role"]
+                lane_id = lane_data["id"]
+                trace_events.setdefault(role, []).extend(
+                    [spawned_trace(role, lane_id), subagent_handoff_trace(role, lane_id)]
+                )
 
     risk_learning_default_needed = (
         verdict == "pass-with-risks"
@@ -1283,6 +1314,30 @@ def write_run(
         ]
         if boundary_worker_ids:
             final_text += boundary_evidence_final_section(boundary_worker_ids)
+    if (
+        include_mandatory_qa_final
+        and lanes is not None
+        and verdict in {"ship", "pass-with-risks"}
+        and any(
+            isinstance(lane_data, dict)
+            and lane_data.get("type") in {"implementation", "integration"}
+            for lane_data in lanes
+        )
+    ):
+        reviewer_lane_id = next(
+            (
+                lane_data["id"]
+                for lane_data in lanes
+                if isinstance(lane_data, dict)
+                and lane_data.get("type") == "review"
+                and lane_data.get("role") in {"reviewer", "reviewer.qa"}
+                and lane_data.get("execution_mode") == "subagent"
+                and lane_data.get("status") in {"pass", "pass-with-risks"}
+                and isinstance(lane_data.get("id"), str)
+            ),
+            "review-contract",
+        )
+        final_text += mandatory_independent_qa_review_section(reviewer_lane_id)
     final_text += final_extra
     if (
         verdict == "pass-with-risks"
@@ -1473,12 +1528,12 @@ def write_run(
             events_by_role.setdefault(role_key, []).append(event)
         for role, events in events_by_role.items():
             trace_path = run_dir / "agents" / role / "trace.jsonl"
-            trace_path.parent.mkdir(parents=True)
+            trace_path.parent.mkdir(parents=True, exist_ok=True)
             write_jsonl(trace_path, events)
         timeline_events.extend(ordered_trace_events)
     for role, events in (trace_events or {}).items():
         trace_path = run_dir / "agents" / role / "trace.jsonl"
-        trace_path.parent.mkdir(parents=True)
+        trace_path.parent.mkdir(parents=True, exist_ok=True)
         write_jsonl(trace_path, events)
         timeline_events.extend(events)
 
@@ -2162,6 +2217,7 @@ def reviewer_lane(
     lane_id: str = "review-contract",
     *,
     wave: int = 4,
+    execution_mode: str = "role-lane",
     handoff_sections: list[str] | None = None,
     handoff_section_bodies: dict[str, str] | None = None,
 ) -> dict[str, Any]:
@@ -2170,6 +2226,7 @@ def reviewer_lane(
         lane_type="review",
         role="reviewer",
         wave=wave,
+        execution_mode=execution_mode,
         handoff_sections=handoff_sections,
         handoff_section_bodies=handoff_section_bodies,
     )
@@ -2267,6 +2324,7 @@ def qa_control_lane(
 def reviewer_control_lane(
     *,
     wave: int = 4,
+    execution_mode: str = "subagent",
     handoff_sections: list[str] | None = None,
     handoff_section_bodies: dict[str, str] | None = None,
     context: dict[str, Any] | None = None,
@@ -2278,6 +2336,7 @@ def reviewer_control_lane(
 ) -> dict[str, Any]:
     return reviewer_lane(
         wave=wave,
+        execution_mode=execution_mode,
         handoff_sections=handoff_sections
         if handoff_sections is not None
         else [
@@ -2352,7 +2411,12 @@ def continuation_trace_events(
     if worker_after_readiness:
         events.append(role_lane_trace(worker))
     events.append(role_lane_trace(qa, stage="checks"))
-    events.append(role_lane_trace(reviewer, stage="checks"))
+    events.extend(
+        [
+            spawned_trace(reviewer["role"], reviewer["id"]),
+            subagent_handoff_trace(reviewer["role"], reviewer["id"]),
+        ]
+    )
 
     return events
 
@@ -3283,6 +3347,124 @@ def main() -> int:
         )
 
         expect_fail(
+            "mandatory independent qa rejects implementation without reviewer subagent",
+            write_run(
+                temp / "mandatory-qa-missing-reviewer",
+                lanes=[
+                    lane(
+                        "worker-a",
+                        lane_type="implementation",
+                        role="typescript-worker",
+                        wave=2,
+                    )
+                ],
+                lane_map_extra={
+                    "schema_version": 2,
+                    "budget": "standard",
+                    "architecture_contract_required": False,
+                },
+            ),
+            "positive implementation/change run requires reviewer.qa subagent",
+        )
+
+        expect_fail(
+            "mandatory independent qa rejects role-lane reviewer only",
+            write_run(
+                temp / "mandatory-qa-role-lane-reviewer-only",
+                lanes=[
+                    lane(
+                        "worker-a",
+                        lane_type="implementation",
+                        role="typescript-worker",
+                        wave=2,
+                    ),
+                    reviewer_lane(wave=3, execution_mode="role-lane"),
+                ],
+                lane_map_extra={
+                    "schema_version": 2,
+                    "budget": "standard",
+                    "architecture_contract_required": False,
+                },
+            ),
+            "Mandatory Independent QA Review Gate rejects role-lane-only review",
+        )
+
+        expect_pass(
+            "mandatory independent qa accepts reviewer subagent with terminal handoff",
+            write_run(
+                temp / "mandatory-qa-subagent-reviewer",
+                lanes=[
+                    lane(
+                        "worker-a",
+                        lane_type="implementation",
+                        role="typescript-worker",
+                        wave=2,
+                    ),
+                    reviewer_control_lane(wave=3),
+                ],
+                lane_map_extra={
+                    "schema_version": 2,
+                    "budget": "standard",
+                    "architecture_contract_required": False,
+                },
+            ),
+        )
+
+        expect_fail(
+            "mandatory independent qa requires delegation summary for schema v1",
+            write_run(
+                temp / "mandatory-qa-schema-v1-missing-delegation-summary",
+                lanes=[
+                    lane(
+                        "worker-a",
+                        lane_type="implementation",
+                        role="typescript-worker",
+                        wave=2,
+                    ),
+                    reviewer_control_lane(wave=3),
+                ],
+                delegation_summary_data=OMIT,
+            ),
+            "Mandatory Independent QA Review Gate requires delegation-summary.json",
+        )
+
+        expect_pass(
+            "blocked mandatory independent qa accepts recorded launch blocker",
+            write_extra_file(
+                write_run(
+                    temp / "mandatory-qa-blocked-launch-failure",
+                    verdict="blocked",
+                    lanes=[
+                        lane(
+                            "worker-a",
+                            status="blocked",
+                            lane_type="implementation",
+                            role="typescript-worker",
+                            wave=2,
+                        )
+                    ],
+                    lane_map_extra={
+                        "schema_version": 2,
+                        "budget": "standard",
+                        "architecture_contract_required": False,
+                        "mandatory_independent_qa_review": {
+                            "required": True,
+                            "status": "blocked",
+                            "reviewer_lane": "review-contract",
+                            "blocker": {
+                                "kind": "launch-failure",
+                                "summary": "spawn_agent failed before reviewer.qa could start.",
+                                "evidence": ["checks/reviewer-qa-launch-blocker.md"],
+                            },
+                        },
+                    },
+                ),
+                "checks/reviewer-qa-launch-blocker.md",
+                "# reviewer.qa launch blocker\n\nspawn_agent failed before handoff.\n",
+            ),
+        )
+
+        expect_fail(
             "subagent terminal handoff requires matching lane id",
             write_run(
                 temp / "subagent-terminal-wrong-lane",
@@ -3644,15 +3826,9 @@ def main() -> int:
                 lanes=[
                     worker_lane(),
                     qa_control_lane(risk_resolution_ids=[DEFAULT_RISK_ID]),
-                    reviewer_lane(
-                        handoff_sections=[
-                            RISK_MITIGATION_REVIEW_SECTION,
-                            RISK_RESOLUTION_REVIEW_SECTION,
-                        ],
-                        handoff_section_bodies={
-                            RISK_MITIGATION_REVIEW_SECTION: f"- `{DEFAULT_RISK_ID}`",
-                            RISK_RESOLUTION_REVIEW_SECTION: f"- `{DEFAULT_RISK_ID}`",
-                        },
+                    reviewer_control_lane(
+                        risk_ids=[DEFAULT_RISK_ID],
+                        risk_resolution_ids=[DEFAULT_RISK_ID],
                     ),
                 ],
             ),
@@ -4168,6 +4344,7 @@ def main() -> int:
             reviewer_lane(
                 "review-retry",
                 wave=9,
+                execution_mode="subagent",
                 handoff_sections=[
                     RISK_MITIGATION_REVIEW_SECTION,
                     RISK_RESOLUTION_REVIEW_SECTION,
@@ -4201,6 +4378,7 @@ def main() -> int:
             reviewer_lane(
                 "review-final",
                 wave=13,
+                execution_mode="subagent",
                 handoff_sections=[
                     RISK_MITIGATION_REVIEW_SECTION,
                     RISK_RESOLUTION_REVIEW_SECTION,
@@ -5231,7 +5409,10 @@ def main() -> int:
             "schema v2 without architecture gate does not require claim evidence",
             write_run(
                 temp / "claim-evidence-not-required-without-architecture-gate",
-                lanes=[worker_lane(architecture_compliance_data=None)],
+                lanes=[
+                    worker_lane(architecture_compliance_data=None),
+                    reviewer_control_lane(wave=3),
+                ],
                 lane_map_extra={
                     "schema_version": 2,
                     "budget": "standard",
@@ -5625,6 +5806,7 @@ def main() -> int:
                             gate_status="blocked",
                         ),
                     ),
+                    reviewer_control_lane(wave=4),
                 ],
                 lane_map_extra=architecture_control_extra(),
             ),
@@ -6563,7 +6745,8 @@ def main() -> int:
                             lane_type="implementation",
                             role="typescript-worker",
                             wave=2,
-                        )
+                        ),
+                        reviewer_control_lane(wave=3),
                     ],
                     lane_map_extra={
                         "schema_version": 2,
@@ -6633,11 +6816,28 @@ def main() -> int:
             "standard budget with 2 worker lanes requires architecture_contract_required=true",
         )
 
-        expect_pass(
-            "standard single worker lane does not require architecture contract",
+        expect_fail(
+            "standard single worker lane still requires mandatory qa reviewer",
             write_run(
                 temp / "standard-single-worker-no-architecture-contract",
                 lanes=[lane("worker-a", lane_type="implementation", role="typescript-worker", wave=2)],
+                lane_map_extra={
+                    "schema_version": 2,
+                    "budget": "standard",
+                    "architecture_contract_required": False,
+                },
+            ),
+            "positive implementation/change run requires reviewer.qa subagent",
+        )
+
+        expect_pass(
+            "standard single worker lane with reviewer subagent does not require architecture contract",
+            write_run(
+                temp / "standard-single-worker-with-reviewer-no-architecture-contract",
+                lanes=[
+                    lane("worker-a", lane_type="implementation", role="typescript-worker", wave=2),
+                    reviewer_control_lane(wave=3),
+                ],
                 lane_map_extra={
                     "schema_version": 2,
                     "budget": "standard",
@@ -7524,7 +7724,7 @@ def main() -> int:
             "schema v1 worker without lane boundary remains compatible",
             write_run(
                 temp / "lane-boundary-schema-v1-compatible",
-                lanes=[worker_lane(boundary=OMIT)],
+                lanes=[worker_lane(boundary=OMIT), reviewer_control_lane(wave=3)],
             ),
         )
 
@@ -7532,7 +7732,7 @@ def main() -> int:
             "schema v2 without architecture gate keeps lane boundary optional",
             write_run(
                 temp / "lane-boundary-schema-v2-no-architecture",
-                lanes=[worker_lane(boundary=OMIT)],
+                lanes=[worker_lane(boundary=OMIT), reviewer_control_lane(wave=3)],
                 lane_map_extra={"schema_version": 2, "budget": "standard"},
             ),
         )
@@ -8390,7 +8590,10 @@ def main() -> int:
             "schema v1 worker lane does not require architecture compliance",
             write_run(
                 temp / "schema-v1-worker-no-architecture-compliance",
-                lanes=[worker_lane(architecture_compliance_data=None)],
+                lanes=[
+                    worker_lane(architecture_compliance_data=None),
+                    reviewer_control_lane(wave=3),
+                ],
             ),
         )
 
@@ -8404,7 +8607,8 @@ def main() -> int:
                         lane_type="implementation",
                         role="typescript-worker",
                         wave=2,
-                    )
+                    ),
+                    reviewer_control_lane(wave=3),
                 ],
                 lane_map_extra={
                     "schema_version": 2,

@@ -304,6 +304,10 @@ def main() -> int:
             raise AssertionError("reviewer handoff missing Acceptance Criteria Traceability")
         if "Contract Negative Fixture" not in reviewer_handoff:
             raise AssertionError("reviewer handoff missing Contract Negative Fixture")
+        if "## Mandatory Independent QA Review" not in reviewer_handoff:
+            raise AssertionError("reviewer handoff missing Mandatory Independent QA Review section")
+        if "real reviewer.qa subagent" not in reviewer_handoff:
+            raise AssertionError("reviewer handoff missing reviewer.qa subagent instruction")
 
         acceptance_traceability = json.loads(
             (run_dir / "acceptance-traceability.json").read_text(encoding="utf-8")
@@ -342,6 +346,12 @@ def main() -> int:
             "Subagents Used: no",
             "Role Lanes Used: no",
             "Subagent Trace Evidence: none",
+            "## Mandatory Independent QA Review",
+            "Mandatory Independent QA Review Gate",
+            "terminal handoff artifact",
+            "role-lane",
+            "launch-failure",
+            "runtime-failure",
         ]:
             if expected_line not in final_text:
                 raise AssertionError(f"generated final.md missing delegation trace line: {expected_line}")
@@ -357,6 +367,19 @@ def main() -> int:
         missing_lane_ids = expected_lane_ids - lane_ids
         if missing_lane_ids:
             raise AssertionError(f"generated lane-map.json missing lanes: {sorted(missing_lane_ids)}")
+        reviewer_lane = next(
+            (lane for lane in lane_map.get("lanes", []) if lane.get("id") == "review-contract"),
+            None,
+        )
+        if not isinstance(reviewer_lane, dict):
+            raise AssertionError("generated lane-map.json must include review-contract lane")
+        if reviewer_lane.get("execution_mode") != "subagent":
+            raise AssertionError("generated reviewer lane must use execution_mode=subagent")
+        mandatory_review = lane_map.get("mandatory_independent_qa_review")
+        if not isinstance(mandatory_review, dict):
+            raise AssertionError("generated lane-map.json must include mandatory_independent_qa_review")
+        if mandatory_review.get("reviewer_lane") != "review-contract":
+            raise AssertionError("mandatory_independent_qa_review must reference review-contract")
 
         expect_valid_pending_run("generated pending run", run_dir)
 

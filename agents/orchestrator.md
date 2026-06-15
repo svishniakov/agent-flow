@@ -117,7 +117,7 @@ Return:
 - residual risks or blockers
 
 ## Hard Rules
-- Do not spawn subagents for `light`.
+- Do not spawn implementation subagents for `light`; if file-changing implementation/change work reaches positive final, Mandatory Independent QA Review Gate still requires a real `reviewer.qa` subagent.
 - Do not invent public modes.
 - Do not call role-lane work subagent execution.
 - Do not call role-lane work a sidecar.

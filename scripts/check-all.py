@@ -93,6 +93,15 @@ DELEGATION_TRACE_GATE_GUARD_TERMS = [
     "Subagent Trace Evidence",
     "terminal handoff",
 ]
+MANDATORY_INDEPENDENT_QA_REVIEW_GUARD_TERMS = [
+    "Mandatory Independent QA Review Gate",
+    "mandatory_independent_qa_review",
+    "reviewer.qa",
+    "terminal handoff",
+    "launch-failure",
+    "runtime-failure",
+    "role-lane",
+]
 VERIFICATION_READINESS_GATE_GUARD_TERMS = [
     "Verification Readiness Gate",
     "verification-readiness.json",
@@ -241,6 +250,7 @@ REQUIRED_RUNTIME_TEXT = {
         *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
         *GOLDEN_TRACE_RUN_GUARD_TERMS,
         *DELEGATION_TRACE_GATE_GUARD_TERMS,
+        *MANDATORY_INDEPENDENT_QA_REVIEW_GUARD_TERMS,
         *VERIFICATION_READINESS_GATE_GUARD_TERMS,
         *CONTINUATION_GATE_GUARD_TERMS,
         *HARNESS_EVALUATION_GUARD_TERMS,
@@ -280,6 +290,7 @@ REQUIRED_RUNTIME_TEXT = {
         *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
         "Golden Trace Runs",
         *DELEGATION_TRACE_GATE_GUARD_TERMS,
+        *MANDATORY_INDEPENDENT_QA_REVIEW_GUARD_TERMS,
         *VERIFICATION_READINESS_GATE_GUARD_TERMS,
         *CONTINUATION_GATE_GUARD_TERMS,
         *HARNESS_EVALUATION_GUARD_TERMS,
@@ -330,6 +341,7 @@ REQUIRED_RUNTIME_TEXT = {
         *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
         "Architecture Approval Gate",
         *DELEGATION_TRACE_GATE_GUARD_TERMS,
+        *MANDATORY_INDEPENDENT_QA_REVIEW_GUARD_TERMS,
         *VERIFICATION_READINESS_GATE_GUARD_TERMS,
         *CONTINUATION_GATE_GUARD_TERMS,
         *HARNESS_EVALUATION_GUARD_TERMS,
@@ -369,6 +381,7 @@ REQUIRED_RUNTIME_TEXT = {
         *RESOLUTION_GATE_GUARD_TERMS,
         *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
         *DELEGATION_TRACE_GATE_GUARD_TERMS,
+        *MANDATORY_INDEPENDENT_QA_REVIEW_GUARD_TERMS,
         *VERIFICATION_READINESS_GATE_GUARD_TERMS,
         *CONTINUATION_GATE_GUARD_TERMS,
         *HARNESS_EVALUATION_GUARD_TERMS,
@@ -409,6 +422,7 @@ REQUIRED_RUNTIME_TEXT = {
         *RESOLUTION_GATE_GUARD_TERMS,
         *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
         *DELEGATION_TRACE_GATE_GUARD_TERMS,
+        *MANDATORY_INDEPENDENT_QA_REVIEW_GUARD_TERMS,
         *VERIFICATION_READINESS_GATE_GUARD_TERMS,
         *HARNESS_EVALUATION_GUARD_TERMS,
         *CLAIM_EVIDENCE_GATE_GUARD_TERMS,
@@ -805,6 +819,7 @@ REQUIRED_RUNTIME_TEXT = {
         *HARNESS_EVALUATION_GUARD_TERMS,
         *CLAIM_EVIDENCE_GATE_GUARD_TERMS,
         *LANE_BOUNDARY_EVIDENCE_GUARD_TERMS,
+        *MANDATORY_INDEPENDENT_QA_REVIEW_GUARD_TERMS,
     ],
     "scripts/record-lane-boundary.py": [
         "record-lane-boundary.py",
@@ -850,6 +865,7 @@ REQUIRED_RUNTIME_TEXT = {
         *CLAIM_EVIDENCE_AUTHORING_GUARD_TERMS,
         *ACCEPTANCE_TRACEABILITY_GATE_GUARD_TERMS,
         *CONTRACT_NEGATIVE_FIXTURE_GATE_GUARD_TERMS,
+        *MANDATORY_INDEPENDENT_QA_REVIEW_GUARD_TERMS,
     ],
     "scripts/test-init-run.py": [
         *ARCHITECTURE_AUTHORING_GUARD_TERMS,
@@ -864,6 +880,7 @@ REQUIRED_RUNTIME_TEXT = {
         *LANE_BOUNDARY_EVIDENCE_GUARD_TERMS,
         *ACCEPTANCE_TRACEABILITY_GATE_GUARD_TERMS,
         *CONTRACT_NEGATIVE_FIXTURE_GATE_GUARD_TERMS,
+        *MANDATORY_INDEPENDENT_QA_REVIEW_GUARD_TERMS,
     ],
     "scripts/validate-architecture-capabilities.py": [
         "Architecture Capability Router",
@@ -886,6 +903,7 @@ REQUIRED_RUNTIME_TEXT = {
         "blocked-resolution-third-attempt-blocked",
         "blocked-checkpoint-continuation-ship",
         "continuation-positive-without-summary",
+        "mandatory-independent-qa-review",
     ],
 }
 
@@ -1032,6 +1050,9 @@ def main() -> int:
         ("engineering simplicity schema v3 assignment guard", "schema_version=" + "3"),
         ("engineering simplicity new lane type json guard", '"type": "' + "engineering-simplicity" + '"'),
         ("engineering simplicity new lane type compact guard", '"type":"' + "engineering-simplicity" + '"'),
+        ("old subagent downgrade role-lane guard", "continue with " + "role lanes or solo checks"),
+        ("old subagent fallback solo guard", "fallback " + "to solo"),
+        ("old reviewer unavailable fallback guard", "if unavailable, use " + "role-lane review"),
     ]
 
     failures = 0

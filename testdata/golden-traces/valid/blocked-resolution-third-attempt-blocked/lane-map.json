@@ -42,7 +42,7 @@
       "role": "reviewer",
       "wave": 3,
       "critical": true,
-      "execution_mode": "role-lane",
+      "execution_mode": "subagent",
       "status": "pass",
       "handoff": "handoffs/review-contract.md",
       "evidence": [
@@ -139,7 +139,7 @@
       "role": "reviewer",
       "wave": 8,
       "critical": true,
-      "execution_mode": "role-lane",
+      "execution_mode": "subagent",
       "status": "pass",
       "handoff": "handoffs/review-retry.md",
       "evidence": [
@@ -216,7 +216,7 @@
       "role": "reviewer",
       "wave": 12,
       "critical": true,
-      "execution_mode": "role-lane",
+      "execution_mode": "subagent",
       "status": "pass",
       "handoff": "handoffs/review-final.md",
       "evidence": [
@@ -232,5 +232,11 @@
         "Risk Resolution Review": "Reviewed `browser-proof-gap`."
       }
     }
-  ]
+  ],
+  "mandatory_independent_qa_review": {
+    "required": true,
+    "reviewer_lane": "review-final",
+    "status": "pass",
+    "notes": "Golden trace reviewer.qa subagent evidence is persisted."
+  }
 }

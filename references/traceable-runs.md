@@ -159,6 +159,9 @@ If `lane-map.json` exists, validation also checks the Lane Sharding contract:
 - a successful `subagent` lane also has a terminal handoff trace event with the same lane id and handoff artifact;
 - `role-lane` entries do not require a `codex_thread_id`;
 - schema v2 positive lane-map runs require `delegation-summary.json` and a final `Delegation Trace` section;
+- positive implementation/change runs that changed files or contain `implementation`/`integration` worker lanes require Mandatory Independent QA Review Gate evidence: a real `reviewer.qa` subagent lane, `delegation-summary.json` coverage, spawned trace with `codex_thread_id`, terminal handoff, and final `Mandatory Independent QA Review`;
+- role-lane-only reviewer evidence is rejected when Mandatory Independent QA Review Gate applies;
+- a `blocked` implementation/change run may omit `reviewer.qa` only when `mandatory_independent_qa_review.blocker` records launch/runtime blocker evidence;
 - `Verdict: ship` is rejected while any critical lane is unresolved, failed, blocked, or missing replacement evidence.
 
 ## Delegation Trace Gate
@@ -189,6 +192,22 @@ pass-with-risks`, `delegation-summary.json` is required at the run root:
 must not claim sidecar/subagent work. If a real subagent was used, the summary
 must point to `agents/<role>/trace.jsonl`, the lane handoff, and the matching
 `codex_thread_id`.
+
+## Mandatory Independent QA Review Gate
+
+`solo` and `light` mean one implementation owner, not absence of independent QA.
+
+Any Agent Flow implementation/change run that changes product or repo files, tests, runtime docs, validator behavior, templates, golden traces, ADR/plan/spec status, or creates a commit must run `reviewer.qa` as a real subagent before `Verdict: ship` or `Verdict: pass-with-risks`.
+
+Runtime evidence must include:
+
+- `lane-map.json` review lane with reviewer role and `execution_mode=subagent`;
+- `agents/<role>/trace.jsonl` spawned event with `codex_thread_id`;
+- terminal handoff event with the reviewer handoff artifact;
+- `delegation-summary.json` subagent record for the reviewer lane;
+- final `Mandatory Independent QA Review` section naming the reviewer lane and terminal handoff.
+
+Role-lane review, QA lane review, or Architecture Contract reviewer text does not replace this subagent. If launch or runtime fails, record `mandatory_independent_qa_review.status=blocked` with blocker kind `launch-failure` or `runtime-failure`, summary, and evidence path, then close the run `blocked`.
 
 Schema v2 adds the Architecture Contract Gate:
 
