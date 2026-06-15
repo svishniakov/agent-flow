@@ -35,6 +35,8 @@ RUN_FILES = {
         "Subagent Trace Evidence: none\n\n"
         "## Boundary Evidence\n\n"
         "TODO(agent): summarize worker lane boundary artifacts and out-of-bound product-code status.\n\n"
+        "## Acceptance Traceability\n\n"
+        "TODO(agent): summarize acceptance-traceability.json and contract negative/drift fixture coverage.\n\n"
         "## Worktree Hygiene\n\n"
     ),
 }
@@ -57,6 +59,9 @@ WORKER_LANE_TYPES = {"implementation", "integration"}
 VERIFICATION_READINESS_PATH = "verification-readiness.json"
 CLAIM_EVIDENCE_PATH = "claim-evidence.json"
 DEFAULT_CLAIM_ID = "architecture-contract-claim"
+ACCEPTANCE_TRACEABILITY_PATH = "acceptance-traceability.json"
+DEFAULT_ACCEPTANCE_ID = "architecture-contract-acceptance"
+CONTRACT_NEGATIVE_FIXTURE_TYPES = ["gate", "cli", "query", "storage", "config", "parser"]
 ENGINEERING_SIMPLICITY_SCOPE_EVIDENCE = "checks/engineering-simplicity-scope.md"
 LANE_BOUNDARY_NOTES = "Allowed paths come from Architecture Contract Worker Ownership."
 COVERAGE_MATRIX = """# Coverage Matrix
@@ -344,12 +349,24 @@ Architecture capabilities:
 Claim evidence:
 - Claim Evidence: `architecture-contract-claim`
 
+Acceptance criteria:
+- Acceptance Criteria: `architecture-contract-acceptance`
+
+Contract negative/drift fixture types:
+{markdown_id_list(CONTRACT_NEGATIVE_FIXTURE_TYPES)}
+
 {AGENT_TODO_PLACEHOLDER} Define mandatory behavior, architecture, risk, and verification checks.
 
 ## Reviewer Checklist
 
 Claim evidence:
 - Claim Evidence: `architecture-contract-claim`
+
+Acceptance criteria:
+- Acceptance Criteria: `architecture-contract-acceptance`
+
+Contract negative/drift fixture types:
+{markdown_id_list(CONTRACT_NEGATIVE_FIXTURE_TYPES)}
 
 {AGENT_TODO_PLACEHOLDER} List architecture invariants the reviewer must confirm.
 
@@ -402,6 +419,12 @@ Lane-map field: `boundary`
 Artifact: `{lane_boundary_artifact_path(worker['id'])}`
 
 {AGENT_TODO_PLACEHOLDER} Run `python3 scripts/record-lane-boundary.py --run-dir <run-dir> --lane-id {worker['id']}` after this worker's product-code changes, then confirm every changed product path is inside `boundary.allowed_paths` and outside `boundary.forbidden_paths`.
+
+## Acceptance Traceability
+
+Artifact: `{ACCEPTANCE_TRACEABILITY_PATH}`
+
+{AGENT_TODO_PLACEHOLDER} List acceptance ids this worker implemented, their evidence/test markers, and any negative or drift fixtures for gate/CLI/query/storage/config/parser contracts.
 """
 
 
@@ -420,9 +443,14 @@ Selected risk and verification gates:
 Claim evidence:
 - Claim Evidence: `architecture-contract-claim`
 
+Acceptance criteria:
+- Acceptance Criteria: `architecture-contract-acceptance`
+
 {AGENT_TODO_PLACEHOLDER} Verify behavior plus architecture invariants for the selected gates.
 
 {AGENT_TODO_PLACEHOLDER} Confirm Boundary Evidence for every worker lane and block closure if any product-code change falls outside the allowed paths.
+
+{AGENT_TODO_PLACEHOLDER} Confirm Acceptance Criteria Traceability Gate and Contract Negative Fixture Gate: every required acceptance id has evidence markers, and gate/CLI/query/storage/config/parser contracts have negative or drift fixture evidence.
 
 ## Engineering Simplicity Scope
 
@@ -531,10 +559,13 @@ Selected architecture capabilities:
 Claim evidence:
 - Claim Evidence: `architecture-contract-claim`
 
+Acceptance criteria:
+- Acceptance Criteria: `architecture-contract-acceptance`
+
 Boundary Evidence worker lanes:
 {markdown_id_list(worker_ids)}
 
-{AGENT_TODO_PLACEHOLDER} Report no drift or name the exact drift and required architect re-check. Mention Boundary Evidence for every worker lane id, mention every primary surface, and reject peripheral-only closure.
+{AGENT_TODO_PLACEHOLDER} Report no drift or name the exact drift and required architect re-check. Mention Boundary Evidence for every worker lane id, mention Acceptance Criteria Traceability and Contract Negative Fixture coverage, mention every primary surface, and reject peripheral-only closure.
 """
 
 
@@ -555,6 +586,41 @@ def claim_evidence_template() -> str:
                         {
                             "path": "checks/qa-behavior.md",
                             "markers": ["TODO(agent): exact marker from evidence file"],
+                        }
+                    ],
+                }
+            ],
+        },
+        ensure_ascii=False,
+        indent=2,
+    ) + "\n"
+
+
+def acceptance_traceability_template() -> str:
+    return json.dumps(
+        {
+            "version": 1,
+            "acceptance": [
+                {
+                    "id": DEFAULT_ACCEPTANCE_ID,
+                    "source": "Architecture Contract QA Gates and Reviewer Checklist",
+                    "requirement": "TODO(agent): state the exact acceptance contract from ADR, implementation plan, or spec.",
+                    "subjects": [
+                        "TODO(agent): exact gate, CLI command, query, storage behavior, config path, or parser behavior"
+                    ],
+                    "contract_types": ["gate"],
+                    "status": "gap",
+                    "notes": "TODO(agent): change status to supported only after evidence markers and negative/drift fixture markers are present.",
+                    "evidence": [
+                        {
+                            "path": "checks/qa-behavior.md",
+                            "markers": ["TODO(agent): exact positive evidence marker"],
+                        }
+                    ],
+                    "negative_fixture_evidence": [
+                        {
+                            "path": "checks/qa-behavior.md",
+                            "markers": ["TODO(agent): exact negative or drift fixture marker"],
                         }
                     ],
                 }
@@ -725,6 +791,10 @@ def write_architecture_gate_artifacts(
     write_if_missing(
         run_dir / CLAIM_EVIDENCE_PATH,
         claim_evidence_template(),
+    )
+    write_if_missing(
+        run_dir / ACCEPTANCE_TRACEABILITY_PATH,
+        acceptance_traceability_template(),
     )
     for worker in workers:
         write_if_missing(

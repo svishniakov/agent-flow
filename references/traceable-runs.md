@@ -221,6 +221,11 @@ Schema v2 adds the Architecture Contract Gate:
 - each claim record names `owner_lane`, `reviewed_by`, owner handoff `section`, `status`, `claim`, `subjects`, and evidence entries with literal `markers`;
 - `owner_lane` must be a successful QA or review lane, `reviewed_by` must be a successful review lane, the owner handoff section must mention the claim id, and every marker must appear in the referenced evidence file;
 - positive verdicts require `status=supported`; `status=gap` is allowed only for `blocked` or `fail`;
+- positive architecture-gated runs require Acceptance Criteria Traceability Gate: the architecture handoff `QA Gates` and `Reviewer Checklist` sections must contain `Acceptance Criteria` ids, and the run root must include `acceptance-traceability.json`;
+- `acceptance-traceability.json` uses `version=1` and a non-empty `acceptance` array; every acceptance id is unique kebab-case and every required contract acceptance id has a record;
+- each acceptance record names `source`, `requirement`, `subjects`, `contract_types`, `status`, and evidence entries with literal `markers`;
+- positive verdicts require every acceptance record to use `status=supported`, every marker must appear in the referenced evidence file, and every required acceptance id must have evidence;
+- Contract Negative Fixture Gate applies to acceptance records marked `gate`, `cli`, `query`, `storage`, `config`, or `parser`; those records must include `negative_fixture_evidence` with at least one evidence path and literal marker for a negative or drift fixture;
 - failed, blocked, or timed-out architecture lanes block `ship`;
 - reviewer and QA lanes may pass only after the architecture contract passes;
 - when `architecture_contract_independent` is true, the architecture lane must use `subagent` execution with spawned trace evidence.

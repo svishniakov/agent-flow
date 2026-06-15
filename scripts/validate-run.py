@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate traceable runs, Architecture Capability Router, Architecture Artifact Authoring Automation, Claim Evidence Gate, Lane Boundary Evidence Gate, `boundary.allowed_paths`, `boundary.forbidden_paths`, `changed_paths_artifact`, `scripts/record-lane-boundary.py`, and Harness Evaluation Loop gates."""
+"""Validate traceable runs, Architecture Capability Router, Architecture Artifact Authoring Automation, Acceptance Criteria Traceability Gate, Contract Negative Fixture Gate, Claim Evidence Gate, Lane Boundary Evidence Gate, `boundary.allowed_paths`, `boundary.forbidden_paths`, `changed_paths_artifact`, `scripts/record-lane-boundary.py`, and Harness Evaluation Loop gates."""
 
 from __future__ import annotations
 
@@ -57,6 +57,8 @@ HARNESS_EVALUATION_SECTION = "Harness Evaluation"
 HARNESS_EVALUATION_REVIEW_SECTION = "Harness Evaluation Review"
 CLAIM_EVIDENCE_PATH = "claim-evidence.json"
 CLAIM_EVIDENCE_LABEL = "Claim Evidence"
+ACCEPTANCE_TRACEABILITY_PATH = "acceptance-traceability.json"
+ACCEPTANCE_CRITERIA_LABEL = "Acceptance Criteria"
 LANE_TYPES = {"architecture", "implementation", "integration", "qa", "review"}
 TRACE_BUDGETS = {"release", "standard"}
 WORKER_LANE_TYPES = {"implementation", "integration"}
@@ -282,6 +284,9 @@ ARCHITECTURE_MATRIX_PATH = Path(__file__).resolve().parents[1] / "references" / 
 MATRIX_FACET_PATTERN = re.compile(r"^\s*-\s+`([^`]+)`\s*:")
 MARKDOWN_HEADING_PATTERN = re.compile(r"^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$")
 CLAIM_EVIDENCE_PATTERN = re.compile(r"^\s*-\s+Claim Evidence:\s+`([^`]+)`\s*$")
+ACCEPTANCE_CRITERIA_PATTERN = re.compile(r"^\s*-\s+Acceptance Criteria:\s+`([^`]+)`\s*$")
+ACCEPTANCE_TRACEABILITY_STATUSES = {"supported", "gap"}
+CONTRACT_NEGATIVE_FIXTURE_TYPES = {"gate", "cli", "query", "storage", "config", "parser"}
 
 
 def detect_mode(run_dir: Path, requested_mode: str) -> str:
@@ -2107,6 +2112,213 @@ def claim_evidence_ids_from_contract(path: Path) -> tuple[list[str], list[str]]:
             errors.append(f"architecture contract handoff {section} missing Claim Evidence")
 
     return claim_ids, errors
+
+
+def acceptance_criteria_ids_from_contract(path: Path) -> tuple[list[str], list[str]]:
+    if not path.exists():
+        return [], []
+    text = path.read_text(encoding="utf-8")
+    errors: list[str] = []
+    acceptance_ids: list[str] = []
+    seen: set[str] = set()
+
+    for section in ["QA Gates", "Reviewer Checklist"]:
+        if missing_markdown_headings(path, [section]):
+            continue
+        section_text = markdown_section_text(text, section)
+        section_ids: list[str] = []
+        for line in section_text.splitlines():
+            match = ACCEPTANCE_CRITERIA_PATTERN.match(line)
+            if not match:
+                continue
+            acceptance_id = match.group(1).strip()
+            if not KEBAB_CASE_PATTERN.fullmatch(acceptance_id):
+                errors.append(
+                    f"architecture contract handoff {section} "
+                    f"Acceptance Criteria id must be kebab-case: {acceptance_id}"
+                )
+                continue
+            section_ids.append(acceptance_id)
+            if acceptance_id not in seen:
+                seen.add(acceptance_id)
+                acceptance_ids.append(acceptance_id)
+        if not section_ids:
+            errors.append(f"architecture contract handoff {section} missing Acceptance Criteria")
+
+    return acceptance_ids, errors
+
+
+def validate_marker_evidence_records(
+    run_dir: Path,
+    records: object,
+    *,
+    label: str,
+    required: bool,
+) -> list[str]:
+    if not isinstance(records, list):
+        return [f"{label} must be an array"]
+    if required and not records:
+        return [f"{label} must be a non-empty array"]
+
+    errors: list[str] = []
+    for index, evidence_record in enumerate(records):
+        evidence_label = f"{label}[{index}]"
+        if not isinstance(evidence_record, dict):
+            errors.append(f"{evidence_label} must be an object")
+            continue
+        evidence_path_value = validate_string(
+            evidence_record.get("path"),
+            f"{evidence_label}.path",
+            errors,
+        )
+        evidence_text = ""
+        if evidence_path_value:
+            evidence_path = resolve_run_path(run_dir, evidence_path_value)
+            if not evidence_path.exists():
+                errors.append(f"{evidence_label}.path not found: {evidence_path_value}")
+            elif not evidence_path.is_file():
+                errors.append(f"{evidence_label}.path must be a file: {evidence_path_value}")
+            else:
+                evidence_text = evidence_path.read_text(encoding="utf-8")
+        marker_label = f"{evidence_label}.markers"
+        raw_markers = evidence_record.get("markers")
+        if not isinstance(raw_markers, list) or not raw_markers:
+            errors.append(f"{marker_label} must be a non-empty array")
+            markers = []
+        else:
+            markers = validate_string_list(raw_markers, marker_label, errors)
+        if evidence_text:
+            for marker_index, marker in enumerate(markers):
+                if marker not in evidence_text:
+                    errors.append(
+                        f"{evidence_label}.markers[{marker_index}] "
+                        f"not found in {evidence_path_value}"
+                    )
+    return errors
+
+
+def validate_acceptance_traceability_records(
+    run_dir: Path,
+    *,
+    required_acceptance_ids: list[str],
+    required: bool,
+    final_verdict: str | None,
+) -> list[str]:
+    path = run_dir / ACCEPTANCE_TRACEABILITY_PATH
+    if not path.exists():
+        if required:
+            return [f"{ACCEPTANCE_TRACEABILITY_PATH} is required for positive architecture contract run"]
+        return []
+
+    data, load_errors = load_json(path, ACCEPTANCE_TRACEABILITY_PATH)
+    if load_errors:
+        return load_errors
+    if not isinstance(data, dict):
+        return [f"{ACCEPTANCE_TRACEABILITY_PATH} must be a JSON object"]
+
+    errors: list[str] = []
+    if data.get("version") != 1:
+        errors.append(f"{ACCEPTANCE_TRACEABILITY_PATH} field 'version' must be 1")
+
+    records = data.get("acceptance")
+    if not isinstance(records, list) or not records:
+        errors.append(f"{ACCEPTANCE_TRACEABILITY_PATH} field 'acceptance' must be a non-empty array")
+        return errors
+
+    seen_ids: set[str] = set()
+    for index, record in enumerate(records):
+        label = f"acceptance[{index}]"
+        if not isinstance(record, dict):
+            errors.append(f"{ACCEPTANCE_TRACEABILITY_PATH} {label} must be an object")
+            continue
+
+        acceptance_id = validate_string(record.get("id"), f"{ACCEPTANCE_TRACEABILITY_PATH} {label}.id", errors)
+        if acceptance_id:
+            if not KEBAB_CASE_PATTERN.fullmatch(acceptance_id):
+                errors.append(f"{ACCEPTANCE_TRACEABILITY_PATH} {label}.id must be kebab-case")
+            elif acceptance_id in seen_ids:
+                errors.append(f"{ACCEPTANCE_TRACEABILITY_PATH} duplicate acceptance id: {acceptance_id}")
+            else:
+                seen_ids.add(acceptance_id)
+
+        status = record.get("status")
+        if status not in ACCEPTANCE_TRACEABILITY_STATUSES:
+            allowed = ", ".join(sorted(ACCEPTANCE_TRACEABILITY_STATUSES))
+            errors.append(f"{ACCEPTANCE_TRACEABILITY_PATH} {label}.status must be one of: {allowed}")
+        elif final_verdict in POSITIVE_FINAL_VERDICTS and status != "supported":
+            errors.append(
+                f"{ACCEPTANCE_TRACEABILITY_PATH} {label}.status must be supported for "
+                "positive final Verdict"
+            )
+
+        validate_string(record.get("source"), f"{ACCEPTANCE_TRACEABILITY_PATH} {label}.source", errors)
+        validate_string(
+            record.get("requirement"),
+            f"{ACCEPTANCE_TRACEABILITY_PATH} {label}.requirement",
+            errors,
+        )
+        validate_string_list(
+            record.get("subjects"),
+            f"{ACCEPTANCE_TRACEABILITY_PATH} {label}.subjects",
+            errors,
+        )
+        contract_types = validate_string_list(
+            record.get("contract_types"),
+            f"{ACCEPTANCE_TRACEABILITY_PATH} {label}.contract_types",
+            errors,
+        )
+        unknown_contract_types = sorted(
+            contract_type
+            for contract_type in contract_types
+            if contract_type not in CONTRACT_NEGATIVE_FIXTURE_TYPES
+        )
+        if unknown_contract_types:
+            allowed = ", ".join(sorted(CONTRACT_NEGATIVE_FIXTURE_TYPES))
+            errors.append(
+                f"{ACCEPTANCE_TRACEABILITY_PATH} {label}.contract_types invalid: "
+                f"{', '.join(unknown_contract_types)} (expected one of: {allowed})"
+            )
+
+        errors.extend(
+            validate_marker_evidence_records(
+                run_dir,
+                record.get("evidence"),
+                label=f"{ACCEPTANCE_TRACEABILITY_PATH} {label}.evidence",
+                required=True,
+            )
+        )
+
+        requires_negative_fixture = any(
+            contract_type in CONTRACT_NEGATIVE_FIXTURE_TYPES
+            for contract_type in contract_types
+        )
+        if requires_negative_fixture:
+            errors.extend(
+                validate_marker_evidence_records(
+                    run_dir,
+                    record.get("negative_fixture_evidence"),
+                    label=f"{ACCEPTANCE_TRACEABILITY_PATH} {label}.negative_fixture_evidence",
+                    required=True,
+                )
+            )
+        elif "negative_fixture_evidence" in record:
+            errors.extend(
+                validate_marker_evidence_records(
+                    run_dir,
+                    record.get("negative_fixture_evidence"),
+                    label=f"{ACCEPTANCE_TRACEABILITY_PATH} {label}.negative_fixture_evidence",
+                    required=False,
+                )
+            )
+
+    for required_acceptance_id in required_acceptance_ids:
+        if required_acceptance_id not in seen_ids:
+            errors.append(
+                f"{ACCEPTANCE_TRACEABILITY_PATH} missing required acceptance id: "
+                f"{required_acceptance_id}"
+            )
+
+    return errors
 
 
 def validate_claim_evidence_records(
@@ -4317,6 +4529,14 @@ def validate_lane_map(
     )
     required_claim_ids: list[str] = []
     claim_evidence_contract_errors: list[str] = []
+    acceptance_traceability_candidate = (
+        schema_version == 2
+        and architecture_contract_required
+        and final_verdict in POSITIVE_FINAL_VERDICTS
+        and not allow_pending
+    )
+    required_acceptance_ids: list[str] = []
+    acceptance_traceability_contract_errors: list[str] = []
 
     for index, lane in enumerate(lanes):
         if not isinstance(lane, dict):
@@ -4460,6 +4680,15 @@ def validate_lane_map(
                             for contract_claim_error in contract_claim_errors:
                                 claim_evidence_contract_errors.append(
                                     f"lane-map.json: lane {label} {contract_claim_error}"
+                                )
+                        if acceptance_traceability_candidate:
+                            contract_acceptance_ids, contract_acceptance_errors = (
+                                acceptance_criteria_ids_from_contract(contract_path)
+                            )
+                            required_acceptance_ids.extend(contract_acceptance_ids)
+                            for contract_acceptance_error in contract_acceptance_errors:
+                                acceptance_traceability_contract_errors.append(
+                                    f"lane-map.json: lane {label} {contract_acceptance_error}"
                                 )
                         for facet_error in validate_selected_architecture_facets(
                             contract_path,
@@ -4716,6 +4945,21 @@ def validate_lane_map(
                 final_verdict=final_verdict,
                 lane_by_id=lane_by_id,
                 normalized_status_by_id=normalized_status_by_id,
+            )
+        )
+    required_acceptance_ids = list(dict.fromkeys(required_acceptance_ids))
+    acceptance_traceability_required = acceptance_traceability_candidate
+    if acceptance_traceability_required:
+        errors.extend(acceptance_traceability_contract_errors)
+    else:
+        required_acceptance_ids = []
+    if not allow_pending:
+        errors.extend(
+            validate_acceptance_traceability_records(
+                run_dir,
+                required_acceptance_ids=required_acceptance_ids,
+                required=acceptance_traceability_required,
+                final_verdict=final_verdict,
             )
         )
 

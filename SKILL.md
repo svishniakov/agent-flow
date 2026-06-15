@@ -69,10 +69,11 @@ Inside Agent Flow, the orchestrator owns the outcome:
 11. Enforce Delegation Trace Gate for traceable lane runs.
 12. Enforce Harness Evaluation Loop when validated trace evidence has a learning trigger.
 13. Enforce Claim Evidence Gate for positive architecture-gated runs.
-14. Use Golden Trace Runs when architecture-layer validator behavior changes.
-15. Verify evidence before any completion claim.
-16. Close the current project-memory task status before final handoff.
-17. Return the final answer with residual risks.
+14. Enforce Acceptance Criteria Traceability Gate and Contract Negative Fixture Gate for positive architecture-gated runs.
+15. Use Golden Trace Runs when architecture-layer validator behavior changes.
+16. Verify evidence before any completion claim.
+17. Close the current project-memory task status before final handoff.
+18. Return the final answer with residual risks.
 
 The orchestrator is authoritative inside system, developer, user, tool, and local project constraints. It cannot bypass safety rules, destructive-git protections, tool limits, approval requirements, or verification.
 
@@ -159,6 +160,10 @@ Engineering Simplicity Gate is part of Architecture Execution Control, after eac
 Lane Boundary Evidence Gate is the product-code boundary check inside Architecture Execution Control. For schema v2 positive architecture-gated runs, every successful `implementation` or `integration` lane must record `boundary.allowed_paths`, optional `boundary.forbidden_paths`, `boundary.changed_paths_artifact`, and notes. `scripts/record-lane-boundary.py` writes `checks/lane-boundary-<lane-id>.json` with `version=1`, `lane_id`, `changed_paths`, `tracked_changed_paths`, and `untracked_paths`. `changed_paths_artifact` must exist and be listed in the lane `evidence`; every changed path must be repo-relative POSIX, match at least one `allowed_paths` pattern through `fnmatch.fnmatchcase`, and match no `forbidden_paths` pattern. `forbidden_paths` wins over `allowed_paths`; empty `changed_paths` is valid. Worker handoffs write `## Boundary Evidence`; QA `Architecture Invariants`, reviewer `Contract Drift`, and final `Boundary Evidence` mention every worker lane id. This is not a new Matrix facet, role, lane type, schema v3, or worktree-isolation requirement.
 
 Claim Evidence Gate is required for positive architecture-gated runs. The Architecture Contract `QA Gates` and `Reviewer Checklist` sections must include `Claim Evidence` ids. The orchestrator writes `claim-evidence.json`; each claim record names `owner_lane`, reviewer lane, `supported` or `gap`, subjects, evidence paths, and literal `markers`. `ship` and `pass-with-risks` require every required claim to be `supported` and every marker to appear in the referenced evidence file.
+
+Acceptance Criteria Traceability Gate is required for positive architecture-gated runs. The Architecture Contract `QA Gates` and `Reviewer Checklist` sections must include `Acceptance Criteria` ids. The orchestrator writes `acceptance-traceability.json`; each required acceptance id records source, requirement, subjects, `supported` or `gap`, evidence paths, and literal `markers`. `ship` and `pass-with-risks` require every required acceptance id to be `supported` and every marker to appear in the referenced evidence file.
+
+Contract Negative Fixture Gate is required for contract-like acceptance items in positive architecture-gated runs. Any acceptance item marked `gate`, `cli`, `query`, `storage`, `config`, or `parser` in `acceptance-traceability.json` must include `negative_fixture_evidence` with at least one evidence path and literal marker. Missing negative or drift fixture evidence blocks `ship` and `pass-with-risks`.
 
 Verification Readiness Gate runs after an approved Architecture Design Brief and before worker lanes when architecture-gated runs have workers. The orchestrator records `verification_readiness` in `lane-map.json` and writes `verification-readiness.json` to prove every selected `risk_gates` and `verification_gates` facet is ready. If documented infra or environment startup is needed, readiness becomes `needs-approval`; the agent asks the user, runs only approved documented safe commands, records `approval_requests` and `approval_executions`, and retries readiness. If the user declines, the run stops immediately as `paused-blocked` with final `blocked`, manual instructions, and `resume_phrase` set to `Готово`. Positive verdicts require the latest readiness attempt to be `ready`, and QA records `Verification Gate Results`.
 

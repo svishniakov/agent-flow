@@ -379,6 +379,26 @@
       ]
     },
     {
+      "id": "positive-run-without-acceptance-traceability",
+      "path": "invalid/positive-run-without-acceptance-traceability",
+      "mode": "full",
+      "expected": "fail",
+      "expected_error": "acceptance-traceability.json is required for positive architecture contract run",
+      "covers": [
+        "Acceptance Criteria Traceability Gate"
+      ]
+    },
+    {
+      "id": "acceptance-traceability-without-negative-fixture",
+      "path": "invalid/acceptance-traceability-without-negative-fixture",
+      "mode": "full",
+      "expected": "fail",
+      "expected_error": "acceptance-traceability.json acceptance[0].negative_fixture_evidence must be an array",
+      "covers": [
+        "Contract Negative Fixture Gate"
+      ]
+    },
+    {
       "id": "positive-run-without-claim-evidence",
       "path": "invalid/positive-run-without-claim-evidence",
       "mode": "full",

@@ -72,6 +72,8 @@ HARNESS_EVALUATION_SECTION = "Harness Evaluation"
 HARNESS_EVALUATION_REVIEW_SECTION = "Harness Evaluation Review"
 CLAIM_EVIDENCE_PATH = "claim-evidence.json"
 CLAIM_EVIDENCE_LABEL = "Claim Evidence"
+ACCEPTANCE_TRACEABILITY_PATH = "acceptance-traceability.json"
+ACCEPTANCE_CRITERIA_LABEL = "Acceptance Criteria"
 RISK_MITIGATIONS_SECTION = "Risk Mitigations"
 RISK_MITIGATION_REVIEW_SECTION = "Risk Mitigation Review"
 RISK_RESOLUTIONS_SECTION = "Risk Resolutions"
@@ -116,6 +118,7 @@ DEFAULT_BOUNDARY_FORBIDDEN_PATHS = [
 ]
 DEFAULT_BOUNDARY_CHANGED_PATH = "apps/api-service/src/routes/settings.ts"
 DEFAULT_CLAIM_ID = "architecture-contract-claim"
+DEFAULT_ACCEPTANCE_ID = "architecture-contract-acceptance"
 DEFAULT_RISK_ID = "browser-proof-gap"
 OMIT = object()
 DEFAULT = object()
@@ -196,6 +199,15 @@ def claim_evidence_lines(claim_ids: list[str] | None = None) -> str:
     )
 
 
+def acceptance_criteria_lines(acceptance_ids: list[str] | None = None) -> str:
+    ids = [DEFAULT_ACCEPTANCE_ID] if acceptance_ids is None else acceptance_ids
+    if not ids:
+        return ""
+    return "\n\nAcceptance criteria:\n" + "\n".join(
+        f"- Acceptance Criteria: `{acceptance_id}`" for acceptance_id in ids
+    )
+
+
 def selected_verification_gate_facets(
     context: dict[str, Any] | None = None,
 ) -> list[tuple[str, str]]:
@@ -236,6 +248,7 @@ def architecture_contract_text(
     selected_facets: list[str] | None = None,
     selected_capabilities: list[str] | None = None,
     claim_ids: list[str] | None = None,
+    acceptance_ids: list[str] | None = None,
 ) -> str:
     missing = missing_sections or set()
     facets = architecture_context_facets() if selected_facets is None else selected_facets
@@ -260,6 +273,7 @@ def architecture_contract_text(
             )
         if section in {"QA Gates", "Reviewer Checklist"}:
             body += claim_evidence_lines(claim_ids)
+            body += acceptance_criteria_lines(acceptance_ids)
         sections.append(f"## {section}\n\n{body}\n")
     return "# Architecture Contract\n\n" + "\n".join(sections)
 
@@ -578,6 +592,49 @@ def claim_evidence(
             }
         ]
     return {"version": version, "claims": claims}
+
+
+def acceptance_traceability(
+    *,
+    version: int = 1,
+    acceptance: Any = DEFAULT,
+    acceptance_id: str = DEFAULT_ACCEPTANCE_ID,
+    source: str = "Architecture Contract QA Gates",
+    requirement: str = "Fixture architecture acceptance is backed by exact evidence marker.",
+    subjects: list[str] | None = None,
+    contract_types: list[str] | None = None,
+    status: str = "supported",
+    evidence: Any = DEFAULT,
+    negative_fixture_evidence: Any = DEFAULT,
+) -> dict[str, Any]:
+    if evidence is DEFAULT:
+        evidence = [
+            {
+                "path": "checks/qa-behavior.md",
+                "markers": ["# qa-behavior evidence"],
+            }
+        ]
+    if negative_fixture_evidence is DEFAULT:
+        negative_fixture_evidence = [
+            {
+                "path": "checks/qa-behavior.md",
+                "markers": ["# qa-behavior evidence"],
+            }
+        ]
+    if acceptance is DEFAULT:
+        item = {
+            "id": acceptance_id,
+            "source": source,
+            "requirement": requirement,
+            "subjects": subjects or ["fixture-subject"],
+            "contract_types": ["gate"] if contract_types is None else contract_types,
+            "status": status,
+            "evidence": evidence,
+        }
+        if negative_fixture_evidence is not OMIT:
+            item["negative_fixture_evidence"] = negative_fixture_evidence
+        acceptance = [item]
+    return {"version": version, "acceptance": acceptance}
 
 
 def continuation_summary(
@@ -1070,6 +1127,7 @@ def write_run(
     harness_evaluation_data: Any = DEFAULT,
     final_harness_ids: Any = DEFAULT,
     claim_evidence_data: Any = DEFAULT,
+    acceptance_traceability_data: Any = DEFAULT,
     include_simplicity_final: bool = True,
     include_boundary_final: bool = True,
 ) -> Path:
@@ -1382,6 +1440,30 @@ def write_run(
                 encoding="utf-8",
             )
 
+    acceptance_traceability_default_needed = bool(
+        lanes is not None
+        and lane_map_extra
+        and lane_map_extra.get("architecture_contract_required") is True
+        and verdict in {"ship", "pass-with-risks"}
+    )
+    if acceptance_traceability_data is DEFAULT:
+        if acceptance_traceability_default_needed:
+            (run_dir / ACCEPTANCE_TRACEABILITY_PATH).write_text(
+                json.dumps(acceptance_traceability(), ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+    elif acceptance_traceability_data is not OMIT:
+        if isinstance(acceptance_traceability_data, str):
+            (run_dir / ACCEPTANCE_TRACEABILITY_PATH).write_text(
+                acceptance_traceability_data,
+                encoding="utf-8",
+            )
+        else:
+            (run_dir / ACCEPTANCE_TRACEABILITY_PATH).write_text(
+                json.dumps(acceptance_traceability_data, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+
     timeline_events: list[dict[str, Any]] = []
     if ordered_trace_events:
         events_by_role: dict[str, list[dict[str, Any]]] = {}
@@ -1481,6 +1563,7 @@ def write_run(
                             selected_facets=selected_facets,
                             selected_capabilities=selected_capabilities,
                             claim_ids=lane.get("claim_evidence_ids"),
+                            acceptance_ids=lane.get("acceptance_criteria_ids"),
                         )
                     path.write_text(contract_text, encoding="utf-8")
                     design_brief = lane.get("architecture_design_brief")
@@ -1845,6 +1928,7 @@ def architecture_lane(
     selected_capabilities: list[str] | None = None,
     design_selected_capabilities: list[str] | None = None,
     claim_evidence_ids: list[str] | None = None,
+    acceptance_criteria_ids: list[str] | None = None,
     contract_text: str | None = None,
 ) -> dict[str, Any]:
     lane_data = lane(
@@ -1882,6 +1966,8 @@ def architecture_lane(
             lane_data["architecture_design_brief_text"] = design_text
     if claim_evidence_ids is not None:
         lane_data["claim_evidence_ids"] = claim_evidence_ids
+    if acceptance_criteria_ids is not None:
+        lane_data["acceptance_criteria_ids"] = acceptance_criteria_ids
     if contract_text is not None:
         lane_data["architecture_contract_text"] = contract_text
     return lane_data
@@ -4920,6 +5006,184 @@ def main() -> int:
                 temp / "claim-evidence-valid",
                 lanes=claim_gate_lanes(),
                 lane_map_extra=architecture_control_extra(),
+            ),
+        )
+
+        expect_fail(
+            "positive architecture run requires acceptance traceability artifact",
+            write_run(
+                temp / "acceptance-traceability-missing",
+                lanes=claim_gate_lanes(),
+                lane_map_extra=architecture_control_extra(),
+                acceptance_traceability_data=OMIT,
+            ),
+            "acceptance-traceability.json is required for positive architecture contract run",
+        )
+
+        expect_fail(
+            "architecture contract QA Gates require acceptance criteria ids",
+            write_run(
+                temp / "contract-qa-gates-no-acceptance-criteria",
+                lanes=claim_gate_lanes(architecture=architecture_lane(acceptance_criteria_ids=[])),
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "architecture contract handoff QA Gates missing Acceptance Criteria",
+        )
+
+        reviewer_missing_acceptance_contract = architecture_contract_text(
+            acceptance_ids=[]
+        ).replace(
+            "## QA Gates\n\nFixture content for QA Gates."
+            + claim_evidence_lines([DEFAULT_CLAIM_ID])
+            + "\n",
+            "## QA Gates\n\nFixture content for QA Gates."
+            + claim_evidence_lines([DEFAULT_CLAIM_ID])
+            + acceptance_criteria_lines([DEFAULT_ACCEPTANCE_ID])
+            + "\n",
+        )
+        expect_fail(
+            "architecture contract Reviewer Checklist requires acceptance criteria ids",
+            write_run(
+                temp / "contract-reviewer-checklist-no-acceptance-criteria",
+                lanes=claim_gate_lanes(
+                    architecture=architecture_lane(contract_text=reviewer_missing_acceptance_contract)
+                ),
+                lane_map_extra=architecture_control_extra(),
+            ),
+            "architecture contract handoff Reviewer Checklist missing Acceptance Criteria",
+        )
+
+        expect_fail(
+            "acceptance traceability missing required id fails",
+            write_run(
+                temp / "acceptance-traceability-missing-required-id",
+                lanes=claim_gate_lanes(),
+                lane_map_extra=architecture_control_extra(),
+                acceptance_traceability_data=acceptance_traceability(acceptance_id="other-acceptance"),
+            ),
+            "acceptance-traceability.json missing required acceptance id: architecture-contract-acceptance",
+        )
+
+        expect_fail(
+            "acceptance traceability missing marker fails",
+            write_run(
+                temp / "acceptance-traceability-missing-marker",
+                lanes=claim_gate_lanes(),
+                lane_map_extra=architecture_control_extra(),
+                acceptance_traceability_data=acceptance_traceability(
+                    evidence=[
+                        {
+                            "path": "checks/qa-behavior.md",
+                            "markers": ["ContractPositiveMarkerMissing"],
+                        }
+                    ],
+                ),
+            ),
+            "acceptance-traceability.json acceptance[0].evidence[0].markers[0] "
+            "not found in checks/qa-behavior.md",
+        )
+
+        expect_fail(
+            "acceptance traceability empty markers fail",
+            write_run(
+                temp / "acceptance-traceability-empty-markers",
+                lanes=claim_gate_lanes(),
+                lane_map_extra=architecture_control_extra(),
+                acceptance_traceability_data=acceptance_traceability(
+                    evidence=[
+                        {
+                            "path": "checks/qa-behavior.md",
+                            "markers": [],
+                        }
+                    ],
+                    negative_fixture_evidence=[
+                        {
+                            "path": "checks/qa-behavior.md",
+                            "markers": ["# qa-behavior evidence"],
+                        }
+                    ],
+                ),
+            ),
+            "acceptance-traceability.json acceptance[0].evidence[0].markers must be a non-empty array",
+        )
+
+        expect_fail(
+            "acceptance traceability evidence path must be file",
+            write_run(
+                temp / "acceptance-traceability-directory-evidence",
+                lanes=claim_gate_lanes(),
+                lane_map_extra=architecture_control_extra(),
+                acceptance_traceability_data=acceptance_traceability(
+                    evidence=[
+                        {
+                            "path": "checks",
+                            "markers": ["# qa-behavior evidence"],
+                        }
+                    ],
+                ),
+            ),
+            "acceptance-traceability.json acceptance[0].evidence[0].path must be a file: checks",
+        )
+
+        expect_fail(
+            "contract acceptance requires negative fixture evidence",
+            write_run(
+                temp / "acceptance-traceability-negative-fixture-missing",
+                lanes=claim_gate_lanes(),
+                lane_map_extra=architecture_control_extra(),
+                acceptance_traceability_data=acceptance_traceability(
+                    negative_fixture_evidence=OMIT,
+                ),
+            ),
+            "acceptance-traceability.json acceptance[0].negative_fixture_evidence must be an array",
+        )
+
+        expect_fail(
+            "contract acceptance negative fixture marker must exist",
+            write_run(
+                temp / "acceptance-traceability-negative-fixture-marker-missing",
+                lanes=claim_gate_lanes(),
+                lane_map_extra=architecture_control_extra(),
+                acceptance_traceability_data=acceptance_traceability(
+                    negative_fixture_evidence=[
+                        {
+                            "path": "checks/qa-behavior.md",
+                            "markers": ["NegativeDriftMarkerMissing"],
+                        }
+                    ],
+                ),
+            ),
+            "acceptance-traceability.json acceptance[0].negative_fixture_evidence[0].markers[0] "
+            "not found in checks/qa-behavior.md",
+        )
+
+        expect_pass(
+            "valid acceptance traceability with negative fixture passes",
+            write_extra_file(
+                write_run(
+                    temp / "acceptance-traceability-valid-negative-fixture",
+                    lanes=claim_gate_lanes(),
+                    lane_map_extra=architecture_control_extra(),
+                    acceptance_traceability_data=acceptance_traceability(
+                        contract_types=["parser"],
+                        evidence=[
+                            {
+                                "path": "checks/parser-contract.md",
+                                "markers": ["ParserPositiveFixtureMarker"],
+                            }
+                        ],
+                        negative_fixture_evidence=[
+                            {
+                                "path": "checks/parser-contract.md",
+                                "markers": ["ParserDriftFixtureMarker"],
+                            }
+                        ],
+                    ),
+                ),
+                "checks/parser-contract.md",
+                "# Parser Contract Evidence\n\n"
+                "ParserPositiveFixtureMarker\n"
+                "ParserDriftFixtureMarker\n",
             ),
         )
 

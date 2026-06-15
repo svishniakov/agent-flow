@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "acceptance": [
+    {
+      "id": "architecture-contract-acceptance",
+      "source": "Architecture Contract QA Gates and Reviewer Checklist",
+      "requirement": "Golden trace architecture acceptance is backed by marker evidence.",
+      "subjects": [
+        "golden-trace-architecture-contract"
+      ],
+      "contract_types": [
+        "gate"
+      ],
+      "status": "supported",
+      "evidence": [
+        {
+          "path": "checks/qa-behavior.md",
+          "markers": [
+            "# qa-behavior evidence"
+          ]
+        }
+      ],
+      "negative_fixture_evidence": [
+        {
+          "path": "checks/qa-behavior.md",
+          "markers": [
+            "# qa-behavior evidence"
+          ]
+        }
+      ]
+    }
+  ]
+}
