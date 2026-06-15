@@ -44,12 +44,22 @@ Fixture forbidden changes.
 
 Fixture qa gates.
 
+
+
+Acceptance criteria:
+- Acceptance Criteria: `architecture-contract-acceptance`
+
 Claim evidence:
 - Claim Evidence: `architecture-contract-claim`
 
 ## Reviewer Checklist
 
 Fixture reviewer checklist.
+
+
+
+Acceptance criteria:
+- Acceptance Criteria: `architecture-contract-acceptance`
 
 Claim evidence:
 - Claim Evidence: `architecture-contract-claim`

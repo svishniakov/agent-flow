@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate traceable runs, Architecture Capability Router, Architecture Artifact Authoring Automation, Claim Evidence Gate, Lane Boundary Evidence Gate, `boundary.allowed_paths`, `boundary.forbidden_paths`, `changed_paths_artifact`, `scripts/record-lane-boundary.py`, and Harness Evaluation Loop gates."""
+"""Validate traceable runs, Architecture Capability Router, Architecture Artifact Authoring Automation, Acceptance Criteria Traceability Gate, Contract Negative Fixture Gate, Claim Evidence Gate, Lane Boundary Evidence Gate, `boundary.allowed_paths`, `boundary.forbidden_paths`, `changed_paths_artifact`, `scripts/record-lane-boundary.py`, and Harness Evaluation Loop gates."""
 
 from __future__ import annotations
 
@@ -48,6 +48,11 @@ AGENT_TODO_PLACEHOLDER = "TODO(agent):"
 AGENT_EXECUTION_MODES = {"subagent", "role-lane"}
 DELEGATION_SUMMARY_PATH = "delegation-summary.json"
 DELEGATION_TRACE_SECTION = "Delegation Trace"
+MANDATORY_INDEPENDENT_QA_REVIEW_SECTION = "Mandatory Independent QA Review"
+MANDATORY_INDEPENDENT_QA_REVIEW_FIELD = "mandatory_independent_qa_review"
+MANDATORY_QA_REVIEWER_ROLES = {"reviewer", "reviewer.qa"}
+MANDATORY_QA_REVIEWER_BLOCKER_KINDS = {"launch-failure", "runtime-failure"}
+RUN_CHANGED_FILES_FIELDS = ("changed_files", "changed_paths", "run_changed_files")
 CONTINUATION_SUMMARY_PATH = "continuation-summary.json"
 CONTINUATION_SUMMARY_SECTION = "Continuation Summary"
 CONTINUATION_REVALIDATION_SECTION = "Continuation Revalidation"
@@ -57,6 +62,8 @@ HARNESS_EVALUATION_SECTION = "Harness Evaluation"
 HARNESS_EVALUATION_REVIEW_SECTION = "Harness Evaluation Review"
 CLAIM_EVIDENCE_PATH = "claim-evidence.json"
 CLAIM_EVIDENCE_LABEL = "Claim Evidence"
+ACCEPTANCE_TRACEABILITY_PATH = "acceptance-traceability.json"
+ACCEPTANCE_CRITERIA_LABEL = "Acceptance Criteria"
 LANE_TYPES = {"architecture", "implementation", "integration", "qa", "review"}
 TRACE_BUDGETS = {"release", "standard"}
 WORKER_LANE_TYPES = {"implementation", "integration"}
@@ -282,6 +289,9 @@ ARCHITECTURE_MATRIX_PATH = Path(__file__).resolve().parents[1] / "references" / 
 MATRIX_FACET_PATTERN = re.compile(r"^\s*-\s+`([^`]+)`\s*:")
 MARKDOWN_HEADING_PATTERN = re.compile(r"^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$")
 CLAIM_EVIDENCE_PATTERN = re.compile(r"^\s*-\s+Claim Evidence:\s+`([^`]+)`\s*$")
+ACCEPTANCE_CRITERIA_PATTERN = re.compile(r"^\s*-\s+Acceptance Criteria:\s+`([^`]+)`\s*$")
+ACCEPTANCE_TRACEABILITY_STATUSES = {"supported", "gap"}
+CONTRACT_NEGATIVE_FIXTURE_TYPES = {"gate", "cli", "query", "storage", "config", "parser"}
 
 
 def detect_mode(run_dir: Path, requested_mode: str) -> str:
@@ -1966,6 +1976,239 @@ def validate_no_unbacked_subagent_claims(run_dir: Path) -> list[str]:
     return errors
 
 
+def lane_is_mandatory_qa_reviewer(lane: dict) -> bool:
+    return (
+        lane.get("type") == "review"
+        and isinstance(lane.get("role"), str)
+        and lane.get("role") in MANDATORY_QA_REVIEWER_ROLES
+    )
+
+
+def lane_has_successful_subagent_handoff(run_dir: Path, lane: dict) -> bool:
+    lane_id = lane.get("id")
+    role = lane.get("role")
+    if not isinstance(lane_id, str) or not lane_id:
+        return False
+    if not isinstance(role, str) or not role:
+        return False
+    if normalize_execution_mode(lane.get("execution_mode")) != "subagent":
+        return False
+    if normalize_lane_status(lane.get("status")) not in SUCCESSFUL_LANE_STATUSES:
+        return False
+    handoff = lane.get("handoff")
+    trace_errors = validate_subagent_lane_trace(
+        run_dir,
+        lane_id,
+        role,
+        lane_status=normalize_lane_status(lane.get("status")),
+        handoff=handoff if isinstance(handoff, str) else None,
+    )
+    return not trace_errors
+
+
+def lane_map_changed_files(data: dict) -> list[str]:
+    changed: list[str] = []
+    for field in RUN_CHANGED_FILES_FIELDS:
+        value = data.get(field)
+        if value is None:
+            continue
+        if isinstance(value, list):
+            changed.extend(item for item in value if isinstance(item, str) and item.strip())
+        elif isinstance(value, dict):
+            for nested in value.values():
+                if isinstance(nested, list):
+                    changed.extend(
+                        item for item in nested if isinstance(item, str) and item.strip()
+                    )
+    return changed
+
+
+def final_declares_run_owned_changes(run_dir: Path) -> bool:
+    final_path = run_dir / "final.md"
+    if not final_path.exists():
+        return False
+    text = final_path.read_text(encoding="utf-8")
+    match = re.search(
+        r"(?is)run-owned changed files\s*:\s*(?P<body>.*?)(?:\n\s*#{1,6}\s+|\Z)",
+        text,
+    )
+    if not match:
+        return False
+    body = match.group("body").strip()
+    if not body:
+        return False
+    normalized = " ".join(body.lower().split())
+    return normalized not in {"none", "n/a", "not applicable", "- none"}
+
+
+def mandatory_qa_review_applies(data: dict, run_dir: Path, lanes: list[dict]) -> bool:
+    has_worker_lane = any(lane.get("type") in WORKER_LANE_TYPES for lane in lanes)
+    has_changed_files = bool(lane_map_changed_files(data)) or final_declares_run_owned_changes(run_dir)
+    return has_worker_lane or has_changed_files
+
+
+def validate_mandatory_qa_blocker(run_dir: Path, data: dict) -> list[str]:
+    config = data.get(MANDATORY_INDEPENDENT_QA_REVIEW_FIELD)
+    if not isinstance(config, dict):
+        return [
+            "lane-map.json: blocked implementation/change run without reviewer.qa "
+            "requires mandatory_independent_qa_review blocker evidence"
+        ]
+    if config.get("status") != "blocked":
+        return [
+            "lane-map.json: mandatory_independent_qa_review.status must be blocked "
+            "when reviewer.qa launch/runtime failed"
+        ]
+
+    errors: list[str] = []
+    blocker = config.get("blocker")
+    if not isinstance(blocker, dict):
+        return ["lane-map.json: mandatory_independent_qa_review.blocker must be an object"]
+    kind = blocker.get("kind")
+    if kind not in MANDATORY_QA_REVIEWER_BLOCKER_KINDS:
+        allowed = ", ".join(sorted(MANDATORY_QA_REVIEWER_BLOCKER_KINDS))
+        errors.append(
+            "lane-map.json: mandatory_independent_qa_review.blocker.kind must be "
+            f"one of: {allowed}"
+        )
+    summary = blocker.get("summary")
+    if not isinstance(summary, str) or not summary.strip():
+        errors.append(
+            "lane-map.json: mandatory_independent_qa_review.blocker.summary "
+            "must be a non-empty string"
+        )
+    validate_existing_path_list(
+        run_dir,
+        blocker.get("evidence"),
+        "lane-map.json mandatory_independent_qa_review.blocker.evidence",
+        errors,
+    )
+    return errors
+
+
+def validate_mandatory_qa_delegation_summary(
+    run_dir: Path,
+    reviewer_lanes: list[dict],
+) -> list[str]:
+    path = run_dir / DELEGATION_SUMMARY_PATH
+    if not path.exists():
+        return [
+            "lane-map.json: Mandatory Independent QA Review Gate requires "
+            "delegation-summary.json reviewer.qa subagent evidence"
+        ]
+
+    summary, load_errors = load_json(path, DELEGATION_SUMMARY_PATH)
+    if load_errors:
+        return load_errors
+    if not isinstance(summary, dict):
+        return [f"{DELEGATION_SUMMARY_PATH} must be a JSON object"]
+
+    subagents = summary.get("subagents")
+    if not isinstance(subagents, list):
+        return [
+            "lane-map.json: Mandatory Independent QA Review Gate requires "
+            "delegation-summary.json subagents array"
+        ]
+
+    reviewer_ids = {
+        lane.get("id")
+        for lane in reviewer_lanes
+        if isinstance(lane.get("id"), str) and lane.get("id")
+    }
+    for record in subagents:
+        if not isinstance(record, dict):
+            continue
+        if record.get("lane_id") not in reviewer_ids:
+            continue
+        if record.get("role") not in MANDATORY_QA_REVIEWER_ROLES:
+            continue
+        if record.get("trace") and record.get("handoff") and record.get("codex_thread_id"):
+            return []
+
+    return [
+        "lane-map.json: Mandatory Independent QA Review Gate requires "
+        "delegation-summary.json reviewer.qa subagent record with trace, "
+        "handoff, and codex_thread_id"
+    ]
+
+
+def validate_mandatory_independent_qa_review_gate(
+    run_dir: Path,
+    data: dict,
+    lanes: list[dict],
+    final_verdict: str | None,
+    *,
+    allow_pending: bool,
+) -> list[str]:
+    if allow_pending:
+        return []
+    if final_verdict not in POSITIVE_FINAL_VERDICTS and final_verdict != "blocked":
+        return []
+    if not mandatory_qa_review_applies(data, run_dir, lanes):
+        return []
+
+    reviewer_lanes = [lane for lane in lanes if lane_is_mandatory_qa_reviewer(lane)]
+    successful_subagent_reviewers = [
+        lane
+        for lane in reviewer_lanes
+        if lane_has_successful_subagent_handoff(run_dir, lane)
+    ]
+
+    if final_verdict == "blocked":
+        if successful_subagent_reviewers:
+            return []
+        return validate_mandatory_qa_blocker(run_dir, data)
+
+    errors: list[str] = []
+    role_lane_reviewers = [
+        lane
+        for lane in reviewer_lanes
+        if normalize_execution_mode(lane.get("execution_mode")) == "role-lane"
+        and normalize_lane_status(lane.get("status")) in SUCCESSFUL_LANE_STATUSES
+    ]
+    if not successful_subagent_reviewers:
+        if role_lane_reviewers:
+            errors.append(
+                "lane-map.json: Mandatory Independent QA Review Gate rejects "
+                "role-lane-only review; reviewer.qa must run as a real subagent"
+            )
+        else:
+            errors.append(
+                "lane-map.json: positive implementation/change run requires "
+                "reviewer.qa subagent with spawned trace and terminal handoff"
+        )
+        return errors
+
+    errors.extend(
+        validate_mandatory_qa_delegation_summary(
+            run_dir,
+            successful_subagent_reviewers,
+        )
+    )
+
+    final_path = run_dir / "final.md"
+    if final_path.exists():
+        text = final_path.read_text(encoding="utf-8")
+        if not has_markdown_heading(text, MANDATORY_INDEPENDENT_QA_REVIEW_SECTION):
+            errors.append(
+                f"final.md missing section: {MANDATORY_INDEPENDENT_QA_REVIEW_SECTION}"
+            )
+        else:
+            section = markdown_section_text(text, MANDATORY_INDEPENDENT_QA_REVIEW_SECTION)
+            for lane in successful_subagent_reviewers:
+                lane_id = lane.get("id")
+                if isinstance(lane_id, str) and lane_id and not contains_facet_id(section, lane_id):
+                    errors.append(
+                        "final.md Mandatory Independent QA Review missing "
+                        f"reviewer lane id: {lane_id}"
+                    )
+            if "terminal handoff" not in section.lower():
+                errors.append(
+                    "final.md Mandatory Independent QA Review must mention terminal handoff"
+                )
+    return errors
+
+
 def has_markdown_heading(text: str, heading: str) -> bool:
     pattern = re.compile(rf"(?m)^\s{{0,3}}#{{1,6}}\s+{re.escape(heading)}\s*#*\s*$")
     return bool(pattern.search(text))
@@ -2107,6 +2350,213 @@ def claim_evidence_ids_from_contract(path: Path) -> tuple[list[str], list[str]]:
             errors.append(f"architecture contract handoff {section} missing Claim Evidence")
 
     return claim_ids, errors
+
+
+def acceptance_criteria_ids_from_contract(path: Path) -> tuple[list[str], list[str]]:
+    if not path.exists():
+        return [], []
+    text = path.read_text(encoding="utf-8")
+    errors: list[str] = []
+    acceptance_ids: list[str] = []
+    seen: set[str] = set()
+
+    for section in ["QA Gates", "Reviewer Checklist"]:
+        if missing_markdown_headings(path, [section]):
+            continue
+        section_text = markdown_section_text(text, section)
+        section_ids: list[str] = []
+        for line in section_text.splitlines():
+            match = ACCEPTANCE_CRITERIA_PATTERN.match(line)
+            if not match:
+                continue
+            acceptance_id = match.group(1).strip()
+            if not KEBAB_CASE_PATTERN.fullmatch(acceptance_id):
+                errors.append(
+                    f"architecture contract handoff {section} "
+                    f"Acceptance Criteria id must be kebab-case: {acceptance_id}"
+                )
+                continue
+            section_ids.append(acceptance_id)
+            if acceptance_id not in seen:
+                seen.add(acceptance_id)
+                acceptance_ids.append(acceptance_id)
+        if not section_ids:
+            errors.append(f"architecture contract handoff {section} missing Acceptance Criteria")
+
+    return acceptance_ids, errors
+
+
+def validate_marker_evidence_records(
+    run_dir: Path,
+    records: object,
+    *,
+    label: str,
+    required: bool,
+) -> list[str]:
+    if not isinstance(records, list):
+        return [f"{label} must be an array"]
+    if required and not records:
+        return [f"{label} must be a non-empty array"]
+
+    errors: list[str] = []
+    for index, evidence_record in enumerate(records):
+        evidence_label = f"{label}[{index}]"
+        if not isinstance(evidence_record, dict):
+            errors.append(f"{evidence_label} must be an object")
+            continue
+        evidence_path_value = validate_string(
+            evidence_record.get("path"),
+            f"{evidence_label}.path",
+            errors,
+        )
+        evidence_text = ""
+        if evidence_path_value:
+            evidence_path = resolve_run_path(run_dir, evidence_path_value)
+            if not evidence_path.exists():
+                errors.append(f"{evidence_label}.path not found: {evidence_path_value}")
+            elif not evidence_path.is_file():
+                errors.append(f"{evidence_label}.path must be a file: {evidence_path_value}")
+            else:
+                evidence_text = evidence_path.read_text(encoding="utf-8")
+        marker_label = f"{evidence_label}.markers"
+        raw_markers = evidence_record.get("markers")
+        if not isinstance(raw_markers, list) or not raw_markers:
+            errors.append(f"{marker_label} must be a non-empty array")
+            markers = []
+        else:
+            markers = validate_string_list(raw_markers, marker_label, errors)
+        if evidence_text:
+            for marker_index, marker in enumerate(markers):
+                if marker not in evidence_text:
+                    errors.append(
+                        f"{evidence_label}.markers[{marker_index}] "
+                        f"not found in {evidence_path_value}"
+                    )
+    return errors
+
+
+def validate_acceptance_traceability_records(
+    run_dir: Path,
+    *,
+    required_acceptance_ids: list[str],
+    required: bool,
+    final_verdict: str | None,
+) -> list[str]:
+    path = run_dir / ACCEPTANCE_TRACEABILITY_PATH
+    if not path.exists():
+        if required:
+            return [f"{ACCEPTANCE_TRACEABILITY_PATH} is required for positive architecture contract run"]
+        return []
+
+    data, load_errors = load_json(path, ACCEPTANCE_TRACEABILITY_PATH)
+    if load_errors:
+        return load_errors
+    if not isinstance(data, dict):
+        return [f"{ACCEPTANCE_TRACEABILITY_PATH} must be a JSON object"]
+
+    errors: list[str] = []
+    if data.get("version") != 1:
+        errors.append(f"{ACCEPTANCE_TRACEABILITY_PATH} field 'version' must be 1")
+
+    records = data.get("acceptance")
+    if not isinstance(records, list) or not records:
+        errors.append(f"{ACCEPTANCE_TRACEABILITY_PATH} field 'acceptance' must be a non-empty array")
+        return errors
+
+    seen_ids: set[str] = set()
+    for index, record in enumerate(records):
+        label = f"acceptance[{index}]"
+        if not isinstance(record, dict):
+            errors.append(f"{ACCEPTANCE_TRACEABILITY_PATH} {label} must be an object")
+            continue
+
+        acceptance_id = validate_string(record.get("id"), f"{ACCEPTANCE_TRACEABILITY_PATH} {label}.id", errors)
+        if acceptance_id:
+            if not KEBAB_CASE_PATTERN.fullmatch(acceptance_id):
+                errors.append(f"{ACCEPTANCE_TRACEABILITY_PATH} {label}.id must be kebab-case")
+            elif acceptance_id in seen_ids:
+                errors.append(f"{ACCEPTANCE_TRACEABILITY_PATH} duplicate acceptance id: {acceptance_id}")
+            else:
+                seen_ids.add(acceptance_id)
+
+        status = record.get("status")
+        if status not in ACCEPTANCE_TRACEABILITY_STATUSES:
+            allowed = ", ".join(sorted(ACCEPTANCE_TRACEABILITY_STATUSES))
+            errors.append(f"{ACCEPTANCE_TRACEABILITY_PATH} {label}.status must be one of: {allowed}")
+        elif final_verdict in POSITIVE_FINAL_VERDICTS and status != "supported":
+            errors.append(
+                f"{ACCEPTANCE_TRACEABILITY_PATH} {label}.status must be supported for "
+                "positive final Verdict"
+            )
+
+        validate_string(record.get("source"), f"{ACCEPTANCE_TRACEABILITY_PATH} {label}.source", errors)
+        validate_string(
+            record.get("requirement"),
+            f"{ACCEPTANCE_TRACEABILITY_PATH} {label}.requirement",
+            errors,
+        )
+        validate_string_list(
+            record.get("subjects"),
+            f"{ACCEPTANCE_TRACEABILITY_PATH} {label}.subjects",
+            errors,
+        )
+        contract_types = validate_string_list(
+            record.get("contract_types"),
+            f"{ACCEPTANCE_TRACEABILITY_PATH} {label}.contract_types",
+            errors,
+        )
+        unknown_contract_types = sorted(
+            contract_type
+            for contract_type in contract_types
+            if contract_type not in CONTRACT_NEGATIVE_FIXTURE_TYPES
+        )
+        if unknown_contract_types:
+            allowed = ", ".join(sorted(CONTRACT_NEGATIVE_FIXTURE_TYPES))
+            errors.append(
+                f"{ACCEPTANCE_TRACEABILITY_PATH} {label}.contract_types invalid: "
+                f"{', '.join(unknown_contract_types)} (expected one of: {allowed})"
+            )
+
+        errors.extend(
+            validate_marker_evidence_records(
+                run_dir,
+                record.get("evidence"),
+                label=f"{ACCEPTANCE_TRACEABILITY_PATH} {label}.evidence",
+                required=True,
+            )
+        )
+
+        requires_negative_fixture = any(
+            contract_type in CONTRACT_NEGATIVE_FIXTURE_TYPES
+            for contract_type in contract_types
+        )
+        if requires_negative_fixture:
+            errors.extend(
+                validate_marker_evidence_records(
+                    run_dir,
+                    record.get("negative_fixture_evidence"),
+                    label=f"{ACCEPTANCE_TRACEABILITY_PATH} {label}.negative_fixture_evidence",
+                    required=True,
+                )
+            )
+        elif "negative_fixture_evidence" in record:
+            errors.extend(
+                validate_marker_evidence_records(
+                    run_dir,
+                    record.get("negative_fixture_evidence"),
+                    label=f"{ACCEPTANCE_TRACEABILITY_PATH} {label}.negative_fixture_evidence",
+                    required=False,
+                )
+            )
+
+    for required_acceptance_id in required_acceptance_ids:
+        if required_acceptance_id not in seen_ids:
+            errors.append(
+                f"{ACCEPTANCE_TRACEABILITY_PATH} missing required acceptance id: "
+                f"{required_acceptance_id}"
+            )
+
+    return errors
 
 
 def validate_claim_evidence_records(
@@ -4317,6 +4767,14 @@ def validate_lane_map(
     )
     required_claim_ids: list[str] = []
     claim_evidence_contract_errors: list[str] = []
+    acceptance_traceability_candidate = (
+        schema_version == 2
+        and architecture_contract_required
+        and final_verdict in POSITIVE_FINAL_VERDICTS
+        and not allow_pending
+    )
+    required_acceptance_ids: list[str] = []
+    acceptance_traceability_contract_errors: list[str] = []
 
     for index, lane in enumerate(lanes):
         if not isinstance(lane, dict):
@@ -4460,6 +4918,15 @@ def validate_lane_map(
                             for contract_claim_error in contract_claim_errors:
                                 claim_evidence_contract_errors.append(
                                     f"lane-map.json: lane {label} {contract_claim_error}"
+                                )
+                        if acceptance_traceability_candidate:
+                            contract_acceptance_ids, contract_acceptance_errors = (
+                                acceptance_criteria_ids_from_contract(contract_path)
+                            )
+                            required_acceptance_ids.extend(contract_acceptance_ids)
+                            for contract_acceptance_error in contract_acceptance_errors:
+                                acceptance_traceability_contract_errors.append(
+                                    f"lane-map.json: lane {label} {contract_acceptance_error}"
                                 )
                         for facet_error in validate_selected_architecture_facets(
                             contract_path,
@@ -4718,6 +5185,21 @@ def validate_lane_map(
                 normalized_status_by_id=normalized_status_by_id,
             )
         )
+    required_acceptance_ids = list(dict.fromkeys(required_acceptance_ids))
+    acceptance_traceability_required = acceptance_traceability_candidate
+    if acceptance_traceability_required:
+        errors.extend(acceptance_traceability_contract_errors)
+    else:
+        required_acceptance_ids = []
+    if not allow_pending:
+        errors.extend(
+            validate_acceptance_traceability_records(
+                run_dir,
+                required_acceptance_ids=required_acceptance_ids,
+                required=acceptance_traceability_required,
+                final_verdict=final_verdict,
+            )
+        )
 
     delegation_summary_required = (
         schema_version == 2 and final_verdict in POSITIVE_FINAL_VERDICTS
@@ -4730,6 +5212,15 @@ def validate_lane_map(
         required=delegation_summary_required,
     )
     errors.extend(delegation_summary_errors)
+    errors.extend(
+        validate_mandatory_independent_qa_review_gate(
+            run_dir,
+            data,
+            [lane for lane in lanes if isinstance(lane, dict)],
+            final_verdict,
+            allow_pending=allow_pending,
+        )
+    )
 
     if schema_version == 2:
         if budget == "standard" and worker_lane_count >= 2 and architecture_contract_required is not True:

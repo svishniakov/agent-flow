@@ -1,8 +1,16 @@
 {
   "version": 1,
-  "subagents_used": false,
+  "subagents_used": true,
   "role_lanes_used": true,
-  "subagents": [],
+  "subagents": [
+    {
+      "lane_id": "review-contract",
+      "role": "reviewer",
+      "codex_thread_id": "thread-review-contract",
+      "trace": "agents/reviewer/trace.jsonl",
+      "handoff": "handoffs/review-contract.md"
+    }
+  ],
   "role_lanes": [
     {
       "lane_id": "worker-a",
@@ -13,11 +21,6 @@
       "lane_id": "qa-behavior",
       "role": "qa-verifier",
       "reason": "qa-behavior executed as role-lane."
-    },
-    {
-      "lane_id": "review-contract",
-      "role": "reviewer",
-      "reason": "review-contract executed as role-lane."
     }
   ],
   "notes": "Golden trace delegation summary."

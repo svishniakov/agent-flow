@@ -20,11 +20,12 @@ Use for small and medium solo work:
 
 Rules:
 
-- no subagents;
+- no implementation subagents;
 - no `.agent-work/runs/`;
 - no full manifest/route/plan bundle;
 - `.agent-work/tasks/` still follows global project memory rules from the current user's Codex instructions, usually `~/.codex/AGENTS.md`;
 - main agent may edit product files;
+- if Agent Flow implementation/change work changes product or repo files, tests, runtime docs, validator behavior, templates, golden traces, ADR/plan/spec status, or creates a commit, Mandatory Independent QA Review Gate still requires a real `reviewer.qa` subagent before a positive final;
 - quick adversarial checks are allowed when one skeptical pass improves evidence;
 - final answer includes changed files, checks, and residual risks when relevant.
 
@@ -67,6 +68,7 @@ Rules:
 - explicit residual risks;
 - orchestrator should consider architect, QA, reviewer, and worker lanes by default;
 - subagents may be skipped only when a concrete reason makes solo safer and sufficient;
+- Mandatory Independent QA Review Gate still requires `reviewer.qa` as a real subagent for file-changing implementation/change work;
 - code review that touches architecture, public contracts, APIs, data flow, security, migrations, or multiple subsystems requires an architect-owned review contract before reviewer verdict;
 - lane-map schema v2 must set `budget=release` and `architecture_contract_required=true`;
 - loops, tournaments, and fan-out work require budget caps and stop conditions;

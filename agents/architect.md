@@ -56,6 +56,8 @@ Delegation packet must include:
 - When producing an Architecture Contract Gate handoff, include every selected `architecture_context` facet id and `architecture_capabilities` id in `Selected Architecture`, and include `Selected Architecture`, `Rejected Alternatives`, `Module Boundaries`, `Data And State Flow`, `Public Contracts`, `Worker Ownership`, `Forbidden Changes`, `QA Gates`, `Reviewer Checklist`, and `Stop Conditions`.
 - For Lane Boundary Evidence Gate, make `Worker Ownership` and `Forbidden Changes` specific enough for the orchestrator to fill each worker lane `boundary.allowed_paths` and `boundary.forbidden_paths`; the validator does not infer file boundaries from Matrix facets or role names.
 - For Claim Evidence Gate, write explicit `Claim Evidence` ids in `QA Gates` and `Reviewer Checklist`; each id must be concrete enough for QA or reviewer to prove through `claim-evidence.json`, `owner_lane`, `supported` or `gap`, subjects, and literal evidence `markers`.
+- For Acceptance Criteria Traceability Gate, write explicit `Acceptance Criteria` ids in `QA Gates` and `Reviewer Checklist`; each id must map to `acceptance-traceability.json` with source, requirement, subjects, `supported` or `gap`, evidence paths, and literal `markers`.
+- For Contract Negative Fixture Gate, mark contract-like acceptance items as `gate`, `cli`, `query`, `storage`, `config`, or `parser`; those records must have `negative_fixture_evidence` for negative or drift fixtures before positive closure.
 - Architecture Context Propagation depends on this handoff: make selected facets concrete enough for workers, QA, and reviewer to cite later.
 - For Architecture Execution Control, perform architect re-check when a worker reports architecture or Engineering Simplicity drift; either confirm the original contract still holds, revise the contract, or reject the drifted implementation path before `ship` or `pass-with-risks`. Simplicity Gate is not a reporting gate: use architect re-check only when fix-now remediation would change boundaries, public contracts, selected capabilities, or architecture approach.
 - For Blocked Resolution Gate, run `Resolution Architect Review` after Senior QA `Senior QA Test Design Review`: read the blocked attempt, `blocked_lesson`, `rollback`, `forbidden_repeat`, acceptance criteria changes, and QA evidence; then approve a revised or confirmed instruction before any worker starts attempt 2.
@@ -74,6 +76,8 @@ Return:
 - selected `architecture_context` axes and facet ids
 - selected `architecture_capabilities`, capability-driven constraints, and Soft Skill Binding `recommended_skills` gaps when relevant
 - Claim Evidence Gate ids that QA/reviewer must prove through `claim-evidence.json`
+- Acceptance Criteria Traceability Gate ids that QA/reviewer must prove through `acceptance-traceability.json`
+- Contract Negative Fixture Gate coverage for `gate`, `cli`, `query`, `storage`, `config`, or `parser` acceptance items and their `negative_fixture_evidence`
 - worker ownership file boundaries for `boundary.allowed_paths` and `boundary.forbidden_paths`
 - alternatives rejected
 - affected modules

@@ -30,7 +30,7 @@ Requests without an Agent Flow invocation marker are outside this skill. They ru
 
 Project or local `AGENTS.md` files may not force Agent Flow when the latest user request has no invocation marker. They can define local commands and context, but Agent Flow still requires a user-visible marker.
 
-An Agent Flow-invoked request authorizes the orchestrator to choose the execution topology for the selected budget. `light` budget stays solo. `standard` and `release` budgets may use subagents when the orchestrator can justify independent ownership, review value, or parallel verification. External writes, deploys, publishing, secrets, destructive git, DB/storage mutation, and infrastructure changes still require explicit approval or a documented project command.
+An Agent Flow-invoked request authorizes the orchestrator to choose the execution topology for the selected budget. `light` budget stays solo for implementation ownership, but it does not mean file-changing implementation can skip independent QA review. `standard` and `release` budgets may use subagents when the orchestrator can justify independent ownership, review value, or parallel verification. External writes, deploys, publishing, secrets, destructive git, DB/storage mutation, and infrastructure changes still require explicit approval or a documented project command.
 
 Never expose extra modes such as `/solo`, `/lite`, `orchestrated`, autopilot, parallel-review, or review-mode as public user-facing modes. Treat detailed workflow choice as internal routing inside Agent Flow.
 
@@ -48,7 +48,7 @@ Agent Flow-invoked work:
 - Use this skill.
 - Do not use a separate brainstorming flow or `brainstorming` skill. Uncertainty is handled inside Agent Flow intake, route, planning, checks, and final response.
 - Use the smallest budget that can produce verified evidence.
-- Keep `light` budget solo.
+- Keep `light` budget solo for implementation ownership.
 - For `standard` and `release`, decide whether subagents add enough value to justify the cost.
 - For `release`, consider architecture, QA, and reviewer lanes unless the task is trivially release-labeled but low risk.
 
@@ -69,10 +69,12 @@ Inside Agent Flow, the orchestrator owns the outcome:
 11. Enforce Delegation Trace Gate for traceable lane runs.
 12. Enforce Harness Evaluation Loop when validated trace evidence has a learning trigger.
 13. Enforce Claim Evidence Gate for positive architecture-gated runs.
-14. Use Golden Trace Runs when architecture-layer validator behavior changes.
-15. Verify evidence before any completion claim.
-16. Close the current project-memory task status before final handoff.
-17. Return the final answer with residual risks.
+14. Enforce Acceptance Criteria Traceability Gate and Contract Negative Fixture Gate for positive architecture-gated runs.
+15. Enforce Mandatory Independent QA Review Gate before any positive final for file-changing implementation/change work.
+16. Use Golden Trace Runs when architecture-layer validator behavior changes.
+17. Verify evidence before any completion claim.
+18. Close the current project-memory task status before final handoff.
+18. Return the final answer with residual risks.
 
 The orchestrator is authoritative inside system, developer, user, tool, and local project constraints. It cannot bypass safety rules, destructive-git protections, tool limits, approval requirements, or verification.
 
@@ -160,6 +162,10 @@ Lane Boundary Evidence Gate is the product-code boundary check inside Architectu
 
 Claim Evidence Gate is required for positive architecture-gated runs. The Architecture Contract `QA Gates` and `Reviewer Checklist` sections must include `Claim Evidence` ids. The orchestrator writes `claim-evidence.json`; each claim record names `owner_lane`, reviewer lane, `supported` or `gap`, subjects, evidence paths, and literal `markers`. `ship` and `pass-with-risks` require every required claim to be `supported` and every marker to appear in the referenced evidence file.
 
+Acceptance Criteria Traceability Gate is required for positive architecture-gated runs. The Architecture Contract `QA Gates` and `Reviewer Checklist` sections must include `Acceptance Criteria` ids. The orchestrator writes `acceptance-traceability.json`; each required acceptance id records source, requirement, subjects, `supported` or `gap`, evidence paths, and literal `markers`. `ship` and `pass-with-risks` require every required acceptance id to be `supported` and every marker to appear in the referenced evidence file.
+
+Contract Negative Fixture Gate is required for contract-like acceptance items in positive architecture-gated runs. Any acceptance item marked `gate`, `cli`, `query`, `storage`, `config`, or `parser` in `acceptance-traceability.json` must include `negative_fixture_evidence` with at least one evidence path and literal marker. Missing negative or drift fixture evidence blocks `ship` and `pass-with-risks`.
+
 Verification Readiness Gate runs after an approved Architecture Design Brief and before worker lanes when architecture-gated runs have workers. The orchestrator records `verification_readiness` in `lane-map.json` and writes `verification-readiness.json` to prove every selected `risk_gates` and `verification_gates` facet is ready. If documented infra or environment startup is needed, readiness becomes `needs-approval`; the agent asks the user, runs only approved documented safe commands, records `approval_requests` and `approval_executions`, and retries readiness. If the user declines, the run stops immediately as `paused-blocked` with final `blocked`, manual instructions, and `resume_phrase` set to `Готово`. Positive verdicts require the latest readiness attempt to be `ready`, and QA records `Verification Gate Results`.
 
 Continuation Gate applies when a run has a `blocked-checkpoint` or `continuation` timeline stage and later closes with `ship` or `pass-with-risks`. The orchestrator writes `continuation-summary.json`, preserves the blocked checkpoint snapshot, records `historical_worker_lanes`, `new_worker_lanes`, `revalidated_lanes`, and resolved blockers, and proves with timeline `lane_id` events that no new worker ran before ready Verification Readiness. Final output includes `Continuation Summary`; QA writes `Continuation Revalidation`; reviewer writes `Continuation Review`.
@@ -196,7 +202,7 @@ Discover subagent tools only after the Agent Flow budget is selected and one of 
 1. Check active tools for a subagent/spawn tool.
 2. If not visible and `tool_search` is available, call `tool_search` with a narrow query such as `spawn_agent subagent multi-agent tools`.
 3. If `spawn_agent` appears after discovery, use it.
-4. If discovery fails, continue with role lanes or solo checks when that still satisfies the task, and state the downgrade in the final answer.
+4. If discovery fails for optional delegation, record the downgrade and continue only when no required subagent gate applies. If Mandatory Independent QA Review Gate applies, close the run as `blocked` with launch/runtime blocker evidence.
 
 ## Product Edit Boundary
 
@@ -302,7 +308,15 @@ Before launching a subagent, read the bundled role file `agents/<role>.md` and r
 
 Also resolve the role model config before `spawn_agent`, using `python3 scripts/resolve-agent-config.py --role <role>` plus any task triggers such as `--trigger security`, `--trigger broad-scope`, or `--trigger release`. Pass the returned `model` and `reasoning_effort` into `spawn_agent`. Pass `service_tier` only when the resolver returns a non-null value.
 
-If the task would benefit from independent workers but the selected budget is `light`, stay solo or escalate the budget only with a concrete reason. Do not spawn subagents for `light`.
+If the task would benefit from independent workers but the selected budget is `light`, keep the implementation lane solo or escalate the budget only with a concrete reason. Do not spawn implementation subagents for `light`. If the run changes product/repo files, tests, runtime docs, validator behavior, templates, golden traces, ADR/plan/spec status, or creates a commit, Mandatory Independent QA Review Gate still requires a real `reviewer.qa` subagent before any positive final.
+
+## Mandatory Independent QA Review Gate
+
+`solo` and `light` mean one main implementation owner. They do not mean no independent review.
+
+Any Agent Flow implementation/change run that changes product or repo files, tests, runtime docs, validator behavior, templates, golden traces, ADR/plan/spec status, or creates a commit must launch a real `reviewer.qa` subagent before `ship` or `pass-with-risks`. Role-lane review does not satisfy this gate.
+
+SubAgent Tool is mandatory Agent Flow infrastructure for this gate. If launch or runtime fails, record `mandatory_independent_qa_review` blocker evidence with kind `launch-failure` or `runtime-failure` and close `blocked`; do not fall back to solo or role-lane review for a positive final.
 
 For code review and release readiness work that touches architecture, public contracts, APIs, data flow, security, migrations, or multiple subsystems, require an architect-owned review contract before the reviewer verdict:
 

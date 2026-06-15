@@ -8,12 +8,11 @@ Resolved risks:
 - `browser-proof-gap`
 ## Delegation Trace
 
-Subagents Used: no
+Subagents Used: yes
 Role Lanes Used: yes
-Subagent Lanes: none
-Role Lanes: worker-a, qa-behavior, review-contract, senior-qa-test-design, architect-resolution-review, worker-b, qa-retry, review-retry, supervising-architect-review, worker-c, qa-final, review-final
-Subagent Trace Evidence: none
-
+Subagent Lanes: review-contract, review-retry, review-final
+Role Lanes: worker-a, qa-behavior, senior-qa-test-design, architect-resolution-review, worker-b, qa-retry, supervising-architect-review, worker-c, qa-final
+Subagent Trace Evidence: agents/reviewer/trace.jsonl, agents/reviewer/trace.jsonl, agents/reviewer/trace.jsonl
 ## Harness Evaluation
 
 Harness findings and proposals:

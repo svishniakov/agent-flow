@@ -159,6 +159,9 @@ If `lane-map.json` exists, validation also checks the Lane Sharding contract:
 - a successful `subagent` lane also has a terminal handoff trace event with the same lane id and handoff artifact;
 - `role-lane` entries do not require a `codex_thread_id`;
 - schema v2 positive lane-map runs require `delegation-summary.json` and a final `Delegation Trace` section;
+- positive implementation/change runs that changed files or contain `implementation`/`integration` worker lanes require Mandatory Independent QA Review Gate evidence: a real `reviewer.qa` subagent lane, `delegation-summary.json` coverage, spawned trace with `codex_thread_id`, terminal handoff, and final `Mandatory Independent QA Review`;
+- role-lane-only reviewer evidence is rejected when Mandatory Independent QA Review Gate applies;
+- a `blocked` implementation/change run may omit `reviewer.qa` only when `mandatory_independent_qa_review.blocker` records launch/runtime blocker evidence;
 - `Verdict: ship` is rejected while any critical lane is unresolved, failed, blocked, or missing replacement evidence.
 
 ## Delegation Trace Gate
@@ -189,6 +192,22 @@ pass-with-risks`, `delegation-summary.json` is required at the run root:
 must not claim sidecar/subagent work. If a real subagent was used, the summary
 must point to `agents/<role>/trace.jsonl`, the lane handoff, and the matching
 `codex_thread_id`.
+
+## Mandatory Independent QA Review Gate
+
+`solo` and `light` mean one implementation owner, not absence of independent QA.
+
+Any Agent Flow implementation/change run that changes product or repo files, tests, runtime docs, validator behavior, templates, golden traces, ADR/plan/spec status, or creates a commit must run `reviewer.qa` as a real subagent before `Verdict: ship` or `Verdict: pass-with-risks`.
+
+Runtime evidence must include:
+
+- `lane-map.json` review lane with reviewer role and `execution_mode=subagent`;
+- `agents/<role>/trace.jsonl` spawned event with `codex_thread_id`;
+- terminal handoff event with the reviewer handoff artifact;
+- `delegation-summary.json` subagent record for the reviewer lane;
+- final `Mandatory Independent QA Review` section naming the reviewer lane and terminal handoff.
+
+Role-lane review, QA lane review, or Architecture Contract reviewer text does not replace this subagent. If launch or runtime fails, record `mandatory_independent_qa_review.status=blocked` with blocker kind `launch-failure` or `runtime-failure`, summary, and evidence path, then close the run `blocked`.
 
 Schema v2 adds the Architecture Contract Gate:
 
@@ -221,6 +240,11 @@ Schema v2 adds the Architecture Contract Gate:
 - each claim record names `owner_lane`, `reviewed_by`, owner handoff `section`, `status`, `claim`, `subjects`, and evidence entries with literal `markers`;
 - `owner_lane` must be a successful QA or review lane, `reviewed_by` must be a successful review lane, the owner handoff section must mention the claim id, and every marker must appear in the referenced evidence file;
 - positive verdicts require `status=supported`; `status=gap` is allowed only for `blocked` or `fail`;
+- positive architecture-gated runs require Acceptance Criteria Traceability Gate: the architecture handoff `QA Gates` and `Reviewer Checklist` sections must contain `Acceptance Criteria` ids, and the run root must include `acceptance-traceability.json`;
+- `acceptance-traceability.json` uses `version=1` and a non-empty `acceptance` array; every acceptance id is unique kebab-case and every required contract acceptance id has a record;
+- each acceptance record names `source`, `requirement`, `subjects`, `contract_types`, `status`, and evidence entries with literal `markers`;
+- positive verdicts require every acceptance record to use `status=supported`, every marker must appear in the referenced evidence file, and every required acceptance id must have evidence;
+- Contract Negative Fixture Gate applies to acceptance records marked `gate`, `cli`, `query`, `storage`, `config`, or `parser`; those records must include `negative_fixture_evidence` with at least one evidence path and literal marker for a negative or drift fixture;
 - failed, blocked, or timed-out architecture lanes block `ship`;
 - reviewer and QA lanes may pass only after the architecture contract passes;
 - when `architecture_contract_independent` is true, the architecture lane must use `subagent` execution with spawned trace evidence.

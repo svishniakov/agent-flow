@@ -242,7 +242,7 @@
       "role": "reviewer",
       "wave": 5,
       "critical": true,
-      "execution_mode": "role-lane",
+      "execution_mode": "subagent",
       "status": "pass",
       "handoff": "handoffs/review-contract.md",
       "evidence": [
@@ -307,5 +307,11 @@
       "checks/engineering-simplicity-scope.md"
     ],
     "notes": "Golden trace primary product-code surface; smoke checks are secondary."
+  },
+  "mandatory_independent_qa_review": {
+    "required": true,
+    "reviewer_lane": "review-contract",
+    "status": "pass",
+    "notes": "Golden trace reviewer.qa subagent evidence is persisted."
   }
 }

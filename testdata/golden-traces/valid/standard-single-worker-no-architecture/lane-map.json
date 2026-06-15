@@ -15,9 +15,29 @@
       ],
       "replacement": null,
       "handoff_sections": []
+    },
+    {
+      "id": "review-contract",
+      "type": "review",
+      "role": "reviewer",
+      "wave": 2,
+      "critical": true,
+      "execution_mode": "subagent",
+      "status": "pass",
+      "handoff": "handoffs/review-contract.md",
+      "evidence": [
+        "checks/review-contract.md"
+      ],
+      "replacement": null
     }
   ],
   "budget": "standard",
   "architecture_contract_required": false,
-  "architecture_contract_independent": false
+  "architecture_contract_independent": false,
+  "mandatory_independent_qa_review": {
+    "required": true,
+    "reviewer_lane": "review-contract",
+    "status": "pass",
+    "notes": "Golden trace reviewer.qa subagent evidence is persisted."
+  }
 }

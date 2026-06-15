@@ -1,8 +1,30 @@
 {
   "version": 1,
-  "subagents_used": false,
+  "subagents_used": true,
   "role_lanes_used": true,
-  "subagents": [],
+  "subagents": [
+    {
+      "lane_id": "review-contract",
+      "role": "reviewer",
+      "codex_thread_id": "thread-review-contract",
+      "trace": "agents/reviewer/trace.jsonl",
+      "handoff": "handoffs/review-contract.md"
+    },
+    {
+      "lane_id": "review-retry",
+      "role": "reviewer",
+      "codex_thread_id": "thread-review-retry",
+      "trace": "agents/reviewer/trace.jsonl",
+      "handoff": "handoffs/review-retry.md"
+    },
+    {
+      "lane_id": "review-final",
+      "role": "reviewer",
+      "codex_thread_id": "thread-review-final",
+      "trace": "agents/reviewer/trace.jsonl",
+      "handoff": "handoffs/review-final.md"
+    }
+  ],
   "role_lanes": [
     {
       "lane_id": "worker-a",
@@ -13,11 +35,6 @@
       "lane_id": "qa-behavior",
       "role": "qa-verifier",
       "reason": "qa-behavior executed as role-lane."
-    },
-    {
-      "lane_id": "review-contract",
-      "role": "reviewer",
-      "reason": "review-contract executed as role-lane."
     },
     {
       "lane_id": "senior-qa-test-design",
@@ -40,11 +57,6 @@
       "reason": "qa-retry executed as role-lane."
     },
     {
-      "lane_id": "review-retry",
-      "role": "reviewer",
-      "reason": "review-retry executed as role-lane."
-    },
-    {
       "lane_id": "supervising-architect-review",
       "role": "supervising-architect",
       "reason": "supervising-architect-review executed as role-lane."
@@ -58,11 +70,6 @@
       "lane_id": "qa-final",
       "role": "qa-verifier",
       "reason": "qa-final executed as role-lane."
-    },
-    {
-      "lane_id": "review-final",
-      "role": "reviewer",
-      "reason": "review-final executed as role-lane."
     }
   ],
   "notes": "Golden trace delegation summary."

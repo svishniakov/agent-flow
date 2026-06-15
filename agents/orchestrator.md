@@ -70,6 +70,8 @@ Delegation packet must include:
 - Enforce Lane Boundary Evidence Gate for schema v2 positive architecture-gated worker runs: record worker `boundary.allowed_paths`, optional `boundary.forbidden_paths`, and `changed_paths_artifact`; run `scripts/record-lane-boundary.py` to write `checks/lane-boundary-<lane-id>.json`; require worker `Boundary Evidence`, QA `Architecture Invariants`, reviewer `Contract Drift`, and final `Boundary Evidence` to mention every worker lane id.
 - Enforce Architecture Context Propagation: workers declare selected `matrix_facets`, QA covers selected `risk_gates` and `verification_gates`, and reviewer covers the full selected `architecture_context` plus selected `architecture_capabilities`.
 - Enforce Claim Evidence Gate for positive architecture-gated runs: require architecture `Claim Evidence` ids, write `claim-evidence.json`, route each claim to an `owner_lane`, require reviewer coverage, and block positive verdicts unless every claim is `supported` by literal evidence `markers`; any `gap` remains blocked or failed.
+- Enforce Acceptance Criteria Traceability Gate for positive architecture-gated runs: require architecture `Acceptance Criteria` ids, write `acceptance-traceability.json`, and block positive verdicts unless every required id is `supported` by literal evidence `markers`.
+- Enforce Contract Negative Fixture Gate for contract-like acceptance items: every `gate`, `cli`, `query`, `storage`, `config`, or `parser` record in `acceptance-traceability.json` needs marker-backed `negative_fixture_evidence` for a negative or drift fixture.
 - Enforce Verification Readiness Gate before workers: create `verification_readiness`, keep `verification-readiness.json` current, cover selected `risk_gates` and `verification_gates`, ask the user before any `needs-approval` documented safe command, record `approval_requests` and `approval_executions`, stop immediately as `paused-blocked` with final `blocked` and `resume_phrase=Готово` if the user declines, and require QA `Verification Gate Results` after workers.
 - Enforce Continuation Gate for resumed runs: keep `blocked-checkpoint` in `timeline.jsonl`, write `continuation-summary.json`, preserve the checkpoint snapshot, record resolved blockers, `historical_worker_lanes`, `new_worker_lanes`, and `revalidated_lanes`, block new worker work until ready Verification Readiness, and require final `Continuation Summary`, QA `Continuation Revalidation`, and reviewer `Continuation Review`.
 - Enforce Harness Evaluation Loop after gates produce a learning trigger: write `harness-evaluation.json`, record `learning_triggers`, findings, Evidence Records proposals, source evidence, final `Harness Evaluation`, and reviewer `Harness Evaluation Review` for positive lane-map runs. Keep proposals project-local: only `target=Evidence Records`, `status=proposed`, and `requires_human_approval=false`.
@@ -96,6 +98,8 @@ Return:
 - Lane Boundary Evidence Gate status, including `boundary.allowed_paths`, `boundary.forbidden_paths`, `changed_paths_artifact`, `checks/lane-boundary-<lane-id>.json`, `changed_paths`, `Boundary Evidence`, and every worker lane id
 - Architecture Context Propagation status for worker `matrix_facets`, QA gates, and reviewer coverage
 - Claim Evidence Gate status, including `claim-evidence.json`, `Claim Evidence` ids, `owner_lane`, `markers`, `supported`, and any `gap`
+- Acceptance Criteria Traceability Gate status, including `acceptance-traceability.json`, `Acceptance Criteria` ids, `markers`, `supported`, and any `gap`
+- Contract Negative Fixture Gate status, including `negative_fixture_evidence`, `gate`, `cli`, `query`, `storage`, `config`, and `parser`
 - Verification Readiness Gate status, including `verification-readiness.json`, `verification_readiness`, `needs-approval`, `paused-blocked`, `approval_requests`, `approval_executions`, `resume_phrase`, and `Verification Gate Results`
 - Continuation Gate status, including `continuation-summary.json`, `blocked-checkpoint`, `Continuation Summary`, `Continuation Revalidation`, `Continuation Review`, `historical_worker_lanes`, `new_worker_lanes`, and `revalidated_lanes`
 - Harness Evaluation Loop status, including `harness-evaluation.json`, `Harness Evaluation`, `Harness Evaluation Review`, `learning_triggers`, findings, proposals, and `requires_human_approval`
@@ -113,7 +117,7 @@ Return:
 - residual risks or blockers
 
 ## Hard Rules
-- Do not spawn subagents for `light`.
+- Do not spawn implementation subagents for `light`; if file-changing implementation/change work reaches positive final, Mandatory Independent QA Review Gate still requires a real `reviewer.qa` subagent.
 - Do not invent public modes.
 - Do not call role-lane work subagent execution.
 - Do not call role-lane work a sidecar.

@@ -36,11 +36,13 @@ ENGINEERING_SIMPLICITY_CHECKS = [
     "smallest-working-diff",
     "tests-fit-risk",
 ]
+CONTRACT_NEGATIVE_FIXTURE_TYPES = ["gate", "cli", "query", "storage", "config", "parser"]
 AGENT_TODO_PLACEHOLDER = "TODO(agent):"
 EXPECTED_ARCHITECTURE_GATE_FILES = [
     "delegation-summary.json",
     "verification-readiness.json",
     "claim-evidence.json",
+    "acceptance-traceability.json",
     "handoffs/architecture-design.md",
     "handoffs/architecture-contract.md",
     "handoffs/verification-readiness.md",
@@ -259,6 +261,10 @@ def main() -> int:
             raise AssertionError("worker handoff missing Engineering Simplicity section")
         if "## Boundary Evidence" not in worker_handoff:
             raise AssertionError("worker handoff missing Boundary Evidence section")
+        if "## Acceptance Traceability" not in worker_handoff:
+            raise AssertionError("worker handoff missing Acceptance Traceability section")
+        if "acceptance-traceability.json" not in worker_handoff:
+            raise AssertionError("worker handoff missing acceptance traceability artifact")
         if "Lane Boundary Evidence Gate" not in worker_handoff:
             raise AssertionError("worker handoff missing Lane Boundary Evidence Gate label")
         if "record-lane-boundary.py" not in worker_handoff:
@@ -284,12 +290,49 @@ def main() -> int:
             raise AssertionError("QA handoff missing Engineering Simplicity Scope section")
         if "Boundary Evidence" not in qa_handoff:
             raise AssertionError("QA handoff missing Boundary Evidence invariant")
+        if "Acceptance Criteria Traceability Gate" not in qa_handoff:
+            raise AssertionError("QA handoff missing Acceptance Criteria Traceability Gate")
+        if "Contract Negative Fixture Gate" not in qa_handoff:
+            raise AssertionError("QA handoff missing Contract Negative Fixture Gate")
 
         reviewer_handoff = (run_dir / "handoffs/review-contract.md").read_text(encoding="utf-8")
         if "peripheral-only closure" not in reviewer_handoff:
             raise AssertionError("reviewer handoff missing peripheral-only closure rule")
         if "Boundary Evidence" not in reviewer_handoff or "worker-a" not in reviewer_handoff:
             raise AssertionError("reviewer handoff missing Boundary Evidence worker lane id")
+        if "Acceptance Criteria Traceability" not in reviewer_handoff:
+            raise AssertionError("reviewer handoff missing Acceptance Criteria Traceability")
+        if "Contract Negative Fixture" not in reviewer_handoff:
+            raise AssertionError("reviewer handoff missing Contract Negative Fixture")
+        if "## Mandatory Independent QA Review" not in reviewer_handoff:
+            raise AssertionError("reviewer handoff missing Mandatory Independent QA Review section")
+        if "real reviewer.qa subagent" not in reviewer_handoff:
+            raise AssertionError("reviewer handoff missing reviewer.qa subagent instruction")
+
+        acceptance_traceability = json.loads(
+            (run_dir / "acceptance-traceability.json").read_text(encoding="utf-8")
+        )
+        acceptance_records = acceptance_traceability.get("acceptance")
+        if not isinstance(acceptance_records, list) or not acceptance_records:
+            raise AssertionError("generated acceptance-traceability.json must include records")
+        acceptance_record = acceptance_records[0]
+        if acceptance_record.get("id") != "architecture-contract-acceptance":
+            raise AssertionError("generated acceptance traceability must include default acceptance id")
+        if acceptance_record.get("contract_types") != ["gate"]:
+            raise AssertionError("generated acceptance traceability must include contract_types")
+        if "supported" not in acceptance_record.get("notes", ""):
+            raise AssertionError("generated acceptance traceability must explain supported status")
+        if "markers" not in acceptance_record.get("notes", ""):
+            raise AssertionError("generated acceptance traceability must explain evidence markers")
+        if "negative_fixture_evidence" not in acceptance_record:
+            raise AssertionError("generated acceptance traceability must include negative_fixture_evidence")
+        for contract_type in CONTRACT_NEGATIVE_FIXTURE_TYPES:
+            if contract_type not in (run_dir / "handoffs/architecture-contract.md").read_text(encoding="utf-8"):
+                raise AssertionError(f"architecture contract missing contract fixture type: {contract_type}")
+
+        architecture_contract = (run_dir / "handoffs/architecture-contract.md").read_text(encoding="utf-8")
+        if "Acceptance Criteria: `architecture-contract-acceptance`" not in architecture_contract:
+            raise AssertionError("architecture contract missing default Acceptance Criteria id")
 
         delegation_summary = json.loads((run_dir / "delegation-summary.json").read_text(encoding="utf-8"))
         if delegation_summary.get("subagents_used") is not False:
@@ -303,6 +346,12 @@ def main() -> int:
             "Subagents Used: no",
             "Role Lanes Used: no",
             "Subagent Trace Evidence: none",
+            "## Mandatory Independent QA Review",
+            "Mandatory Independent QA Review Gate",
+            "terminal handoff artifact",
+            "role-lane",
+            "launch-failure",
+            "runtime-failure",
         ]:
             if expected_line not in final_text:
                 raise AssertionError(f"generated final.md missing delegation trace line: {expected_line}")
@@ -318,6 +367,19 @@ def main() -> int:
         missing_lane_ids = expected_lane_ids - lane_ids
         if missing_lane_ids:
             raise AssertionError(f"generated lane-map.json missing lanes: {sorted(missing_lane_ids)}")
+        reviewer_lane = next(
+            (lane for lane in lane_map.get("lanes", []) if lane.get("id") == "review-contract"),
+            None,
+        )
+        if not isinstance(reviewer_lane, dict):
+            raise AssertionError("generated lane-map.json must include review-contract lane")
+        if reviewer_lane.get("execution_mode") != "subagent":
+            raise AssertionError("generated reviewer lane must use execution_mode=subagent")
+        mandatory_review = lane_map.get("mandatory_independent_qa_review")
+        if not isinstance(mandatory_review, dict):
+            raise AssertionError("generated lane-map.json must include mandatory_independent_qa_review")
+        if mandatory_review.get("reviewer_lane") != "review-contract":
+            raise AssertionError("mandatory_independent_qa_review must reference review-contract")
 
         expect_valid_pending_run("generated pending run", run_dir)
 

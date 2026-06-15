@@ -64,6 +64,12 @@ Classify every active task:
 If every active task is `clear`, continue and record that the dependency gate
 passed in task memory or trace notes when those artifacts exist.
 
+When `scripts/codegraph.py` is available, the Dependency Gate may call
+`python3 scripts/codegraph.py deps` before warning about overlap. Treat the
+result as local evidence: cite shared files, symbols, tests, and gaps when they
+help the user decide, but keep the orchestrator responsible for the final
+classification.
+
 If any task is `uncertain` or `dependent`, stop before implementation,
 delegation, or trace setup. The user-facing warning must include:
 
@@ -82,6 +88,10 @@ coordinated Agent Flow run.
 Do not block internal lane sharding, workers, or QA/review lanes that belong to
 the same Agent Flow run. The gate protects separate user-launched feature
 sessions from silently stepping on each other.
+
+CodeGraph failure is a gap, not a hard replacement for this gate. If the graph
+cannot refresh or returns `unknown`, fall back to the manual comparison above
+and record the graph failure in trace notes when a run exists.
 
 ## Infra Guard
 
