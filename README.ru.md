@@ -186,25 +186,37 @@ PASS all Agent Flow checks
 Прочитать репозиторий без правок:
 
 ```text
-Agent Flow Read the repository and project memory. Return active work, blocked items, next actions, and risks. Do not change anything.
+Agent Flow Прочитай репозиторий и проектную память. Верни активные задачи, блокеры, следующие действия и риски. Ничего не меняй.
 ```
 
 Исправить баг с проверкой:
 
 ```text
-Agent Flow Investigate this bug: <description>. Find the cause, make the smallest fix, run checks, and return changed files plus residual risks.
+Agent Flow Разбери баг: <описание>. Найди причину, внеси минимальную правку, запусти проверки и верни изменённые файлы плюс остаточные риски.
 ```
 
 Сделать архитектурно чувствительное изменение:
 
 ```text
-Agent Flow Implement <feature>. Use architecture gates where needed, keep worker changes inside approved boundaries, verify the result, and report evidence.
+Agent Flow Реализуй <feature>. Используй architecture gates там, где они нужны, держи worker changes внутри approved boundaries, проверь результат и покажи evidence.
+```
+
+Сделать refactor на основе архитектурного анализа:
+
+```text
+Agent Flow Перед refactor проанализируй проект на architecture drift. Опиши текущие module boundaries, data flow, public contracts и ownership hotspots. Если refactor не нужен, так и скажи. Если нужен, предложи минимальный behavior-preserving refactor, реализуй только этот scope и запусти релевантные проверки.
+```
+
+Убрать overengineering через Simplicity Gate:
+
+```text
+Agent Flow Проверь кодовую базу на overengineering через Engineering Simplicity Gate и Simplicity Scope Coverage. Найди лишние abstractions, duplicated helpers, dependency drift, слишком широкие изменения или код под проблемы, которых у нас нет. Убирай только evidence-backed issues, не добавляй новые frameworks, сохрани поведение и проверь cleanup.
 ```
 
 Подготовить release review:
 
 ```text
-Agent Flow Finish this feature for release. Run architecture, QA, and review gates, then return ship/pass-with-risks/blocked status with evidence.
+Agent Flow Подготовь эту feature к release. Прогони architecture, QA и review gates, затем верни статус ship/pass-with-risks/blocked с evidence.
 ```
 
 ## Документация

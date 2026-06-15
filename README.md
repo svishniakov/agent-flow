@@ -200,6 +200,18 @@ Run architecture-sensitive work:
 Agent Flow Implement <feature>. Use architecture gates where needed, keep worker changes inside approved boundaries, verify the result, and report evidence.
 ```
 
+Refactor from architecture analysis:
+
+```text
+Agent Flow Analyze this project for architecture drift before refactoring. Map the current module boundaries, data flow, public contracts, and ownership hotspots. If no refactor is justified, say so. Otherwise propose the smallest behavior-preserving refactor, implement only that scope, and run the relevant checks.
+```
+
+Remove overengineering with Simplicity Gate:
+
+```text
+Agent Flow Review this codebase for overengineering using Engineering Simplicity Gate and Simplicity Scope Coverage. Look for unnecessary abstractions, duplicated helpers, dependency drift, broad changes, or code that solves problems we do not have. Remove only evidence-backed issues, do not introduce new frameworks, preserve behavior, and verify the cleanup.
+```
+
 Prepare a release review:
 
 ```text
