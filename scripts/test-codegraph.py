@@ -191,6 +191,57 @@ def main() -> int:
         if boundary_fail["data"]["status"] != "fail":
             raise AssertionError(f"boundary should fail forbidden path: {boundary_fail}")
 
+        boundary_surface_not_allowed = run_codegraph(
+            repo,
+            "boundary",
+            "--path",
+            "web/math.ts",
+            "--allowed",
+            "web/math.ts",
+        )
+        if boundary_surface_not_allowed["data"]["status"] != "fail":
+            raise AssertionError(
+                "boundary should fail when affected_surface leaves allowed patterns: "
+                f"{boundary_surface_not_allowed}"
+            )
+        not_allowed_violations = boundary_surface_not_allowed["data"].get("affected_surface_violations", [])
+        not_allowed_paths = {item["path"] for item in not_allowed_violations}
+        if "web/math.test.ts" not in not_allowed_paths:
+            raise AssertionError(
+                "boundary should report graph-derived affected_surface not_allowed violation: "
+                f"{boundary_surface_not_allowed}"
+            )
+        if not any(item.get("reason") == "not_allowed" for item in not_allowed_violations):
+            raise AssertionError(
+                "boundary affected_surface violation should expose not_allowed reason: "
+                f"{boundary_surface_not_allowed}"
+            )
+
+        boundary_surface_forbidden = run_codegraph(
+            repo,
+            "boundary",
+            "--path",
+            "web/math.ts",
+            "--allowed",
+            "web/**",
+            "--forbidden",
+            "web/common.js",
+        )
+        if boundary_surface_forbidden["data"]["status"] != "fail":
+            raise AssertionError(
+                "boundary should fail when affected_surface matches forbidden patterns: "
+                f"{boundary_surface_forbidden}"
+            )
+        forbidden_violations = boundary_surface_forbidden["data"].get("affected_surface_violations", [])
+        if not any(
+            item["path"] == "web/common.js" and item.get("reason") == "forbidden"
+            for item in forbidden_violations
+        ):
+            raise AssertionError(
+                "boundary should report graph-derived affected_surface forbidden violation: "
+                f"{boundary_surface_forbidden}"
+            )
+
         dependent = run_codegraph(
             repo,
             "deps",

@@ -1391,6 +1391,28 @@ def validate_boundary_path(path: str) -> bool:
     return bool(path) and not path.startswith("/") and "\\" not in path and ".." not in Path(path).parts
 
 
+def boundary_violation(path: str, allowed: list[str], forbidden: list[str]) -> dict[str, Any] | None:
+    valid = validate_boundary_path(path)
+    allowed_match = matches_any(path, allowed) if allowed else False
+    forbidden_match = matches_any(path, forbidden)
+    if valid and allowed_match and not forbidden_match:
+        return None
+    if not valid:
+        reason = "invalid_path"
+    elif forbidden_match:
+        reason = "forbidden"
+    else:
+        reason = "not_allowed"
+    return {
+        "path": path,
+        "valid_path": valid,
+        "allowed": allowed_match,
+        "forbidden": forbidden_match,
+        "reason": reason,
+        "confidence": "exact",
+    }
+
+
 def query_boundary(
     repo_root: Path,
     changed_paths_file: str | None,
@@ -1403,26 +1425,33 @@ def query_boundary(
         violations = []
         affected = []
         for path in changed_paths:
-            valid = validate_boundary_path(path)
-            allowed_match = any(fnmatch.fnmatchcase(path, pattern) for pattern in allowed) if allowed else False
-            forbidden_match = any(fnmatch.fnmatchcase(path, pattern) for pattern in forbidden)
-            if not valid or forbidden_match or not allowed_match:
-                violations.append(
-                    {
-                        "path": path,
-                        "valid_path": valid,
-                        "allowed": allowed_match,
-                        "forbidden": forbidden_match,
-                        "confidence": "exact",
-                    }
-                )
+            violation = boundary_violation(path, allowed, forbidden)
+            if violation:
+                violations.append(violation)
             file = file_row(conn, path)
             if file:
                 affected.append({"path": file["path"], "language": file["language"], "confidence": "exact"})
                 affected.extend(query_impact(repo_root, file["path"]).get("files", []))
             else:
                 affected.append({"path": path, "language": None, "confidence": "unknown"})
-        status = "pass" if not violations else "fail"
+        affected_surface = unique_dicts(affected, ["path"])
+        changed_path_set = set(changed_paths)
+        affected_surface_violations = []
+        for item in affected_surface:
+            path = item.get("path")
+            if not isinstance(path, str) or path in changed_path_set:
+                continue
+            violation = boundary_violation(path, allowed, forbidden)
+            if not violation:
+                continue
+            affected_surface_violations.append(
+                {
+                    **violation,
+                    "language": item.get("language"),
+                    "surface_confidence": item.get("confidence", "unknown"),
+                }
+            )
+        status = "pass" if not violations and not affected_surface_violations else "fail"
         if not changed_paths:
             status = "unknown"
         return {
@@ -1431,12 +1460,14 @@ def query_boundary(
             "allowed": allowed,
             "forbidden": forbidden,
             "violations": violations,
-            "affected_surface": unique_dicts(affected, ["path"]),
+            "affected_surface": affected_surface,
+            "affected_surface_violations": affected_surface_violations,
             "evidence": {
                 "version": 1,
                 "changed_paths": changed_paths,
                 "status": status,
                 "confidence": "exact" if changed_paths else "unknown",
+                "affected_surface_violations": affected_surface_violations,
             },
         }
 
