@@ -189,15 +189,23 @@ Acceptance Criteria Traceability Gate applies to positive architecture-gated
 runs. The architect adds `Acceptance Criteria` ids to `QA Gates` and
 `Reviewer Checklist`; the orchestrator records each required id in
 `acceptance-traceability.json` with source, requirement, subjects,
-`supported` or `gap`, evidence paths, and literal `markers`. Reviewer checks
-that every required id is marker-backed before accepting `ship` or
-`pass-with-risks`.
+`supported` or `gap`, `surface_expectations`, evidence paths, and literal
+`markers`.
+
+Surface Evidence Gate is part of this traceability. Each `surface_expectations`
+item names the target `surface`, `polarity`, and allowed `proof_kinds`; each
+`evidence` or `negative_fixture_evidence` record names matching `surface`,
+`polarity`, and `proof_kind`. Reviewer rejects storage/internal evidence for
+API, UI, logs, history, provider metadata, or external-provider acceptance
+unless the target surface matches. Reviewer checks that every required id is
+marker-backed before accepting `ship` or `pass-with-risks`.
 
 Contract Negative Fixture Gate applies when an acceptance record is marked
 `gate`, `cli`, `query`, `storage`, `config`, or `parser`. Those records require
 `negative_fixture_evidence` with at least one evidence path and literal marker
-for a negative or drift fixture. Missing negative/drift fixture evidence blocks
-positive verdicts.
+for a negative or drift fixture. `negative_fixture_evidence` cannot use
+`polarity=positive`. Missing negative/drift fixture evidence blocks positive
+verdicts.
 
 Verification Readiness Gate runs before workers when an architecture-gated run
 has worker lanes. The orchestrator writes `verification_readiness` in

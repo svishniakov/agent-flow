@@ -605,12 +605,29 @@ def acceptance_traceability(
     subjects: list[str] | None = None,
     contract_types: list[str] | None = None,
     status: str = "supported",
+    surface_expectations: Any = DEFAULT,
     evidence: Any = DEFAULT,
     negative_fixture_evidence: Any = DEFAULT,
 ) -> dict[str, Any]:
+    if surface_expectations is DEFAULT:
+        surface_expectations = [
+            {
+                "surface": "service",
+                "polarity": "positive",
+                "proof_kinds": ["unit-test"],
+            },
+            {
+                "surface": "service",
+                "polarity": "negative",
+                "proof_kinds": ["unit-test"],
+            },
+        ]
     if evidence is DEFAULT:
         evidence = [
             {
+                "surface": "service",
+                "polarity": "positive",
+                "proof_kind": "unit-test",
                 "path": "checks/qa-behavior.md",
                 "markers": ["# qa-behavior evidence"],
             }
@@ -618,6 +635,9 @@ def acceptance_traceability(
     if negative_fixture_evidence is DEFAULT:
         negative_fixture_evidence = [
             {
+                "surface": "service",
+                "polarity": "negative",
+                "proof_kind": "unit-test",
                 "path": "checks/qa-behavior.md",
                 "markers": ["# qa-behavior evidence"],
             }
@@ -632,6 +652,8 @@ def acceptance_traceability(
             "status": status,
             "evidence": evidence,
         }
+        if surface_expectations is not OMIT:
+            item["surface_expectations"] = surface_expectations
         if negative_fixture_evidence is not OMIT:
             item["negative_fixture_evidence"] = negative_fixture_evidence
         acceptance = [item]
@@ -5243,6 +5265,199 @@ def main() -> int:
         )
 
         expect_fail(
+            "acceptance traceability missing surface expectations fails",
+            write_run(
+                temp / "acceptance-traceability-missing-surface-expectations",
+                lanes=claim_gate_lanes(),
+                lane_map_extra=architecture_control_extra(),
+                acceptance_traceability_data=acceptance_traceability(
+                    surface_expectations=OMIT,
+                ),
+            ),
+            "acceptance-traceability.json acceptance[0].surface_expectations "
+            "must be a non-empty array",
+        )
+
+        expect_fail(
+            "acceptance traceability wrong surface evidence fails",
+            write_run(
+                temp / "acceptance-traceability-wrong-surface-evidence",
+                lanes=claim_gate_lanes(),
+                lane_map_extra=architecture_control_extra(),
+                acceptance_traceability_data=acceptance_traceability(
+                    surface_expectations=[
+                        {
+                            "surface": "api",
+                            "polarity": "positive",
+                            "proof_kinds": ["unit-test"],
+                        },
+                        {
+                            "surface": "api",
+                            "polarity": "negative",
+                            "proof_kinds": ["unit-test"],
+                        },
+                    ],
+                    evidence=[
+                        {
+                            "surface": "storage",
+                            "polarity": "positive",
+                            "proof_kind": "unit-test",
+                            "path": "checks/qa-behavior.md",
+                            "markers": ["# qa-behavior evidence"],
+                        }
+                    ],
+                    negative_fixture_evidence=[
+                        {
+                            "surface": "api",
+                            "polarity": "negative",
+                            "proof_kind": "unit-test",
+                            "path": "checks/qa-behavior.md",
+                            "markers": ["# qa-behavior evidence"],
+                        }
+                    ],
+                ),
+            ),
+            "acceptance-traceability.json acceptance[0].evidence[0].surface "
+            "not in surface_expectations: storage",
+        )
+
+        expect_fail(
+            "acceptance traceability negative fixture rejects positive polarity",
+            write_run(
+                temp / "acceptance-traceability-positive-negative-fixture",
+                lanes=claim_gate_lanes(),
+                lane_map_extra=architecture_control_extra(),
+                acceptance_traceability_data=acceptance_traceability(
+                    surface_expectations=[
+                        {
+                            "surface": "service",
+                            "polarity": "positive",
+                            "proof_kinds": ["unit-test"],
+                        }
+                    ],
+                    negative_fixture_evidence=[
+                        {
+                            "surface": "service",
+                            "polarity": "positive",
+                            "proof_kind": "unit-test",
+                            "path": "checks/qa-behavior.md",
+                            "markers": ["# qa-behavior evidence"],
+                        }
+                    ],
+                ),
+            ),
+            "acceptance-traceability.json acceptance[0].negative_fixture_evidence[0].polarity "
+            "must be negative or drift",
+        )
+
+        expect_fail(
+            "acceptance traceability rejects unknown surface",
+            write_run(
+                temp / "acceptance-traceability-unknown-surface",
+                lanes=claim_gate_lanes(),
+                lane_map_extra=architecture_control_extra(),
+                acceptance_traceability_data=acceptance_traceability(
+                    surface_expectations=[
+                        {
+                            "surface": "database",
+                            "polarity": "positive",
+                            "proof_kinds": ["unit-test"],
+                        }
+                    ],
+                ),
+            ),
+            "acceptance-traceability.json acceptance[0].surface_expectations[0].surface "
+            "must be one of:",
+        )
+
+        expect_fail(
+            "acceptance traceability rejects unknown polarity",
+            write_run(
+                temp / "acceptance-traceability-unknown-polarity",
+                lanes=claim_gate_lanes(),
+                lane_map_extra=architecture_control_extra(),
+                acceptance_traceability_data=acceptance_traceability(
+                    surface_expectations=[
+                        {
+                            "surface": "service",
+                            "polarity": "affirmative",
+                            "proof_kinds": ["unit-test"],
+                        }
+                    ],
+                ),
+            ),
+            "acceptance-traceability.json acceptance[0].surface_expectations[0].polarity "
+            "must be one of:",
+        )
+
+        expect_fail(
+            "acceptance traceability rejects unknown proof kind",
+            write_run(
+                temp / "acceptance-traceability-unknown-proof-kind",
+                lanes=claim_gate_lanes(),
+                lane_map_extra=architecture_control_extra(),
+                acceptance_traceability_data=acceptance_traceability(
+                    surface_expectations=[
+                        {
+                            "surface": "service",
+                            "polarity": "positive",
+                            "proof_kinds": ["video"],
+                        }
+                    ],
+                ),
+            ),
+            "acceptance-traceability.json acceptance[0].surface_expectations[0].proof_kinds "
+            "invalid: video",
+        )
+
+        expect_pass(
+            "valid surface backed acceptance traceability passes",
+            write_extra_file(
+                write_run(
+                    temp / "acceptance-traceability-surface-backed-valid",
+                    lanes=claim_gate_lanes(),
+                    lane_map_extra=architecture_control_extra(),
+                    acceptance_traceability_data=acceptance_traceability(
+                        surface_expectations=[
+                            {
+                                "surface": "api",
+                                "polarity": "positive",
+                                "proof_kinds": ["integration-test"],
+                            },
+                            {
+                                "surface": "api",
+                                "polarity": "negative",
+                                "proof_kinds": ["smoke"],
+                            },
+                        ],
+                        evidence=[
+                            {
+                                "surface": "api",
+                                "polarity": "positive",
+                                "proof_kind": "integration-test",
+                                "path": "checks/api-contract.md",
+                                "markers": ["ApiPositiveEvidenceMarker"],
+                            }
+                        ],
+                        negative_fixture_evidence=[
+                            {
+                                "surface": "api",
+                                "polarity": "negative",
+                                "proof_kind": "smoke",
+                                "path": "checks/api-contract.md",
+                                "markers": ["ApiNegativeFixtureMarker"],
+                            }
+                        ],
+                    ),
+                ),
+                "checks/api-contract.md",
+                "# API Contract Evidence\n\n"
+                "ApiPositiveEvidenceMarker\n"
+                "ApiNegativeFixtureMarker\n",
+            ),
+        )
+
+        expect_fail(
             "acceptance traceability missing marker fails",
             write_run(
                 temp / "acceptance-traceability-missing-marker",
@@ -5251,6 +5466,9 @@ def main() -> int:
                 acceptance_traceability_data=acceptance_traceability(
                     evidence=[
                         {
+                            "surface": "service",
+                            "polarity": "positive",
+                            "proof_kind": "unit-test",
                             "path": "checks/qa-behavior.md",
                             "markers": ["ContractPositiveMarkerMissing"],
                         }
@@ -5270,12 +5488,18 @@ def main() -> int:
                 acceptance_traceability_data=acceptance_traceability(
                     evidence=[
                         {
+                            "surface": "service",
+                            "polarity": "positive",
+                            "proof_kind": "unit-test",
                             "path": "checks/qa-behavior.md",
                             "markers": [],
                         }
                     ],
                     negative_fixture_evidence=[
                         {
+                            "surface": "service",
+                            "polarity": "negative",
+                            "proof_kind": "unit-test",
                             "path": "checks/qa-behavior.md",
                             "markers": ["# qa-behavior evidence"],
                         }
@@ -5294,6 +5518,9 @@ def main() -> int:
                 acceptance_traceability_data=acceptance_traceability(
                     evidence=[
                         {
+                            "surface": "service",
+                            "polarity": "positive",
+                            "proof_kind": "unit-test",
                             "path": "checks",
                             "markers": ["# qa-behavior evidence"],
                         }
@@ -5325,6 +5552,9 @@ def main() -> int:
                 acceptance_traceability_data=acceptance_traceability(
                     negative_fixture_evidence=[
                         {
+                            "surface": "service",
+                            "polarity": "negative",
+                            "proof_kind": "unit-test",
                             "path": "checks/qa-behavior.md",
                             "markers": ["NegativeDriftMarkerMissing"],
                         }
@@ -5344,14 +5574,32 @@ def main() -> int:
                     lane_map_extra=architecture_control_extra(),
                     acceptance_traceability_data=acceptance_traceability(
                         contract_types=["parser"],
+                        surface_expectations=[
+                            {
+                                "surface": "parser",
+                                "polarity": "positive",
+                                "proof_kinds": ["unit-test"],
+                            },
+                            {
+                                "surface": "parser",
+                                "polarity": "drift",
+                                "proof_kinds": ["unit-test"],
+                            },
+                        ],
                         evidence=[
                             {
+                                "surface": "parser",
+                                "polarity": "positive",
+                                "proof_kind": "unit-test",
                                 "path": "checks/parser-contract.md",
                                 "markers": ["ParserPositiveFixtureMarker"],
                             }
                         ],
                         negative_fixture_evidence=[
                             {
+                                "surface": "parser",
+                                "polarity": "drift",
+                                "proof_kind": "unit-test",
                                 "path": "checks/parser-contract.md",
                                 "markers": ["ParserDriftFixtureMarker"],
                             }

@@ -202,8 +202,12 @@ LANE_BOUNDARY_EVIDENCE_GUARD_TERMS = [
 ]
 ACCEPTANCE_TRACEABILITY_GATE_GUARD_TERMS = [
     "Acceptance Criteria Traceability Gate",
+    "Surface Evidence Gate",
     "acceptance-traceability.json",
     "Acceptance Criteria",
+    "surface_expectations",
+    "polarity",
+    "proof_kind",
     "supported",
     "markers",
 ]

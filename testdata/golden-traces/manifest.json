@@ -438,6 +438,26 @@
       ]
     },
     {
+      "id": "acceptance-traceability-missing-surface-expectations",
+      "path": "invalid/acceptance-traceability-missing-surface-expectations",
+      "mode": "full",
+      "expected": "fail",
+      "expected_error": "acceptance-traceability.json acceptance[0].surface_expectations must be a non-empty array",
+      "covers": [
+        "Surface Evidence Gate"
+      ]
+    },
+    {
+      "id": "acceptance-traceability-wrong-surface-evidence",
+      "path": "invalid/acceptance-traceability-wrong-surface-evidence",
+      "mode": "full",
+      "expected": "fail",
+      "expected_error": "acceptance-traceability.json acceptance[0].evidence[0].surface not in surface_expectations: storage",
+      "covers": [
+        "Surface Evidence Gate"
+      ]
+    },
+    {
       "id": "positive-run-without-claim-evidence",
       "path": "invalid/positive-run-without-claim-evidence",
       "mode": "full",

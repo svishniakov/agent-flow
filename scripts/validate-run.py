@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate traceable runs, Architecture Capability Router, Architecture Artifact Authoring Automation, Acceptance Criteria Traceability Gate, Contract Negative Fixture Gate, Claim Evidence Gate, Lane Boundary Evidence Gate, `boundary.allowed_paths`, `boundary.forbidden_paths`, `changed_paths_artifact`, `scripts/record-lane-boundary.py`, and Harness Evaluation Loop gates."""
+"""Validate traceable runs, Architecture Capability Router, Architecture Artifact Authoring Automation, Acceptance Criteria Traceability Gate, Surface Evidence Gate, Contract Negative Fixture Gate, Claim Evidence Gate, Lane Boundary Evidence Gate, `boundary.allowed_paths`, `boundary.forbidden_paths`, `changed_paths_artifact`, `scripts/record-lane-boundary.py`, and Harness Evaluation Loop gates."""
 
 from __future__ import annotations
 
@@ -291,6 +291,34 @@ MARKDOWN_HEADING_PATTERN = re.compile(r"^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$")
 CLAIM_EVIDENCE_PATTERN = re.compile(r"^\s*-\s+Claim Evidence:\s+`([^`]+)`\s*$")
 ACCEPTANCE_CRITERIA_PATTERN = re.compile(r"^\s*-\s+Acceptance Criteria:\s+`([^`]+)`\s*$")
 ACCEPTANCE_TRACEABILITY_STATUSES = {"supported", "gap"}
+ACCEPTANCE_TRACEABILITY_SURFACES = {
+    "parser",
+    "storage",
+    "service",
+    "api",
+    "ui",
+    "history",
+    "logs",
+    "audit",
+    "provider-metadata",
+    "config",
+    "cli",
+    "event-broker",
+    "event-catalog",
+    "external-provider",
+    "docs",
+}
+ACCEPTANCE_TRACEABILITY_POLARITIES = {"positive", "negative", "drift"}
+ACCEPTANCE_TRACEABILITY_PROOF_KINDS = {
+    "unit-test",
+    "integration-test",
+    "smoke",
+    "screenshot",
+    "static-check",
+    "source-read",
+    "manual-log",
+}
+NEGATIVE_FIXTURE_POLARITIES = {"negative", "drift"}
 CONTRACT_NEGATIVE_FIXTURE_TYPES = {"gate", "cli", "query", "storage", "config", "parser"}
 
 
@@ -2435,6 +2463,162 @@ def validate_marker_evidence_records(
     return errors
 
 
+def validate_acceptance_surface_expectations(
+    value: object,
+    label: str,
+    errors: list[str],
+) -> dict[tuple[str, str], set[str]]:
+    if not isinstance(value, list) or not value:
+        errors.append(f"{label} must be a non-empty array")
+        return {}
+
+    expectations: dict[tuple[str, str], set[str]] = {}
+    for index, expectation in enumerate(value):
+        expectation_label = f"{label}[{index}]"
+        if not isinstance(expectation, dict):
+            errors.append(f"{expectation_label} must be an object")
+            continue
+
+        surface = validate_string(expectation.get("surface"), f"{expectation_label}.surface", errors)
+        if surface and surface not in ACCEPTANCE_TRACEABILITY_SURFACES:
+            allowed = ", ".join(sorted(ACCEPTANCE_TRACEABILITY_SURFACES))
+            errors.append(f"{expectation_label}.surface must be one of: {allowed}")
+
+        polarity = validate_string(expectation.get("polarity"), f"{expectation_label}.polarity", errors)
+        if polarity and polarity not in ACCEPTANCE_TRACEABILITY_POLARITIES:
+            allowed = ", ".join(sorted(ACCEPTANCE_TRACEABILITY_POLARITIES))
+            errors.append(f"{expectation_label}.polarity must be one of: {allowed}")
+
+        proof_kinds_value = expectation.get("proof_kinds")
+        if not isinstance(proof_kinds_value, list) or not proof_kinds_value:
+            errors.append(f"{expectation_label}.proof_kinds must be a non-empty array")
+            proof_kinds: list[str] = []
+        else:
+            proof_kinds = validate_string_list(proof_kinds_value, f"{expectation_label}.proof_kinds", errors)
+
+        valid_proof_kinds: set[str] = set()
+        for proof_kind in proof_kinds:
+            if proof_kind not in ACCEPTANCE_TRACEABILITY_PROOF_KINDS:
+                allowed = ", ".join(sorted(ACCEPTANCE_TRACEABILITY_PROOF_KINDS))
+                errors.append(f"{expectation_label}.proof_kinds invalid: {proof_kind} (expected one of: {allowed})")
+            else:
+                valid_proof_kinds.add(proof_kind)
+
+        if (
+            surface in ACCEPTANCE_TRACEABILITY_SURFACES
+            and polarity in ACCEPTANCE_TRACEABILITY_POLARITIES
+            and valid_proof_kinds
+        ):
+            expectations.setdefault((surface, polarity), set()).update(valid_proof_kinds)
+
+    return expectations
+
+
+def validate_acceptance_marker_evidence_records(
+    run_dir: Path,
+    records: object,
+    *,
+    label: str,
+    required: bool,
+    expectations: dict[tuple[str, str], set[str]],
+    negative_fixture: bool,
+) -> tuple[set[tuple[str, str]], list[str]]:
+    if not isinstance(records, list):
+        return set(), [f"{label} must be an array"]
+    if required and not records:
+        return set(), [f"{label} must be a non-empty array"]
+
+    errors: list[str] = []
+    covered: set[tuple[str, str]] = set()
+    expectation_surfaces = {surface for surface, _polarity in expectations}
+    for index, evidence_record in enumerate(records):
+        evidence_label = f"{label}[{index}]"
+        if not isinstance(evidence_record, dict):
+            errors.append(f"{evidence_label} must be an object")
+            continue
+
+        surface = validate_string(evidence_record.get("surface"), f"{evidence_label}.surface", errors)
+        if surface and surface not in ACCEPTANCE_TRACEABILITY_SURFACES:
+            allowed = ", ".join(sorted(ACCEPTANCE_TRACEABILITY_SURFACES))
+            errors.append(f"{evidence_label}.surface must be one of: {allowed}")
+
+        polarity = validate_string(evidence_record.get("polarity"), f"{evidence_label}.polarity", errors)
+        if polarity and polarity not in ACCEPTANCE_TRACEABILITY_POLARITIES:
+            allowed = ", ".join(sorted(ACCEPTANCE_TRACEABILITY_POLARITIES))
+            errors.append(f"{evidence_label}.polarity must be one of: {allowed}")
+        elif negative_fixture and polarity == "positive":
+            errors.append(f"{evidence_label}.polarity must be negative or drift")
+
+        proof_kind = validate_string(evidence_record.get("proof_kind"), f"{evidence_label}.proof_kind", errors)
+        if proof_kind and proof_kind not in ACCEPTANCE_TRACEABILITY_PROOF_KINDS:
+            allowed = ", ".join(sorted(ACCEPTANCE_TRACEABILITY_PROOF_KINDS))
+            errors.append(f"{evidence_label}.proof_kind must be one of: {allowed}")
+
+        evidence_path_value = validate_string(
+            evidence_record.get("path"),
+            f"{evidence_label}.path",
+            errors,
+        )
+        evidence_text = ""
+        evidence_loaded = False
+        marker_backed = bool(evidence_path_value)
+        if evidence_path_value:
+            evidence_path = resolve_run_path(run_dir, evidence_path_value)
+            if not evidence_path.exists():
+                errors.append(f"{evidence_label}.path not found: {evidence_path_value}")
+                marker_backed = False
+            elif not evidence_path.is_file():
+                errors.append(f"{evidence_label}.path must be a file: {evidence_path_value}")
+                marker_backed = False
+            else:
+                evidence_text = evidence_path.read_text(encoding="utf-8")
+                evidence_loaded = True
+
+        marker_label = f"{evidence_label}.markers"
+        raw_markers = evidence_record.get("markers")
+        if not isinstance(raw_markers, list) or not raw_markers:
+            errors.append(f"{marker_label} must be a non-empty array")
+            markers = []
+            marker_backed = False
+        else:
+            markers = validate_string_list(raw_markers, marker_label, errors)
+        if evidence_loaded:
+            for marker_index, marker in enumerate(markers):
+                if marker not in evidence_text:
+                    errors.append(
+                        f"{evidence_label}.markers[{marker_index}] "
+                        f"not found in {evidence_path_value}"
+                    )
+                    marker_backed = False
+
+        if not expectations or not marker_backed:
+            continue
+        if (
+            surface not in ACCEPTANCE_TRACEABILITY_SURFACES
+            or polarity not in ACCEPTANCE_TRACEABILITY_POLARITIES
+            or proof_kind not in ACCEPTANCE_TRACEABILITY_PROOF_KINDS
+            or (negative_fixture and polarity == "positive")
+        ):
+            continue
+
+        expectation_key = (surface, polarity)
+        if surface not in expectation_surfaces:
+            errors.append(f"{evidence_label}.surface not in surface_expectations: {surface}")
+        elif expectation_key not in expectations:
+            errors.append(
+                f"{evidence_label}.polarity not in surface_expectations for {surface}: {polarity}"
+            )
+        elif proof_kind not in expectations[expectation_key]:
+            errors.append(
+                f"{evidence_label}.proof_kind not allowed for expectation "
+                f"{surface}/{polarity}: {proof_kind}"
+            )
+        else:
+            covered.add(expectation_key)
+
+    return covered, errors
+
+
 def validate_acceptance_traceability_records(
     run_dir: Path,
     *,
@@ -2517,37 +2701,57 @@ def validate_acceptance_traceability_records(
                 f"{', '.join(unknown_contract_types)} (expected one of: {allowed})"
             )
 
-        errors.extend(
-            validate_marker_evidence_records(
-                run_dir,
-                record.get("evidence"),
-                label=f"{ACCEPTANCE_TRACEABILITY_PATH} {label}.evidence",
-                required=True,
-            )
+        surface_expectations = validate_acceptance_surface_expectations(
+            record.get("surface_expectations"),
+            f"{ACCEPTANCE_TRACEABILITY_PATH} {label}.surface_expectations",
+            errors,
         )
+        covered_expectations: set[tuple[str, str]] = set()
+
+        evidence_coverage, evidence_errors = validate_acceptance_marker_evidence_records(
+            run_dir,
+            record.get("evidence"),
+            label=f"{ACCEPTANCE_TRACEABILITY_PATH} {label}.evidence",
+            required=True,
+            expectations=surface_expectations,
+            negative_fixture=False,
+        )
+        covered_expectations.update(evidence_coverage)
+        errors.extend(evidence_errors)
 
         requires_negative_fixture = any(
             contract_type in CONTRACT_NEGATIVE_FIXTURE_TYPES
             for contract_type in contract_types
         )
         if requires_negative_fixture:
-            errors.extend(
-                validate_marker_evidence_records(
-                    run_dir,
-                    record.get("negative_fixture_evidence"),
-                    label=f"{ACCEPTANCE_TRACEABILITY_PATH} {label}.negative_fixture_evidence",
-                    required=True,
-                )
+            fixture_coverage, fixture_errors = validate_acceptance_marker_evidence_records(
+                run_dir,
+                record.get("negative_fixture_evidence"),
+                label=f"{ACCEPTANCE_TRACEABILITY_PATH} {label}.negative_fixture_evidence",
+                required=True,
+                expectations=surface_expectations,
+                negative_fixture=True,
             )
+            covered_expectations.update(fixture_coverage)
+            errors.extend(fixture_errors)
         elif "negative_fixture_evidence" in record:
-            errors.extend(
-                validate_marker_evidence_records(
-                    run_dir,
-                    record.get("negative_fixture_evidence"),
-                    label=f"{ACCEPTANCE_TRACEABILITY_PATH} {label}.negative_fixture_evidence",
-                    required=False,
-                )
+            fixture_coverage, fixture_errors = validate_acceptance_marker_evidence_records(
+                run_dir,
+                record.get("negative_fixture_evidence"),
+                label=f"{ACCEPTANCE_TRACEABILITY_PATH} {label}.negative_fixture_evidence",
+                required=False,
+                expectations=surface_expectations,
+                negative_fixture=True,
             )
+            covered_expectations.update(fixture_coverage)
+            errors.extend(fixture_errors)
+
+        for surface, polarity in sorted(surface_expectations):
+            if (surface, polarity) not in covered_expectations:
+                errors.append(
+                    f"{ACCEPTANCE_TRACEABILITY_PATH} {label} expectation "
+                    f"{surface}/{polarity} not covered by matching evidence"
+                )
 
     for required_acceptance_id in required_acceptance_ids:
         if required_acceptance_id not in seen_ids:

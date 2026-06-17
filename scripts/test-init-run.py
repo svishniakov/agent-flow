@@ -292,6 +292,8 @@ def main() -> int:
             raise AssertionError("QA handoff missing Boundary Evidence invariant")
         if "Acceptance Criteria Traceability Gate" not in qa_handoff:
             raise AssertionError("QA handoff missing Acceptance Criteria Traceability Gate")
+        if "Surface Evidence Gate" not in qa_handoff:
+            raise AssertionError("QA handoff missing Surface Evidence Gate")
         if "Contract Negative Fixture Gate" not in qa_handoff:
             raise AssertionError("QA handoff missing Contract Negative Fixture Gate")
 
@@ -302,6 +304,8 @@ def main() -> int:
             raise AssertionError("reviewer handoff missing Boundary Evidence worker lane id")
         if "Acceptance Criteria Traceability" not in reviewer_handoff:
             raise AssertionError("reviewer handoff missing Acceptance Criteria Traceability")
+        if "Surface Evidence Gate" not in reviewer_handoff:
+            raise AssertionError("reviewer handoff missing Surface Evidence Gate")
         if "Contract Negative Fixture" not in reviewer_handoff:
             raise AssertionError("reviewer handoff missing Contract Negative Fixture")
         if "## Mandatory Independent QA Review" not in reviewer_handoff:
@@ -320,12 +324,31 @@ def main() -> int:
             raise AssertionError("generated acceptance traceability must include default acceptance id")
         if acceptance_record.get("contract_types") != ["gate"]:
             raise AssertionError("generated acceptance traceability must include contract_types")
+        surface_expectations = acceptance_record.get("surface_expectations")
+        if not isinstance(surface_expectations, list) or not surface_expectations:
+            raise AssertionError("generated acceptance traceability must include surface_expectations")
+        surface_expectation = surface_expectations[0]
+        for field in ["surface", "polarity", "proof_kinds"]:
+            if field not in surface_expectation:
+                raise AssertionError(f"generated surface expectation missing {field}")
         if "supported" not in acceptance_record.get("notes", ""):
             raise AssertionError("generated acceptance traceability must explain supported status")
         if "markers" not in acceptance_record.get("notes", ""):
             raise AssertionError("generated acceptance traceability must explain evidence markers")
+        evidence_records = acceptance_record.get("evidence")
+        if not isinstance(evidence_records, list) or not evidence_records:
+            raise AssertionError("generated acceptance traceability must include evidence")
+        for field in ["surface", "polarity", "proof_kind"]:
+            if field not in evidence_records[0]:
+                raise AssertionError(f"generated acceptance evidence missing {field}")
         if "negative_fixture_evidence" not in acceptance_record:
             raise AssertionError("generated acceptance traceability must include negative_fixture_evidence")
+        fixture_records = acceptance_record.get("negative_fixture_evidence")
+        if not isinstance(fixture_records, list) or not fixture_records:
+            raise AssertionError("generated acceptance traceability must include negative fixture records")
+        for field in ["surface", "polarity", "proof_kind"]:
+            if field not in fixture_records[0]:
+                raise AssertionError(f"generated negative fixture evidence missing {field}")
         for contract_type in CONTRACT_NEGATIVE_FIXTURE_TYPES:
             if contract_type not in (run_dir / "handoffs/architecture-contract.md").read_text(encoding="utf-8"):
                 raise AssertionError(f"architecture contract missing contract fixture type: {contract_type}")

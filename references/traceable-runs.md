@@ -242,9 +242,11 @@ Schema v2 adds the Architecture Contract Gate:
 - positive verdicts require `status=supported`; `status=gap` is allowed only for `blocked` or `fail`;
 - positive architecture-gated runs require Acceptance Criteria Traceability Gate: the architecture handoff `QA Gates` and `Reviewer Checklist` sections must contain `Acceptance Criteria` ids, and the run root must include `acceptance-traceability.json`;
 - `acceptance-traceability.json` uses `version=1` and a non-empty `acceptance` array; every acceptance id is unique kebab-case and every required contract acceptance id has a record;
-- each acceptance record names `source`, `requirement`, `subjects`, `contract_types`, `status`, and evidence entries with literal `markers`;
-- positive verdicts require every acceptance record to use `status=supported`, every marker must appear in the referenced evidence file, and every required acceptance id must have evidence;
-- Contract Negative Fixture Gate applies to acceptance records marked `gate`, `cli`, `query`, `storage`, `config`, or `parser`; those records must include `negative_fixture_evidence` with at least one evidence path and literal marker for a negative or drift fixture;
+- each acceptance record names `source`, `requirement`, `subjects`, `contract_types`, `status`, `surface_expectations`, and evidence entries with literal `markers`;
+- Surface Evidence Gate requires each `surface_expectations` item to name `surface`, `polarity`, and allowed `proof_kinds`; each `evidence` or `negative_fixture_evidence` record names matching `surface`, `polarity`, and `proof_kind`, and only a matching record can cover that expectation;
+- storage or other internal evidence cannot satisfy API, UI, logs, history, provider metadata, or external-provider acceptance unless the target `surface` matches exactly;
+- positive verdicts require every acceptance record to use `status=supported`, every marker must appear in the referenced evidence file, every `surface_expectations` item must have matching evidence, and every required acceptance id must have evidence;
+- Contract Negative Fixture Gate applies to acceptance records marked `gate`, `cli`, `query`, `storage`, `config`, or `parser`; those records must include `negative_fixture_evidence` with at least one evidence path and literal marker for a negative or drift fixture, and `negative_fixture_evidence` cannot use `polarity=positive`;
 - failed, blocked, or timed-out architecture lanes block `ship`;
 - reviewer and QA lanes may pass only after the architecture contract passes;
 - when `architecture_contract_independent` is true, the architecture lane must use `subagent` execution with spawned trace evidence.

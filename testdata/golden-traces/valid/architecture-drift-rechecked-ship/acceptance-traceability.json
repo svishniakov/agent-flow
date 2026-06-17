@@ -12,8 +12,27 @@
         "gate"
       ],
       "status": "supported",
+      "surface_expectations": [
+        {
+          "surface": "service",
+          "polarity": "positive",
+          "proof_kinds": [
+            "unit-test"
+          ]
+        },
+        {
+          "surface": "service",
+          "polarity": "negative",
+          "proof_kinds": [
+            "unit-test"
+          ]
+        }
+      ],
       "evidence": [
         {
+          "surface": "service",
+          "polarity": "positive",
+          "proof_kind": "unit-test",
           "path": "checks/qa-behavior.md",
           "markers": [
             "# qa-behavior evidence"
@@ -22,6 +41,9 @@
       ],
       "negative_fixture_evidence": [
         {
+          "surface": "service",
+          "polarity": "negative",
+          "proof_kind": "unit-test",
           "path": "checks/qa-behavior.md",
           "markers": [
             "# qa-behavior evidence"

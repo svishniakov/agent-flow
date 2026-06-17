@@ -38,7 +38,7 @@ RUN_FILES = {
         "## Boundary Evidence\n\n"
         "TODO(agent): summarize worker lane boundary artifacts and out-of-bound product-code status.\n\n"
         "## Acceptance Traceability\n\n"
-        "TODO(agent): summarize acceptance-traceability.json and contract negative/drift fixture coverage.\n\n"
+        "TODO(agent): summarize acceptance-traceability.json, Surface Evidence Gate, and contract negative/drift fixture coverage.\n\n"
         "## Worktree Hygiene\n\n"
     ),
 }
@@ -452,7 +452,7 @@ Acceptance criteria:
 
 {AGENT_TODO_PLACEHOLDER} Confirm Boundary Evidence for every worker lane and block closure if any product-code change falls outside the allowed paths.
 
-{AGENT_TODO_PLACEHOLDER} Confirm Acceptance Criteria Traceability Gate and Contract Negative Fixture Gate: every required acceptance id has evidence markers, and gate/CLI/query/storage/config/parser contracts have negative or drift fixture evidence.
+{AGENT_TODO_PLACEHOLDER} Confirm Acceptance Criteria Traceability Gate, Surface Evidence Gate, and Contract Negative Fixture Gate: every required acceptance id has evidence markers, every `surface_expectations` item has matching surface/polarity/proof_kind evidence, and gate/CLI/query/storage/config/parser contracts have negative or drift fixture evidence.
 
 ## Engineering Simplicity Scope
 
@@ -571,7 +571,7 @@ Boundary Evidence worker lanes:
 
 {AGENT_TODO_PLACEHOLDER} This review must be completed by the real reviewer.qa subagent. Confirm spawned trace evidence, delegation-summary.json coverage, and terminal handoff before any positive final.
 
-{AGENT_TODO_PLACEHOLDER} Report no drift or name the exact drift and required architect re-check. Mention Boundary Evidence for every worker lane id, mention Acceptance Criteria Traceability and Contract Negative Fixture coverage, mention every primary surface, and reject peripheral-only closure.
+{AGENT_TODO_PLACEHOLDER} Report no drift or name the exact drift and required architect re-check. Mention Boundary Evidence for every worker lane id, mention Acceptance Criteria Traceability, Surface Evidence Gate, and Contract Negative Fixture coverage, mention every primary surface, and reject peripheral-only closure.
 """
 
 
@@ -616,17 +616,39 @@ def acceptance_traceability_template() -> str:
                     ],
                     "contract_types": ["gate"],
                     "status": "gap",
-                    "notes": "TODO(agent): change status to supported only after evidence markers and negative/drift fixture markers are present.",
+                    "surface_expectations": [
+                        {
+                            "surface": "service",
+                            "polarity": "positive",
+                            "proof_kinds": ["unit-test"],
+                        },
+                        {
+                            "surface": "service",
+                            "polarity": "negative",
+                            "proof_kinds": ["unit-test"],
+                        },
+                    ],
+                    "notes": (
+                        "TODO(agent): replace service/unit-test with the exact target surface and proof kinds; "
+                        "change status to supported only after matching surface evidence markers and "
+                        "negative/drift fixture markers are present."
+                    ),
                     "evidence": [
                         {
+                            "surface": "service",
+                            "polarity": "positive",
+                            "proof_kind": "unit-test",
                             "path": "checks/qa-behavior.md",
-                            "markers": ["TODO(agent): exact positive evidence marker"],
+                            "markers": ["TODO(agent): exact positive marker for the target surface"],
                         }
                     ],
                     "negative_fixture_evidence": [
                         {
+                            "surface": "service",
+                            "polarity": "negative",
+                            "proof_kind": "unit-test",
                             "path": "checks/qa-behavior.md",
-                            "markers": ["TODO(agent): exact negative or drift fixture marker"],
+                            "markers": ["TODO(agent): exact negative or drift marker for the target surface"],
                         }
                     ],
                 }
