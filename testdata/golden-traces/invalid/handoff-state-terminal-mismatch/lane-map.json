@@ -1,0 +1,54 @@
+{
+  "schema_version": 2,
+  "budget": "standard",
+  "architecture_contract_required": false,
+  "architecture_contract_independent": false,
+  "handoff_state_required": true,
+  "lanes": [
+    {
+      "id": "qa-state",
+      "type": "qa",
+      "role": "qa-verifier",
+      "wave": 1,
+      "critical": true,
+      "execution_mode": "role-lane",
+      "status": "pass",
+      "handoff": "handoffs/qa-state.md",
+      "evidence": [
+        "checks/qa-state.md"
+      ],
+      "replacement": null,
+      "handoff_state": {
+        "version": 1,
+        "mode": "task",
+        "status": "accepted",
+        "to": "qa-state",
+        "handoff": "handoffs/qa-state.md",
+        "queued_at": "2026-06-17T12:00:00+03:00",
+        "accepted_at": "2026-06-17T12:05:00+03:00"
+      }
+    },
+    {
+      "id": "review-state",
+      "type": "review",
+      "role": "reviewer",
+      "wave": 2,
+      "critical": true,
+      "execution_mode": "role-lane",
+      "status": "pass",
+      "handoff": "handoffs/review-state.md",
+      "evidence": [
+        "checks/review-state.md"
+      ],
+      "replacement": null,
+      "handoff_state": {
+        "version": 1,
+        "mode": "task",
+        "status": "completed",
+        "to": "review-state",
+        "handoff": "handoffs/review-state.md",
+        "completed_at": "2026-06-17T12:30:00+03:00"
+      }
+    }
+  ]
+}

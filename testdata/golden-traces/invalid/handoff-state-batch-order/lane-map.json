@@ -1,0 +1,63 @@
+{
+  "schema_version": 2,
+  "budget": "standard",
+  "architecture_contract_required": false,
+  "architecture_contract_independent": false,
+  "handoff_state_required": true,
+  "lanes": [
+    {
+      "id": "qa-item",
+      "type": "qa",
+      "role": "qa-verifier",
+      "wave": 1,
+      "critical": true,
+      "execution_mode": "role-lane",
+      "status": "pass",
+      "handoff": "handoffs/qa-item.md",
+      "evidence": [
+        "checks/qa-item.md"
+      ],
+      "replacement": null,
+      "handoff_state": {
+        "version": 1,
+        "mode": "task",
+        "status": "completed",
+        "to": "qa-item",
+        "handoff": "handoffs/qa-item.md",
+        "queued_at": "2026-06-17T12:00:00+03:00",
+        "accepted_at": "2026-06-17T12:05:00+03:00",
+        "completed_at": "2026-06-17T12:30:00+03:00"
+      }
+    },
+    {
+      "id": "review-batch",
+      "type": "review",
+      "role": "reviewer",
+      "wave": 2,
+      "critical": true,
+      "execution_mode": "role-lane",
+      "status": "pass",
+      "handoff": "handoffs/review-batch.md",
+      "evidence": [
+        "checks/review-batch.md"
+      ],
+      "replacement": null,
+      "handoff_state": {
+        "version": 1,
+        "mode": "batch",
+        "status": "completed",
+        "to": "review-batch",
+        "handoff": "handoffs/review-batch.md",
+        "queued_at": "2026-06-17T12:08:00+03:00",
+        "accepted_at": "2026-06-17T12:10:00+03:00",
+        "completed_at": "2026-06-17T12:40:00+03:00",
+        "batch": {
+          "id": "quality-batch",
+          "items": [
+            "qa-item"
+          ]
+        }
+      }
+    }
+  ]
+}

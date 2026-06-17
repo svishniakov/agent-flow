@@ -666,6 +666,16 @@ def check_template(title: str) -> str:
 """
 
 
+def queued_handoff_state(lane: dict) -> dict:
+    return {
+        "version": 1,
+        "mode": "task",
+        "status": "queued",
+        "to": lane["id"],
+        "handoff": lane["handoff"],
+    }
+
+
 def architecture_gate_lane_map(
     budget: str,
     context: dict[str, list[str]],
@@ -753,11 +763,14 @@ def architecture_gate_lane_map(
             },
         ]
     )
+    for lane in lanes:
+        lane["handoff_state"] = queued_handoff_state(lane)
     return {
         "schema_version": 2,
         "budget": budget,
         "architecture_contract_required": True,
         "architecture_contract_independent": False,
+        "handoff_state_required": True,
         "mandatory_independent_qa_review": {
             "required": True,
             "reviewer_lane": "review-contract",

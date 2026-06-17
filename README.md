@@ -109,7 +109,10 @@ as `blocked`. AgentFlow must not fall back to solo review for mandatory QA.
 Traceable work stores durable evidence under a local run directory. The central
 file is `lane-map.json`; the validator checks lane ownership, handoffs,
 artifact paths, timeline events, subagent traces, architecture controls,
-acceptance traceability, contract negative fixtures, and final verdict rules.
+handoff state, acceptance traceability, contract negative fixtures, and final
+verdict rules. Opt-in Handoff State Gate uses `handoff_state_required` plus
+`scripts/record-handoff-state.py` for `queued`, `accepted`, and `completed`
+lane lifecycle state.
 
 Golden Trace Runs in `testdata/golden-traces/` are the runtime acceptance pack.
 They include both valid and intentionally invalid runs, so changes to the gates
@@ -182,6 +185,7 @@ validator guards, and Golden Trace Runs remain canonical runtime artifacts.
 | `scripts/check-all.py` | repository validation suite |
 | `scripts/validate-run.py` | trace and lane-map validator |
 | `scripts/init-run.py` | trace skeleton generator |
+| `scripts/record-handoff-state.py` | Handoff State Gate state recorder |
 | `scripts/record-lane-boundary.py` | worker changed-path boundary recorder |
 | `scripts/promote-harness-evaluation.py` | promotion from Harness Evaluation into Evidence Records |
 | `scripts/analyze-evidence-records.py` | local learning analyzer |

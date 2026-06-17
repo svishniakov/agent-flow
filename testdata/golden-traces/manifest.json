@@ -14,6 +14,19 @@
       ]
     },
     {
+      "id": "handoff-state-gate-ship",
+      "path": "valid/handoff-state-gate-ship",
+      "mode": "full",
+      "expected": "pass",
+      "covers": [
+        "Handoff State Gate",
+        "handoff_state_required",
+        "queued",
+        "accepted",
+        "completed"
+      ]
+    },
+    {
       "id": "standard-multilane-architecture-ship",
       "path": "valid/standard-multilane-architecture-ship",
       "mode": "full",
@@ -100,6 +113,40 @@
       "expected_error": "release budget requires architecture_contract_required=true",
       "covers": [
         "release architecture gate"
+      ]
+    },
+    {
+      "id": "handoff-state-missing-state",
+      "path": "invalid/handoff-state-missing-state",
+      "mode": "full",
+      "expected": "fail",
+      "expected_error": "missing handoff_state for Handoff State Gate",
+      "covers": [
+        "Handoff State Gate",
+        "handoff_state_required",
+        "missing state"
+      ]
+    },
+    {
+      "id": "handoff-state-terminal-mismatch",
+      "path": "invalid/handoff-state-terminal-mismatch",
+      "mode": "full",
+      "expected": "fail",
+      "expected_error": "status pass requires handoff_state.status=completed",
+      "covers": [
+        "Handoff State Gate",
+        "terminal status mapping"
+      ]
+    },
+    {
+      "id": "handoff-state-batch-order",
+      "path": "invalid/handoff-state-batch-order",
+      "mode": "full",
+      "expected": "fail",
+      "expected_error": "batch item qa-item must be completed before batch lane accepted",
+      "covers": [
+        "Handoff State Gate",
+        "batch ordering"
       ]
     },
     {

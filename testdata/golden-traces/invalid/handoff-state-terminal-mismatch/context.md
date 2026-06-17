@@ -1,0 +1,3 @@
+# Context
+
+Validate terminal mapping.

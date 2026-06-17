@@ -67,14 +67,15 @@ Inside Agent Flow, the orchestrator owns the outcome:
 9. Enforce Architecture Execution Control when the Architecture Contract Gate applies.
 10. Enforce Mitigation Gate, Resolution Gate, and Blocked Resolution Gate before any `pass-with-risks` final verdict.
 11. Enforce Delegation Trace Gate for traceable lane runs.
-12. Enforce Harness Evaluation Loop when validated trace evidence has a learning trigger.
-13. Enforce Claim Evidence Gate for positive architecture-gated runs.
-14. Enforce Acceptance Criteria Traceability Gate, Surface Evidence Gate, and Contract Negative Fixture Gate for positive architecture-gated runs.
-15. Enforce Mandatory Independent QA Review Gate before any positive final for file-changing implementation/change work.
-16. Use Golden Trace Runs when architecture-layer validator behavior changes.
-17. Verify evidence before any completion claim.
-18. Close the current project-memory task status before final handoff.
-18. Return the final answer with residual risks.
+12. Enforce Handoff State Gate when `handoff_state_required=true`.
+13. Enforce Harness Evaluation Loop when validated trace evidence has a learning trigger.
+14. Enforce Claim Evidence Gate for positive architecture-gated runs.
+15. Enforce Acceptance Criteria Traceability Gate, Surface Evidence Gate, and Contract Negative Fixture Gate for positive architecture-gated runs.
+16. Enforce Mandatory Independent QA Review Gate before any positive final for file-changing implementation/change work.
+17. Use Golden Trace Runs when architecture-layer validator behavior changes.
+18. Verify evidence before any completion claim.
+19. Close the current project-memory task status before final handoff.
+20. Return the final answer with residual risks.
 
 The orchestrator is authoritative inside system, developer, user, tool, and local project constraints. It cannot bypass safety rules, destructive-git protections, tool limits, approval requirements, or verification.
 
@@ -188,6 +189,14 @@ in `final.md` with `Subagents Used`, `Role Lanes Used`, and
 `Subagent Trace Evidence`. A real subagent needs spawned trace evidence plus a
 terminal handoff event; role-lane work must not be called sidecar or subagent
 execution.
+
+Handoff State Gate is opt-in for schema v2 lane-map runs through
+`handoff_state_required=true`. `scripts/record-handoff-state.py` updates only
+`lane-map.json`; it records `handoff_state` status `queued`, `accepted`,
+`completed`, `blocked`, or `failed` without writing timeline events. Positive
+terminal lanes require completed handoff state, blocked lanes require blocked,
+failed lanes require failed, and batch mode references must point to completed
+items.
 
 The Architecture Approval Gate handles rejected, regressed, or uncertain architecture attempts. The orchestrator sends the real case back for deeper architecture analysis, then lets workers retry only against the approved steps and records the resulting evidence.
 
@@ -361,6 +370,7 @@ Optional helper scripts live in `scripts/`:
 - `init-run.py`: create a traceable run skeleton.
 - `append-timeline.py`: append one JSONL timeline event.
 - `record-agent-trace.py`: append one subagent or role-lane event to both run and role traces.
+- `record-handoff-state.py`: update Handoff State Gate state in `lane-map.json`.
 - `validate-run.py`: check run completeness before final handoff.
 - `validate-architecture-capabilities.py`: check Architecture Capability Router registry and Soft Skill Binding links.
 - `test-golden-traces.py`: run Golden Trace Runs from `testdata/golden-traces/`.

@@ -1894,6 +1894,38 @@ def expect_fail_without(name: str, run_dir: Path, needle: str, forbidden: str) -
         raise AssertionError(f"{name} unexpectedly contained '{forbidden}'\nOutput:\n{output}")
 
 
+def handoff_state(
+    lane_id: str,
+    *,
+    status: str = "completed",
+    mode: str = "task",
+    handoff: str | None = None,
+    queued_at: str | None = "2026-06-17T12:00:00+03:00",
+    accepted_at: str | None = "2026-06-17T12:05:00+03:00",
+    completed_at: str | None = "2026-06-17T12:30:00+03:00",
+    batch: dict[str, Any] | None = None,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    state: dict[str, Any] = {
+        "version": 1,
+        "mode": mode,
+        "status": status,
+        "to": lane_id,
+        "handoff": handoff or f"handoffs/{lane_id}.md",
+    }
+    if queued_at is not None:
+        state["queued_at"] = queued_at
+    if accepted_at is not None:
+        state["accepted_at"] = accepted_at
+    if completed_at is not None:
+        state["completed_at"] = completed_at
+    if batch is not None:
+        state["batch"] = batch
+    if extra:
+        state.update(extra)
+    return state
+
+
 def lane(
     lane_id: str,
     *,
@@ -1906,6 +1938,7 @@ def lane(
     wave: int = 3,
     handoff_sections: list[str] | None = None,
     handoff_section_bodies: dict[str, str] | None = None,
+    lane_handoff_state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     lane_data = {
         "id": lane_id,
@@ -1923,6 +1956,8 @@ def lane(
         lane_data["handoff_sections"] = handoff_sections
     if handoff_section_bodies is not None:
         lane_data["handoff_section_bodies"] = handoff_section_bodies
+    if lane_handoff_state is not None:
+        lane_data["handoff_state"] = lane_handoff_state
     return lane_data
 
 
@@ -2628,6 +2663,174 @@ def main() -> int:
                 lanes=[lane("qa-trace")],
                 lane_map_extra={"schema_version": 2, "budget": "standard"},
             ),
+        )
+
+        expect_pass(
+            "old lane-map without handoff state flag still passes",
+            write_run(
+                temp / "handoff-state-legacy-no-flag",
+                lanes=[lane("qa-legacy")],
+                lane_map_extra={"schema_version": 2, "budget": "standard"},
+            ),
+        )
+
+        expect_pass(
+            "valid handoff state passes",
+            write_run(
+                temp / "handoff-state-valid",
+                lanes=[
+                    lane(
+                        "qa-state",
+                        lane_handoff_state=handoff_state("qa-state"),
+                    )
+                ],
+                lane_map_extra={
+                    "schema_version": 2,
+                    "budget": "standard",
+                    "handoff_state_required": True,
+                },
+            ),
+        )
+
+        expect_fail(
+            "missing required handoff state fails",
+            write_run(
+                temp / "handoff-state-missing",
+                lanes=[lane("qa-missing")],
+                lane_map_extra={
+                    "schema_version": 2,
+                    "budget": "standard",
+                    "handoff_state_required": True,
+                },
+            ),
+            "lane-map.json: lane qa-missing missing handoff_state for Handoff State Gate",
+        )
+
+        expect_fail(
+            "completed handoff state without completed_at fails",
+            write_run(
+                temp / "handoff-state-completed-missing-time",
+                lanes=[
+                    lane(
+                        "qa-no-completed-at",
+                        lane_handoff_state=handoff_state(
+                            "qa-no-completed-at",
+                            completed_at=None,
+                        ),
+                    )
+                ],
+                lane_map_extra={
+                    "schema_version": 2,
+                    "budget": "standard",
+                    "handoff_state_required": True,
+                },
+            ),
+            "lane-map.json: lane qa-no-completed-at handoff_state.completed_at required for completed",
+        )
+
+        expect_fail(
+            "pass lane with accepted handoff state fails",
+            write_run(
+                temp / "handoff-state-terminal-mismatch",
+                lanes=[
+                    lane(
+                        "qa-accepted",
+                        lane_handoff_state=handoff_state(
+                            "qa-accepted",
+                            status="accepted",
+                            completed_at=None,
+                        ),
+                    )
+                ],
+                lane_map_extra={
+                    "schema_version": 2,
+                    "budget": "standard",
+                    "handoff_state_required": True,
+                },
+            ),
+            "lane-map.json: lane qa-accepted status pass requires handoff_state.status=completed",
+        )
+
+        expect_fail(
+            "handoff state mismatch fails",
+            write_run(
+                temp / "handoff-state-path-mismatch",
+                lanes=[
+                    lane(
+                        "qa-path",
+                        lane_handoff_state=handoff_state(
+                            "qa-path",
+                            handoff="handoffs/other.md",
+                        ),
+                    )
+                ],
+                lane_map_extra={
+                    "schema_version": 2,
+                    "budget": "standard",
+                    "handoff_state_required": True,
+                },
+            ),
+            "lane-map.json: lane qa-path handoff_state.handoff must match lane handoff: handoffs/qa-path.md",
+        )
+
+        expect_fail(
+            "batch item unknown fails",
+            write_run(
+                temp / "handoff-state-batch-unknown",
+                lanes=[
+                    lane(
+                        "review-batch",
+                        lane_type="review",
+                        role="reviewer",
+                        lane_handoff_state=handoff_state(
+                            "review-batch",
+                            mode="batch",
+                            batch={"id": "batch-1", "items": ["missing-lane"]},
+                        ),
+                    )
+                ],
+                lane_map_extra={
+                    "schema_version": 2,
+                    "budget": "standard",
+                    "handoff_state_required": True,
+                },
+            ),
+            "lane-map.json: lane review-batch batch item unknown: missing-lane",
+        )
+
+        expect_fail(
+            "batch item not completed before batch lane fails",
+            write_run(
+                temp / "handoff-state-batch-order",
+                lanes=[
+                    lane(
+                        "qa-item",
+                        lane_handoff_state=handoff_state(
+                            "qa-item",
+                            completed_at="2026-06-17T12:30:00+03:00",
+                        ),
+                    ),
+                    lane(
+                        "review-batch",
+                        lane_type="review",
+                        role="reviewer",
+                        wave=4,
+                        lane_handoff_state=handoff_state(
+                            "review-batch",
+                            mode="batch",
+                            accepted_at="2026-06-17T12:10:00+03:00",
+                            completed_at="2026-06-17T12:40:00+03:00",
+                            batch={"id": "batch-1", "items": ["qa-item"]},
+                        ),
+                    ),
+                ],
+                lane_map_extra={
+                    "schema_version": 2,
+                    "budget": "standard",
+                    "handoff_state_required": True,
+                },
+            ),
+            "lane-map.json: lane review-batch batch item qa-item must be completed before batch lane accepted",
         )
 
         continuation_lane_map_extra = {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate traceable runs, Architecture Capability Router, Architecture Artifact Authoring Automation, Acceptance Criteria Traceability Gate, Surface Evidence Gate, Contract Negative Fixture Gate, Claim Evidence Gate, Lane Boundary Evidence Gate, `boundary.allowed_paths`, `boundary.forbidden_paths`, `changed_paths_artifact`, `scripts/record-lane-boundary.py`, and Harness Evaluation Loop gates."""
+"""Validate traceable runs, Architecture Capability Router, Architecture Artifact Authoring Automation, Acceptance Criteria Traceability Gate, Surface Evidence Gate, Contract Negative Fixture Gate, Claim Evidence Gate, Lane Boundary Evidence Gate, Handoff State Gate, `handoff_state_required`, `scripts/record-handoff-state.py`, `boundary.allowed_paths`, `boundary.forbidden_paths`, `changed_paths_artifact`, `scripts/record-lane-boundary.py`, and Harness Evaluation Loop gates."""
 
 from __future__ import annotations
 
@@ -80,6 +80,22 @@ LANE_STATUSES = {
 }
 SUCCESSFUL_LANE_STATUSES = {"pass", "pass-with-risks"}
 UNRESOLVED_LANE_STATUSES = {"planned", "spawned", "active", "timed-out", "fail", "blocked"}
+HANDOFF_STATE_REQUIRED_FIELD = "handoff_state_required"
+HANDOFF_STATE_FIELD = "handoff_state"
+HANDOFF_STATE_MODES = {"task", "batch"}
+HANDOFF_STATE_STATUSES = {"queued", "accepted", "completed", "blocked", "failed"}
+HANDOFF_STATE_TERMINAL_BY_LANE_STATUS = {
+    "pass": "completed",
+    "pass-with-risks": "completed",
+    "blocked": "blocked",
+    "fail": "failed",
+}
+HANDOFF_STATE_OPEN_BY_LANE_STATUS = {
+    "planned": {"queued"},
+    "spawned": {"queued", "accepted"},
+    "active": {"queued", "accepted"},
+}
+HANDOFF_STATE_TIMESTAMP_FIELDS = ("queued_at", "accepted_at", "completed_at")
 IMPLEMENTATION_STAGES = {"implementation", "fix"}
 SUCCESSFUL_CHECK_STAGES = {"verification", "checks"}
 SUCCESS_STATUSES = {"pass", "ship", "pass-with-risks"}
@@ -702,6 +718,246 @@ def validate_lane_path_list(run_dir: Path, paths: object, label: str, field: str
         if not resolve_run_path(run_dir, path).exists():
             errors.append(f"lane-map.json: lane {label} {field}[{index}] not found: {path}")
     return result
+
+
+def parse_handoff_state_timestamp(
+    value: object,
+    *,
+    label: str,
+    field: str,
+    errors: list[str],
+) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        errors.append(
+            f"lane-map.json: lane {label} handoff_state.{field} "
+            "must be a non-empty ISO timestamp"
+        )
+        return None
+    parsed = parse_event_timestamp(value)
+    if parsed is None:
+        errors.append(
+            f"lane-map.json: lane {label} handoff_state.{field} "
+            f"invalid timestamp: {value}"
+        )
+    return parsed
+
+
+def handoff_state_string(
+    state: dict,
+    field: str,
+    label: str,
+    errors: list[str],
+    *,
+    required: bool = True,
+) -> str | None:
+    value = state.get(field)
+    if value is None and not required:
+        return None
+    if not isinstance(value, str) or not value:
+        errors.append(f"lane-map.json: lane {label} handoff_state.{field} must be a non-empty string")
+        return None
+    return value
+
+
+def validate_handoff_state_batch(
+    *,
+    lane_id: str,
+    label: str,
+    state: dict,
+    lane_by_id: dict[str, dict],
+    state_by_lane_id: dict[str, dict],
+    errors: list[str],
+) -> None:
+    batch = state.get("batch")
+    if not isinstance(batch, dict):
+        errors.append(f"lane-map.json: lane {label} handoff_state.batch must be an object")
+        return
+
+    batch_id = batch.get("id")
+    if not isinstance(batch_id, str) or not batch_id:
+        errors.append(f"lane-map.json: lane {label} handoff_state.batch.id must be a non-empty string")
+
+    items = batch.get("items")
+    if not isinstance(items, list) or not items:
+        errors.append(f"lane-map.json: lane {label} handoff_state.batch.items must be a non-empty array")
+        return
+
+    batch_start = state.get("accepted_at") or state.get("completed_at")
+    batch_start_time = (
+        parse_event_timestamp(batch_start)
+        if isinstance(batch_start, str) and batch_start
+        else None
+    )
+    for index, item in enumerate(items):
+        if not isinstance(item, str) or not item:
+            errors.append(
+                f"lane-map.json: lane {label} handoff_state.batch.items[{index}] "
+                "must be a non-empty string"
+            )
+            continue
+        if item == lane_id:
+            errors.append(f"lane-map.json: lane {label} batch item must not reference itself")
+            continue
+        if item not in lane_by_id:
+            errors.append(f"lane-map.json: lane {label} batch item unknown: {item}")
+            continue
+
+        item_state = state_by_lane_id.get(item)
+        if not item_state or item_state.get("status") != "completed":
+            errors.append(f"lane-map.json: lane {label} batch item {item} must be completed")
+            continue
+
+        item_completed_at = item_state.get("completed_at")
+        if not isinstance(item_completed_at, str) or not item_completed_at:
+            errors.append(f"lane-map.json: lane {label} batch item {item} missing completed_at")
+            continue
+        item_completed_time = parse_event_timestamp(item_completed_at)
+        if item_completed_time is None:
+            continue
+        if batch_start_time is not None and item_completed_time > batch_start_time:
+            errors.append(
+                f"lane-map.json: lane {label} batch item {item} "
+                "must be completed before batch lane accepted"
+            )
+
+
+def validate_handoff_states(
+    run_dir: Path,
+    lanes: list[object],
+    *,
+    lane_by_id: dict[str, dict],
+    normalized_status_by_id: dict[str, str],
+    handoff_state_required: bool,
+    final_verdict: str | None,
+) -> list[str]:
+    errors: list[str] = []
+    state_by_lane_id: dict[str, dict] = {}
+
+    for index, lane in enumerate(lanes):
+        if not isinstance(lane, dict):
+            continue
+        lane_id = lane.get("id")
+        if not isinstance(lane_id, str) or not lane_id:
+            continue
+        label = lane_label(lane_id, index)
+        raw_state = lane.get(HANDOFF_STATE_FIELD)
+        if raw_state is None:
+            if handoff_state_required:
+                errors.append(f"lane-map.json: lane {label} missing handoff_state for Handoff State Gate")
+            continue
+        if not isinstance(raw_state, dict):
+            errors.append(f"lane-map.json: lane {label} handoff_state must be an object")
+            continue
+        state_by_lane_id[lane_id] = raw_state
+
+    for index, lane in enumerate(lanes):
+        if not isinstance(lane, dict):
+            continue
+        lane_id = lane.get("id")
+        if not isinstance(lane_id, str) or not lane_id:
+            continue
+        state = state_by_lane_id.get(lane_id)
+        if state is None:
+            continue
+
+        label = lane_label(lane_id, index)
+        version = state.get("version")
+        if version != 1 or isinstance(version, bool):
+            errors.append(f"lane-map.json: lane {label} handoff_state.version must be 1")
+
+        mode = state.get("mode")
+        if mode not in HANDOFF_STATE_MODES:
+            allowed = ", ".join(sorted(HANDOFF_STATE_MODES))
+            errors.append(f"lane-map.json: lane {label} handoff_state.mode must be one of: {allowed}")
+
+        state_status = state.get("status")
+        if state_status not in HANDOFF_STATE_STATUSES:
+            allowed = ", ".join(sorted(HANDOFF_STATE_STATUSES))
+            errors.append(f"lane-map.json: lane {label} handoff_state.status must be one of: {allowed}")
+            state_status = None
+
+        handoff = handoff_state_string(state, "handoff", label, errors)
+        lane_handoff = lane.get("handoff")
+        if isinstance(lane_handoff, str) and lane_handoff and handoff and handoff != lane_handoff:
+            errors.append(
+                f"lane-map.json: lane {label} handoff_state.handoff must match lane handoff: {lane_handoff}"
+            )
+        if state_status in {"completed", "blocked", "failed"} and handoff:
+            if not resolve_run_path(run_dir, handoff).exists():
+                errors.append(f"lane-map.json: lane {label} handoff_state.handoff not found: {handoff}")
+
+        handoff_state_string(state, "to", label, errors)
+        handoff_state_string(state, "from", label, errors, required=False)
+        handoff_state_string(state, "task", label, errors, required=False)
+
+        parsed_timestamps: dict[str, datetime] = {}
+        for field in HANDOFF_STATE_TIMESTAMP_FIELDS:
+            if field not in state:
+                continue
+            parsed = parse_handoff_state_timestamp(
+                state.get(field),
+                label=label,
+                field=field,
+                errors=errors,
+            )
+            if parsed is not None:
+                parsed_timestamps[field] = parsed
+
+        if state_status == "accepted" and "accepted_at" not in state:
+            errors.append(f"lane-map.json: lane {label} handoff_state.accepted_at required for accepted")
+        if state_status in {"completed", "blocked", "failed"} and "completed_at" not in state:
+            errors.append(f"lane-map.json: lane {label} handoff_state.completed_at required for {state_status}")
+
+        queued_at = parsed_timestamps.get("queued_at")
+        accepted_at = parsed_timestamps.get("accepted_at")
+        completed_at = parsed_timestamps.get("completed_at")
+        if queued_at and accepted_at and queued_at > accepted_at:
+            errors.append(f"lane-map.json: lane {label} handoff_state queued_at must be <= accepted_at")
+        if accepted_at and completed_at and accepted_at > completed_at:
+            errors.append(f"lane-map.json: lane {label} handoff_state accepted_at must be <= completed_at")
+        if queued_at and completed_at and queued_at > completed_at:
+            errors.append(f"lane-map.json: lane {label} handoff_state queued_at must be <= completed_at")
+
+        if mode == "batch":
+            validate_handoff_state_batch(
+                lane_id=lane_id,
+                label=label,
+                state=state,
+                lane_by_id=lane_by_id,
+                state_by_lane_id=state_by_lane_id,
+                errors=errors,
+            )
+        elif mode == "task" and "batch" in state:
+            errors.append(f"lane-map.json: lane {label} handoff_state.batch requires mode=batch")
+
+        lane_status = normalized_status_by_id.get(lane_id)
+        if state_status is None or lane_status is None:
+            continue
+        expected_terminal_status = HANDOFF_STATE_TERMINAL_BY_LANE_STATUS.get(lane_status)
+        if expected_terminal_status and state_status != expected_terminal_status:
+            errors.append(
+                f"lane-map.json: lane {label} status {lane_status} "
+                f"requires handoff_state.status={expected_terminal_status}"
+            )
+        allowed_open_statuses = HANDOFF_STATE_OPEN_BY_LANE_STATUS.get(lane_status)
+        if allowed_open_statuses and state_status not in allowed_open_statuses:
+            allowed = ", ".join(sorted(allowed_open_statuses))
+            errors.append(
+                f"lane-map.json: lane {label} status {lane_status} "
+                f"requires handoff_state.status one of: {allowed}"
+            )
+        if (
+            handoff_state_required
+            and final_verdict in POSITIVE_FINAL_VERDICTS
+            and lane.get("critical") is True
+            and lane_status in {"planned", "spawned", "active"}
+        ):
+            errors.append(
+                f"lane-map.json: lane {label} positive final requires "
+                "critical handoff_state.status=completed"
+            )
+
+    return errors
 
 
 def lane_artifact_references(lanes: list[object]) -> list[str]:
@@ -4828,6 +5084,11 @@ def validate_lane_map(
         errors.append("lane-map.json field 'architecture_contract_independent' must be a boolean")
         architecture_contract_independent = False
 
+    handoff_state_required = data.get(HANDOFF_STATE_REQUIRED_FIELD, False)
+    if not isinstance(handoff_state_required, bool):
+        errors.append(f"lane-map.json field '{HANDOFF_STATE_REQUIRED_FIELD}' must be a boolean")
+        handoff_state_required = False
+
     budget: str | None = None
     if schema_version == 2:
         raw_budget = data.get("budget")
@@ -5325,6 +5586,17 @@ def validate_lane_map(
                                 else None,
                             )
                         )
+
+    errors.extend(
+        validate_handoff_states(
+            run_dir,
+            lanes,
+            lane_by_id=lane_by_id,
+            normalized_status_by_id=normalized_status_by_id,
+            handoff_state_required=handoff_state_required,
+            final_verdict=final_verdict,
+        )
+    )
 
     if simplicity_scope_required and not allow_pending:
         for surface in simplicity_primary_surfaces:

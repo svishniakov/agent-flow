@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "subagents_used": false,
+  "role_lanes_used": true,
+  "subagents": [],
+  "role_lanes": [
+    {
+      "lane_id": "qa-state",
+      "role": "qa-verifier",
+      "reason": "qa-state executed as role-lane."
+    },
+    {
+      "lane_id": "review-state",
+      "role": "reviewer",
+      "reason": "review-state executed as role-lane."
+    }
+  ],
+  "notes": "Handoff State Gate missing state fixture."
+}

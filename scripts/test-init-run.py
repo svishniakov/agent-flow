@@ -222,6 +222,8 @@ def main() -> int:
         lane_map = load_lane_map(run_dir)
         if lane_map.get("schema_version") != 2:
             raise AssertionError("generated lane-map.json must use schema v2")
+        if lane_map.get("handoff_state_required") is not True:
+            raise AssertionError("generated architecture-gate lane-map.json must require handoff_state")
         if lane_map.get("architecture_context") != DEFAULT_ARCHITECTURE_CONTEXT:
             raise AssertionError("generated lane-map.json must include architecture_context")
         if lane_map.get("architecture_capabilities", {}).get("selected") != DEFAULT_ARCHITECTURE_CAPABILITIES:
@@ -390,6 +392,22 @@ def main() -> int:
         missing_lane_ids = expected_lane_ids - lane_ids
         if missing_lane_ids:
             raise AssertionError(f"generated lane-map.json missing lanes: {sorted(missing_lane_ids)}")
+        for lane_data in lane_map.get("lanes", []):
+            if not isinstance(lane_data, dict):
+                continue
+            state = lane_data.get("handoff_state")
+            if not isinstance(state, dict):
+                raise AssertionError(f"generated lane {lane_data.get('id')} missing handoff_state")
+            if state.get("version") != 1:
+                raise AssertionError("generated handoff_state.version must be 1")
+            if state.get("mode") != "task":
+                raise AssertionError("generated handoff_state.mode must be task")
+            if state.get("status") != "queued":
+                raise AssertionError("generated handoff_state.status must start queued")
+            if state.get("to") != lane_data.get("id"):
+                raise AssertionError("generated handoff_state.to must match lane id")
+            if state.get("handoff") != lane_data.get("handoff"):
+                raise AssertionError("generated handoff_state.handoff must match lane handoff")
         reviewer_lane = next(
             (lane for lane in lane_map.get("lanes", []) if lane.get("id") == "review-contract"),
             None,
@@ -405,6 +423,29 @@ def main() -> int:
             raise AssertionError("mandatory_independent_qa_review must reference review-contract")
 
         expect_valid_pending_run("generated pending run", run_dir)
+
+        plain_result = run_init(
+            [
+                "--repo",
+                str(repo),
+                "--slug",
+                "plain-lanes",
+                "--date",
+                "2026-06-12",
+                "--with-lanes",
+            ]
+        )
+        if plain_result.returncode != 0:
+            raise AssertionError(
+                "plain --with-lanes init expected pass\n"
+                f"STDOUT:\n{plain_result.stdout}\nSTDERR:\n{plain_result.stderr}"
+            )
+        plain_lane_map = load_lane_map(Path(plain_result.stdout.strip()))
+        if "handoff_state_required" in plain_lane_map:
+            raise AssertionError("plain --with-lanes must not opt into Handoff State Gate")
+        for lane_data in plain_lane_map.get("lanes", []):
+            if isinstance(lane_data, dict) and "handoff_state" in lane_data:
+                raise AssertionError("plain --with-lanes must not prefill handoff_state")
 
     print("PASS init-run fixture tests")
     return 0

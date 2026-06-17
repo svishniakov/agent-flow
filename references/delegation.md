@@ -336,6 +336,26 @@ Markdown matrices are summaries only. Do not claim that a critical lane is
 covered unless its lane-map entry points to existing handoff and evidence
 artifacts, or to a replacement lane that does.
 
+## Handoff State Gate
+
+Handoff State Gate is optional for existing schema v2 lane maps and required
+when `handoff_state_required=true`. It makes the handoff lane lifecycle
+machine-readable without adding a runtime queue.
+
+Use `scripts/record-handoff-state.py` to update only `lane-map.json`:
+
+```bash
+python3 scripts/record-handoff-state.py --run-dir <run-dir> --lane-id worker-a --status queued --from architecture-contract --task worker-a-implementation --handoff handoffs/worker-a.md
+python3 scripts/record-handoff-state.py --run-dir <run-dir> --lane-id worker-a --status accepted
+python3 scripts/record-handoff-state.py --run-dir <run-dir> --lane-id worker-a --status completed
+```
+
+`handoff_state.mode` is `task` or `batch`. `handoff_state.status` is `queued`,
+`accepted`, `completed`, `blocked`, or `failed`. A `pass` or `pass-with-risks`
+lane requires `completed`; `blocked` requires `blocked`; `fail` requires
+`failed`. Batch mode lists referenced lane ids, and each referenced item must be
+completed before the batch lane is accepted.
+
 ## Stable Identities
 
 Look up stable identities in bundled `agents/agent-identities.json` before launching a subagent. If identity is missing, use the role name as temporary slug and record the gap in route or manifest.

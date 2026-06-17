@@ -107,6 +107,7 @@ Only after the budget/task shape justifies subagents or a required subagent gate
 - Enforce Resolution Gate after Mitigation Gate before `pass-with-risks`: write `risk-resolutions.json`, create one record per identified risk, include `resolution_type`, concrete `resolution`, evidence, `verification`, `verified_by`, `reviewed_by`, record the ids in `Risk Resolutions`, route QA `Risk Resolution Verification`, and route reviewer `Risk Resolution Review`; only `fixed`, `mitigated`, or `contained` may close `pass-with-risks`, while `unresolved` is only valid for `blocked` or `fail`.
 - Enforce Blocked Resolution Gate inside Resolution Gate: blocked attempts require `blocked_lesson`, `rollback`, `forbidden_repeat`, and a Blocked Recovery Path; attempt 1 blocked routes to Senior QA `Senior QA Test Design Review` and architect `Resolution Architect Review` before attempt 2; attempt 2 blocked routes to `Supervising Architect Review` before attempt 3; a third blocked attempt ends as `blocked` or `fail`.
 - Enforce Delegation Trace Gate for positive schema v2 lane-map runs: keep `delegation-summary.json`, final `Delegation Trace`, `Subagents Used`, `Role Lanes Used`, and `Subagent Trace Evidence` synchronized with actual trace evidence.
+- Enforce Handoff State Gate when `handoff_state_required=true`: use `scripts/record-handoff-state.py` to record `queued`, `accepted`, and `completed` state in `lane-map.json`; terminal `pass`, `blocked`, and `fail` lane statuses must match `handoff_state`, and batch items must be completed before batch acceptance.
 - For lane-map schema v2, set `budget`, `architecture_contract_required`, `architecture_contract_independent`, `architecture_context`, and `architecture_capabilities` explicitly.
 - Send rejected, regressed, or uncertain architecture attempts through the Architecture Approval Gate before retrying implementation.
 - Treat regression demotion as immediate: a reused approach that regresses is no longer auto-applicable until reviewed.
@@ -153,16 +154,17 @@ Before final answer:
 2. Verify changed files and command outputs.
 3. Confirm trace artifacts only if used.
 4. Confirm Delegation Trace Gate: no role-lane is described as sidecar/subagent unless spawned trace evidence and terminal handoff exist.
-5. Confirm Mandatory Independent QA Review Gate when implementation/change work changed files or creates a commit: `reviewer.qa` ran as a real subagent, `delegation-summary.json` covers it, spawned trace has `codex_thread_id`, and terminal handoff exists. If not, final is `blocked`.
-6. Confirm Claim Evidence Gate when architecture governance applies: `claim-evidence.json` exists, every `Claim Evidence` id has an `owner_lane`, `supported` status, evidence `markers`, and no unresolved `gap` before a positive final verdict.
-7. Confirm Acceptance Criteria Traceability Gate, Surface Evidence Gate, and Contract Negative Fixture Gate when architecture governance applies: `acceptance-traceability.json` exists, every `Acceptance Criteria` id is `supported` with marker-backed evidence, every `surface_expectations` item has matching `surface`/`polarity`/`proof_kind` evidence, and every `gate`, `cli`, `query`, `storage`, `config`, or `parser` item has marker-backed `negative_fixture_evidence`.
-8. If a traceable run has learning triggers, create `harness-evaluation.json` before final validation and keep it signal-only.
-9. If `implementation-notes.md` gained Evidence Records, run or account for the evidence analyzer before relying on a learned practice.
-10. If product changes must be committed, create the product commit after checks and before final trace closure. Do not include `.agent-work/` in the product commit unless the user explicitly requested it.
-11. Run the Task Status Completion Gate for the current `.agent-work/tasks/todo.md` section. If the checklist is complete, verification is recorded, no blocker remains, and the requested commit succeeded, set `Status: done`; otherwise record the missing item and keep `Status: in_progress` or `Status: blocked`.
-12. If a trace timeline exists and a product commit was created, append an orchestrator `stage=commit` event with the commit hash.
-13. Compare the initial worktree snapshot with current `git status --short`.
-14. In `final.md`, record run-owned changes, product commit hash when applicable, pre-existing dirty files left untouched, and pre-existing dirty files touched by the run.
+5. Confirm Handoff State Gate when `handoff_state_required=true`: no required lane has missing state, accepted terminal state, missing `completed_at`, handoff mismatch, or invalid batch order.
+6. Confirm Mandatory Independent QA Review Gate when implementation/change work changed files or creates a commit: `reviewer.qa` ran as a real subagent, `delegation-summary.json` covers it, spawned trace has `codex_thread_id`, and terminal handoff exists. If not, final is `blocked`.
+7. Confirm Claim Evidence Gate when architecture governance applies: `claim-evidence.json` exists, every `Claim Evidence` id has an `owner_lane`, `supported` status, evidence `markers`, and no unresolved `gap` before a positive final verdict.
+8. Confirm Acceptance Criteria Traceability Gate, Surface Evidence Gate, and Contract Negative Fixture Gate when architecture governance applies: `acceptance-traceability.json` exists, every `Acceptance Criteria` id is `supported` with marker-backed evidence, every `surface_expectations` item has matching `surface`/`polarity`/`proof_kind` evidence, and every `gate`, `cli`, `query`, `storage`, `config`, or `parser` item has marker-backed `negative_fixture_evidence`.
+9. If a traceable run has learning triggers, create `harness-evaluation.json` before final validation and keep it signal-only.
+10. If `implementation-notes.md` gained Evidence Records, run or account for the evidence analyzer before relying on a learned practice.
+11. If product changes must be committed, create the product commit after checks and before final trace closure. Do not include `.agent-work/` in the product commit unless the user explicitly requested it.
+12. Run the Task Status Completion Gate for the current `.agent-work/tasks/todo.md` section. If the checklist is complete, verification is recorded, no blocker remains, and the requested commit succeeded, set `Status: done`; otherwise record the missing item and keep `Status: in_progress` or `Status: blocked`.
+13. If a trace timeline exists and a product commit was created, append an orchestrator `stage=commit` event with the commit hash.
+14. Compare the initial worktree snapshot with current `git status --short`.
+15. In `final.md`, record run-owned changes, product commit hash when applicable, pre-existing dirty files left untouched, and pre-existing dirty files touched by the run.
 15. If a trace timeline exists, append the final orchestrator event after `final.md` records the verdict and commit hash.
 16. Run final trace validation.
 17. Record residual risks.
