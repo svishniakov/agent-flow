@@ -6,11 +6,11 @@ import json
 import re
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from evidence_records import EvidenceError, parse_notes
+from evidence_records import EvidenceError, analyze_notes, parse_notes
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,6 +31,7 @@ class PromotionResult:
     skipped: int
     dry_run: bool
     record_ids: list[str]
+    preview_groups: list[dict[str, Any]] = field(default_factory=list)
 
 
 class PromotionError(ValueError):
@@ -44,6 +45,51 @@ def slugify(value: str) -> str:
 
 def compact(value: object) -> str:
     return " ".join(str(value or "").split()).strip()
+
+
+def keyword_token(value: object) -> str | None:
+    token = slugify(compact(value))
+    return token or None
+
+
+def finding_keywords(data: dict[str, Any], finding: dict[str, Any]) -> list[str]:
+    raw_values: list[object] = [
+        finding.get("problem_class"),
+        finding.get("type"),
+        finding.get("outcome"),
+        *list(data.get("learning_triggers") if isinstance(data.get("learning_triggers"), list) else []),
+    ]
+    keywords: list[str] = []
+    seen: set[str] = set()
+    for value in raw_values:
+        token = keyword_token(value)
+        if token is None or token in seen:
+            continue
+        keywords.append(token)
+        seen.add(token)
+    return keywords or ["harness"]
+
+
+def outcome_counters(outcome: object) -> tuple[int, int, int]:
+    normalized = compact(outcome)
+    if normalized == "success":
+        return 1, 0, 0
+    if normalized in {"failure", "regression", "rejected"}:
+        return 0, 1, 0
+    return 0, 0, 1
+
+
+def finding_provenance(run_dir: Path, data: dict[str, Any], finding: dict[str, Any]) -> str:
+    triggers = join_values(data.get("learning_triggers"))
+    evidence = finding_evidence(finding)
+    return "; ".join(
+        [
+            f"run={run_dir}",
+            f"finding={compact(finding.get('id'))}",
+            f"triggers={triggers}",
+            f"evidence={evidence}",
+        ]
+    )
 
 
 def load_harness_evaluation(run_dir: Path) -> dict[str, Any]:
@@ -143,13 +189,21 @@ def build_record(run_dir: Path, data: dict[str, Any], finding: dict[str, Any], c
     finding_id = compact(finding.get("id"))
     record_id = f"harness-{slugify(run_dir.name)}-{finding_id}"
     rationale = selected_proposal_rationale(data) or "none"
+    helpful, harmful, neutral = outcome_counters(finding.get("outcome"))
     fields = [
         ("Type", finding_record_type(finding)),
+        ("Section", "harness"),
+        ("Keywords", ", ".join(finding_keywords(data, finding))),
         ("Problem class", compact(finding.get("problem_class"))),
         ("Context", build_context(run_dir, data, finding)),
         ("Approach", compact(finding.get("approach"))),
         ("Outcome", compact(finding.get("outcome"))),
         ("Evidence", finding_evidence(finding)),
+        ("Provenance", finding_provenance(run_dir, data, finding)),
+        ("Helpful", str(helpful)),
+        ("Harmful", str(harmful)),
+        ("Neutral", str(neutral)),
+        ("Active", "true"),
         ("Reuse when", compact(finding.get("reuse_when"))),
         ("Do not reuse when", compact(finding.get("do_not_reuse_when"))),
         ("Follow-up", rationale),
@@ -223,16 +277,33 @@ def promote_harness_evaluation(run_dir: Path, notes_path: Path, *, dry_run: bool
     existing_ids = existing_record_ids(resolved_notes)
     new_records = [record for record in records if record.record_id not in existing_ids]
     skipped = len(records) - len(new_records)
-    if dry_run or not new_records:
+    if not new_records:
         return PromotionResult(
-            promoted=len(new_records),
+            promoted=0,
             skipped=skipped,
             dry_run=dry_run,
-            record_ids=[record.record_id for record in new_records],
+            record_ids=[],
+            preview_groups=[],
         )
 
     existing_text = resolved_notes.read_text(encoding="utf-8") if resolved_notes.exists() else ""
     updated = insert_records(existing_text, new_records)
+    try:
+        preview = analyze_notes(updated)
+    except EvidenceError as error:
+        raise PromotionError(f"projected Evidence Records invalid: {error}") from error
+    if preview.get("errors"):
+        raise PromotionError(f"projected Evidence Records invalid: {preview['errors']}")
+    preview_groups = preview_groups_for_records(preview, new_records)
+    if dry_run:
+        return PromotionResult(
+            promoted=len(new_records),
+            skipped=skipped,
+            dry_run=True,
+            record_ids=[record.record_id for record in new_records],
+            preview_groups=preview_groups,
+        )
+
     resolved_notes.parent.mkdir(parents=True, exist_ok=True)
     resolved_notes.write_text(updated, encoding="utf-8")
     return PromotionResult(
@@ -240,4 +311,15 @@ def promote_harness_evaluation(run_dir: Path, notes_path: Path, *, dry_run: bool
         skipped=skipped,
         dry_run=dry_run,
         record_ids=[record.record_id for record in new_records],
+        preview_groups=preview_groups,
     )
+
+
+def preview_groups_for_records(report: dict[str, Any], records: list[PromotionRecord]) -> list[dict[str, Any]]:
+    record_ids = {record.record_id for record in records}
+    groups: list[dict[str, Any]] = []
+    for group in report.get("groups", []):
+        if not record_ids.intersection(group.get("record_ids", [])):
+            continue
+        groups.append(group)
+    return groups

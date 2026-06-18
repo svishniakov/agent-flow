@@ -12,6 +12,12 @@ project. It never treats Architecture Matrix, Architecture Capability Router
 registry, role prompts, validator guards, or Golden Trace Runs as promotion
 targets for project traces.
 
+Promoted Evidence Records use ACE-inspired metadata fields (`Section`,
+`Keywords`, `Provenance`, `Helpful`, `Harmful`, `Neutral`, `Active`) so the
+analyzer can separate context lessons from harness/runtime lessons and weigh
+helpful or harmful reuse. Agent Flow does not depend on `ace-framework`, does
+not start an ACE MCP server, and does not maintain a separate skillbook.
+
 ## Activation
 
 For full traceable runs with `lane-map.json`, `harness-evaluation.json` is
@@ -47,6 +53,11 @@ Every finding and proposal id is kebab-case and must be mentioned in final
 `Harness Evaluation`. Positive lane-map runs with a learning trigger also require
 reviewer `Harness Evaluation Review`.
 
+Findings may include optional `section` (`context` or `harness`) and `keywords`
+fields. When promoted, Harness findings default to `Section: harness`; the
+promotion script derives keywords and effectiveness counters from the finding
+and the run's learning triggers.
+
 ## Proposal Boundary
 
 Every proposal must use:
@@ -61,6 +72,8 @@ current project's Project Memory `## Evidence Records` after
 `validate-run.py --mode full` passes. Promotion is project-local. Canonical
 runtime artifacts are read-only from real-project trace learning.
 Canonical runtime artifacts are not promotion targets.
+Promotion validates the projected notes in memory before writing and `--dry-run`
+prints the affected analyzer groups without changing files.
 
 ## Reviewer Responsibility
 

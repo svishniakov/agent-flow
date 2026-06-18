@@ -15,6 +15,42 @@ scope, показать evidence, оставить проверяемые `hando
 AgentFlow рассчитан на Codex и модели OpenAI. Claude Code, Cursor, Hermes и
 другие hosts не входят в scope этого пакета.
 
+## Inspired by
+
+AgentFlow не является обёрткой над этими проектами и не зависит от них в
+runtime. Это источники, которые повлияли на форму AgentFlow: локальное состояние,
+gate-проверки с evidence, проверяемые handoff-файлы, CodeGraph и аккуратное
+обучение на подтверждённых прогонах.
+
+GitHub repositories:
+
+- [kayba-ai/agentic-context-engine](https://github.com/kayba-ai/agentic-context-engine)
+  — структурное локальное обучение, skillbook-подход, provenance и счётчики
+  полезных/вредных примеров.
+- [hexo-ai/sia](https://github.com/hexo-ai/sia) — self-improvement loop, где
+  изменения harness отделены от изменений модели.
+- [Ancienttwo/repo-harness](https://github.com/Ancienttwo/repo-harness) —
+  repo-local workflow state, contracts, checks, review evidence и handoffs.
+- [DanMcInerney/architect-loop](https://github.com/DanMcInerney/architect-loop)
+  — разделение architect/builder, source-backed design и boundary evidence.
+- [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) —
+  Engineering Simplicity Gate: сначала нативное, минимальное и уже существующее
+  решение, а только потом новые abstractions или dependencies.
+- [unclebob/swarm-forge](https://github.com/unclebob/swarm-forge) — простая
+  multi-agent coordination, durable handoffs и дисциплина очереди работ.
+- [DeusData/codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp)
+  — code intelligence и knowledge-graph tradeoffs, которые помогли очертить
+  границы локального CodeGraph.
+
+arXiv papers:
+
+- [Evolving Contexts for Self-Improving Language Models](https://arxiv.org/abs/2510.04618)
+  — Agentic Context Engineering и структурная эволюция context.
+- [SIA: Self Improving AI with Harness & Weight Updates](https://arxiv.org/abs/2605.27276)
+  — разделение learning в harness и learning через обновление весов.
+- [Self-Harness: Harnesses That Improve Themselves](https://arxiv.org/abs/2606.09498)
+  — идея улучшать сам harness через evaluation evidence, но с guardrails.
+
 ## Зачем он нужен
 
 Coding agents часто ломаются одинаково:
@@ -112,6 +148,13 @@ recovery или non-positive architecture final.
 проекта. Architecture Matrix, capability registry, role prompts, validator
 guards и Golden Trace Runs остаются каноническими runtime artifacts и не
 становятся promotion targets для project traces.
+
+После promotion запись получает поля `Section`, `Keywords`, `Provenance`,
+`Helpful`, `Harmful`, `Neutral` и `Active`. Они помогают анализатору отделять
+уроки для задачи от уроков про harness/runtime, считать полезные и вредные
+повторы и не учитывать выключенные записи. Это не добавляет `ace-framework`,
+MCP server, vector store или отдельный skillbook. Главными gate-полями остаются
+`Outcome`, `Evidence`, reuse boundaries и свежая проверка.
 
 Local Best Practice auto gate переиспользует подход только после подтверждения
 через Evidence Records analyzer: контекст должен совпадать, reuse boundaries

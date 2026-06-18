@@ -158,6 +158,98 @@ Optional field: ignored
         raise AssertionError("non-ASCII evidence not preserved")
 
 
+def test_ace_inspired_fields_are_parsed() -> None:
+    enriched = record(
+        "enriched",
+        extra={
+            "Section": "harness",
+            "Keywords": "verification-readiness, continuation",
+            "Provenance": "run=/tmp/run; finding=readiness; triggers=continuation; evidence=checks/smoke.md",
+            "Helpful": "2",
+            "Harmful": "0",
+            "Neutral": "1",
+            "Active": "true",
+        },
+    )
+    parsed = parse_notes(notes(enriched))
+    item = parsed.records[0]
+    report = analyze_notes(notes(enriched))
+    record_json = report["records"][0]
+    group_json = group(report, "dependency-gate-false-block", "normalize stale completed sections")
+
+    if item.fields["Section"] != "harness":
+        raise AssertionError("section field missing")
+    if record_json["keywords"] != ["verification-readiness", "continuation"]:
+        raise AssertionError("keywords were not parsed")
+    if record_json["helpful"] != 2 or record_json["harmful"] != 0 or record_json["neutral"] != 1:
+        raise AssertionError("explicit counters were not parsed")
+    if record_json["active"] is not True:
+        raise AssertionError("active flag was not parsed")
+    if group_json["section_counts"] != {"harness": 1}:
+        raise AssertionError("section summary wrong")
+    if group_json["keywords"] != ["verification-readiness", "continuation"]:
+        raise AssertionError("keyword summary wrong")
+
+
+def test_old_records_get_derived_defaults() -> None:
+    report = analyze_notes(
+        notes(
+            record("success", outcome="success"),
+            record("failure", record_type="Failure", outcome="failure"),
+            record("unknown", record_type="Attempt", outcome="unknown"),
+        )
+    )
+    values = {row["id"]: row for row in report["records"]}
+    if values["success"]["helpful"] != 1 or values["success"]["harmful"] != 0:
+        raise AssertionError("success default counters wrong")
+    if values["failure"]["harmful"] != 1:
+        raise AssertionError("failure default counter wrong")
+    if values["unknown"]["neutral"] != 1:
+        raise AssertionError("unknown default counter wrong")
+    if values["success"]["active"] is not True or values["success"]["keywords"]:
+        raise AssertionError("old record defaults wrong")
+
+
+def test_invalid_ace_inspired_fields() -> None:
+    assert_error("invalid section", notes(record("bad", extra={"Section": "runtime"})), "Section must be one of")
+    assert_error("invalid keywords", notes(record("bad", extra={"Keywords": "Good Token"})), "Keywords must be")
+    assert_error("empty keywords", notes(record("bad", extra={"Keywords": " , "})), "Keywords must include")
+    assert_error("invalid counter", notes(record("bad", extra={"Helpful": "-1"})), "Helpful must be a non-negative integer")
+    assert_error("invalid active", notes(record("bad", extra={"Active": "maybe"})), "Active must be true or false")
+
+
+def test_inactive_records_are_excluded_from_classification() -> None:
+    report = analyze_notes(
+        notes(
+            record("s1", extra={"Verification": "check", "Active": "false"}),
+            record("s2", extra={"Verification": "check", "Active": "false"}),
+            record("s3", extra={"Verification": "check", "Active": "false"}),
+        )
+    )
+    row = group(report, "dependency-gate-false-block", "normalize stale completed sections")
+    if row["state"] != "Inactive":
+        raise AssertionError("inactive group should not classify as practice")
+    if row["attempts"] != 0 or row["inactive"] != 3:
+        raise AssertionError("inactive counts wrong")
+    if row["auto_gate"]["allowed"]:
+        raise AssertionError("inactive group must not pass auto gate")
+
+
+def test_harmful_counters_block_auto_gate() -> None:
+    report = analyze_notes(
+        notes(
+            record("s1", extra={"Verification": "check", "Helpful": "1", "Harmful": "1"}),
+            record("s2", extra={"Verification": "check", "Helpful": "1", "Harmful": "1"}),
+            record("s3", extra={"Verification": "check", "Helpful": "1", "Harmful": "1"}),
+        )
+    )
+    gate = group(report, "dependency-gate-false-block", "normalize stale completed sections")["auto_gate"]
+    if gate["allowed"]:
+        raise AssertionError("harmful counters should block auto gate")
+    if "harmful evidence is not below helpful evidence" not in gate["blockers"]:
+        raise AssertionError("harmful blocker missing")
+
+
 def test_aggregation_counts_and_boundaries() -> None:
     report = analyze_notes(
         notes(
@@ -349,6 +441,11 @@ def main() -> int:
     test_invalid_values_and_duplicates()
     test_markdown_shape_edges()
     test_field_flexibility()
+    test_ace_inspired_fields_are_parsed()
+    test_old_records_get_derived_defaults()
+    test_invalid_ace_inspired_fields()
+    test_inactive_records_are_excluded_from_classification()
+    test_harmful_counters_block_auto_gate()
     test_aggregation_counts_and_boundaries()
     test_practice_states()
     test_promotion_guards_and_auto_gate()

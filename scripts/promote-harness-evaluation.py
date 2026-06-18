@@ -30,6 +30,18 @@ def main() -> int:
     print(f"{action} {result.promoted} Evidence Records; skipped {result.skipped}")
     for record_id in result.record_ids:
         print(f"- {record_id}")
+    for group in result.preview_groups:
+        gate = group.get("auto_gate", {})
+        blockers = gate.get("blockers", [])
+        print(
+            "preview "
+            f"{group.get('state')}: "
+            f"{group.get('problem_class')} / {group.get('approach')} "
+            f"(helpful={group.get('helpful', 0)}, harmful={group.get('harmful', 0)}, "
+            f"neutral={group.get('neutral', 0)}, auto_gate={gate.get('allowed', False)})"
+        )
+        if blockers:
+            print(f"  blockers: {', '.join(blockers)}")
     return 0
 
 

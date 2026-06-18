@@ -14,7 +14,9 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
+import harness_promotion
 from evidence_records import parse_notes
+from harness_promotion import PromotionError, PromotionRecord, promote_harness_evaluation
 
 
 PROMOTE = ROOT / "scripts" / "promote-harness-evaluation.py"
@@ -146,6 +148,17 @@ def test_valid_run_writes_one_evidence_record() -> None:
             raise AssertionError("finding evidence path missing from evidence")
         if "python3 scripts/validate-run.py --run-dir" not in record.fields["Verification"]:
             raise AssertionError("validation command missing from promoted record")
+        for field in ["Section", "Keywords", "Provenance", "Helpful", "Harmful", "Neutral", "Active"]:
+            if field not in record.fields:
+                raise AssertionError(f"promoted record missing {field}")
+        if record.fields["Section"] != "harness":
+            raise AssertionError("promoted records should be harness records")
+        if "verification-readiness-ordering" not in record.fields["Keywords"]:
+            raise AssertionError("problem class keyword missing")
+        if record.fields["Helpful"] != "1" or record.fields["Harmful"] != "0" or record.fields["Neutral"] != "0":
+            raise AssertionError("success counters wrong")
+        if record.fields["Active"] != "true":
+            raise AssertionError("active flag missing")
 
 
 def test_missing_notes_file_creates_evidence_records_block() -> None:
@@ -191,6 +204,54 @@ def test_promotion_is_idempotent() -> None:
 
         if first != second:
             raise AssertionError("second promotion should not change notes")
+
+
+def test_dry_run_writes_nothing_and_prints_preview() -> None:
+    with tempfile.TemporaryDirectory(prefix="harness-promotion-") as temp_dir:
+        root = Path(temp_dir)
+        run_dir = copy_run(root, VALID_CONTINUATION_RUN, "continuation-dry-run")
+        notes = root / "implementation-notes.md"
+
+        result = run_promote(run_dir, notes, "--dry-run")
+        assert_success(result)
+
+        if notes.exists():
+            raise AssertionError("dry run must not create notes")
+        if "preview Observed:" not in result.stdout:
+            raise AssertionError("dry run should print analyzer preview")
+        if "helpful=1" not in result.stdout:
+            raise AssertionError("dry run preview should include counters")
+
+
+def test_projected_invalid_record_aborts_before_write() -> None:
+    with tempfile.TemporaryDirectory(prefix="harness-promotion-") as temp_dir:
+        root = Path(temp_dir)
+        run_dir = copy_run(root, VALID_CONTINUATION_RUN, "continuation-invalid-projection")
+        notes = root / "implementation-notes.md"
+        original = harness_promotion.promotable_records
+
+        def invalid_records(_run_dir: Path, _data: dict[str, Any], _command_text: str) -> list[PromotionRecord]:
+            return [
+                PromotionRecord(
+                    record_id="invalid-projection",
+                    text="### Evidence: invalid-projection\n\nType: Success\n",
+                )
+            ]
+
+        harness_promotion.promotable_records = invalid_records
+        try:
+            try:
+                promote_harness_evaluation(run_dir, notes)
+            except PromotionError as error:
+                if "projected Evidence Records invalid" not in str(error):
+                    raise AssertionError(f"wrong error: {error}")
+            else:
+                raise AssertionError("invalid projected record should fail")
+        finally:
+            harness_promotion.promotable_records = original
+
+        if notes.exists():
+            raise AssertionError("invalid projected record must not write notes")
 
 
 def test_invalid_run_writes_nothing() -> None:
@@ -239,6 +300,8 @@ def main() -> int:
     test_missing_notes_file_creates_evidence_records_block()
     test_existing_notes_are_preserved_and_append_only()
     test_promotion_is_idempotent()
+    test_dry_run_writes_nothing_and_prints_preview()
+    test_projected_invalid_record_aborts_before_write()
     test_invalid_run_writes_nothing()
     test_blocked_learning_without_proposal_writes_nothing()
     test_third_matching_success_becomes_local_best_practice()

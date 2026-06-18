@@ -124,6 +124,7 @@ HARNESS_FINDING_TYPES = {
 HARNESS_OUTCOMES = {"success", "failure", "regression", "rejected", "unknown"}
 HARNESS_PROPOSAL_TYPES = {"evidence-record"}
 HARNESS_PROPOSAL_TARGET = "Evidence Records"
+HARNESS_FINDING_SECTIONS = {"context", "harness"}
 CLAIM_EVIDENCE_STATUSES = {"supported", "gap"}
 CLAIM_EVIDENCE_OWNER_TYPES = {"qa", "review"}
 COMMIT_HASH_PATTERN = re.compile(r"\b[0-9a-f]{7,40}\b", re.IGNORECASE)
@@ -3536,6 +3537,17 @@ def validate_harness_finding(
         errors.append(f"{label}.type invalid")
     if finding.get("outcome") not in HARNESS_OUTCOMES:
         errors.append(f"{label}.outcome invalid")
+
+    if "section" in finding and finding.get("section") not in HARNESS_FINDING_SECTIONS:
+        errors.append(f"{label}.section must be context or harness")
+
+    if "keywords" in finding:
+        keywords = validate_string_list(finding.get("keywords"), f"{label}.keywords", errors)
+        if not keywords:
+            errors.append(f"{label}.keywords must be a non-empty array")
+        for keyword_index, keyword in enumerate(keywords):
+            if not KEBAB_CASE_PATTERN.fullmatch(keyword):
+                errors.append(f"{label}.keywords[{keyword_index}] must be kebab-case")
 
     for field in ["problem_class", "approach", "lesson", "reuse_when", "do_not_reuse_when"]:
         validate_string(finding.get(field), f"{label}.{field}", errors)

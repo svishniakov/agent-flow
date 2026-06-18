@@ -22,7 +22,7 @@ Before final handoff for repo tasks:
 - add confirmed lessons to `.agent-work/tasks/lessons.md`;
 - record important decisions, tradeoffs, constraints, evidence links, and follow-up in `.agent-work/tasks/implementation-notes.md` when global criteria make notes relevant.
 
-When a task creates reusable process evidence, record it under `## Evidence Records` instead of burying it in prose. Evidence Records cover success, failure, regression, rejected, Architecture Attempt, Architecture Failure, and Orchestration Failure cases so local learning can compare problem class plus approach.
+When a task creates reusable process evidence, record it under `## Evidence Records` instead of burying it in prose. Evidence Records cover success, failure, regression, rejected, Architecture Attempt, Architecture Failure, and Orchestration Failure cases so local learning can compare problem class plus approach. Promoted records may add `Section`, `Keywords`, `Provenance`, `Helpful`, `Harmful`, `Neutral`, and `Active`; those fields are analyzer metadata, not replacements for evidence, reuse boundaries, or verification.
 
 ## Task Status Completion Gate
 
@@ -166,4 +166,4 @@ For full `release` trace:
 
 Do not say work is complete, fixed, passing, or ready without fresh verification evidence.
 
-Evidence Records do not replace verification. They make repeated decisions auditable and allow local practices to promote, demote, or become anti-patterns based on observed outcomes.
+Evidence Records do not replace verification. They make repeated decisions auditable and allow local practices to promote, demote, become inactive, or become anti-patterns based on observed outcomes and helpful/harmful reuse counters.

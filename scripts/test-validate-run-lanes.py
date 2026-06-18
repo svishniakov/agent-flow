@@ -3222,6 +3222,30 @@ def main() -> int:
 
         default_finding = harness_evaluation()["findings"][0]
         default_proposal = harness_evaluation()["proposals"][0]
+        expect_pass(
+            "harness evaluation optional section and keywords pass",
+            write_harness_evaluation_file(
+                write_continuation_summary_file(
+                    write_run(
+                        temp / "harness-optional-learning-fields",
+                        lanes=continuation_lanes(),
+                        lane_map_extra=continuation_lane_map_extra,
+                        verification_readiness_data=continuation_readiness_data(),
+                        ordered_trace_events=continuation_trace_events(),
+                        final_extra=continuation_summary_section(),
+                    ),
+                ),
+                harness_evaluation(
+                    findings=[
+                        {
+                            **default_finding,
+                            "section": "harness",
+                            "keywords": ["verification-readiness", "continuation"],
+                        }
+                    ]
+                ),
+            ),
+        )
         expect_fail(
             "harness evaluation missing finding id fails",
             write_harness_evaluation_file(
@@ -3238,6 +3262,60 @@ def main() -> int:
                 harness_evaluation(findings=[{k: v for k, v in default_finding.items() if k != "id"}]),
             ),
             "harness-evaluation.json findings[0] missing field: id",
+        )
+
+        expect_fail(
+            "harness evaluation invalid section fails",
+            write_harness_evaluation_file(
+                write_continuation_summary_file(
+                    write_run(
+                        temp / "harness-invalid-section",
+                        lanes=continuation_lanes(),
+                        lane_map_extra=continuation_lane_map_extra,
+                        verification_readiness_data=continuation_readiness_data(),
+                        ordered_trace_events=continuation_trace_events(),
+                        final_extra=continuation_summary_section(),
+                    ),
+                ),
+                harness_evaluation(findings=[{**default_finding, "section": "runtime"}]),
+            ),
+            "harness-evaluation.json findings[0].section must be context or harness",
+        )
+
+        expect_fail(
+            "harness evaluation invalid keywords fail",
+            write_harness_evaluation_file(
+                write_continuation_summary_file(
+                    write_run(
+                        temp / "harness-invalid-keywords",
+                        lanes=continuation_lanes(),
+                        lane_map_extra=continuation_lane_map_extra,
+                        verification_readiness_data=continuation_readiness_data(),
+                        ordered_trace_events=continuation_trace_events(),
+                        final_extra=continuation_summary_section(),
+                    ),
+                ),
+                harness_evaluation(findings=[{**default_finding, "keywords": ["Bad Token"]}]),
+            ),
+            "harness-evaluation.json findings[0].keywords[0] must be kebab-case",
+        )
+
+        expect_fail(
+            "harness evaluation empty keywords fail",
+            write_harness_evaluation_file(
+                write_continuation_summary_file(
+                    write_run(
+                        temp / "harness-empty-keywords",
+                        lanes=continuation_lanes(),
+                        lane_map_extra=continuation_lane_map_extra,
+                        verification_readiness_data=continuation_readiness_data(),
+                        ordered_trace_events=continuation_trace_events(),
+                        final_extra=continuation_summary_section(),
+                    ),
+                ),
+                harness_evaluation(findings=[{**default_finding, "keywords": []}]),
+            ),
+            "harness-evaluation.json findings[0].keywords must be a non-empty array",
         )
 
         expect_fail(

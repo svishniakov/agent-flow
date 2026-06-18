@@ -14,6 +14,43 @@ answer to: what changed, why is it safe, and how was it checked?
 AgentFlow is built for Codex with OpenAI models. Claude Code, Cursor, Hermes,
 and other hosts are outside this package scope.
 
+## Inspired by
+
+AgentFlow is not a wrapper around these projects, and none of them are runtime
+dependencies. They were used as research and design references for the shape of
+AgentFlow: local state, evidence-backed gates, reviewable handoffs, CodeGraph,
+and controlled learning from verified runs.
+
+GitHub repositories:
+
+- [kayba-ai/agentic-context-engine](https://github.com/kayba-ai/agentic-context-engine)
+  for structured local learning, skillbook-style entries, provenance, and
+  counter-based reflection.
+- [hexo-ai/sia](https://github.com/hexo-ai/sia) for self-improvement loops that
+  separate harness changes from model changes.
+- [Ancienttwo/repo-harness](https://github.com/Ancienttwo/repo-harness) for
+  repo-local workflow state, contracts, checks, review evidence, and handoffs.
+- [DanMcInerney/architect-loop](https://github.com/DanMcInerney/architect-loop)
+  for architect/builder separation, source-backed design, and boundary evidence.
+- [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) for
+  the Engineering Simplicity Gate: prefer native, minimal, existing code before
+  adding abstractions or dependencies.
+- [unclebob/swarm-forge](https://github.com/unclebob/swarm-forge) for simple
+  multi-agent coordination, durable handoffs, and work queue discipline.
+- [DeusData/codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp)
+  for code intelligence and knowledge-graph tradeoffs that informed local
+  CodeGraph boundaries.
+
+arXiv papers:
+
+- [Evolving Contexts for Self-Improving Language Models](https://arxiv.org/abs/2510.04618)
+  for Agentic Context Engineering and structured context evolution.
+- [SIA: Self Improving AI with Harness & Weight Updates](https://arxiv.org/abs/2605.27276)
+  for separating harness learning from weight-update learning.
+- [Self-Harness: Harnesses That Improve Themselves](https://arxiv.org/abs/2606.09498)
+  for the idea that the harness itself can be improved through evaluation
+  evidence, with guardrails.
+
 ## Why It Exists
 
 Coding agents fail in predictable ways:
@@ -163,6 +200,14 @@ recovery, or a non-positive architecture final.
 Validated findings can be promoted only into the current project's
 `## Evidence Records`. Architecture Matrix, capability registry, role prompts,
 validator guards, and Golden Trace Runs remain canonical runtime artifacts.
+
+Promoted records use an ACE-inspired shape: `Section`, `Keywords`,
+`Provenance`, `Helpful`, `Harmful`, `Neutral`, and `Active`. These fields help
+the analyzer separate task context lessons from harness/runtime lessons, count
+helpful or harmful reuse, and keep inactive evidence out of promotion decisions.
+They do not add an `ace-framework` dependency, MCP server, vector store, or
+separate skillbook. `Outcome`, `Evidence`, reuse boundaries, and fresh
+verification remain the gate authority.
 
 ## What Ships In This Repository
 
