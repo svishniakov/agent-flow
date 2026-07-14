@@ -364,6 +364,14 @@ completed before the batch lane is accepted.
 
 Look up stable identities in bundled `agents/agent-identities.json` before launching a subagent. If identity is missing, use the role name as temporary slug and record the gap in route or manifest.
 
+`nickname_candidates` in the same identity entry are for Codex custom-agent display names. They are not trace keys. Sync Codex custom-agent files with:
+
+```bash
+python3 scripts/sync-codex-agent-config.py --output-dir .codex/agents
+```
+
+After generation, restart or reload the Codex client if needed. When the current `spawn_agent` schema exposes an Agent Flow role slug as an available `agent_type`, use that role slug so Codex App can show the configured nickname. If the role is not exposed, use the closest built-in type and still record `stable_agent_name` and `stable_agent_slug` in trace metadata.
+
 Read bundled `agents/<role>.md` before launching a subagent and include the role instructions in the packet.
 
 Read `references/subagents.md` when role choice is unclear or when a handoff needs the available role list. Read `references/role-catalog.md` when role overlap, exclusions, or a new-role decision is in question.

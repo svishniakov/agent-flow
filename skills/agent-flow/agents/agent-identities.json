@@ -1,147 +1,175 @@
 {
   "schema_version": "2026-06-04",
-  "description": "Self-contained Agent Flow subagent identities bundled with this skill. Runtime nicknames returned by a spawn tool are technical aliases only.",
+  "description": "Self-contained Agent Flow subagent identities bundled with this skill. nickname_candidates are Codex custom-agent display names; runtime nicknames returned by a spawn tool are technical aliases only.",
   "identity_fields": {
     "role": "Canonical role slug used in agents/<role>.md.",
     "stable_agent_name": "Human-readable stable name for trace artifacts and handoffs.",
     "stable_agent_slug": "Machine-readable stable identity key for traces.",
+    "nickname_candidates": "Optional Codex custom-agent display nickname pool. Use one value when the role should have a fixed visible name.",
     "codex_auto_nickname": "Optional runtime nickname returned by a spawn tool; record separately when available."
   },
   "agents": [
     {
       "role": "orchestrator",
       "stable_agent_name": "Orchestrator",
-      "stable_agent_slug": "orchestrator"
+      "stable_agent_slug": "orchestrator",
+      "nickname_candidates": ["Orchestrator"]
     },
     {
       "role": "product-manager",
       "stable_agent_name": "Product Manager",
-      "stable_agent_slug": "product-manager"
+      "stable_agent_slug": "product-manager",
+      "nickname_candidates": ["Product Manager"]
     },
     {
       "role": "documenter",
       "stable_agent_name": "Documenter",
-      "stable_agent_slug": "documenter"
+      "stable_agent_slug": "documenter",
+      "nickname_candidates": ["Documenter"]
     },
     {
       "role": "marketing-growth-strategist",
       "stable_agent_name": "Marketing Growth Strategist",
-      "stable_agent_slug": "marketing-growth-strategist"
+      "stable_agent_slug": "marketing-growth-strategist",
+      "nickname_candidates": ["Growth Strategist"]
     },
     {
       "role": "architect",
       "stable_agent_name": "Architect",
-      "stable_agent_slug": "architect"
+      "stable_agent_slug": "architect",
+      "nickname_candidates": ["Architect"]
     },
     {
       "role": "researcher",
       "stable_agent_name": "Researcher",
-      "stable_agent_slug": "researcher"
+      "stable_agent_slug": "researcher",
+      "nickname_candidates": ["Researcher"]
     },
     {
       "role": "reviewer",
       "stable_agent_name": "Reviewer",
-      "stable_agent_slug": "reviewer"
+      "stable_agent_slug": "reviewer",
+      "nickname_candidates": ["Reviewer"]
     },
     {
       "role": "qa-verifier",
       "stable_agent_name": "QA Verifier",
-      "stable_agent_slug": "qa-verifier"
+      "stable_agent_slug": "qa-verifier",
+      "nickname_candidates": ["QA Verifier"]
     },
     {
       "role": "senior-qa-verifier",
       "stable_agent_name": "Senior QA Verifier",
-      "stable_agent_slug": "senior-qa-verifier"
+      "stable_agent_slug": "senior-qa-verifier",
+      "nickname_candidates": ["Senior QA Verifier"]
     },
     {
       "role": "supervising-architect",
       "stable_agent_name": "Supervising Architect",
-      "stable_agent_slug": "supervising-architect"
+      "stable_agent_slug": "supervising-architect",
+      "nickname_candidates": ["Supervising Architect"]
     },
     {
       "role": "ai-slops-hunter",
       "stable_agent_name": "AI Slop Hunter",
-      "stable_agent_slug": "ai-slops-hunter"
+      "stable_agent_slug": "ai-slops-hunter",
+      "nickname_candidates": ["AI Slop Hunter"]
     },
     {
       "role": "backend-worker",
       "stable_agent_name": "Backend Worker",
-      "stable_agent_slug": "backend-worker"
+      "stable_agent_slug": "backend-worker",
+      "nickname_candidates": ["Backend Worker"]
     },
     {
       "role": "frontend-worker",
       "stable_agent_name": "Frontend Worker",
-      "stable_agent_slug": "frontend-worker"
+      "stable_agent_slug": "frontend-worker",
+      "nickname_candidates": ["Frontend Worker"]
     },
     {
       "role": "typescript-worker",
       "stable_agent_name": "TypeScript Worker",
-      "stable_agent_slug": "typescript-worker"
+      "stable_agent_slug": "typescript-worker",
+      "nickname_candidates": ["TypeScript Worker"]
     },
     {
       "role": "bun-worker",
       "stable_agent_name": "Bun Worker",
-      "stable_agent_slug": "bun-worker"
+      "stable_agent_slug": "bun-worker",
+      "nickname_candidates": ["Bun Worker"]
     },
     {
       "role": "python-worker",
       "stable_agent_name": "Python Worker",
-      "stable_agent_slug": "python-worker"
+      "stable_agent_slug": "python-worker",
+      "nickname_candidates": ["Python Worker"]
     },
     {
       "role": "golang-worker",
       "stable_agent_name": "Golang Worker",
-      "stable_agent_slug": "golang-worker"
+      "stable_agent_slug": "golang-worker",
+      "nickname_candidates": ["Go Worker"]
     },
     {
       "role": "ios-worker",
       "stable_agent_name": "iOS Worker",
-      "stable_agent_slug": "ios-worker"
+      "stable_agent_slug": "ios-worker",
+      "nickname_candidates": ["iOS Worker"]
     },
     {
       "role": "rag-retrieval-engineer",
       "stable_agent_name": "RAG Retrieval Engineer",
-      "stable_agent_slug": "rag-retrieval-engineer"
+      "stable_agent_slug": "rag-retrieval-engineer",
+      "nickname_candidates": ["RAG Retrieval Engineer"]
     },
     {
       "role": "design-orchestrator",
       "stable_agent_name": "Design Orchestrator",
-      "stable_agent_slug": "design-orchestrator"
+      "stable_agent_slug": "design-orchestrator",
+      "nickname_candidates": ["Design Orchestrator"]
     },
     {
       "role": "ui-reference-researcher",
       "stable_agent_name": "UI Reference Researcher",
-      "stable_agent_slug": "ui-reference-researcher"
+      "stable_agent_slug": "ui-reference-researcher",
+      "nickname_candidates": ["UI Reference Researcher"]
     },
     {
       "role": "ui-ux-design-director",
       "stable_agent_name": "UI/UX Design Director",
-      "stable_agent_slug": "ui-ux-design-director"
+      "stable_agent_slug": "ui-ux-design-director",
+      "nickname_candidates": ["UX Design Director"]
     },
     {
       "role": "ui-ux-designer",
       "stable_agent_name": "UI/UX Designer",
-      "stable_agent_slug": "ui-ux-designer"
+      "stable_agent_slug": "ui-ux-designer",
+      "nickname_candidates": ["UX Designer"]
     },
     {
       "role": "design-documenter",
       "stable_agent_name": "Design Documenter",
-      "stable_agent_slug": "design-documenter"
+      "stable_agent_slug": "design-documenter",
+      "nickname_candidates": ["Design Documenter"]
     },
     {
       "role": "pencil-designer",
       "stable_agent_name": "Pencil Designer",
-      "stable_agent_slug": "pencil-designer"
+      "stable_agent_slug": "pencil-designer",
+      "nickname_candidates": ["Pencil Designer"]
     },
     {
       "role": "design-asset-generator",
       "stable_agent_name": "Design Asset Generator",
-      "stable_agent_slug": "design-asset-generator"
+      "stable_agent_slug": "design-asset-generator",
+      "nickname_candidates": ["Design Asset Generator"]
     },
     {
       "role": "visual-qa",
       "stable_agent_name": "Visual QA",
-      "stable_agent_slug": "visual-qa"
+      "stable_agent_slug": "visual-qa",
+      "nickname_candidates": ["Visual QA"]
     }
   ]
 }

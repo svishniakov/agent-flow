@@ -84,6 +84,7 @@ def identity(role: str, stable_slug: str | None = None, **extra: object) -> dict
         "role": role,
         "stable_agent_name": role.replace("-", " ").title(),
         "stable_agent_slug": stable_slug or role,
+        "nickname_candidates": [role.replace("-", " ").title()],
         **extra,
     }
 
@@ -114,6 +115,18 @@ def main() -> int:
 
         runtime_config = write_identities(agents_dir, [identity("alpha-role", model="gpt-5.4"), identity("beta-role")])
         expect_fail("runtime config in identities", validate(agents_dir, runtime_config), "runtime config keys: model")
+
+        bad_nickname = write_identities(
+            agents_dir,
+            [identity("alpha-role", nickname_candidates=["UI/UX Designer"]), identity("beta-role")],
+        )
+        expect_fail("bad nickname", validate(agents_dir, bad_nickname), "unsupported characters")
+
+        duplicate_nickname = write_identities(
+            agents_dir,
+            [identity("alpha-role", nickname_candidates=["Atlas", "Atlas"]), identity("beta-role")],
+        )
+        expect_fail("duplicate nickname", validate(agents_dir, duplicate_nickname), "duplicate nickname candidate")
 
         valid_identities = write_identities(agents_dir, [identity("alpha-role"), identity("beta-role")])
         write_readmes(root, 25)

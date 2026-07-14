@@ -1313,6 +1313,7 @@ def main() -> int:
         ("model eval CLI", [sys.executable, "scripts/model-eval.py", "--help"]),
         ("agent config fixtures", [sys.executable, "scripts/test-agent-config.py"]),
         ("validate-agent-config fixtures", [sys.executable, "scripts/test-validate-agent-config.py"]),
+        ("Codex agent config sync fixtures", [sys.executable, "scripts/test-sync-codex-agent-config.py"]),
         ("role catalog fixtures", [sys.executable, "scripts/test-validate-role-catalog.py"]),
         ("updater fixtures", [sys.executable, "scripts/test-update-agent-flow-skill.py"]),
         ("agent config validation", [sys.executable, "scripts/validate-agent-config.py"]),

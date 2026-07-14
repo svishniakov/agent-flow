@@ -315,9 +315,11 @@ then a terminal handoff/blocked/fail event. Update `delegation-summary.json`
 and `final.md` `Delegation Trace`; role lanes remain `role-lane` and are not
 sidecars.
 
-Before launching a subagent, read the bundled role file `agents/<role>.md` and resolve `stable_agent_name` plus `stable_agent_slug` from `agents/agent-identities.json`.
+Before launching a subagent, read the bundled role file `agents/<role>.md` and resolve `stable_agent_name`, `stable_agent_slug`, and optional `nickname_candidates` from `agents/agent-identities.json`.
 
 Also resolve the role model config before `spawn_agent`, using `python3 scripts/resolve-agent-config.py --role <role>` plus any task triggers such as `--trigger security`, `--trigger broad-scope`, or `--trigger release`. Pass the returned `model` and `reasoning_effort` into `spawn_agent`. Pass `service_tier` only when the resolver returns a non-null value.
+
+When Codex custom-agent files have been generated for the current project or user config, and the current `spawn_agent` schema exposes the Agent Flow role as an available `agent_type`, pass that role slug as `agent_type`. This lets Codex App, CLI, and IDE show configured `nickname_candidates` in subagent activity. If the role is not exposed in the current tool schema, use the closest available built-in `agent_type` and keep Agent Flow identity in trace metadata.
 
 If the task would benefit from independent workers but the selected budget is `light`, keep the implementation lane solo or escalate the budget only with a concrete reason. Do not spawn implementation subagents for `light`. If the run changes product/repo files, tests, runtime docs, validator behavior, templates, golden traces, ADR/plan/spec status, or creates a commit, Mandatory Independent QA Review Gate still requires a real `reviewer.qa` subagent before any positive final.
 
@@ -371,6 +373,7 @@ Optional helper scripts live in `scripts/`:
 - `append-timeline.py`: append one JSONL timeline event.
 - `record-agent-trace.py`: append one subagent or role-lane event to both run and role traces.
 - `record-handoff-state.py`: update Handoff State Gate state in `lane-map.json`.
+- `sync-codex-agent-config.py`: sync project or user `.codex/agents/*.toml` files from Agent Flow roles, model settings, and display nicknames.
 - `validate-run.py`: check run completeness before final handoff.
 - `validate-architecture-capabilities.py`: check Architecture Capability Router registry and Soft Skill Binding links.
 - `test-golden-traces.py`: run Golden Trace Runs from `testdata/golden-traces/`.

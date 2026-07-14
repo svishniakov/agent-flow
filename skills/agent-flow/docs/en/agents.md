@@ -6,6 +6,14 @@ Users do not decide whether to launch subagents. Agent Flow may launch them auto
 
 Each `agents/<role>.md` file has runtime `model` and `reasoning_effort` fields plus escalation fields for risky tasks. Before `spawn_agent`, the orchestrator runs `resolve-agent-config.py`, passes any matching `--trigger` values, and uses the selected output as tool arguments.
 
+Agent Flow role identities live in `agents/agent-identities.json`. That file can also set `nickname_candidates` for Codex custom agents. To make those names visible in Codex App, CLI, or IDE activity, sync project-scoped custom-agent files:
+
+```bash
+python3 scripts/sync-codex-agent-config.py --output-dir .codex/agents
+```
+
+Use `--output-dir ~/.codex/agents` for personal global agents. Restart or reload the Codex client if the synced roles do not appear in the current `spawn_agent` schema.
+
 In large traceable runs, one role can be used several times as separate lanes. For example, `qa-verifier` can separately cover `qa-verifier:admin-rbac`, `qa-verifier:live-feed`, and `qa-verifier:pii`; the distinction lives in `lane-map.json`, handoffs, and trace metadata, not in new role files.
 
 ## Core orchestration and planning

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -22,6 +23,7 @@ FORBIDDEN_IDENTITY_CONFIG_KEYS = {
     "tools",
     "skills",
 }
+NICKNAME_PATTERN = re.compile(r"^[A-Za-z0-9 _-]+$")
 
 
 def default_identities_path(agents_dir: Path) -> Path:
@@ -59,6 +61,24 @@ def validate_identities(path: Path, role_names: list[str]) -> list[str]:
         stable_name = entry.get("stable_agent_name")
         if not isinstance(stable_name, str) or not stable_name.strip():
             errors.append(f"{label} missing stable_agent_name")
+        nicknames = entry.get("nickname_candidates")
+        if nicknames is not None:
+            if not isinstance(nicknames, list):
+                errors.append(f"{label} nickname_candidates must be an array")
+            elif not nicknames:
+                errors.append(f"{label} nickname_candidates must not be empty")
+            else:
+                seen_nicknames: set[str] = set()
+                for nickname_index, nickname in enumerate(nicknames):
+                    nickname_label = f"{label} nickname_candidates[{nickname_index}]"
+                    if not isinstance(nickname, str) or not nickname:
+                        errors.append(f"{nickname_label} must be a non-empty string")
+                        continue
+                    if nickname in seen_nicknames:
+                        errors.append(f"{label} duplicate nickname candidate: {nickname}")
+                    seen_nicknames.add(nickname)
+                    if not NICKNAME_PATTERN.fullmatch(nickname):
+                        errors.append(f"{nickname_label} contains unsupported characters")
         forbidden_keys = sorted(FORBIDDEN_IDENTITY_CONFIG_KEYS & entry.keys())
         if forbidden_keys:
             errors.append(f"{label} must not contain runtime config keys: {', '.join(forbidden_keys)}")

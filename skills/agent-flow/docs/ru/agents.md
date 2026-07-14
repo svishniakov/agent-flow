@@ -6,6 +6,14 @@
 
 В `agents/<role>.md` у каждой роли есть runtime-поля `model` и `reasoning_effort`, а также escalation-поля для рискованных задач. Перед `spawn_agent` оркестратор запускает `resolve-agent-config.py`, передаёт подходящие `--trigger` и использует выбранные значения в аргументах инструмента.
 
+Имена ролей лежат в `agents/agent-identities.json`. Там же можно задать `nickname_candidates` - имена, которые Codex показывает в активности subagents. Чтобы Codex App, CLI или IDE увидели эти имена, синхронизируйте project-scoped custom agents:
+
+```bash
+python3 scripts/sync-codex-agent-config.py --output-dir .codex/agents
+```
+
+Для личной глобальной настройки используйте `--output-dir ~/.codex/agents`. Если роли не появились в текущей схеме `spawn_agent`, перезапустите или перезагрузите Codex client.
+
 В больших traceable runs одна роль может использоваться несколько раз как разные lanes. Например, `qa-verifier` может отдельно проверить `qa-verifier:admin-rbac`, `qa-verifier:live-feed` и `qa-verifier:pii`; различие фиксируется в `lane-map.json`, handoff и trace metadata, а не через новые role files.
 
 ## Core orchestration and planning
