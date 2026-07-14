@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Agent Flow predictability evaluation output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "status",
+    "summary",
+    "changed_paths",
+    "checks",
+    "handoff_path",
+    "decision_id",
+    "missing_decision",
+    "affected_requirements",
+    "decision_evidence",
+    "requirement_results"
+  ],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["pass", "fail", "blocked", "decision_request"]
+    },
+    "summary": {
+      "type": "string"
+    },
+    "changed_paths": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["command", "status", "evidence"],
+        "properties": {
+          "command": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pass", "fail", "not-run"]
+          },
+          "evidence": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "handoff_path": {
+      "type": ["string", "null"]
+    },
+    "decision_id": {
+      "type": ["string", "null"]
+    },
+    "missing_decision": {
+      "type": ["string", "null"]
+    },
+    "affected_requirements": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "decision_evidence": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "requirement_results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "status", "evidence"],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pass", "fail", "not-run"]
+          },
+          "evidence": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

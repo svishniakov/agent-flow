@@ -1,0 +1,1410 @@
+#!/usr/bin/env python3
+"""Run the Agent Flow repository validation suite."""
+
+from __future__ import annotations
+
+import importlib.util
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+
+def find_repo_root(start: Path) -> Path:
+    for path in (start, *start.parents):
+        if (path / ".git").exists():
+            return path
+    return start
+
+
+ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = find_repo_root(ROOT)
+SCRIPTS = ROOT / "scripts"
+GOLDEN_TRACE_MANIFEST = ROOT / "testdata" / "golden-traces" / "manifest.json"
+ROLE_PROMPT_INPUT_MARKER = "Use the delegation packet as the source of truth"
+CODEGRAPH_REQUIRED_MODULES = [
+    "tree_sitter",
+    "tree_sitter_python",
+    "tree_sitter_javascript",
+    "tree_sitter_typescript",
+]
+PRODUCT_SEARCH_PATHS = [
+    "README.md",
+    "README.ru.md",
+    "SKILL.md",
+    "docs",
+    "references",
+    "scripts",
+    "agents",
+    "registries",
+    "testdata",
+]
+REQUIRED_SKILLS_CLI_DIRS = [
+    "agents",
+    "references",
+    "registries",
+    "scripts",
+    "testdata",
+    "docs",
+]
+
+ARCHITECTURE_DESIGN_CORE_GUARD_TERMS = [
+    "Architecture Design Mode",
+    "Architecture Design Brief",
+    "architecture_design_brief",
+    "Selected Matrix Facets",
+    "Status: approved",
+]
+ARCHITECTURE_DESIGN_ROLE_GUARD_TERMS = [
+    "Architecture Design Mode",
+    "Architecture Design Brief",
+    "Selected Matrix Facets",
+]
+ARCHITECTURE_CAPABILITY_GUARD_TERMS = [
+    "Architecture Capability Router",
+    "architecture_capabilities",
+    "Soft Skill Binding",
+    "recommended_skills",
+]
+ARCHITECTURE_AUTHORING_GUARD_TERMS = [
+    "Architecture Artifact Authoring Automation",
+    "TODO(agent):",
+    "--architecture-gate",
+]
+ARCHITECTURE_AUTHORING_ROLE_GUARD_TERMS = [
+    "Architecture Artifact Authoring Automation",
+    "TODO(agent):",
+]
+MITIGATION_GATE_GUARD_TERMS = [
+    "Mitigation Gate",
+    "risk-mitigations.json",
+    "Risk Mitigations",
+    "Risk Mitigation Review",
+    "next_gate",
+    "identified",
+]
+RESOLUTION_GATE_GUARD_TERMS = [
+    "Resolution Gate",
+    "risk-resolutions.json",
+    "Risk Resolutions",
+    "Risk Resolution Verification",
+    "Risk Resolution Review",
+    "resolution_type",
+    "fixed",
+    "mitigated",
+    "contained",
+    "unresolved",
+]
+BLOCKED_RESOLUTION_GATE_GUARD_TERMS = [
+    "Blocked Resolution Gate",
+    "Blocked Recovery Path",
+    "Senior QA Test Design Review",
+    "Resolution Architect Review",
+    "Supervising Architect Review",
+    "blocked_lesson",
+    "forbidden_repeat",
+    "rollback",
+]
+GOLDEN_TRACE_RUN_GUARD_TERMS = [
+    "Golden Trace Runs",
+    "test-golden-traces",
+    "golden-traces",
+]
+DELEGATION_TRACE_GATE_GUARD_TERMS = [
+    "Delegation Trace Gate",
+    "delegation-summary.json",
+    "Delegation Trace",
+    "Subagents Used",
+    "Role Lanes Used",
+    "Subagent Trace Evidence",
+    "terminal handoff",
+]
+HANDOFF_STATE_GATE_GUARD_TERMS = [
+    "Handoff State Gate",
+    "handoff_state_required",
+    "record-handoff-state.py",
+    "queued",
+    "accepted",
+    "completed",
+]
+MANDATORY_INDEPENDENT_QA_REVIEW_GUARD_TERMS = [
+    "Mandatory Independent QA Review Gate",
+    "mandatory_independent_qa_review",
+    "reviewer.qa",
+    "terminal handoff",
+    "launch-failure",
+    "runtime-failure",
+    "role-lane",
+]
+VERIFICATION_READINESS_GATE_GUARD_TERMS = [
+    "Verification Readiness Gate",
+    "verification-readiness.json",
+    "verification_readiness",
+    "needs-approval",
+    "paused-blocked",
+    "approval_requests",
+    "approval_executions",
+    "resume_phrase",
+    "Verification Gate Results",
+]
+CONTINUATION_GATE_GUARD_TERMS = [
+    "Continuation Gate",
+    "continuation-summary.json",
+    "blocked-checkpoint",
+    "Continuation Summary",
+    "Continuation Revalidation",
+    "Continuation Review",
+    "historical_worker_lanes",
+    "revalidated_lanes",
+]
+HARNESS_EVALUATION_GUARD_TERMS = [
+    "Harness Evaluation Loop",
+    "harness-evaluation.json",
+    "Harness Evaluation",
+    "Harness Evaluation Review",
+    "learning_triggers",
+    "requires_human_approval",
+    "Evidence Records",
+]
+CLAIM_EVIDENCE_GATE_GUARD_TERMS = [
+    "Claim Evidence Gate",
+    "claim-evidence.json",
+    "Claim Evidence",
+    "owner_lane",
+    "markers",
+    "supported",
+    "gap",
+]
+CLAIM_EVIDENCE_AUTHORING_GUARD_TERMS = [
+    "claim-evidence.json",
+    "Claim Evidence",
+    "owner_lane",
+    "markers",
+    "gap",
+]
+ENGINEERING_SIMPLICITY_GATE_GUARD_TERMS = [
+    "Engineering Simplicity Gate",
+    "Engineering Simplicity",
+    "engineering_simplicity",
+    "no-extra-work",
+    "stdlib-native-first",
+    "existing-helper-first",
+    "dependency-justified",
+    "abstraction-justified",
+    "smallest-working-diff",
+    "tests-fit-risk",
+]
+ENGINEERING_SIMPLICITY_RUNTIME_GUARD_TERMS = [
+    "Engineering Simplicity",
+    "engineering_simplicity",
+    "no-extra-work",
+    "stdlib-native-first",
+    "existing-helper-first",
+    "dependency-justified",
+    "abstraction-justified",
+    "smallest-working-diff",
+    "tests-fit-risk",
+]
+ENGINEERING_SIMPLICITY_REMEDIATION_GUARD_TERMS = [
+    "Simplicity Gate is not a reporting gate",
+    "fix now if fixable",
+    "wider-than-needed implementation",
+    "reporting-only",
+    "architect re-check",
+]
+ENGINEERING_SIMPLICITY_WORKER_REMEDIATION_GUARD_TERMS = [
+    "fix now if fixable",
+    "wider-than-needed implementation",
+    "architect re-check",
+]
+SIMPLICITY_SCOPE_COVERAGE_GUARD_TERMS = [
+    "Simplicity Scope Coverage",
+    "engineering_simplicity_scope",
+    "primary_surfaces",
+    "secondary_surfaces",
+    "scope_coverage",
+    "peripheral-only closure",
+]
+LANE_BOUNDARY_EVIDENCE_GUARD_TERMS = [
+    "Lane Boundary Evidence Gate",
+    "Boundary Evidence",
+    "boundary.allowed_paths",
+    "boundary.forbidden_paths",
+    "changed_paths_artifact",
+    "changed_paths",
+    "record-lane-boundary.py",
+]
+ACCEPTANCE_TRACEABILITY_GATE_GUARD_TERMS = [
+    "Acceptance Criteria Traceability Gate",
+    "Surface Evidence Gate",
+    "acceptance-traceability.json",
+    "Acceptance Criteria",
+    "surface_expectations",
+    "polarity",
+    "proof_kind",
+    "supported",
+    "markers",
+]
+CONTRACT_NEGATIVE_FIXTURE_GATE_GUARD_TERMS = [
+    "Contract Negative Fixture Gate",
+    "negative_fixture_evidence",
+    "gate",
+    "cli",
+    "query",
+    "storage",
+    "config",
+    "parser",
+]
+
+REQUIRED_RUNTIME_TEXT = {
+    "agents/openai.yaml": [
+        "Use $agent-flow for this request.",
+        "verified result with residual risks",
+        "allow_implicit_invocation: false",
+    ],
+    "SKILL.md": [
+        "anywhere in the latest user request",
+        "AgentFlow",
+        "Action Authorization",
+        "Task Status Completion Gate",
+        "task status normalization pass",
+        "Evidence Records",
+        "Architecture Contract Gate",
+        *ARCHITECTURE_DESIGN_CORE_GUARD_TERMS,
+        *ARCHITECTURE_AUTHORING_GUARD_TERMS,
+        "Architecture Matrix",
+        "architecture_context",
+        "product_context",
+        "application_surface",
+        "architecture_pattern",
+        "stack_runtime",
+        "risk_gates",
+        "verification_gates",
+        *ARCHITECTURE_CAPABILITY_GUARD_TERMS,
+        "Architecture Context Propagation",
+        "matrix_facets",
+        "Architecture Execution Control",
+        *ENGINEERING_SIMPLICITY_GATE_GUARD_TERMS,
+        *ENGINEERING_SIMPLICITY_REMEDIATION_GUARD_TERMS,
+        *SIMPLICITY_SCOPE_COVERAGE_GUARD_TERMS,
+        *LANE_BOUNDARY_EVIDENCE_GUARD_TERMS,
+        "not AI Slop Gate",
+        *MITIGATION_GATE_GUARD_TERMS,
+        *RESOLUTION_GATE_GUARD_TERMS,
+        *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
+        *GOLDEN_TRACE_RUN_GUARD_TERMS,
+        *DELEGATION_TRACE_GATE_GUARD_TERMS,
+        *HANDOFF_STATE_GATE_GUARD_TERMS,
+        *MANDATORY_INDEPENDENT_QA_REVIEW_GUARD_TERMS,
+        *VERIFICATION_READINESS_GATE_GUARD_TERMS,
+        *CONTINUATION_GATE_GUARD_TERMS,
+        *HARNESS_EVALUATION_GUARD_TERMS,
+        *CLAIM_EVIDENCE_GATE_GUARD_TERMS,
+        *ACCEPTANCE_TRACEABILITY_GATE_GUARD_TERMS,
+        *CONTRACT_NEGATIVE_FIXTURE_GATE_GUARD_TERMS,
+        "Architecture Approval Gate",
+        "Local Best Practice auto gate",
+        "regression demotion",
+        "Model/reasoning upgrade is not the default fix",
+        "standard` traceable runs with at least two worker lanes",
+    ],
+    "references/definition-of-done.md": [
+        "Task Status Completion Gate",
+        "Status: done",
+        "Evidence Records",
+        "Architecture Contract Gate",
+        *ARCHITECTURE_DESIGN_CORE_GUARD_TERMS,
+        *ARCHITECTURE_AUTHORING_GUARD_TERMS,
+        "Architecture Matrix",
+        "architecture_context",
+        *ARCHITECTURE_CAPABILITY_GUARD_TERMS,
+        "Architecture Context Propagation",
+        "matrix_facets",
+        "Architecture Execution Control",
+        "Architecture Compliance",
+        "Architecture Invariants",
+        "Architecture Matrix Mismatches",
+        "Contract Drift",
+        *ENGINEERING_SIMPLICITY_GATE_GUARD_TERMS,
+        *ENGINEERING_SIMPLICITY_REMEDIATION_GUARD_TERMS,
+        *SIMPLICITY_SCOPE_COVERAGE_GUARD_TERMS,
+        *LANE_BOUNDARY_EVIDENCE_GUARD_TERMS,
+        "not AI Slop Gate",
+        *MITIGATION_GATE_GUARD_TERMS,
+        *RESOLUTION_GATE_GUARD_TERMS,
+        *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
+        "Golden Trace Runs",
+        *DELEGATION_TRACE_GATE_GUARD_TERMS,
+        *HANDOFF_STATE_GATE_GUARD_TERMS,
+        *MANDATORY_INDEPENDENT_QA_REVIEW_GUARD_TERMS,
+        *VERIFICATION_READINESS_GATE_GUARD_TERMS,
+        *CONTINUATION_GATE_GUARD_TERMS,
+        *HARNESS_EVALUATION_GUARD_TERMS,
+        *CLAIM_EVIDENCE_GATE_GUARD_TERMS,
+        *ACCEPTANCE_TRACEABILITY_GATE_GUARD_TERMS,
+        *CONTRACT_NEGATIVE_FIXTURE_GATE_GUARD_TERMS,
+        "Architecture Approval Gate",
+        "Local Best Practice auto gate",
+        "regression demotion",
+        "Model/reasoning upgrade is not the default fix",
+        "at least two worker lanes",
+    ],
+    "references/project-memory-and-env.md": [
+        "normalize stale completed sections",
+        "classify it as `uncertain`",
+    ],
+    "references/orchestrator.md": [
+        "anywhere in the latest request",
+        "AgentFlow",
+        "Normalize stale completed task sections",
+        "Task Status Completion Gate",
+        "Evidence Records",
+        "Architecture Contract Gate",
+        *ARCHITECTURE_DESIGN_CORE_GUARD_TERMS,
+        *ARCHITECTURE_AUTHORING_GUARD_TERMS,
+        "Architecture Matrix",
+        "architecture_context",
+        "product_context",
+        "application_surface",
+        "architecture_pattern",
+        "stack_runtime",
+        "risk_gates",
+        "verification_gates",
+        *ARCHITECTURE_CAPABILITY_GUARD_TERMS,
+        "Architecture Context Propagation",
+        "matrix_facets",
+        "Architecture Execution Control",
+        "Architecture Compliance",
+        "Architecture Invariants",
+        "Architecture Matrix Mismatches",
+        "Contract Drift",
+        *ENGINEERING_SIMPLICITY_GATE_GUARD_TERMS,
+        *ENGINEERING_SIMPLICITY_REMEDIATION_GUARD_TERMS,
+        *SIMPLICITY_SCOPE_COVERAGE_GUARD_TERMS,
+        *LANE_BOUNDARY_EVIDENCE_GUARD_TERMS,
+        *MITIGATION_GATE_GUARD_TERMS,
+        *RESOLUTION_GATE_GUARD_TERMS,
+        *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
+        "Architecture Approval Gate",
+        *DELEGATION_TRACE_GATE_GUARD_TERMS,
+        *HANDOFF_STATE_GATE_GUARD_TERMS,
+        *MANDATORY_INDEPENDENT_QA_REVIEW_GUARD_TERMS,
+        *VERIFICATION_READINESS_GATE_GUARD_TERMS,
+        *CONTINUATION_GATE_GUARD_TERMS,
+        *HARNESS_EVALUATION_GUARD_TERMS,
+        *CLAIM_EVIDENCE_GATE_GUARD_TERMS,
+        *ACCEPTANCE_TRACEABILITY_GATE_GUARD_TERMS,
+        *CONTRACT_NEGATIVE_FIXTURE_GATE_GUARD_TERMS,
+        "Local Best Practice auto gate",
+        "regression demotion",
+        "Model/reasoning upgrade is not the default fix",
+        "two or more worker lanes",
+    ],
+    "references/delegation.md": [
+        "Architecture Contract Gate",
+        *ARCHITECTURE_DESIGN_CORE_GUARD_TERMS,
+        *ARCHITECTURE_AUTHORING_GUARD_TERMS,
+        "Architecture Matrix",
+        "architecture_context",
+        "product_context",
+        "application_surface",
+        "architecture_pattern",
+        "stack_runtime",
+        "risk_gates",
+        "verification_gates",
+        *ARCHITECTURE_CAPABILITY_GUARD_TERMS,
+        "Architecture Context Propagation",
+        "matrix_facets",
+        "Architecture Execution Control",
+        "Architecture Compliance",
+        "Architecture Invariants",
+        "Architecture Matrix Mismatches",
+        "Contract Drift",
+        *ENGINEERING_SIMPLICITY_GATE_GUARD_TERMS,
+        *ENGINEERING_SIMPLICITY_REMEDIATION_GUARD_TERMS,
+        *SIMPLICITY_SCOPE_COVERAGE_GUARD_TERMS,
+        *LANE_BOUNDARY_EVIDENCE_GUARD_TERMS,
+        *MITIGATION_GATE_GUARD_TERMS,
+        *RESOLUTION_GATE_GUARD_TERMS,
+        *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
+        *DELEGATION_TRACE_GATE_GUARD_TERMS,
+        *HANDOFF_STATE_GATE_GUARD_TERMS,
+        *MANDATORY_INDEPENDENT_QA_REVIEW_GUARD_TERMS,
+        *VERIFICATION_READINESS_GATE_GUARD_TERMS,
+        *CONTINUATION_GATE_GUARD_TERMS,
+        *HARNESS_EVALUATION_GUARD_TERMS,
+        *CLAIM_EVIDENCE_GATE_GUARD_TERMS,
+        *ACCEPTANCE_TRACEABILITY_GATE_GUARD_TERMS,
+        *CONTRACT_NEGATIVE_FIXTURE_GATE_GUARD_TERMS,
+        "Architecture Approval Gate",
+        "Local Best Practice auto gate",
+        "Model/reasoning upgrade is not the default fix",
+        "`budget`",
+        "two or more worker lanes",
+    ],
+    "references/traceable-runs.md": [
+        "`schema_version` is `1` or `2`",
+        "`budget` is required",
+        "`architecture`",
+        "`architecture_contract_required`",
+        *ARCHITECTURE_DESIGN_CORE_GUARD_TERMS,
+        *ARCHITECTURE_AUTHORING_GUARD_TERMS,
+        "`Selected Architecture`",
+        "Architecture Matrix",
+        "architecture_context",
+        *ARCHITECTURE_CAPABILITY_GUARD_TERMS,
+        "Architecture Context Propagation",
+        "matrix_facets",
+        "markdown source of truth",
+        "Architecture Execution Control",
+        "`architecture_compliance`",
+        "Architecture Compliance",
+        "Architecture Invariants",
+        "Architecture Matrix Mismatches",
+        "Contract Drift",
+        *ENGINEERING_SIMPLICITY_GATE_GUARD_TERMS,
+        *ENGINEERING_SIMPLICITY_REMEDIATION_GUARD_TERMS,
+        *SIMPLICITY_SCOPE_COVERAGE_GUARD_TERMS,
+        *LANE_BOUNDARY_EVIDENCE_GUARD_TERMS,
+        *MITIGATION_GATE_GUARD_TERMS,
+        *RESOLUTION_GATE_GUARD_TERMS,
+        *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
+        *DELEGATION_TRACE_GATE_GUARD_TERMS,
+        *HANDOFF_STATE_GATE_GUARD_TERMS,
+        *MANDATORY_INDEPENDENT_QA_REVIEW_GUARD_TERMS,
+        *VERIFICATION_READINESS_GATE_GUARD_TERMS,
+        *HARNESS_EVALUATION_GUARD_TERMS,
+        *CLAIM_EVIDENCE_GATE_GUARD_TERMS,
+    ],
+    "references/harness-evaluation-loop.md": [
+        *HARNESS_EVALUATION_GUARD_TERMS,
+        "Architecture Matrix",
+        "Architecture Capability Router",
+        "Project Memory",
+        "promote-harness-evaluation.py",
+        "target=Evidence Records",
+        "requires_human_approval=false",
+        "not promotion targets",
+        "proposal",
+    ],
+    "references/architecture-matrix.md": [
+        "Architecture Matrix",
+        "architecture_context",
+        "product_context",
+        "application_surface",
+        "architecture_pattern",
+        "stack_runtime",
+        "risk_gates",
+        "verification_gates",
+        "Product Context",
+        "Application Surface",
+        "Architecture Pattern",
+        "Stack Runtime",
+        "Risk Gates",
+        "Verification Gates",
+        "saas-service",
+        "workflow-automation",
+        "crypto-payments",
+        "frontend-service",
+        "full-stack-service",
+        "backoffice-ui",
+        "landing",
+        "mobile-app",
+        "desktop-app",
+        "browser-extension",
+        "wallet-payment-surface",
+        "crypto-ops-console",
+        "embedded-mini-app",
+        "social-community-surface",
+        "iot-device-fleet",
+        "monolith",
+        "microservices",
+        "server-rendered-web",
+        "web-app-shell",
+        "mobile-layered-app",
+        "desktop-shell-app",
+        "browser-extension-architecture",
+        "hosted-mini-app",
+        "social-feed-graph",
+        "iot-edge-cloud",
+        "event-driven-architecture",
+        "event-sourcing",
+        "blockchain-payment-adapter",
+        "smart-contract-boundary",
+        "chain-indexer-reconciliation",
+        "event-messaging-runtime",
+        "blockchain-runtime",
+        "TON",
+        "TRON",
+        "Ethereum",
+        "Jettons",
+        "TRC-20",
+        "ERC-20",
+        "Kafka",
+        "RabbitMQ",
+        "BullMQ",
+        "api-contract",
+        "frontend-build",
+        "full-stack-flow",
+        "landing-seo-performance",
+        "browser-extension-smoke",
+        "module-boundary-regression",
+        "service-contract",
+        "event-broker-contract",
+        "event-replay-projection",
+        "wallet-signing-smoke",
+        "testnet-transaction-lifecycle",
+        "smart-contract-interface",
+        "chain-reconciliation-replay",
+        "custody-secrets-review",
+        "fee-resource-simulation",
+        "tenant-isolation",
+        "subscription-entitlements",
+        "auth-permissions",
+        "financial-data-integrity",
+        "custody-key-management",
+        "chain-finality-confirmations",
+        "token-contract-integrity",
+        "rpc-indexer-drift",
+        "crypto-fee-liquidity",
+        "crypto-compliance-controls",
+        "client-server-contract-drift",
+        "public-web-consent",
+        "browser-extension-permissions",
+        "module-boundary-erosion",
+        "distributed-consistency",
+        "event-delivery-replay",
+        "evidence-source-integrity",
+        "graph-workflow-runtime",
+        "browser-extension-mv3",
+    ],
+    "references/architecture-capability-router.md": [
+        *ARCHITECTURE_CAPABILITY_GUARD_TERMS,
+        "Architecture Matrix",
+        "architecture_context",
+        "Architecture Design Brief",
+        "Architecture Contract",
+        "Execution Plan",
+        "Selected Architecture",
+        "Architecture Matrix Mismatches",
+        "Contract Drift",
+        "Engineering Simplicity Gate",
+        "Do not add a",
+        "do not add skill hints",
+    ],
+    "references/architecture-artifact-authoring.md": [
+        *ARCHITECTURE_AUTHORING_GUARD_TERMS,
+        "agent-authored",
+        "Architecture Design Brief",
+        "Architecture Contract",
+        "Architecture Compliance",
+        "Architecture Invariants",
+        "Architecture Matrix Mismatches",
+        "Contract Drift",
+        "Engineering Simplicity",
+        "Simplicity Gate is not a reporting gate",
+        "fix now if fixable",
+        "reporting-only",
+        *SIMPLICITY_SCOPE_COVERAGE_GUARD_TERMS,
+        *LANE_BOUNDARY_EVIDENCE_GUARD_TERMS,
+        *VERIFICATION_READINESS_GATE_GUARD_TERMS,
+        "No role should ask the human",
+        *CLAIM_EVIDENCE_AUTHORING_GUARD_TERMS,
+    ],
+    "registries/architecture-capabilities.json": [
+        "saas-platform-architecture",
+        "go-backend-service-architecture",
+        "modular-monolith-architecture",
+        "event-platform-architecture",
+        "crypto-payment-architecture",
+        "recommended_skills",
+        "matrix_facets",
+        "contract_sections",
+    ],
+    "agents/orchestrator.md": [
+        "Normalize stale completed `todo.md` sections",
+        "project-memory task status",
+        "Evidence Records",
+        "Architecture Contract Gate",
+        *ARCHITECTURE_DESIGN_CORE_GUARD_TERMS,
+        *ARCHITECTURE_AUTHORING_GUARD_TERMS,
+        "Architecture Matrix",
+        "architecture_context",
+        *ARCHITECTURE_CAPABILITY_GUARD_TERMS,
+        "Architecture Context Propagation",
+        "matrix_facets",
+        "Architecture Execution Control",
+        "Architecture Compliance",
+        "Engineering Simplicity",
+        "architecture drift",
+        *ENGINEERING_SIMPLICITY_REMEDIATION_GUARD_TERMS,
+        "Architecture Invariants",
+        "Architecture Matrix Mismatches",
+        "Contract Drift",
+        *MITIGATION_GATE_GUARD_TERMS,
+        *RESOLUTION_GATE_GUARD_TERMS,
+        *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
+        *VERIFICATION_READINESS_GATE_GUARD_TERMS,
+        *CONTINUATION_GATE_GUARD_TERMS,
+        *HARNESS_EVALUATION_GUARD_TERMS,
+        *CLAIM_EVIDENCE_GATE_GUARD_TERMS,
+        *ACCEPTANCE_TRACEABILITY_GATE_GUARD_TERMS,
+        *CONTRACT_NEGATIVE_FIXTURE_GATE_GUARD_TERMS,
+        "Architecture Approval Gate",
+        "Local Best Practice auto gate",
+        "regression demotion",
+        "Model/reasoning upgrade is not the default fix",
+        "two or more worker lanes",
+    ],
+    "agents/architect.md": [
+        "Architecture Approval Gate",
+        "Architecture Attempt",
+        "Architecture Failure",
+        "Model/reasoning upgrade is not the default fix",
+        "Selected Architecture",
+        *ARCHITECTURE_DESIGN_CORE_GUARD_TERMS,
+        *ARCHITECTURE_AUTHORING_ROLE_GUARD_TERMS,
+        "Architecture Matrix",
+        "architecture_context",
+        *ARCHITECTURE_CAPABILITY_GUARD_TERMS,
+        "Architecture Context Propagation",
+        "Architecture Execution Control",
+        "architecture drift",
+        "Engineering Simplicity",
+        "architect re-check",
+        "Simplicity Gate is not a reporting gate",
+        *CLAIM_EVIDENCE_GATE_GUARD_TERMS,
+        *ACCEPTANCE_TRACEABILITY_GATE_GUARD_TERMS,
+        *CONTRACT_NEGATIVE_FIXTURE_GATE_GUARD_TERMS,
+        "Blocked Resolution Gate",
+        "Resolution Architect Review",
+        "forbidden_repeat",
+    ],
+    "agents/reviewer.md": [
+        "Evidence Records",
+        "Architecture Contract Gate",
+        "Architecture Design Mode",
+        "Architecture Design Brief",
+        *ARCHITECTURE_AUTHORING_ROLE_GUARD_TERMS,
+        "Architecture Execution Control",
+        "architecture_context",
+        *ARCHITECTURE_CAPABILITY_GUARD_TERMS,
+        "Architecture Context Propagation",
+        "Report architecture contract mismatches explicitly",
+        "Architecture Matrix Mismatches",
+        "Contract Drift",
+        "Engineering Simplicity",
+        "reporting-only",
+        *SIMPLICITY_SCOPE_COVERAGE_GUARD_TERMS,
+        *LANE_BOUNDARY_EVIDENCE_GUARD_TERMS,
+        "fixed worker lane id",
+        *VERIFICATION_READINESS_GATE_GUARD_TERMS,
+        *CONTINUATION_GATE_GUARD_TERMS,
+        *HARNESS_EVALUATION_GUARD_TERMS,
+        *CLAIM_EVIDENCE_GATE_GUARD_TERMS,
+        *ACCEPTANCE_TRACEABILITY_GATE_GUARD_TERMS,
+        *CONTRACT_NEGATIVE_FIXTURE_GATE_GUARD_TERMS,
+        *MITIGATION_GATE_GUARD_TERMS,
+        *RESOLUTION_GATE_GUARD_TERMS,
+        *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
+    ],
+    "agents/qa-verifier.md": [
+        "Architecture Contract Gate",
+        "Architecture Design Mode",
+        "Architecture Design Brief",
+        *ARCHITECTURE_AUTHORING_ROLE_GUARD_TERMS,
+        "Architecture Execution Control",
+        "architecture invariants",
+        "architecture_context",
+        "Engineering Simplicity",
+        "simplicity remediation",
+        *SIMPLICITY_SCOPE_COVERAGE_GUARD_TERMS,
+        *LANE_BOUNDARY_EVIDENCE_GUARD_TERMS,
+        *ARCHITECTURE_CAPABILITY_GUARD_TERMS,
+        "Architecture Context Propagation",
+        "Architecture Invariants",
+        *VERIFICATION_READINESS_GATE_GUARD_TERMS,
+        *CONTINUATION_GATE_GUARD_TERMS,
+        *CLAIM_EVIDENCE_GATE_GUARD_TERMS,
+        *ACCEPTANCE_TRACEABILITY_GATE_GUARD_TERMS,
+        *CONTRACT_NEGATIVE_FIXTURE_GATE_GUARD_TERMS,
+        *MITIGATION_GATE_GUARD_TERMS,
+        *RESOLUTION_GATE_GUARD_TERMS,
+        "Blocked Resolution Gate",
+        "Senior QA Test Design Review",
+        "edge cases",
+        "negative cases",
+    ],
+    "agents/senior-qa-verifier.md": [
+        "Senior QA Test Design Review",
+        "acceptance criteria",
+        "test cases",
+        "edge cases",
+        "negative cases",
+    ],
+    "agents/supervising-architect.md": [
+        "Supervising Architect Review",
+        "forbidden_repeat",
+        "attempt 3",
+        "blocked_lesson",
+    ],
+    "agents/backend-worker.md": [
+        "Architecture Compliance",
+        "Engineering Simplicity",
+        *ARCHITECTURE_DESIGN_ROLE_GUARD_TERMS,
+        *ARCHITECTURE_AUTHORING_ROLE_GUARD_TERMS,
+        "Architecture Context Propagation",
+        "matrix_facets",
+        "architecture drift",
+        *ENGINEERING_SIMPLICITY_WORKER_REMEDIATION_GUARD_TERMS,
+        *LANE_BOUNDARY_EVIDENCE_GUARD_TERMS,
+    ],
+    "agents/frontend-worker.md": [
+        "Architecture Compliance",
+        "Engineering Simplicity",
+        *ARCHITECTURE_DESIGN_ROLE_GUARD_TERMS,
+        *ARCHITECTURE_AUTHORING_ROLE_GUARD_TERMS,
+        "Architecture Context Propagation",
+        "matrix_facets",
+        "architecture drift",
+        *ENGINEERING_SIMPLICITY_WORKER_REMEDIATION_GUARD_TERMS,
+        *LANE_BOUNDARY_EVIDENCE_GUARD_TERMS,
+    ],
+    "agents/typescript-worker.md": [
+        "Architecture Compliance",
+        "Engineering Simplicity",
+        *ARCHITECTURE_DESIGN_ROLE_GUARD_TERMS,
+        *ARCHITECTURE_AUTHORING_ROLE_GUARD_TERMS,
+        "Architecture Context Propagation",
+        "matrix_facets",
+        "architecture drift",
+        *ENGINEERING_SIMPLICITY_WORKER_REMEDIATION_GUARD_TERMS,
+        *LANE_BOUNDARY_EVIDENCE_GUARD_TERMS,
+    ],
+    "agents/bun-worker.md": [
+        "Architecture Compliance",
+        "Engineering Simplicity",
+        *ARCHITECTURE_DESIGN_ROLE_GUARD_TERMS,
+        *ARCHITECTURE_AUTHORING_ROLE_GUARD_TERMS,
+        "Architecture Context Propagation",
+        "matrix_facets",
+        "architecture drift",
+        *ENGINEERING_SIMPLICITY_WORKER_REMEDIATION_GUARD_TERMS,
+        *LANE_BOUNDARY_EVIDENCE_GUARD_TERMS,
+    ],
+    "agents/python-worker.md": [
+        "Architecture Compliance",
+        "Engineering Simplicity",
+        *ARCHITECTURE_DESIGN_ROLE_GUARD_TERMS,
+        *ARCHITECTURE_AUTHORING_ROLE_GUARD_TERMS,
+        "Architecture Context Propagation",
+        "matrix_facets",
+        "architecture drift",
+        *ENGINEERING_SIMPLICITY_WORKER_REMEDIATION_GUARD_TERMS,
+        *LANE_BOUNDARY_EVIDENCE_GUARD_TERMS,
+    ],
+    "agents/golang-worker.md": [
+        "Architecture Compliance",
+        "Engineering Simplicity",
+        *ARCHITECTURE_DESIGN_ROLE_GUARD_TERMS,
+        *ARCHITECTURE_AUTHORING_ROLE_GUARD_TERMS,
+        "Architecture Context Propagation",
+        "matrix_facets",
+        "architecture drift",
+        *ENGINEERING_SIMPLICITY_WORKER_REMEDIATION_GUARD_TERMS,
+        *LANE_BOUNDARY_EVIDENCE_GUARD_TERMS,
+    ],
+    "agents/ios-worker.md": [
+        "Architecture Compliance",
+        "Engineering Simplicity",
+        *ARCHITECTURE_DESIGN_ROLE_GUARD_TERMS,
+        *ARCHITECTURE_AUTHORING_ROLE_GUARD_TERMS,
+        "Architecture Context Propagation",
+        "matrix_facets",
+        "architecture drift",
+        *ENGINEERING_SIMPLICITY_WORKER_REMEDIATION_GUARD_TERMS,
+        *LANE_BOUNDARY_EVIDENCE_GUARD_TERMS,
+    ],
+    "agents/rag-retrieval-engineer.md": [
+        "Architecture Compliance",
+        "Engineering Simplicity",
+        *ARCHITECTURE_DESIGN_ROLE_GUARD_TERMS,
+        *ARCHITECTURE_AUTHORING_ROLE_GUARD_TERMS,
+        "Architecture Context Propagation",
+        "matrix_facets",
+        "architecture drift",
+        *ENGINEERING_SIMPLICITY_WORKER_REMEDIATION_GUARD_TERMS,
+        *LANE_BOUNDARY_EVIDENCE_GUARD_TERMS,
+    ],
+    "scripts/task_facts.py": [
+        "TASK_CLASS_PRECEDENCE",
+        "derived_task_classes",
+        "primary_task_class",
+        "Task Facts missing fields",
+    ],
+    "scripts/model_eval_manifest.py": [
+        "paired-adaptive",
+        "positive_checks",
+        "negative_checks",
+        "git submodules",
+        "Git LFS pointers",
+        "argv array",
+    ],
+    "scripts/model_eval_workspace.py": [
+        "git",
+        "archive",
+        "extract_archive_safely",
+        "ownership marker",
+        "source repository state changed",
+    ],
+    "scripts/model_eval_adapter.py": [
+        "--ignore-user-config",
+        "--strict-config",
+        "--output-schema",
+        "model_reasoning_effort",
+        "invalid-context",
+        "REDACTED",
+    ],
+    "scripts/model_eval_evaluator.py": [
+        "inject_evaluator_files",
+        "cleanup_injected_files",
+        "argv",
+        "infrastructure-error",
+        "AGENT_FLOW_EVAL_REPO_",
+    ],
+    "scripts/model_eval_score.py": [
+        "critical_failures",
+        "passed_tasks",
+        "unstable_tasks",
+        "pairwise_wins",
+        "adaptive_repeat_tasks",
+    ],
+    "scripts/validate-run.py": [
+        "architecture_compliance",
+        "architecture_design_brief",
+        "Architecture Design Brief",
+        *ARCHITECTURE_AUTHORING_ROLE_GUARD_TERMS,
+        "architecture_capabilities",
+        "Architecture Capability Router",
+        "Selected Matrix Facets",
+        "Status: approved",
+        "matrix_facets",
+        "architecture_context",
+        "ARCHITECTURE_MATRIX_PATH",
+        "MATRIX_FACET_PATTERN",
+        "product_context",
+        "application_surface",
+        "architecture_pattern",
+        "stack_runtime",
+        "risk_gates",
+        "verification_gates",
+        "Architecture Compliance",
+        "Architecture Invariants",
+        "Architecture Matrix Mismatches",
+        "Contract Drift",
+        *ENGINEERING_SIMPLICITY_RUNTIME_GUARD_TERMS,
+        *VERIFICATION_READINESS_GATE_GUARD_TERMS,
+        *CONTINUATION_GATE_GUARD_TERMS,
+        *MITIGATION_GATE_GUARD_TERMS,
+        *RESOLUTION_GATE_GUARD_TERMS,
+        *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
+        *HARNESS_EVALUATION_GUARD_TERMS,
+        *CLAIM_EVIDENCE_GATE_GUARD_TERMS,
+        *LANE_BOUNDARY_EVIDENCE_GUARD_TERMS,
+        *HANDOFF_STATE_GATE_GUARD_TERMS,
+        *MANDATORY_INDEPENDENT_QA_REVIEW_GUARD_TERMS,
+    ],
+    "scripts/record-handoff-state.py": [
+        *HANDOFF_STATE_GATE_GUARD_TERMS,
+        "handoff_state",
+        "timeline events",
+    ],
+    "scripts/test-record-handoff-state.py": [
+        "record-handoff-state.py",
+        "handoff_state",
+        "queued",
+        "accepted",
+        "completed",
+        "invalid statuses",
+    ],
+    "scripts/record-lane-boundary.py": [
+        "record-lane-boundary.py",
+        "changed_paths",
+        "tracked_changed_paths",
+        "untracked_paths",
+        "git diff --name-only",
+        "git ls-files --others --exclude-standard",
+        "Boundary evidence",
+    ],
+    "scripts/test-record-lane-boundary.py": [
+        "record-lane-boundary.py",
+        "tracked_changed_paths",
+        "untracked_paths",
+        ".agent-work",
+        "Boundary evidence",
+    ],
+    "scripts/architecture_capabilities.py": [
+        "Architecture Capability Router",
+        "architecture capability registry",
+        "recommended_skills",
+        "matrix_facets",
+        "contract_sections",
+    ],
+    "scripts/init-run.py": [
+        *ARCHITECTURE_AUTHORING_GUARD_TERMS,
+        "architecture_context",
+        "architecture_capabilities",
+        "verification_readiness",
+        "verification-readiness.json",
+        "Verification Gate Results",
+        "Architecture Design Brief",
+        "Architecture Contract",
+        "Architecture Compliance",
+        "Architecture Invariants",
+        "Architecture Matrix Mismatches",
+        "Contract Drift",
+        *ENGINEERING_SIMPLICITY_RUNTIME_GUARD_TERMS,
+        "fix now if fixable",
+        "route as drift only when architect re-check is needed",
+        *SIMPLICITY_SCOPE_COVERAGE_GUARD_TERMS,
+        *LANE_BOUNDARY_EVIDENCE_GUARD_TERMS,
+        "handoff_state_required",
+        "handoff_state",
+        "queued",
+        *CLAIM_EVIDENCE_AUTHORING_GUARD_TERMS,
+        *ACCEPTANCE_TRACEABILITY_GATE_GUARD_TERMS,
+        *CONTRACT_NEGATIVE_FIXTURE_GATE_GUARD_TERMS,
+        *MANDATORY_INDEPENDENT_QA_REVIEW_GUARD_TERMS,
+    ],
+    "scripts/test-init-run.py": [
+        *ARCHITECTURE_AUTHORING_GUARD_TERMS,
+        "generated pending run",
+        "unknown architecture capability",
+        "malformed worker lane",
+        "Engineering Simplicity",
+        "TODO(agent):",
+        "fix now if fixable",
+        "Engineering Simplicity remediation instruction",
+        *SIMPLICITY_SCOPE_COVERAGE_GUARD_TERMS,
+        *LANE_BOUNDARY_EVIDENCE_GUARD_TERMS,
+        "handoff_state_required",
+        "handoff_state",
+        "Handoff State Gate",
+        *ACCEPTANCE_TRACEABILITY_GATE_GUARD_TERMS,
+        *CONTRACT_NEGATIVE_FIXTURE_GATE_GUARD_TERMS,
+        *MANDATORY_INDEPENDENT_QA_REVIEW_GUARD_TERMS,
+    ],
+    "scripts/validate-architecture-capabilities.py": [
+        "Architecture Capability Router",
+        "architecture capability registry",
+        "allow-partial-matrix-coverage",
+    ],
+    "scripts/test-golden-traces.py": [
+        *GOLDEN_TRACE_RUN_GUARD_TERMS,
+        "expected_error",
+        "VALIDATE_RUN",
+    ],
+    "scripts/test-validate-run-lanes.py": [
+        "handoff_state_required",
+        "handoff_state",
+        "Handoff State Gate",
+        "queued",
+        "accepted",
+        "completed_at",
+        "batch item",
+    ],
+    "testdata/golden-traces/manifest.json": [
+        "Golden Trace Runs",
+        "standard-multilane-architecture-ship",
+        "worker-without-engineering-simplicity",
+        "Engineering Simplicity Gate",
+        *SIMPLICITY_SCOPE_COVERAGE_GUARD_TERMS,
+        *LANE_BOUNDARY_EVIDENCE_GUARD_TERMS,
+        "release-independent-architecture-ship",
+        "blocked-resolution-third-attempt-blocked",
+        "blocked-checkpoint-continuation-ship",
+        "continuation-positive-without-summary",
+        "mandatory-independent-qa-review",
+        "handoff-state-gate-ship",
+        "handoff-state-missing-state",
+        "handoff-state-terminal-mismatch",
+        "handoff-state-batch-order",
+        "handoff_state_required",
+    ],
+}
+
+
+def run_step(name: str, command: list[str]) -> int:
+    print(f"==> {name}")
+    result = subprocess.run(command, cwd=ROOT, text=True, capture_output=True, check=False)
+    if result.stdout:
+        print(result.stdout, end="")
+    if result.stderr:
+        print(result.stderr, end="", file=sys.stderr)
+    if result.returncode:
+        print(f"FAIL {name}: exit {result.returncode}", file=sys.stderr)
+        return result.returncode
+    print(f"PASS {name}")
+    return 0
+
+
+def run_content_guard(name: str, needle: str) -> int:
+    print(f"==> {name}")
+    matches: list[str] = []
+    for raw_path in PRODUCT_SEARCH_PATHS:
+        path = ROOT / raw_path
+        if path.is_dir():
+            candidates = [candidate for candidate in path.rglob("*") if candidate.is_file()]
+        elif path.exists():
+            candidates = [path]
+        else:
+            candidates = []
+        for candidate in candidates:
+            if candidate == Path(__file__).resolve():
+                continue
+            if candidate.suffix not in {".md", ".py", ".json", ".yaml", ".yml"}:
+                continue
+            try:
+                text = candidate.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                continue
+            if needle in text:
+                matches.append(str(candidate.relative_to(ROOT)))
+    if REPO_ROOT != ROOT:
+        for path in (REPO_ROOT / "README.md", REPO_ROOT / "README.ru.md"):
+            if not path.exists():
+                continue
+            text = path.read_text(encoding="utf-8")
+            if needle in text:
+                matches.append(str(path.relative_to(REPO_ROOT)))
+    if matches:
+        print(f"FAIL {name}: found forbidden text '{needle}'", file=sys.stderr)
+        for match in matches:
+            print(f"- {match}", file=sys.stderr)
+        return 1
+    print(f"PASS {name}")
+    return 0
+
+
+def run_readme_markdown_guard() -> int:
+    print("==> README Markdown-only guard")
+    forbidden = [
+        "<p",
+        "<picture",
+        "<source",
+        "<img",
+        "<div",
+        "<h1",
+        "<h2",
+        "<h3",
+        "</",
+        ".svg",
+        "img.shields.io",
+    ]
+    failures: list[str] = []
+    for name in ["README.md", "README.ru.md"]:
+        path = REPO_ROOT / name
+        text = path.read_text(encoding="utf-8")
+        for needle in forbidden:
+            if needle in text:
+                failures.append(f"{name}: {needle}")
+    if failures:
+        print("FAIL README Markdown-only guard", file=sys.stderr)
+        for failure in failures:
+            print(f"- {failure}", file=sys.stderr)
+        return 1
+    print("PASS README Markdown-only guard")
+    return 0
+
+
+def run_skills_cli_layout_guard() -> int:
+    print("==> Skills CLI layout guard")
+    failures: list[str] = []
+    if REPO_ROOT != ROOT and (REPO_ROOT / "SKILL.md").exists():
+        failures.append("root SKILL.md must not exist; it shadows skills/agent-flow/SKILL.md")
+    if not (ROOT / "SKILL.md").is_file():
+        failures.append("skills/agent-flow/SKILL.md is missing")
+    if not (ROOT / "LICENSE").is_file():
+        failures.append("skills/agent-flow/LICENSE is missing")
+    for dirname in REQUIRED_SKILLS_CLI_DIRS:
+        if not (ROOT / dirname).is_dir():
+            failures.append(f"skills/agent-flow/{dirname}/ is missing")
+    if failures:
+        print("FAIL Skills CLI layout guard", file=sys.stderr)
+        for failure in failures:
+            print(f"- {failure}", file=sys.stderr)
+        return 1
+    print("PASS Skills CLI layout guard")
+    return 0
+
+
+def run_skills_cli_discovery_guard() -> int:
+    print("==> Skills CLI discovery guard")
+    result = subprocess.run(
+        ["npx", "-y", "skills", "add", str(REPO_ROOT), "--list"],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    output = result.stdout + result.stderr
+    count_match = re.search(r"Found\s+(\d+)\s+skill", output)
+    exact_skill_match = re.search(r"(?m)^\s*(?:│\s*)?agent-flow\s*$", output)
+    if result.returncode or not count_match or count_match.group(1) != "1" or not exact_skill_match:
+        print("FAIL Skills CLI discovery guard", file=sys.stderr)
+        print(output, file=sys.stderr)
+        return 1
+    print("PASS Skills CLI discovery guard")
+    return 0
+
+
+def run_skills_cli_install_guard() -> int:
+    print("==> Skills CLI clean install guard")
+    with tempfile.TemporaryDirectory(prefix="agent-flow-skills-home-") as raw_home:
+        env = os.environ.copy()
+        env["HOME"] = raw_home
+        result = subprocess.run(
+            [
+                "npx",
+                "-y",
+                "skills",
+                "add",
+                str(REPO_ROOT),
+                "--skill",
+                "agent-flow",
+                "-a",
+                "codex",
+                "-g",
+                "-y",
+            ],
+            cwd=REPO_ROOT,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        output = result.stdout + result.stderr
+        installed = Path(raw_home) / ".agents" / "skills" / "agent-flow"
+        legacy_installed = Path(raw_home) / ".codex" / "skills" / "agent-flow"
+        skill_root = installed if installed.exists() else legacy_installed
+        missing = ["SKILL.md"] if not (skill_root / "SKILL.md").is_file() else []
+        missing.extend(dirname for dirname in REQUIRED_SKILLS_CLI_DIRS if not (skill_root / dirname).is_dir())
+        if result.returncode or missing:
+            print("FAIL Skills CLI clean install guard", file=sys.stderr)
+            if missing:
+                print("Missing installed paths: " + ", ".join(missing), file=sys.stderr)
+            print(output, file=sys.stderr)
+            return 1
+    print("PASS Skills CLI clean install guard")
+    return 0
+
+
+def run_codegraph_dependency_preflight() -> int:
+    print("==> CodeGraph parser dependency preflight")
+    missing = [name for name in CODEGRAPH_REQUIRED_MODULES if importlib.util.find_spec(name) is None]
+    if missing:
+        requirements_path = ROOT / "requirements-codegraph.txt"
+        display_path = requirements_path.relative_to(REPO_ROOT) if REPO_ROOT != ROOT else requirements_path.name
+        print("FAIL CodeGraph parser dependency preflight", file=sys.stderr)
+        print("Missing Python modules:", ", ".join(missing), file=sys.stderr)
+        print("Install CodeGraph parser dependencies:", file=sys.stderr)
+        print(f"python3 -m pip install -r {display_path}", file=sys.stderr)
+        return 1
+    print("PASS CodeGraph parser dependency preflight")
+    return 0
+
+
+def git_tracked_paths_under(path: Path) -> set[str]:
+    relative = path.relative_to(ROOT).as_posix()
+    result = subprocess.run(
+        ["git", "ls-files", "--cached", f"{relative}/**"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode:
+        return set()
+    return {line for line in result.stdout.splitlines() if line}
+
+
+def run_golden_trace_artifacts_guard() -> int:
+    print("==> golden trace artifacts packaging guard")
+    data = json.loads(GOLDEN_TRACE_MANIFEST.read_text(encoding="utf-8"))
+    failures: list[str] = []
+    for case in data.get("cases", []):
+        if case.get("mode", "full") != "full":
+            continue
+        raw_path = case.get("path")
+        if not isinstance(raw_path, str) or not raw_path:
+            continue
+        run_dir = (GOLDEN_TRACE_MANIFEST.parent / raw_path).resolve()
+        artifacts_dir = run_dir / "artifacts"
+        if not artifacts_dir.is_dir() or not git_tracked_paths_under(artifacts_dir):
+            failures.append(raw_path)
+    if failures:
+        print("FAIL golden trace artifacts packaging guard", file=sys.stderr)
+        print("Each full golden trace must track at least one file under artifacts/.", file=sys.stderr)
+        for failure in failures:
+            print(f"- {failure}/artifacts", file=sys.stderr)
+        return 1
+    print("PASS golden trace artifacts packaging guard")
+    return 0
+
+
+def run_required_runtime_text_guard() -> int:
+    print("==> task status completion guard")
+    failures: list[str] = []
+    for raw_path, needles in REQUIRED_RUNTIME_TEXT.items():
+        path = ROOT / raw_path
+        text = path.read_text(encoding="utf-8")
+        for needle in needles:
+            if needle not in text:
+                failures.append(f"{raw_path}: missing {needle!r}")
+    if failures:
+        print("FAIL task status completion guard", file=sys.stderr)
+        for failure in failures:
+            print(f"- {failure}", file=sys.stderr)
+        return 1
+    print("PASS task status completion guard")
+    return 0
+
+
+def run_role_prompt_dedup_guard() -> int:
+    print("==> role prompt deduplication guard")
+    failures: list[str] = []
+    for path in sorted((ROOT / "agents").glob("*.md")):
+        text = path.read_text(encoding="utf-8")
+        marker_count = text.count(ROLE_PROMPT_INPUT_MARKER)
+        if marker_count != 1:
+            failures.append(f"{path.relative_to(ROOT)}: expected one delegation source-of-truth marker, found {marker_count}")
+        if "Delegation packet must include:" in text:
+            failures.append(f"{path.relative_to(ROOT)}: repeats the canonical delegation packet contract")
+    if failures:
+        print("FAIL role prompt deduplication guard", file=sys.stderr)
+        for failure in failures:
+            print(f"- {failure}", file=sys.stderr)
+        return 1
+    print("PASS role prompt deduplication guard")
+    return 0
+
+
+def main() -> int:
+    python_files = sorted(str(path.relative_to(ROOT)) for path in SCRIPTS.glob("*.py"))
+    command_steps = [
+        ("py_compile scripts", [sys.executable, "-m", "py_compile", *python_files]),
+        ("task facts fixtures", [sys.executable, "scripts/test-task-facts.py"]),
+        ("model eval manifest fixtures", [sys.executable, "scripts/test-model-eval-manifest.py"]),
+        ("model eval workspace fixtures", [sys.executable, "scripts/test-model-eval-workspace.py"]),
+        ("model eval adapter fixtures", [sys.executable, "scripts/test-model-eval-adapter.py"]),
+        ("model eval evaluator fixtures", [sys.executable, "scripts/test-model-eval-evaluator.py"]),
+        ("model eval sandbox fixtures", [sys.executable, "scripts/test-model-eval-sandbox.py"]),
+        ("model eval process-group fixtures", [sys.executable, "scripts/test-model-eval-process.py"]),
+        ("model eval runner fixtures", [sys.executable, "scripts/test-model-eval-runner.py"]),
+        (
+            "model eval predictability fixtures",
+            [sys.executable, "scripts/test-model-eval-predictability.py"],
+        ),
+        ("model eval score fixtures", [sys.executable, "scripts/test-model-eval-score.py"]),
+        ("model eval CLI fixtures", [sys.executable, "scripts/test-model-eval-cli.py"]),
+        ("model eval CLI", [sys.executable, "scripts/model-eval.py", "--help"]),
+        ("agent config fixtures", [sys.executable, "scripts/test-agent-config.py"]),
+        ("validate-agent-config fixtures", [sys.executable, "scripts/test-validate-agent-config.py"]),
+        ("role catalog fixtures", [sys.executable, "scripts/test-validate-role-catalog.py"]),
+        ("updater fixtures", [sys.executable, "scripts/test-update-agent-flow-skill.py"]),
+        ("agent config validation", [sys.executable, "scripts/validate-agent-config.py"]),
+        ("role catalog validation", [sys.executable, "scripts/validate-role-catalog.py"]),
+        ("agent skill registry validation", [sys.executable, "scripts/validate-agent-skill-registry.py"]),
+        ("architecture capability registry fixtures", [sys.executable, "scripts/test-validate-architecture-capabilities.py"]),
+        ("architecture capability registry validation", [sys.executable, "scripts/validate-architecture-capabilities.py"]),
+        ("validate-run CLI", [sys.executable, "scripts/validate-run.py", "--help"]),
+        ("init-run fixtures", [sys.executable, "scripts/test-init-run.py"]),
+        ("evidence record analyzer fixtures", [sys.executable, "scripts/test-analyze-evidence-records.py"]),
+        ("harness evaluation promotion fixtures", [sys.executable, "scripts/test-promote-harness-evaluation.py"]),
+        ("handoff state recorder fixtures", [sys.executable, "scripts/test-record-handoff-state.py"]),
+        ("lane boundary recorder fixtures", [sys.executable, "scripts/test-record-lane-boundary.py"]),
+        ("codegraph fixtures", [sys.executable, "scripts/test-codegraph.py"]),
+        ("lane fixture tests", [sys.executable, "scripts/test-validate-run-lanes.py"]),
+        ("golden trace runs", [sys.executable, "scripts/test-golden-traces.py"]),
+        ("git diff hygiene", ["git", "-C", str(REPO_ROOT), "diff", "--check"]),
+    ]
+    content_steps = [
+        ("personal path guard", "/Users/" + "ucnlejumper"),
+        ("old README/docs check block guard", "python3 -m py_compile " + "scripts/*.py"),
+        ("old architecture profile term guard", "Architecture " + "Profiles"),
+        ("old architecture profile file guard", "architecture-" + "profiles"),
+        ("project crm profile guard", "profile" + "-" + "crm"),
+        ("project agentflow profile guard", "profile" + "-" + "agentflow"),
+        ("project child profile guard", "profile" + "-" + "child"),
+        ("project local browser profile guard", "profile" + "-" + "local-browser"),
+        ("old admin backoffice surface guard", "admin-" + "backoffice-ui"),
+        ("old landing waitlist surface guard", "landing-" + "waitlist"),
+        ("old browser extension dashboard surface guard", "browser-extension-" + "local-dashboard"),
+        ("old ios app surface guard", "`ios-" + "app`"),
+        ("old macos utility surface guard", "`macos-" + "utility`"),
+        ("old harness matrix proposal guard", "Architecture Matrix " + "changes"),
+        ("old harness capability proposal guard", "capability registry " + "changes"),
+        ("old harness prompt proposal guard", "role prompt " + "updates"),
+        ("old harness golden proposal guard", "Golden Trace Runs, but it never"),
+        ("old harness slash proposal guard", "Matrix/capability/validator/prompt/golden-trace"),
+        ("old harness approval true guard", "requires_human_approval=" + "true"),
+        ("old harness human-approved guard", "human-" + "approved changes"),
+        ("engineering simplicity schema v3 json guard", '"schema_version": ' + "3"),
+        ("engineering simplicity schema v3 assignment guard", "schema_version=" + "3"),
+        ("engineering simplicity new lane type json guard", '"type": "' + "engineering-simplicity" + '"'),
+        ("engineering simplicity new lane type compact guard", '"type":"' + "engineering-simplicity" + '"'),
+        ("old subagent downgrade role-lane guard", "continue with " + "role lanes or solo checks"),
+        ("old subagent fallback solo guard", "fallback " + "to solo"),
+        ("old reviewer unavailable fallback guard", "if unavailable, use " + "role-lane review"),
+    ]
+
+    failures = 0
+    golden_trace_artifacts_failed: bool | None = None
+    codegraph_dependency_failed: bool | None = None
+    if run_skills_cli_layout_guard():
+        failures += 1
+    if run_skills_cli_discovery_guard():
+        failures += 1
+    if run_skills_cli_install_guard():
+        failures += 1
+    for name, command in command_steps:
+        if name in {"harness evaluation promotion fixtures", "golden trace runs"}:
+            if golden_trace_artifacts_failed is None:
+                golden_trace_artifacts_failed = bool(run_golden_trace_artifacts_guard())
+                if golden_trace_artifacts_failed:
+                    failures += 1
+            if golden_trace_artifacts_failed:
+                print(f"SKIP {name}: golden trace artifacts packaging guard failed")
+                continue
+        if name == "codegraph fixtures":
+            if codegraph_dependency_failed is None:
+                codegraph_dependency_failed = bool(run_codegraph_dependency_preflight())
+                if codegraph_dependency_failed:
+                    failures += 1
+            if codegraph_dependency_failed:
+                print(f"SKIP {name}: CodeGraph parser dependency preflight failed")
+                continue
+        if run_step(name, command):
+            failures += 1
+    for name, needle in content_steps:
+        if run_content_guard(name, needle):
+            failures += 1
+    if run_readme_markdown_guard():
+        failures += 1
+    if run_required_runtime_text_guard():
+        failures += 1
+    if run_role_prompt_dedup_guard():
+        failures += 1
+
+    if failures:
+        print(f"FAILED {failures} check(s)", file=sys.stderr)
+        return 1
+    print("PASS all Agent Flow checks")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

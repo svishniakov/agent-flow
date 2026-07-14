@@ -213,66 +213,75 @@ verification remain the gate authority.
 
 | Path | Purpose |
 | --- | --- |
-| `SKILL.md` | Codex entrypoint and runtime contract |
-| `agents/*.md` | bundled role prompts |
-| `agents/agent-identities.json` | stable role identities for traces and handoffs |
-| `references/architecture-matrix.md` | reusable architecture facets |
-| `references/architecture-capability-router.md` | capability routing and Soft Skill Binding |
-| `references/architecture-artifact-authoring.md` | generated architecture artifact contract |
-| `references/traceable-runs.md` | run directory structure and validator contract |
-| `references/harness-evaluation-loop.md` | local learning contract |
-| `references/definition-of-done.md` | completion gates |
-| `references/delegation.md` | subagent and role-lane delegation rules |
-| `references/role-catalog.md` | role lifecycle and boundaries |
-| `requirements-codegraph.txt` | pinned CodeGraph parser dependencies |
-| `scripts/codegraph.py` | local CodeGraph CLI and SQLite indexer |
-| `scripts/test-codegraph.py` | CodeGraph fixture and contract tests |
-| `scripts/check-all.py` | repository validation suite |
-| `scripts/validate-run.py` | trace and lane-map validator |
-| `scripts/init-run.py` | trace skeleton generator |
-| `scripts/record-handoff-state.py` | Handoff State Gate state recorder |
-| `scripts/record-lane-boundary.py` | worker changed-path boundary recorder |
-| `scripts/promote-harness-evaluation.py` | promotion from Harness Evaluation into Evidence Records |
-| `scripts/analyze-evidence-records.py` | local learning analyzer |
-| `scripts/test-golden-traces.py` | Golden Trace Runs acceptance runner |
-| `testdata/codegraph/` | CodeGraph fixture notes |
-| `testdata/golden-traces/` | full valid and invalid trace fixtures |
+| `skills/agent-flow/SKILL.md` | Agent Skills entrypoint and runtime contract |
+| `skills/agent-flow/agents/*.md` | bundled role prompts |
+| `skills/agent-flow/references/` | runtime references and gates |
+| `skills/agent-flow/registries/` | role skill dependencies and architecture capabilities |
+| `skills/agent-flow/scripts/` | canonical runtime and developer scripts |
+| `skills/agent-flow/testdata/` | CodeGraph fixtures and Golden Trace Runs |
+| `skills/agent-flow/docs/` | detailed docs, ADRs, and implementation notes |
+| `scripts/*.py` | root wrappers that call the canonical scripts |
 
 The repository currently ships 27 roles and tracks 138 role skill dependencies.
 
 ## Install
 
+Preferred install through Skills CLI:
+
 ```bash
-git clone https://github.com/svishniakov/agent-flow.git ~/.codex/skills/agent-flow
-python3 ~/.codex/skills/agent-flow/scripts/check-agent-deps.py --post-install
+npx skills add https://github.com/svishniakov/agent-flow
 ```
 
-`--post-install` reports missing role dependencies and recommends the `core`
-set. It does not install anything silently.
+Explicit Codex/global install:
+
+```bash
+npx skills add https://github.com/svishniakov/agent-flow -a codex -g
+python3 ~/.agents/skills/agent-flow/scripts/check-agent-deps.py --post-install
+```
+
+`--post-install` is check-only. It reports missing role dependencies and prints
+manual install guidance for the `core` set. It does not install extra skills.
+Legacy installs under `~/.codex/skills/agent-flow` are still scanned.
+
+For local development, link the nested package, not the repository root:
+
+```bash
+ln -sfn "$PWD/skills/agent-flow" ~/.agents/skills/agent-flow
+```
 
 Install CodeGraph parser dependencies when you need CodeGraph locally:
 
 ```bash
-python3 -m pip install -r ~/.codex/skills/agent-flow/requirements-codegraph.txt
-python3 ~/.codex/skills/agent-flow/scripts/codegraph.py doctor
+python3 -m pip install -r ~/.agents/skills/agent-flow/requirements-codegraph.txt
+python3 ~/.agents/skills/agent-flow/scripts/codegraph.py doctor
 ```
 
 ## Update
 
+For Skills CLI installs:
+
 ```bash
-python3 ~/.codex/skills/agent-flow/scripts/update-agent-flow-skill.py --dry-run
-python3 ~/.codex/skills/agent-flow/scripts/update-agent-flow-skill.py
+npx skills update agent-flow -g
 ```
 
-The updater fetches `origin`, reports local state, and fast-forwards only a
-clean checkout. Use `--overwrite` only when local edits or divergent commits
-should be discarded deliberately.
+For legacy git/symlink installs only:
+
+```bash
+python3 ~/.agents/skills/agent-flow/scripts/update-agent-flow-skill.py --dry-run
+python3 ~/.agents/skills/agent-flow/scripts/update-agent-flow-skill.py
+```
+
+The legacy updater fetches `origin`, reports local state, and fast-forwards
+only a clean checkout. Use `--overwrite` only when local edits or divergent
+commits should be discarded deliberately.
 
 ## Local Checks
 
-Run checks from repository root:
+These checks are for AgentFlow repository development, not basic skill
+installation. Install CodeGraph parser dependencies before the full suite:
 
 ```bash
+python3 -m pip install -r skills/agent-flow/requirements-codegraph.txt
 python3 scripts/check-all.py
 python3 scripts/check-agent-deps.py --strict
 python3 scripts/validate-architecture-capabilities.py
@@ -324,19 +333,34 @@ Prepare a release review:
 Agent Flow Finish this feature for release. Run architecture, QA, and review gates, then return ship/pass-with-risks/blocked status with evidence.
 ```
 
+## Model evals
+
+`scripts/model-eval.py` evaluates coding models against pinned project snapshots. A baseline uses two paired repeats. When outcomes differ, `run-adaptive` schedules only paired third repeats. `run-recovery` reruns infrastructure-error cells separately.
+
+Without `--execute`, these commands only build plans and do not call a model:
+
+```bash
+python3 scripts/model-eval.py run --corpus "$CORPUS" --certification "$CERTIFICATION" --artifacts "$RUN_DIR"
+python3 scripts/model-eval.py run-adaptive --corpus "$CORPUS" --certification "$CERTIFICATION" --base-plan "$BASE_PLAN" --base-cells "$BASE_CELLS" --base-score "$BASE_SCORE" --artifacts "$ADAPTIVE_DIR"
+python3 scripts/model-eval.py run-recovery --corpus "$CORPUS" --certification "$CERTIFICATION" --parent-plan "$PARENT_PLAN" --parent-cells "$PARENT_CELLS" --artifacts "$RECOVERY_DIR"
+```
+
+Model execution requires a separate `--execute` flag. The eval uses ChatGPT subscription login and does not require an API key.
+
 ## Reference Docs
 
 - [Russian README](README.ru.md)
-- [Architecture Matrix](references/architecture-matrix.md)
-- [Architecture Capability Router](references/architecture-capability-router.md)
-- [Traceable Runs](references/traceable-runs.md)
-- [Harness Evaluation Loop](references/harness-evaluation-loop.md)
-- [Definition of Done](references/definition-of-done.md)
-- [Subagent Policy](references/subagents.md)
-- [Delegation Rules](references/delegation.md)
-- [Role Catalog](references/role-catalog.md)
-- [CodeGraph ADR](docs/adr/adr-001-codegraph.md)
-- [CodeGraph v1 Implementation Plan](docs/implementation/impl-001-codegraph-v1.md)
-- [English overview](docs/en/agent-flow.md)
-- [Russian overview](docs/ru/agent-flow.md)
+- [Architecture Matrix](skills/agent-flow/references/architecture-matrix.md)
+- [Architecture Capability Router](skills/agent-flow/references/architecture-capability-router.md)
+- [Traceable Runs](skills/agent-flow/references/traceable-runs.md)
+- [Harness Evaluation Loop](skills/agent-flow/references/harness-evaluation-loop.md)
+- [Predictability Eval Implementation Plan](skills/agent-flow/docs/implementation/impl-004-predictability-eval-implementation-plan.md)
+- [Definition of Done](skills/agent-flow/references/definition-of-done.md)
+- [Subagent Policy](skills/agent-flow/references/subagents.md)
+- [Delegation Rules](skills/agent-flow/references/delegation.md)
+- [Role Catalog](skills/agent-flow/references/role-catalog.md)
+- [CodeGraph ADR](skills/agent-flow/docs/adr/adr-001-codegraph.md)
+- [CodeGraph v1 Implementation Plan](skills/agent-flow/docs/implementation/impl-001-codegraph-v1.md)
+- [English overview](skills/agent-flow/docs/en/agent-flow.md)
+- [Russian overview](skills/agent-flow/docs/ru/agent-flow.md)
 - [License](LICENSE)

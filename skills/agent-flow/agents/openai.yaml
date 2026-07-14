@@ -1,0 +1,8 @@
+interface:
+  display_name: "Agent Flow"
+  short_description: "Route work from idea to verified result with bundled subagents"
+  brand_color: "#2563EB"
+  default_prompt: "Use $agent-flow for this request. Route it through the smallest sufficient workflow and return a verified result with residual risks."
+
+policy:
+  allow_implicit_invocation: false

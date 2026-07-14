@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Agent Flow model evaluation output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "status",
+    "summary",
+    "changed_paths",
+    "checks",
+    "handoff_path"
+  ],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["pass", "fail", "blocked"]
+    },
+    "summary": {
+      "type": "string"
+    },
+    "changed_paths": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["command", "status", "evidence"],
+        "properties": {
+          "command": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pass", "fail", "not-run"]
+          },
+          "evidence": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "handoff_path": {
+      "type": ["string", "null"]
+    }
+  }
+}
