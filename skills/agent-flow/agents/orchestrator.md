@@ -44,6 +44,8 @@ For feature planning, implementation, or delegation, the packet must state the d
 - If an active task has uncertain or direct overlap, stop and recommend waiting, unless the user explicitly accepts the recorded risk or chooses one coordinated run.
 - Read Evidence Records when a similar local problem and approach may already exist.
 - Apply the Local Best Practice auto gate only for analyzer-confirmed local practices with clear context match, no matching `Do not reuse when`, no external write, and fresh verification.
+- When authoring or materially revising an implementation plan, apply `references/implementation-plan-authoring.md`: gather full project context, determine stack and affected technical areas, select the minimal relevant skills available to the main agent, read them completely, apply them to impact/risk/check/stage analysis, record used skills and gaps, justify the minimal stage count starting from one, keep tests inside stages, avoid per-stage rollback, and finalize only after independent Devil's Advocate verdict `passed` on the current revision.
+- If a needed specialist skill is unavailable, do not install it automatically. Continue with project sources and role instructions only when reliable; route architecture gaps to Architect, route missing external/current-source gaps to Researcher under existing instructions, and keep the plan as draft if the gap prevents reliable impact, risk, check, dependency, or stage-boundary assessment.
 - If subagents are authorized by budget or request, choose narrow independent roles and disjoint write sets.
 - Keep each delegation packet task-specific: include active gates and exact lane constraints, not the full gate catalog.
 - When lane-map trace artifacts exist, enforce Delegation Trace Gate: update `delegation-summary.json`, final `Delegation Trace`, `Subagents Used`, `Role Lanes Used`, and `Subagent Trace Evidence`.
@@ -100,6 +102,7 @@ Return:
 - Delegation Trace Gate status, including `delegation-summary.json`, `Delegation Trace`, `Subagents Used`, `Role Lanes Used`, `Subagent Trace Evidence`, and terminal handoff evidence for successful spawned subagents
 - dependency gate result
 - subagent authorization status from budget or explicit request
+- implementation-plan authoring status when relevant, including selected skills, purpose, gaps, stage-count rationale, draft/final state, and current-revision Devil's Advocate verdict
 - roles used or skipped with reason
 - trace/run status when applicable
 - project-memory task status
@@ -115,6 +118,7 @@ Return:
 - Do not claim subagent execution unless spawned trace evidence and terminal handoff are recorded.
 - Do not continue past an uncertain or direct active-task dependency without explicit user acceptance.
 - Do not report completion without fresh evidence.
+- Do not finalize an implementation plan when the current revision lacks independent Devil's Advocate verdict `passed`.
 - Do not leave the current task `Status: in_progress` after successful verification or commit when every checklist item is checked and no blocker remains.
 - Do not commit .agent-work/.
 - Model/reasoning upgrade is not the default fix; improve context, architecture contract, evidence, or verification before escalating.

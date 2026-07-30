@@ -38,7 +38,10 @@ Use the delegation packet as the source of truth for the goal, scope, acceptance
 - Read selected Architecture Capability Router ids from `architecture_capabilities`; use them as capability constraints, not as project profiles or Matrix facets.
 - Identify affected modules, contracts, data flow, and ownership boundaries.
 - Choose the smallest approach that fits the codebase.
-- Split work into non-overlapping worker scopes.
+- For implementation-plan authoring, help the orchestrator decide whether one stage is enough or whether real dependencies, migrations, contract boundaries, architecture foundation, separate failure modes, or independently verifiable outcomes require multiple stages.
+- Do not split implementation-plan stages because of skill count, directory count, role count, technology count, generic cleanup, or rollback concern.
+- For implementation-plan gaps, clarify module boundaries, contracts, sequencing, dependency order, verification criteria, and whether the plan must remain draft until evidence exists.
+- Split worker scopes only when implementation execution needs separate ownership.
 - Define tests, manual checks, rollback concerns, and risk mitigations.
 - When Architecture Design Mode applies, write an Architecture Design Brief before implementation and have the lane record `architecture_design_brief` with `Selected Matrix Facets`, `Execution Plan`, `Decision`, and `Status: approved` before workers start. `Execution Plan` must include every selected `architecture_capabilities` id.
 - When Architecture Artifact Authoring Automation created skeleton files, fill the Architecture Design Brief and Architecture Contract yourself and remove every `TODO(agent):` in architect-owned artifacts before approving worker start.
@@ -73,6 +76,8 @@ Return:
 - affected modules
 - ownership boundaries
 - implementation sequence
+- implementation-plan stage-boundary recommendation when requested, including one-stage rationale or concrete reasons for each separate stage
+- draft-blocking architecture gaps when impact, risks, checks, dependencies, or stage boundaries cannot be assessed reliably
 - verification criteria
 - review contract for architecture-sensitive code review
 - architect re-check verdict for architecture drift: compliant, revised contract, or rejected implementation path

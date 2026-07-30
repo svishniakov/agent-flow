@@ -68,20 +68,21 @@ Inside Agent Flow, the orchestrator owns the outcome:
 4. Choose skills, plugins, tools, and the execution budget.
 5. Set approval gates only where they reduce real risk.
 6. Run the dependency gate before planning new feature work.
-7. Keep scope bounded.
-8. Use subagents only when the selected budget and task shape justify them.
-9. Enforce Architecture Execution Control when the Architecture Contract Gate applies.
-10. Enforce Mitigation Gate, Resolution Gate, and Blocked Resolution Gate before any `pass-with-risks` final verdict.
-11. Enforce Delegation Trace Gate for traceable lane runs.
-12. Enforce Handoff State Gate when `handoff_state_required=true`.
-13. Enforce Harness Evaluation Loop when validated trace evidence has a learning trigger.
-14. Enforce Claim Evidence Gate for positive architecture-gated runs.
-15. Enforce Acceptance Criteria Traceability Gate, Surface Evidence Gate, and Contract Negative Fixture Gate for positive architecture-gated runs.
-16. Enforce Mandatory Independent QA Review Gate before any positive final for file-changing implementation/change work.
-17. Use Golden Trace Runs when architecture-layer validator behavior changes.
-18. Verify evidence before any completion claim.
-19. Close the current project-memory task status before final handoff.
-20. Return the final answer with residual risks.
+7. When creating or materially revising an implementation plan, apply `references/implementation-plan-authoring.md`.
+8. Keep scope bounded.
+9. Use subagents only when the selected budget and task shape justify them.
+10. Enforce Architecture Execution Control when the Architecture Contract Gate applies.
+11. Enforce Mitigation Gate, Resolution Gate, and Blocked Resolution Gate before any `pass-with-risks` final verdict.
+12. Enforce Delegation Trace Gate for traceable lane runs.
+13. Enforce Handoff State Gate when `handoff_state_required=true`.
+14. Enforce Harness Evaluation Loop when validated trace evidence has a learning trigger.
+15. Enforce Claim Evidence Gate for positive architecture-gated runs.
+16. Enforce Acceptance Criteria Traceability Gate, Surface Evidence Gate, and Contract Negative Fixture Gate for positive architecture-gated runs.
+17. Enforce Mandatory Independent QA Review Gate before any positive final for file-changing implementation/change work.
+18. Use Golden Trace Runs when architecture-layer validator behavior changes.
+19. Verify evidence before any completion claim.
+20. Close the current project-memory task status before final handoff.
+21. Return the final answer with residual risks.
 
 The orchestrator is authoritative inside system, developer, user, tool, and local project constraints. It cannot bypass safety rules, destructive-git protections, tool limits, approval requirements, or verification.
 
@@ -263,6 +264,8 @@ Common internal flows:
 
 `initiative-flow` is the full-cycle path for a small idea that must become a complete result: discovery, PRD or scope, architecture, design if needed, plan, implementation, QA, review, docs, artifacts, final handoff.
 
+For implementation-plan authoring, read `references/implementation-plan-authoring.md`. The orchestrator must assess full scope, determine stack and affected technical areas, select and fully read the minimal relevant skills available to the main agent, apply those skills to impact/risk/check/stage analysis, justify the minimal stage count starting from one, keep tests inside implementation stages, avoid per-stage rollback, and finalize only after an independent Devil's Advocate review passes the current revision.
+
 ## Trace Gate
 
 Read `references/traceable-runs.md` only when the selected budget is `standard` or `release`, or when the user explicitly asks for durable artifacts.
@@ -387,6 +390,7 @@ Scripts support the workflow; they do not replace engineering judgment.
 - `references/subagents.md`: bundled subagent catalog and role-selection guide.
 - `references/budgets.md`: light, standard, and release budget rules.
 - `references/project-memory-and-env.md`: lessons, PRD/context intake, and infra guard.
+- `references/implementation-plan-authoring.md`: prompt-level contract for implementation plan authoring, skill use, stage boundaries, and Devil's Advocate review.
 - `references/orchestrator.md`: orchestrator responsibilities and mode handling.
 - `references/traceable-runs.md`: run directory structure and artifact rules.
 - `references/delegation.md`: delegation packets, role handoffs, stable identities.

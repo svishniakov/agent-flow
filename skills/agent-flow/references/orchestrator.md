@@ -40,9 +40,10 @@ The orchestrator must obey:
 10. Classify request type.
 11. Choose the internal flow.
 12. Choose the smallest execution budget: `light`, `standard`, or `release`.
-13. Update `.agent-work/tasks/todo.md` for repo tasks before product changes.
-14. If the budget/task shape justifies subagents or a required subagent gate applies, discover `spawn_agent`.
-15. State the selected skill/tool briefly when user-facing rules require it.
+13. If the request creates or materially revises an implementation plan, read `references/implementation-plan-authoring.md` and use it as the authoring contract.
+14. Update `.agent-work/tasks/todo.md` for repo tasks before product changes.
+15. If the budget/task shape justifies subagents or a required subagent gate applies, discover `spawn_agent`.
+16. State the selected skill/tool briefly when user-facing rules require it.
 
 ## Invocation Semantics
 
@@ -84,6 +85,8 @@ Only after the budget/task shape justifies subagents or a required subagent gate
 - Treat uncertain dependency overlap as a stop condition, not as a warning to ignore.
 - Use Evidence Records from `implementation-notes.md` as local learning input when a similar problem and approach appear again.
 - Local Best Practice auto gate may apply an analyzer-confirmed active practice automatically only when context match is clear, `Do not reuse when` does not match, helpful evidence outweighs harmful evidence, the action is not an external write, and fresh verification evidence exists.
+- For implementation-plan authoring, apply `references/implementation-plan-authoring.md`: gather project context, identify stack and affected technical areas, select the minimal relevant skills available to the main agent, read selected skills completely, apply their conclusions to impact/risk/check/stage analysis, record used skills and gaps, start from one stage, split only for real dependencies or independently verifiable boundaries, keep tests inside stages, avoid per-stage rollback, and require independent Devil's Advocate `passed` on the current revision before finalizing.
+- If no relevant specialist skill is available, do not install it automatically. Use project sources and role instructions when sufficient; route architecture gaps to Architect, route missing external or current-source gaps to Researcher under existing Researcher instructions, and keep the plan as draft when the gap prevents reliable impact, risk, check, dependency, or stage-boundary assessment.
 - Prefer narrow delegation over broad role chains.
 - Use the Architecture Contract Gate for release, for `standard` traceable runs with two or more worker lanes, and for architecture-sensitive work before QA or reviewer verdict.
 - For Architecture Contract Gate work, read `references/architecture-matrix.md` and select Architecture Matrix facets from local source evidence before the architect writes the contract.
@@ -135,6 +138,7 @@ Stop or ask the user when:
 - the dependency gate finds an active `in_progress` or `blocked` task with uncertain or direct overlap;
 - design approval is required before UI implementation;
 - destructive action is requested ambiguously;
+- an implementation-plan expertise gap prevents reliable impact, risk, check, dependency, or stage-boundary assessment;
 - subagents are required by risk/budget, user request, or Mandatory Independent QA Review Gate, but no subagent tool is available;
 - verification cannot be performed and no credible fallback exists.
 
@@ -152,12 +156,13 @@ Before final answer:
 8. Confirm Acceptance Criteria Traceability Gate, Surface Evidence Gate, and Contract Negative Fixture Gate when architecture governance applies: `acceptance-traceability.json` exists, every `Acceptance Criteria` id is `supported` with marker-backed evidence, every `surface_expectations` item has matching `surface`/`polarity`/`proof_kind` evidence, and every `gate`, `cli`, `query`, `storage`, `config`, or `parser` item has marker-backed `negative_fixture_evidence`.
 9. If a traceable run has learning triggers, create `harness-evaluation.json` before final validation and keep it signal-only.
 10. If `implementation-notes.md` gained Evidence Records, run or account for the evidence analyzer before relying on a learned practice.
-11. If product changes must be committed, create the product commit after checks and before final trace closure. Do not include `.agent-work/` in the product commit unless the user explicitly requested it.
-12. Run the Task Status Completion Gate for the current `.agent-work/tasks/todo.md` section. If the checklist is complete, verification is recorded, no blocker remains, and the requested commit succeeded, set `Status: done`; otherwise record the missing item and keep `Status: in_progress` or `Status: blocked`.
-13. If a trace timeline exists and a product commit was created, append an orchestrator `stage=commit` event with the commit hash.
-14. Compare the initial worktree snapshot with current `git status --short`.
-15. In `final.md`, record run-owned changes, product commit hash when applicable, pre-existing dirty files left untouched, and pre-existing dirty files touched by the run.
-15. If a trace timeline exists, append the final orchestrator event after `final.md` records the verdict and commit hash.
-16. Run final trace validation.
-17. Record residual risks.
-18. Keep final answer short and evidence-based.
+11. If an implementation plan was created or materially revised, confirm the current revision has independent Devil's Advocate verdict `passed`; any review-driven edit makes the previous verdict stale.
+12. If product changes must be committed, create the product commit after checks and before final trace closure. Do not include `.agent-work/` in the product commit unless the user explicitly requested it.
+13. Run the Task Status Completion Gate for the current `.agent-work/tasks/todo.md` section. If the checklist is complete, verification is recorded, no blocker remains, and the requested commit succeeded, set `Status: done`; otherwise record the missing item and keep `Status: in_progress` or `Status: blocked`.
+14. If a trace timeline exists and a product commit was created, append an orchestrator `stage=commit` event with the commit hash.
+15. Compare the initial worktree snapshot with current `git status --short`.
+16. In `final.md`, record run-owned changes, product commit hash when applicable, pre-existing dirty files left untouched, and pre-existing dirty files touched by the run.
+17. If a trace timeline exists, append the final orchestrator event after `final.md` records the verdict and commit hash.
+18. Run final trace validation.
+19. Record residual risks.
+20. Keep final answer short and evidence-based.

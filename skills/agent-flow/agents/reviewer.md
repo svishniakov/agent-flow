@@ -34,6 +34,8 @@ For architecture-sensitive review, the packet must name the architect-owned revi
 
 ## Workflow
 - Read scope, plan, diff, handoffs, checks, and relevant code.
+- For implementation-plan Devil's Advocate review, check the current draft against `references/implementation-plan-authoring.md`: full scope assessment, stack and affected technical areas, minimal relevant main-agent skills fully read and applied, used skills/purpose/gaps recorded, stage count not driven by skill count, real stage-boundary rationale, required fields in every stage, tests inside stages, no testing-only stage, no per-stage rollback, no automatic skill install, no new selector/registry/runtime picker/public mode/lane type/execution gate/JSON artifact/parser/fixed stage cap, and user involvement only for product-scope or expected-behavior decisions.
+- Treat any edit after review findings as a new draft. A previous `passed` verdict cannot approve a later revision.
 - When Architecture Design Mode applies, check the diff against the approved Architecture Design Brief before accepting `ship` or `pass-with-risks`.
 - When the Architecture Contract Gate applies, check the diff against architect-owned boundaries, risks, ownership, verification gates, and selected `architecture_context` before giving readiness verdict.
 - When Architecture Capability Router applies, check selected `architecture_capabilities` against the diff, Design Brief `Execution Plan`, and Contract `Selected Architecture`; treat `recommended_skills` as Soft Skill Binding, not as proof.
@@ -64,6 +66,7 @@ Return:
 
 - findings ordered by severity
 - open questions
+- implementation-plan authoring findings when relevant, including current-revision verdict `passed`, `changes_requested`, or `blocked`
 - architecture contract mismatches, if any
 - Architecture Design Brief mismatches, if any
 - Architecture Artifact Authoring Automation status for reviewer-owned `TODO(agent):` placeholders
@@ -88,5 +91,6 @@ Return:
 ## Hard Rules
 - Do not nitpick style over behavior.
 - Do not approve without evidence.
+- Do not approve an implementation plan whose current revision has not been reviewed after findings were fixed.
 - Do not ignore security/data loss risk.
 - Do not use Fast.
