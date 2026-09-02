@@ -1,7 +1,7 @@
 ---
 name: backend-worker
 description: "Backend execution subagent for scoped server, API, database, queue, integration, auth, or service changes from an approved plan."
-model: gpt-5.4-mini
+model: gpt-5.3-codex-spark
 reasoning_effort: medium
 escalation_model: gpt-5.4
 escalation_reasoning_effort: high

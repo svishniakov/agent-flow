@@ -6,7 +6,27 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from agent_config import AgentConfigError, read_frontmatter, role_config, split_inline_list, validate_role_metadata
+from agent_config import (
+    AgentConfigError,
+    default_agents_dir,
+    read_frontmatter,
+    role_config,
+    split_inline_list,
+    validate_role_metadata,
+)
+
+
+EXPECTED_REPLACEMENT_MODELS = {
+    "ai-slops-hunter": ("gpt-5.4", "gpt-5.5"),
+    "backend-worker": ("gpt-5.3-codex-spark", "gpt-5.4"),
+    "bun-worker": ("gpt-5.3-codex-spark", "gpt-5.4"),
+    "design-documenter": ("gpt-5.4", "gpt-5.5"),
+    "documenter": ("gpt-5.4", "gpt-5.5"),
+    "frontend-worker": ("gpt-5.3-codex-spark", "gpt-5.4"),
+    "golang-worker": ("gpt-5.3-codex-spark", "gpt-5.4"),
+    "python-worker": ("gpt-5.3-codex-spark", "gpt-5.4"),
+    "typescript-worker": ("gpt-5.3-codex-spark", "gpt-5.4"),
+}
 
 
 VALID_FRONTMATTER = """---
@@ -159,11 +179,30 @@ def test_role_validation(root: Path) -> None:
         assert_has_error("missing keys", missing_errors, f"missing required frontmatter key: {key}")
 
 
+def test_active_replacement_models() -> None:
+    agents_dir = default_agents_dir()
+    for role, (expected_model, expected_escalation_model) in EXPECTED_REPLACEMENT_MODELS.items():
+        metadata = read_frontmatter(agents_dir / f"{role}.md")
+        actual = (metadata.get("model"), metadata.get("escalation_model"))
+        expected = (expected_model, expected_escalation_model)
+        if actual != expected:
+            raise AssertionError(f"{role}: expected model routing {expected}, got {actual}")
+
+    remaining_mini_defaults = sorted(
+        path.stem
+        for path in agents_dir.glob("*.md")
+        if read_frontmatter(path).get("model") == "gpt-5.4-mini"
+    )
+    if remaining_mini_defaults:
+        raise AssertionError(f"active gpt-5.4-mini defaults remain: {', '.join(remaining_mini_defaults)}")
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory(prefix="agent-config-tests-") as temp_dir:
         root = Path(temp_dir)
         test_frontmatter_reader(root)
         test_role_validation(root)
+        test_active_replacement_models()
     print("PASS agent config fixture tests")
     return 0
 

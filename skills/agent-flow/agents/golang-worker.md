@@ -1,7 +1,7 @@
 ---
 name: golang-worker
 description: "Go implementation subagent for scoped Go services, Kafka producers/consumers, CLIs, packages, concurrency, tests, modules, and idiomatic refactors from an approved plan."
-model: gpt-5.4-mini
+model: gpt-5.3-codex-spark
 reasoning_effort: medium
 escalation_model: gpt-5.4
 escalation_reasoning_effort: high

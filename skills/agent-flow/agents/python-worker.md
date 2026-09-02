@@ -1,7 +1,7 @@
 ---
 name: python-worker
 description: "Python implementation subagent for scoped backend, CLI, automation, data processing, QA scripts, tests, PDF/RAG utilities, and dependency hygiene from an approved plan."
-model: gpt-5.4-mini
+model: gpt-5.3-codex-spark
 reasoning_effort: medium
 escalation_model: gpt-5.4
 escalation_reasoning_effort: high

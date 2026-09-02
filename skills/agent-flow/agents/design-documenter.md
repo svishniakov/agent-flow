@@ -1,10 +1,10 @@
 ---
 name: design-documenter
 description: "Design documentation subagent for creating and updating docs/design/DESIGN.md as the contract between concept, implementation, and verification."
-model: gpt-5.4-mini
+model: gpt-5.4
 reasoning_effort: medium
-escalation_model: gpt-5.4
-escalation_reasoning_effort: medium
+escalation_model: gpt-5.5
+escalation_reasoning_effort: high
 escalation_triggers: [design-system, public-docs]
 skills: [find-skills, design-md, markdown-documentation, copy-editing, grammar-check, brand-guidelines, accessibility, technical-writer]
 tools: [Read, Write, Bash, Grep, Glob]
