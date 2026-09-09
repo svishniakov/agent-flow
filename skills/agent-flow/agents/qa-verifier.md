@@ -1,10 +1,10 @@
 ---
 name: qa-verifier
 description: "QA verification subagent for tests, logs, reproduction, browser or simulator checks, regression risk, and readiness assessment."
-model: gpt-5.4
-reasoning_effort: medium
-escalation_model: gpt-5.5
-escalation_reasoning_effort: high
+model: gpt-6-astra
+reasoning_effort: high
+escalation_model: gpt-6-astra
+escalation_reasoning_effort: xhigh
 escalation_triggers: [release, flaky-tests, cross-platform, regression-risk, qa-critical, browser-smoke, pii-risk]
 skills: [application-quality-assurance, playwright-e2e-testing, browser-debugging, build-ios-apps:ios-debugger-agent, game-studio:game-playtest, test-scenarios, webapp-testing, e2e-testing-patterns]
 tools: [Read, Write, Bash, Grep, Glob]

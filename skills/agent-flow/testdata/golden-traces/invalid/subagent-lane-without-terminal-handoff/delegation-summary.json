@@ -6,9 +6,11 @@
     {
       "lane_id": "architecture-contract",
       "role": "architect",
-      "codex_thread_id": "thread-architecture-contract",
+      "codex_thread_id": "49bc839a-79f0-78e8-8e66-79deac158be8",
       "trace": "agents/architect/trace.jsonl",
-      "handoff": "handoffs/architecture-contract.md"
+      "handoff": "handoffs/architecture-contract.md",
+      "assignment_id": "architecture-contract",
+      "parent_thread_id": "b5293c92-7f1e-7744-86f4-8a894cc5f102"
     }
   ],
   "role_lanes": [

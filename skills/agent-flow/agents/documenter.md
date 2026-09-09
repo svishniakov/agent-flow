@@ -1,10 +1,10 @@
 ---
 name: documenter
 description: "Documentation subagent for PRDs, specifications, task records, review sections, lessons, release notes, README work, and project documentation."
-model: gpt-5.4
-reasoning_effort: medium
-escalation_model: gpt-5.5
-escalation_reasoning_effort: high
+model: gpt-6-astra
+reasoning_effort: high
+escalation_model: gpt-6-astra
+escalation_reasoning_effort: xhigh
 escalation_triggers: [prd-spec, public-docs, release]
 skills: [markdown-documentation, create-prd, one-pager-prd, product-manager-toolkit, copy-editing, grammar-check, technical-writer, readme-standards, release-notes, humanizer-ru, software-localisation, system-design-doc]
 tools: [Read, Write, Bash, Grep, Glob]

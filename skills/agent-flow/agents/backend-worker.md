@@ -1,9 +1,9 @@
 ---
 name: backend-worker
 description: "Backend execution subagent for scoped server, API, database, queue, integration, auth, or service changes from an approved plan."
-model: gpt-5.3-codex-spark
+model: gpt-6-astra
 reasoning_effort: medium
-escalation_model: gpt-5.4
+escalation_model: gpt-6-astra
 escalation_reasoning_effort: high
 escalation_triggers: [security, data-loss, migration, payments-auth, cross-system, integration-risk, pii-risk]
 skills: [bullmq-specialist, build-web-apps:supabase-postgres-best-practices, build-web-apps:stripe-best-practices, sql-queries, queue-job-processor, rag-implementation, application-quality-assurance, test-scenarios]

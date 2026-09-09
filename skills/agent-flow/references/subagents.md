@@ -18,10 +18,41 @@ Role frontmatter also defines runtime model settings:
 
 - `model` and `reasoning_effort`: default values passed to `spawn_agent`.
 - `service_tier`: optional default service tier passed only when present.
-- `escalation_model`, `escalation_reasoning_effort`, and `escalation_service_tier`: optional overrides used only after a matching trigger.
+- `escalation_model`: must equal `model`; escalation never substitutes another model.
+- `escalation_reasoning_effort`: the role's single allowed ceiling, selected by a justified matching trigger. A ceiling equal to the default is not an increase.
+- `escalation_service_tier`: when present, must equal the base service tier. Reasoning escalation does not change service tier.
 - `escalation_triggers`: inline list of task/risk triggers that activate escalation through `resolve-agent-config.py --trigger <trigger>`.
 
 Run `python3 scripts/validate-agent-config.py` and `python3 scripts/validate-role-catalog.py` after editing role files.
+
+This branch assigns Astra to 26 bundled roles and Sol to `reviewer`, including
+`reviewer.qa`. Documenter and QA start at Astra `high` with an `xhigh` ceiling.
+Plan reviewer normally starts at Sol `high`; independent final `reviewer.qa` is a
+separate assignment selected by `--role reviewer --trigger qa-critical` at Sol
+`xhigh`. The root starts at Astra `high` with an `xhigh` ceiling for justified
+coordination or architecture complexity; the orchestrator helper does not set
+the root configuration. The full matrix is in
+`docs/implementation/impl-007-astra-sol-rollout.md`. Sync includes the same shared
+`references/astra-instructions.md` guidance along with each role's own contract.
+Use `resolve-agent-config.py --include-instructions` to obtain the same complete
+instructions for an explicit spawn. Follow the named-role precedence and limited
+context rules in `references/delegation.md`; a successful sync does not prove that
+an escalated reasoning level was applied by an already running client.
+
+Record the trigger, reason, and supporting fact before a permitted increase; no
+new user approval is needed. Keep the exact model ID, service tier, assignment_id,
+context, ownership, and recovery attempt count. The orchestrator preserves the
+reached reasoning level for later calls because the resolver is stateless. A
+later call without a trigger cannot downgrade an existing assignment. Repeated
+triggers cannot exceed the ceiling or reset attempts.
+
+Confirm host application before dependent execution. If the current session
+cannot change settings, use only a supported, verified continuation in a new
+session of the same model, after stopping the old execution. Preserve both session
+IDs and the same assignment state, including original acceptance criteria,
+accepted and superseded decisions, unknowns, changes, checks, and evidence. If the
+mechanism or application cannot be confirmed, report the blocker. Follow
+`references/delegation.md` for the full continuation contract.
 
 ## Core orchestration and planning
 

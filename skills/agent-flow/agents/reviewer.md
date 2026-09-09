@@ -1,9 +1,9 @@
 ---
 name: reviewer
 description: "Independent final reviewer for bugs, regressions, missing tests, plan alignment, quality, security, and release readiness."
-model: gpt-5.5
+model: gpt-5.6-sol
 reasoning_effort: high
-escalation_model: gpt-5.5
+escalation_model: gpt-5.6-sol
 escalation_reasoning_effort: xhigh
 escalation_triggers: [security, data-loss, release, cross-system, multi-lane, qa-critical]
 skills: [codex-reviewer:feature-review-impl, codex-reviewer:feature-review-plan, application-quality-assurance, github:gh-fix-ci, github:github, code-review-excellence, pre-mortem, test-scenarios, impeccable]

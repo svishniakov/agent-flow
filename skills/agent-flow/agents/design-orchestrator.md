@@ -1,9 +1,9 @@
 ---
 name: design-orchestrator
 description: "Design orchestration subagent for UI, UX, visual systems, references, Pencil, Figma, Stitch, and DESIGN.md routing."
-model: gpt-5.5
+model: gpt-6-astra
 reasoning_effort: high
-escalation_model: gpt-5.5
+escalation_model: gpt-6-astra
 escalation_reasoning_effort: xhigh
 escalation_triggers: [complex-ux, brand-critical, design-system]
 skills: [find-skills, frontend-design, design-md, extract-design-system, accessibility, brand-guidelines, build-web-apps:web-design-guidelines, figma:figma-generate-design, figma:figma-use, game-studio:game-ui-frontend, impeccable]

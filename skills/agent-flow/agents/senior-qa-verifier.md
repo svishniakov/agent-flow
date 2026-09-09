@@ -1,9 +1,9 @@
 ---
 name: senior-qa-verifier
 description: "Senior QA subagent for blocked resolution recovery, acceptance criteria review, test design, edge cases, negative cases, and QA adequacy checks."
-model: gpt-5.5
+model: gpt-6-astra
 reasoning_effort: high
-escalation_model: gpt-5.5
+escalation_model: gpt-6-astra
 escalation_reasoning_effort: xhigh
 escalation_triggers: [qa-critical, regression-risk, release, cross-platform, flaky-tests, browser-smoke]
 skills: [application-quality-assurance, test-scenarios, e2e-testing-patterns]

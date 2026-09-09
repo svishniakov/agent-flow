@@ -1,0 +1,3 @@
+{"captured_at": "2026-09-09T00:00:05+00:00", "method": "thread/start", "result": {"thread": {"id": "49bc839a-79f0-78e8-8e66-79deac158be8", "parentThreadId": "b5293c92-7f1e-7744-86f4-8a894cc5f102"}, "model": "gpt-6-astra", "reasoningEffort": "high", "serviceTier": null}}
+{"captured_at": "2026-09-09T00:00:06+00:00", "method": "turn/start", "params": {"threadId": "49bc839a-79f0-78e8-8e66-79deac158be8", "effort": "high"}, "result": {"turn": {"id": "fixture-turn-architecture-contract"}}}
+{"captured_at": "2026-09-09T00:00:08+00:00", "method": "turn/completed", "params": {"threadId": "49bc839a-79f0-78e8-8e66-79deac158be8", "turn": {"id": "fixture-turn-architecture-contract", "status": "completed"}}}

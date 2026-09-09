@@ -18,10 +18,10 @@ SYNC_CONFIG = ROOT / "scripts" / "sync-codex-agent-config.py"
 ROLE = """---
 name: alpha-role
 description: "Alpha role."
-model: gpt-5.6-luna
+model: gpt-6-astra
 reasoning_effort: medium
-escalation_model: gpt-5.6-terra
-escalation_reasoning_effort: max
+escalation_model: gpt-6-astra
+escalation_reasoning_effort: high
 escalation_triggers: [security]
 skills: [humanize-ts]
 tools: [Read, Write, Bash, Grep, Glob]
@@ -95,15 +95,41 @@ def main() -> int:
         for needle in [
             'name = "alpha-role"',
             'description = "Alpha role."',
-            'model = "gpt-5.6-luna"',
+            'model = "gpt-6-astra"',
             'model_reasoning_effort = "medium"',
             'nickname_candidates = ["Alpha Role"]',
             "Use the delegation packet as the source of truth.",
+            "# Astra execution instructions",
         ]:
             if needle not in synced:
                 raise AssertionError(f"synced TOML missing: {needle}")
 
         expect_pass("check", run_sync(agents_dir, output_dir, check=True))
+
+        resolved = subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "resolve-agent-config.py"), "--agents-dir", str(agents_dir), "--role", "alpha-role", "--include-instructions"],
+            text=True, capture_output=True, check=True,
+        )
+        if json.loads(resolved.stdout)["developer_instructions"] != parsed["developer_instructions"]:
+            raise AssertionError("resolver and sync use different role instructions")
+
+        role_path = agents_dir / "alpha-role.md"
+        role_path.write_text(ROLE.replace("escalation_model: gpt-6-astra", "escalation_model: gpt-5.6-sol"), encoding="utf-8")
+        expect_fail("reject cross-family escalation", run_sync(agents_dir, output_dir), "escalation_model must match model")
+        if (output_dir / "alpha-role.toml").read_text(encoding="utf-8") != synced:
+            raise AssertionError("failed validation changed the generated config")
+        role_path.write_text(ROLE, encoding="utf-8")
+
+        role_path.write_text(ROLE.replace("gpt-6-astra", "gpt-5.6-sol"), encoding="utf-8")
+        expect_pass("sync Sol", run_sync(agents_dir, output_dir))
+        sol = tomllib.loads((output_dir / "alpha-role.toml").read_text(encoding="utf-8"))
+        if sol["model"] != "gpt-5.6-sol" or sol["developer_instructions"] != parsed["developer_instructions"]:
+            raise AssertionError("Sol must use the selected model and unchanged workflow instructions")
+        role_path.write_text(ROLE, encoding="utf-8")
+
+        (output_dir / "alpha-role.toml").write_text(synced.replace("# Astra execution instructions", "stale instructions"), encoding="utf-8")
+        expect_fail("detect stale instructions", run_sync(agents_dir, output_dir, check=True), "stale synced file")
+        expect_pass("restore sync", run_sync(agents_dir, output_dir))
 
         stale = output_dir / "stale-role.toml"
         stale.write_text("# Synced by Agent Flow. Edit agents/agent-identities.json or agents/*.md, then rerun sync.\n", encoding="utf-8")

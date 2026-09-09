@@ -16,9 +16,9 @@ VALIDATE_ROLE_CATALOG = ROOT / "scripts" / "validate-role-catalog.py"
 ROLE_FRONTMATTER = """---
 name: {name}
 description: "Fixture role."
-model: gpt-5.4-mini
+model: gpt-6-astra
 reasoning_effort: medium
-escalation_model: gpt-5.4
+escalation_model: gpt-6-astra
 escalation_reasoning_effort: high
 escalation_triggers: [security]
 skills: [humanize-ts]

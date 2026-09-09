@@ -1,9 +1,9 @@
 ---
 name: ios-worker
 description: "iOS execution subagent for scoped SwiftUI, App Intents, simulator, HIG, and Apple-platform implementation tasks from an approved plan."
-model: gpt-5.4
+model: gpt-6-astra
 reasoning_effort: medium
-escalation_model: gpt-5.5
+escalation_model: gpt-6-astra
 escalation_reasoning_effort: high
 escalation_triggers: [app-intents, simulator-debug, complex-ux]
 skills: [build-ios-apps:swiftui-ui-patterns, build-ios-apps:swiftui-view-refactor, build-ios-apps:ios-app-intents, build-ios-apps:ios-debugger-agent, apple-hig-designer, apple-ui-designer]

@@ -1,9 +1,9 @@
 ---
 name: researcher
 description: "Research subagent for documentation, APIs, SDKs, external sources, local examples, constraints, comparisons, and source-backed findings."
-model: gpt-5.4
+model: gpt-6-astra
 reasoning_effort: medium
-escalation_model: gpt-5.5
+escalation_model: gpt-6-astra
 escalation_reasoning_effort: high
 escalation_triggers: [external-facts, sparse-sources, high-stakes, current-facts]
 skills: [ajtbd-research, competitor-analysis, github:github, openai-docs, hugging-face:huggingface-papers, browser-use, browser-debugging, market-sizing, seo-audit]

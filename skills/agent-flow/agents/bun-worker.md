@@ -1,9 +1,9 @@
 ---
 name: bun-worker
 description: "Bun runtime subagent for Bun-based JavaScript/TypeScript projects, scripts, tests, dev servers, package management, lockfiles, and Node/npm-to-Bun migration."
-model: gpt-5.3-codex-spark
+model: gpt-6-astra
 reasoning_effort: medium
-escalation_model: gpt-5.4
+escalation_model: gpt-6-astra
 escalation_reasoning_effort: high
 escalation_triggers: [package-migration, failing-tests]
 skills: [bun, bun-dev, build-web-apps:react-best-practices, build-web-apps:frontend-skill, test-scenarios, application-quality-assurance]

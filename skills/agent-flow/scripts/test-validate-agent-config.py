@@ -19,7 +19,7 @@ name: {name}
 description: "Fixture role."
 model: gpt-5.6-luna
 reasoning_effort: medium
-escalation_model: gpt-5.6-terra
+escalation_model: gpt-5.6-luna
 escalation_reasoning_effort: max
 escalation_triggers: [security]
 skills: [humanize-ts]

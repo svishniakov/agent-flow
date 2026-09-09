@@ -308,7 +308,7 @@ REQUIRED_RUNTIME_TEXT = {
         "Architecture Approval Gate",
         "Local Best Practice auto gate",
         "regression demotion",
-        "Model/reasoning upgrade is not the default fix",
+        "Reasoning upgrade is not the default fix",
         "standard` traceable runs with at least two worker lanes",
     ],
     "references/definition-of-done.md": [
@@ -400,7 +400,7 @@ REQUIRED_RUNTIME_TEXT = {
         *CONTRACT_NEGATIVE_FIXTURE_GATE_GUARD_TERMS,
         "Local Best Practice auto gate",
         "regression demotion",
-        "Model/reasoning upgrade is not the default fix",
+        "Reasoning upgrade is not the default fix",
         "two or more worker lanes",
     ],
     "references/delegation.md": [
@@ -441,7 +441,7 @@ REQUIRED_RUNTIME_TEXT = {
         *CONTRACT_NEGATIVE_FIXTURE_GATE_GUARD_TERMS,
         "Architecture Approval Gate",
         "Local Best Practice auto gate",
-        "Model/reasoning upgrade is not the default fix",
+        "Keep the exact model ID and service tier fixed",
         "`budget`",
         "two or more worker lanes",
     ],
@@ -1329,6 +1329,7 @@ def main() -> int:
         ("lane boundary recorder fixtures", [sys.executable, "scripts/test-record-lane-boundary.py"]),
         ("codegraph fixtures", [sys.executable, "scripts/test-codegraph.py"]),
         ("lane fixture tests", [sys.executable, "scripts/test-validate-run-lanes.py"]),
+        ("observed model settings fixtures", [sys.executable, "scripts/test_model_settings.py"]),
         ("golden trace runs", [sys.executable, "scripts/test-golden-traces.py"]),
         ("git diff hygiene", ["git", "-C", str(REPO_ROOT), "diff", "--check"]),
     ]

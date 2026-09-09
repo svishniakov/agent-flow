@@ -1,9 +1,9 @@
 ---
 name: design-asset-generator
 description: "Visual asset generation subagent for approved DESIGN.md work: hero images, product mockups, illustrations, empty states, icons, and brand visuals."
-model: gpt-5.4
+model: gpt-6-astra
 reasoning_effort: medium
-escalation_model: gpt-5.5
+escalation_model: gpt-6-astra
 escalation_reasoning_effort: high
 escalation_triggers: [brand-critical, complex-visual, public-docs]
 skills: [find-skills, imagegen, ad-creative, brand-identity, brand-guidelines, game-art, SVG Logo Designer, color-palette-extractor]

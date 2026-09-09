@@ -28,6 +28,7 @@ For `standard` budget, prefer a compact trace:
 run.md
 checks.md
 final.md
+model-settings.json
 artifacts/
 ```
 
@@ -46,6 +47,7 @@ definition-of-done.md
 decisions.md
 lane-map.json
 delegation-summary.json
+model-settings.json
 handoffs/
 checks/
 artifacts/
@@ -68,6 +70,132 @@ artifacts/
 Runs that use Lane Sharding add `lane-map.json` as the machine-readable source
 of truth and usually add `checks/coverage-matrix.md` as a human-readable
 summary. Create those skeletons with `scripts/init-run.py --with-lanes`.
+
+## Observed Model Settings
+
+Both compact and full runs require `model-settings.json` for `root` and every
+actual assignment, including both reviewers separately. Role lanes do not invent
+child sessions. Use `schema_version: 1` and an `assignments` array. Each assignment
+records `assignment_id`, `role`, `model`, `service_tier`, `baseline_effort`,
+`ceiling_effort`, `scope`, `sessions`, and ordered `events`. The root uses
+`assignment_id: "root"`, `role: "root"`, and `parent_session_id: null`.
+`validate-run.py --allow-pending` permits a missing ledger only before execution
+has started; it does not waive settings evidence after a launch or invocation.
+An existing ledger is still validated. A policy `service_tier: null` means no tier
+override; observed null and `default` are equivalent for that policy.
+
+Session entries contain `session_id`, `parent_session_id`, `launch_evidence`, and
+`session_evidence`. A source pointer is `{"path":"model-evidence/launcher.jsonl","line":1}`:
+`line` is one-based, and relative paths resolve from the run directory. Replace
+example paths and line numbers with observed records; do not generate evidence
+from a documentation or test sample. Session IDs must come from the launch/client
+records; UUIDv7 syntax alone is insufficient. Client pointers must resolve to the
+original `rollout-...-<session-id>.jsonl` inside `CODEX_HOME/sessions` (default
+`~/.codex/sessions`), with matching first-line `session_meta`. Copies outside that
+store do not prove provenance. `session_evidence` must point to line 1. Keep original
+client sources available for validation.
+
+Only root uses generic app-server launch evidence: `launch_evidence` points to the
+captured `thread/start` result, including `thread.id`, `thread.parentThreadId`,
+`model`, `reasoningEffort`, and `serviceTier`. Child launches require native
+`collaboration.spawn_agent` evidence, a bundle with
+`kind: "native"` and pointers `call`, `activity`, `result`, `session`, and `context`.
+The first three select the matching call, `SubAgentActivity`, and tool result in
+the parent's client record; the last two select the child's `session_meta` and
+`turn_context`. Native assignment_id matches the actual spawn `task_name`.
+
+A root invocation event has this shape, with placeholders replaced from source records:
+
+```json
+{
+  "kind": "invocation",
+  "session_id": "<actual-session-id>",
+  "turn_id": "<actual-turn-id>",
+  "at": "<request timestamp with timezone>",
+  "attempt": 1,
+  "effort": "high",
+  "evidence": {"path": "<absolute-original-rollout-path>", "line": 2},
+  "request_evidence": {"path": "model-evidence/launcher.jsonl", "line": 2},
+  "completion_evidence": {"path": "model-evidence/launcher.jsonl", "line": 3}
+}
+```
+
+`evidence` selects the call's `turn_context` in the same client source as
+`session_evidence`; request/completion pointers select the matching `turn/start`
+request/result and `turn/completed`. The initial native invocation instead uses
+`request_evidence: {"kind":"native","launch":<launch bundle>,"started":<pointer>}`
+with the child's matching `task_started`; completion points to its `task_complete`
+or `turn_aborted`. A subsequent native invocation uses this request bundle:
+
+```text
+request_evidence: {
+  kind: "native-followup",
+  call: {path: <original parent rollout>, line: <followup_task call>},
+  activity: {path: <same parent rollout>, line: <matching interacted activity>},
+  result: {path: <same parent rollout>, line: <matching successful tool result>},
+  started: {path: <original child rollout>, line: <matching task_started>}
+}
+```
+
+Use the actual `collaboration.followup_task` call and its relative or canonical
+task target, not a nickname or UUID. Match call_id, parent, child, and turn_id;
+the invocation's `at` is the child's `task_started` timestamp. A native follow-up
+preserves existing settings and cannot request model, reasoning, or tier changes
+or apply a pending escalation. Record all observed invocations, including follow-ups.
+
+Before raising reasoning, append a `kind: "escalation"` event with `session_id`,
+`at`, `attempt`, `from_effort`, `to_effort`, `trigger`, `reason`, and `evidence`.
+Its evidence points to a prior local decision record labeled
+`method: "reasoning/escalation"`, with `captured_at` and matching `params`, including
+assignment_id. This label describes a recorded decision, not a new host API.
+Before an initial elevated launch, the decision source may have `session_id: null`
+with assignment_id and parent_session_id; for a successor it identifies the
+predecessor. Link the event to the returned session ID without rewriting that source.
+Record the supporting fact before the affected invocation; do not backdate it.
+Root uses the justified triggers `architecture-risk`, `multi-lane`, or `broad-scope`;
+child triggers and ceilings come from their role configuration. Keep the exact
+model and service tier unchanged. Escalation does not reset `attempt` or add one.
+Only the existing Blocked Recovery Path permits a `recovery` event linked by
+`risk_id` to `risk-resolutions.json` and its required reviews.
+
+For root, a live-session increase uses explicit effort in `turn/start`; later calls
+may omit effort only when the client record confirms the reached level. Do not
+apply this mechanism to native children: Codex 0.153.4 rejected direct app-server
+input to multi-agent v2 subagents, including `thread/settings/update` with error
+`-32600`. Native children require an explicitly linked successor for an increase
+unless a different supported mechanism has been independently confirmed.
+The resolver is stateless; the orchestrator preserves the reached level. Verify
+the next invocation's actual settings, including a follow-up without explicit
+effort. Do not assume restart, native-agent rehydration, or resume is safe.
+Continue on the verified live-session path; a different path requires fresh
+application evidence. Any missing observation or settings drift blocks dependent
+work. Consistent JSON and model self-report are not proof of application.
+
+An explicit successor session retains assignment_id and adds
+`predecessor_session_id`, `context_snapshot`, and `stop_evidence` to its session
+record. Preserve both IDs and the attempt count, stop the old execution before
+launching its successor, and verify the new settings. `stop_evidence` may select
+the predecessor's original client `task_complete` or `turn_aborted`, matching its
+last invocation's completion pointer. The old source must contain no later
+`task_started` or `turn_context`. A captured `thread/archive` result is also accepted;
+neither form authorizes silently restarting the old session.
+The context JSON preserves `assignment_id`, `predecessor_session_id`, `attempt`,
+`goal`, `acceptance_criteria`, `accepted_decisions`, `superseded_decisions`, `unknowns`,
+`scope`, `completed_changes`, `check_results`, `forbidden_repeats`, and an `evidence`
+array of accessible source pointers. It must preserve the user's original contract.
+
+When continuation requires a new parent, keep the root assignment and append its
+new root session with a snapshot and predecessor link. Relaunch each continuing
+child under that parent using its original task_name and assignment_id, such as
+`python` or `plan_reviewer` only when those were the original names. Preserve old
+and new parent/child IDs, snapshots, and attempts. Do not revive the failed
+close/resume path; retain its records as failure evidence.
+
+The exact parser and synthetic examples live in `scripts/model_settings.py`,
+`scripts/model_settings_fixtures.py`, and `scripts/test_model_settings.py`. Synthetic
+fixtures test the checker and never serve as runtime evidence. Retain only the
+source records needed for IDs, times, settings, and lifecycle; do not copy hidden
+reasoning or message bodies into this ledger. Historical A/B/C journals stay intact.
 
 ## Local Ignore Rule
 
@@ -192,7 +320,10 @@ pass-with-risks`, `delegation-summary.json` is required at the run root:
 `Subagent Trace Evidence`. If `subagents_used=false`, run-owned narrative files
 must not claim sidecar/subagent work. If a real subagent was used, the summary
 must point to `agents/<role>/trace.jsonl`, the lane handoff, and the matching
-`codex_thread_id`.
+`assignment_id`, `codex_thread_id`, and `parent_thread_id`. Include one subagent
+record per assignment/session, also in compact runs without a lane-map. These
+identifiers must agree with `model-settings.json` and the handoff's exact
+`assignment_id: ...`, `codex_thread_id: ...`, and `parent_thread_id: ...` lines.
 
 ## Handoff State Gate
 
@@ -634,12 +765,15 @@ python3 scripts/record-agent-trace.py \
   --run-dir <run-dir> \
   --role python-worker \
   --execution-mode subagent \
+  --assignment-id backend-cli \
   --lane-id backend-cli \
   --wave 2 \
   --critical \
   --stage spawned \
   --status active \
   --codex-thread-id <thread-id> \
+  --parent-thread-id <parent-thread-id> \
+  --launch-evidence '{"kind":"native","call":{"path":"<absolute-parent-rollout>","line":2},"activity":{"path":"<absolute-parent-rollout>","line":3},"result":{"path":"<absolute-parent-rollout>","line":4},"session":{"path":"<absolute-child-rollout>","line":1},"context":{"path":"<absolute-child-rollout>","line":3}}' \
   --summary "Spawned python-worker for backend-cli." \
   --next-step "handoff"
 ```
@@ -651,6 +785,7 @@ python3 scripts/record-agent-trace.py \
   --run-dir <run-dir> \
   --role python-worker \
   --execution-mode subagent \
+  --assignment-id backend-cli \
   --lane-id backend-cli \
   --wave 2 \
   --critical \
@@ -658,10 +793,22 @@ python3 scripts/record-agent-trace.py \
   --stable-agent-slug python-worker \
   --stage handoff \
   --status pass \
+  --codex-thread-id <thread-id> \
+  --parent-thread-id <parent-thread-id> \
   --summary "Python worker completed helper changes and verification." \
   --next-step "orchestrator review" \
   --artifact handoffs/backend-cli.md
 ```
+
+Replace the example paths and line numbers with original parent/child records in
+`CODEX_HOME/sessions` for the actual native launch. Generic app-server evidence
+is reserved for root. Every subagent event requires assignment, session, and
+parent IDs. `--lane-id` may supply the
+assignment ID when `--assignment-id` is omitted. Each session has one initial
+`spawned` and one terminal event. The spelling `spawn` is rejected before writes;
+ordinary working stages remain available. A stopped predecessor uses `stopped`
+with a transfer handoff, then its successor records a separate launch. Keep
+assignment/session IDs distinct across independent reviewers sharing a role trace.
 
 Pass each owned artifact with repeated `--artifact` flags. The helper indexes
 those paths in `artifacts.json` with `role`, `stable_agent_name`,
@@ -675,7 +822,7 @@ updates that field and preserves the object shape.
 
 Do not call a role lane a subagent unless an actual subagent/spawn tool was used.
 
-- Actual spawned subagent: record `--execution-mode subagent`, include a `stage=spawned` event with `--codex-thread-id`, then record the terminal handoff/blocked/fail event.
+- Actual spawned subagent: record `--execution-mode subagent`, `--assignment-id`, `--codex-thread-id`, and `--parent-thread-id` on every event; initial `--stage spawned` also needs `--launch-evidence`. Then record the terminal handoff/blocked/fail event for that session.
 - Role lane without a spawned runtime: record `--execution-mode role-lane`, or keep it as an orchestrator note outside `agents/<role>/`. Its output is a scoped role review, not subagent execution.
 
 `validate-run.py` fails agent traces that look like subagents but have no

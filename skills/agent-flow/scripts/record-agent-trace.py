@@ -15,6 +15,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from model_settings import launch_observation
+
 
 def safe_path_segment(value: str) -> str:
     segment = re.sub(r"[^a-zA-Z0-9._-]+", "-", value.strip()).strip(".-")
@@ -151,18 +153,34 @@ def main() -> int:
     parser.add_argument("--artifact", action="append", default=[])
     parser.add_argument("--execution-mode", choices=["subagent", "role-lane"], default="subagent")
     parser.add_argument("--codex-thread-id")
+    parser.add_argument("--assignment-id")
+    parser.add_argument("--parent-thread-id")
+    parser.add_argument("--launch-evidence", help="JSON object with source path and one-based line")
     parser.add_argument("--runtime-nickname")
     parser.add_argument("--lane-id")
     parser.add_argument("--wave", type=int)
     parser.add_argument("--critical", action="store_true")
     args = parser.parse_args()
 
-    if args.execution_mode == "subagent" and args.stage == "spawned" and not args.codex_thread_id:
-        raise SystemExit("spawned subagent events require --codex-thread-id")
+    if args.stage == "spawn":
+        raise SystemExit("stage=spawn is invalid; use spawned")
 
     run_dir = Path(args.run_dir).expanduser().resolve()
     if not run_dir.exists():
         raise SystemExit(f"run dir not found: {run_dir}")
+
+    if args.execution_mode == "subagent":
+        if not args.codex_thread_id or not args.codex_thread_id.strip():
+            raise SystemExit("subagent events require --codex-thread-id")
+        if not (args.assignment_id or args.lane_id) or not args.parent_thread_id:
+            raise SystemExit("subagent events require assignment/lane ID and --parent-thread-id")
+        if args.stage == "spawned":
+            try:
+                observed, _ = launch_observation(run_dir, json.loads(args.launch_evidence or "null"))
+                if observed["session_id"] != args.codex_thread_id or observed["parent_session_id"] != args.parent_thread_id:
+                    raise ValueError("ID or parent differs from actual launch evidence")
+            except (ValueError, TypeError) as exc:
+                raise SystemExit(str(exc)) from exc
 
     role_segment = safe_path_segment(args.role)
     stable_agent_name = args.stable_agent_name or args.role
@@ -195,6 +213,12 @@ def main() -> int:
     }
     if args.codex_thread_id:
         event["codex_thread_id"] = args.codex_thread_id
+    if args.assignment_id or args.lane_id:
+        event["assignment_id"] = args.assignment_id or args.lane_id
+    if args.parent_thread_id:
+        event["parent_thread_id"] = args.parent_thread_id
+    if args.launch_evidence:
+        event["launch_evidence"] = json.loads(args.launch_evidence)
     if args.runtime_nickname:
         event["runtime_nickname"] = args.runtime_nickname
     if args.lane_id:

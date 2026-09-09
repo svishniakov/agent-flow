@@ -4,12 +4,15 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+from model_settings_fixtures import seed_model_settings, stage_test_observations
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -1236,6 +1239,7 @@ def write_run(
             for event in events
             if isinstance(event, dict)
         }
+        traced_lanes.update((event.get("role"), event.get("lane_id")) for event in (ordered_trace_events or []))
         for lane_data in lanes:
             if (
                 lane_data.get("type") == "review"
@@ -1785,6 +1789,7 @@ def write_run(
         timeline_event("final", summary="Fixture final event.", next_step="handoff")
     )
     write_jsonl(run_dir / "timeline.jsonl", timeline_events)
+    seed_model_settings(run_dir)
     return run_dir
 
 
@@ -1842,12 +1847,15 @@ def write_compact_run(
             json.dumps(risk_resolutions_data, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
+    seed_model_settings(run_dir)
     return run_dir
 
 
 def validate(run_dir: Path) -> subprocess.CompletedProcess[str]:
+    codex_home = stage_test_observations(run_dir)
     return subprocess.run(
         [sys.executable, str(VALIDATE_RUN), "--run-dir", str(run_dir)],
+        env={**os.environ, "CODEX_HOME": str(codex_home)},
         text=True,
         capture_output=True,
         check=False,

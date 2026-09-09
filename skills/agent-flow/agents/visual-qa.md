@@ -1,9 +1,9 @@
 ---
 name: visual-qa
 description: "Visual QA subagent for checking Pencil, Figma, screenshots, or site UI against DESIGN.md: layout, overlap, clipped text, responsiveness, accessibility, and design intent."
-model: gpt-5.5
+model: gpt-6-astra
 reasoning_effort: high
-escalation_model: gpt-5.5
+escalation_model: gpt-6-astra
 escalation_reasoning_effort: xhigh
 escalation_triggers: [complex-visual-qa, accessibility-risk, multi-viewport]
 skills: [find-skills, accessibility, frontend-responsive-ui, application-quality-assurance, frontend-design, build-web-apps:web-design-guidelines, browser-use, browser-debugging]

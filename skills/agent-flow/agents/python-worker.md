@@ -1,9 +1,9 @@
 ---
 name: python-worker
 description: "Python implementation subagent for scoped backend, CLI, automation, data processing, QA scripts, tests, PDF/RAG utilities, and dependency hygiene from an approved plan."
-model: gpt-5.3-codex-spark
+model: gpt-6-astra
 reasoning_effort: medium
-escalation_model: gpt-5.4
+escalation_model: gpt-6-astra
 escalation_reasoning_effort: high
 escalation_triggers: [data-processing, public-contract, failing-tests]
 skills: [application-quality-assurance, pdf-extraction, pdf-ocr-skill, pdf-generator, rag-implementation, chunking-strategy, browser-use, test-scenarios, dummy-dataset, sql-queries, python-packaging, python-testing-patterns]

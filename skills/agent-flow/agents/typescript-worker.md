@@ -1,9 +1,9 @@
 ---
 name: typescript-worker
 description: "TypeScript/JavaScript implementation subagent for typed app code, Node/Bun/React modules, API clients, contracts, tests, and scoped refactors from an approved plan."
-model: gpt-5.3-codex-spark
+model: gpt-6-astra
 reasoning_effort: medium
-escalation_model: gpt-5.4
+escalation_model: gpt-6-astra
 escalation_reasoning_effort: high
 escalation_triggers: [cross-system, public-contract, failing-tests]
 skills: [build-web-apps:react-best-practices, build-web-apps:frontend-skill, react-components, react-patterns, bullmq-specialist, playwright-e2e-testing, humanize-ts, test-scenarios]

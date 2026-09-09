@@ -268,8 +268,8 @@ the workers and any architect re-check, and its handoff must include
 cover Engineering Simplicity, reject reporting-only simplicity closure, and
 mention each fixed worker lane id when `engineering_simplicity.status=fixed`.
 
-If the architect rejects the proposed approach, do not treat that reject as a
-reason to raise model/reasoning by default. Model/reasoning upgrade is not the default fix.
+If the architect rejects the proposed approach, do not treat that reject as an
+automatic reason to raise reasoning. Keep the exact model ID and service tier fixed.
 The orchestrator sends the real case through the Architecture
 Approval Gate: request deeper architecture analysis, produce revised steps,
 let workers retry only inside the approved contract, then record the outcome as
@@ -300,6 +300,10 @@ lane; do not paste the full gate catalog into every packet.
 - stable identity if available;
 - lane id, lane type, wave, and critical flag when Lane Sharding is used;
 - goal;
+- original user requirements and acceptance criteria, including source references;
+- accepted and superseded decisions, unknowns, and accessible evidence links;
+- assignment_id, current reasoning level and ceiling, session links, and current recovery attempt count when continuing an assignment;
+- completed changes, check results, and forbidden repeats when continuing work;
 - selected workflow pattern when applicable;
 - 3-7 sentence task context;
 - project repo;
@@ -381,22 +385,99 @@ Read `references/subagents.md` when role choice is unclear or when a handoff nee
 Resolve role model settings before every `spawn_agent` call:
 
 ```bash
-python3 scripts/resolve-agent-config.py --role <role> --trigger <trigger>
+python3 scripts/resolve-agent-config.py --role <role> --trigger <trigger> --include-instructions
 ```
 
 Pass one `--trigger` per relevant risk or task shape. Examples: `security`,
 `broad-scope`, `release`, `cross-system`, `external-facts`, `complex-ux`.
-If no trigger matches, omit `--trigger` and use the role default.
+For a new assignment with no matching trigger, omit `--trigger` and use the role
+default. The resolver is stateless: for an existing assignment, the orchestrator
+preserves its reached reasoning level and supporting trigger. A later default
+result does not authorize a downgrade. This also applies when an assignment
+continues in a new session.
 
-Map the JSON output to `spawn_agent` arguments:
+Plan review normally uses `--role reviewer` at Sol `high`. Independent final
+`reviewer.qa` is a separate assignment using the existing role and trigger:
+
+```bash
+python3 scripts/resolve-agent-config.py --role reviewer --trigger qa-critical --include-instructions
+```
+
+It selects Sol `xhigh`; `reviewer.qa` is a workflow assignment, not another role
+file. Documenter and QA start at Astra `high` with an `xhigh` ceiling. The parent
+starts at Astra `high` and may reach `xhigh` for coordination or architecture
+complexity established after checking requirements, context, and tools. The
+orchestrator helper uses its own frontmatter; it does not configure the parent.
+
+For a new assignment, map the JSON output to `spawn_agent` arguments; for a
+continuation, preserve the reached level and its recorded trigger as described above:
 
 - `model` -> `model`
 - `reasoning_effort` -> `reasoning_effort`
-- `service_tier` -> `service_tier` only when non-null
+- `service_tier` -> `service_tier` only when non-null and supported by the tool
+
+Use the complete returned `developer_instructions` for the selected role. Codex
+custom-agent files can override explicit spawn settings: use a named `agent_type`
+only when its fixed model, reasoning, and service tier match the selected assignment
+settings. Otherwise select the
+built-in `default`, explicitly supply model and reasoning, and put the resolved
+instructions before the delegation packet. Use `fork_turns="none"` or another
+supported limited-context path; full-history forks may reject overrides. Preserve
+the role identity in the existing packet and trace. If the host cannot apply the
+selected settings, report a launch blocker instead of substituting a model.
+
+Record requested model, reasoning, service tier, and the selection evidence available from the
+host. Do not invent observed fields or use the model's self-description as proof.
+A reported reroute invalidates the run as evidence for the requested assignment.
+Configuration plus no reported reroute is operational evidence, not a server-side
+attestation. Missing observation must remain an explicit verification gap.
 
 The resolver marks `escalated: true` only when a passed trigger matches the
-role's `escalation_triggers`. Record matched triggers in the delegation packet
-or trace when they materially affect cost or risk.
+role's `escalation_triggers` and raises reasoning above the default. Matching a
+trigger at an already equal ceiling, such as supervising architect's `xhigh`, is
+not an increase. This output selects a configuration; it does not prove a runtime
+transition.
+
+Before raising reasoning, diagnose missing requirements, context loss, tool
+failures, implementation defects, tests, and the plan. Record the matching trigger,
+reason, supporting fact, previous and target levels, session link, and current
+attempt count before the next call. A routine authorized increase needs no new
+user approval. Keep the exact model ID and service tier fixed, preserve assignment_id,
+goal, edit boundaries, context, and recovery attempts, and use only the role ceiling.
+Repeated triggers neither raise that ceiling nor grant extra attempts. Renaming an
+assignment does not reset attempts. The existing Blocked Recovery Path remains in
+force; an ordinary fixable test failure does not start the entire path.
+
+Confirm that the host applied the selected level before dependent execution. If a
+supported mechanism updates the existing session, verify its settings before
+continuing. If settings are session-bound, a supported explicit continuation in a
+new session of the same model is allowed: stop the old execution, preserve
+assignment_id and both session IDs, transfer the complete working context, and
+retain ownership and attempt count. This is the same assignment, not a parallel
+owner or a fresh retry budget. Do not use silent close/resume changes as escalation;
+that path requires separate confirmation of its behavior in the current host.
+If neither path or the applied settings can be confirmed, stop dependent work with
+the precise blocker and continue only independent work. A generated config, model
+self-report, or two unrelated launches does not prove a transition.
+
+Check actual model, reasoning, and service tier in the next call's client records,
+even when the follow-up omits an explicit effort. Do not assume app-server restart,
+native-agent rehydration, or resume preserves settings. Continue through the
+verified live-session path; changing that path requires fresh evidence. An explicit
+`turn/start` effort can select a root transition, but its request alone does not
+prove application or retention. Native `followup_task` preserves existing settings
+and cannot apply an escalation. Codex 0.153.4 rejects direct app-server input to
+multi-agent v2 children; do not promise an in-place child settings update. Use a
+verified explicit successor with preserved assignment/task_name, snapshots, both
+session IDs, parent links, and attempts. If a new root is needed, it also continues
+the same root assignment. Retain failed close/resume evidence; do not reuse that path.
+
+Every transfer preserves the original user requirements and acceptance criteria,
+accepted and superseded decisions, unknowns, completed changes, check results,
+edit boundaries, forbidden repeats, and accessible evidence links. Agreement between
+new specs and tests cannot replace the original contract. A specialist may receive
+a separate bounded task; it does not authorize changing the original role's model
+or extending its recovery budget.
 
 ## Handoff Format
 
@@ -418,7 +499,11 @@ Subagent handoff must include:
 - artifacts created or updated;
 - what the next actor should read.
 
-When a run directory exists, save handoff to `handoffs/<role>.md`.
+When a run directory exists, use a separate handoff path per assignment and session
+when needed, such as `handoffs/<assignment-id>.md`. A real subagent handoff includes
+the exact lines `assignment_id: ...`, `codex_thread_id: ...`, and
+`parent_thread_id: ...`, matching `delegation-summary.json` and the session evidence.
+Do not overwrite the plan reviewer's handoff with the final reviewer's handoff.
 
 ## Per-Agent Trace Contract
 
@@ -437,12 +522,34 @@ Each call writes the same event to the run-level `timeline.jsonl` and to
 Actual spawned subagents and role lanes are different:
 
 - Use `--execution-mode subagent` only when a real subagent/spawn tool was used.
-- A real subagent trace must include a `stage=spawned` event with `--codex-thread-id`.
-- A successful real subagent trace must include a terminal handoff event with the same lane id, status `pass` or `pass-with-risks`, and the lane handoff artifact.
+- Every subagent event requires `--assignment-id` (or an existing `--lane-id`), `--codex-thread-id`, and `--parent-thread-id`. Keep these identifiers consistent through the session.
+- Each real session starts with exactly one `--stage spawned` event and `--launch-evidence` containing a source pointer or the native launch pointer bundle. `spawn` is rejected before writing; a task name is not a session ID.
+- A successful real subagent session ends with a terminal handoff event, status `pass` or `pass-with-risks`, and its handoff artifact. An explicitly stopped predecessor uses `stopped` with its transfer handoff; the successor preserves assignment_id and records its own session ID and launch.
 - Use `--execution-mode role-lane` when the main agent performed a scoped role review or checklist without a spawned runtime.
 - Do not report `role-lane` work as subagent execution in the final answer or performance analysis.
 
-This is mandatory only for delegated subagents in a traceable run. A handoff file without a matching role-owned timeline event is an incomplete traceable run. A trace that calls itself subagent work but has no spawned event with `codex_thread_id` is also incomplete.
+These subagent events are mandatory only for actual delegated sessions. Both compact
+and full runs also require `model-settings.json`, including the root assignment
+with a null parent. Record every assignment's exact model, service tier, baseline,
+ceiling, sessions, and ordered invocation/escalation evidence. Preserve initial
+observations and append the reason, trigger, previous/target effort, and attempt
+count before raising reasoning. Continuations retain the same assignment and
+attempt count; the resolver stores no history. See `references/traceable-runs.md`
+for the exact fields and CLI examples. Source pointers must resolve to actual
+launcher/client records. Child launch evidence must use the native source bundle;
+generic app-server launch evidence is root-only. Client pointers must select the
+original rollouts inside `CODEX_HOME/sessions`; a copy elsewhere is not provenance.
+Later native calls use `request_evidence.kind: "native-followup"` with `call`,
+`activity`, `result`, and `started` pointers, matched to the same parent and child.
+Null/default observed service tier means no override when the role policy is null.
+`--allow-pending` permits a missing ledger only before execution; synthetic test
+fixtures cannot prove execution.
+
+A handoff without its matching role-owned timeline event is incomplete. The two
+reviewer assignments have distinct IDs and launch/terminal evidence, even though
+both write `agents/reviewer/trace.jsonl`. Match assignment and session IDs across
+that trace, `timeline.jsonl`, `model-settings.json`, handoffs, and
+`delegation-summary.json`; one reviewer's event cannot satisfy the other.
 
 ## Delegation Trace Gate
 

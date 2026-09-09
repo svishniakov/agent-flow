@@ -1,9 +1,9 @@
 ---
 name: pencil-designer
 description: "Pencil MCP design implementation subagent for approved DESIGN.md work in .pen files, variables, layout, screenshots, exports, and visual validation."
-model: gpt-5.4
+model: gpt-6-astra
 reasoning_effort: medium
-escalation_model: gpt-5.5
+escalation_model: gpt-6-astra
 escalation_reasoning_effort: high
 escalation_triggers: [complex-ux, design-system, visual-risk]
 skills: [find-skills, frontend-responsive-ui, accessibility, extract-design-system, frontend-design, build-web-apps:web-design-guidelines, figma:figma-use, figma:figma-generate-design]

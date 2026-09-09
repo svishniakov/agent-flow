@@ -6,16 +6,20 @@
     {
       "lane_id": "review-contract",
       "role": "reviewer",
-      "codex_thread_id": "thread-review-contract",
+      "codex_thread_id": "e839d2a0-2462-7e7c-89f4-d0905f2720d0",
       "trace": "agents/reviewer/trace.jsonl",
-      "handoff": "handoffs/review-contract.md"
+      "handoff": "handoffs/review-contract.md",
+      "assignment_id": "review-contract",
+      "parent_thread_id": "b5293c92-7f1e-7744-86f4-8a894cc5f102"
     },
     {
       "lane_id": "review-retry",
       "role": "reviewer",
-      "codex_thread_id": "thread-review-retry",
+      "codex_thread_id": "1385a5b3-d26b-70e1-8c1f-2b176ed0ede4",
       "trace": "agents/reviewer/trace.jsonl",
-      "handoff": "handoffs/review-retry.md"
+      "handoff": "handoffs/review-retry.md",
+      "assignment_id": "review-retry",
+      "parent_thread_id": "b5293c92-7f1e-7744-86f4-8a894cc5f102"
     }
   ],
   "role_lanes": [

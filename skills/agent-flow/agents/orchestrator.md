@@ -1,9 +1,9 @@
 ---
 name: orchestrator
 description: "Agent Flow orchestration support subagent for routing, budget selection, subagent topology, trace hygiene, delegation packets, verification evidence, and final integration under the explicit Agent Flow invocation model."
-model: gpt-5.4
+model: gpt-6-astra
 reasoning_effort: medium
-escalation_model: gpt-5.5
+escalation_model: gpt-6-astra
 escalation_reasoning_effort: high
 escalation_triggers: [broad-scope, release, security, cross-system, blocked-replan, large-prd, multi-lane, integration-risk]
 skills: [github:github, browser-use, chrome-devtools, pre-mortem, system-design-doc, test-scenarios, release-notes, impeccable]

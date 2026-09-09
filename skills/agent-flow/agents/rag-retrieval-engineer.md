@@ -1,9 +1,9 @@
 ---
 name: rag-retrieval-engineer
 description: "Retrieval-first LLM/RAG engineer for semantic search, chunking, embeddings, reranking, vector stores, graph databases, GraphRAG, and retrieval quality evaluation."
-model: gpt-5.5
+model: gpt-6-astra
 reasoning_effort: high
-escalation_model: gpt-5.5
+escalation_model: gpt-6-astra
 escalation_reasoning_effort: xhigh
 escalation_triggers: [retrieval-quality, graph-rag, production-rag, evaluation-risk]
 skills: [rag-implementation, rag-retrieval, evaluate-rag, chunking-strategy, embedding-strategies, hybrid-search-implementation, aliyun-qwen-rerank, knowledge-graph-builder, knowledge-graph, graphrag-patterns, openai-docs, hugging-face:huggingface-datasets, hugging-face:huggingface-papers, sql-queries, system-design-doc, test-scenarios]

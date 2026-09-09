@@ -1,9 +1,9 @@
 ---
 name: ui-ux-design-director
 description: "Design-director subagent for choosing a UI/UX concept from project context, audience, references, brand, and implementation constraints."
-model: gpt-5.5
+model: gpt-6-astra
 reasoning_effort: high
-escalation_model: gpt-5.5
+escalation_model: gpt-6-astra
 escalation_reasoning_effort: xhigh
 escalation_triggers: [complex-ux, brand-critical, design-system]
 skills: [find-skills, frontend-design, high-end-visual-design, design-taste-frontend, gpt-taste, accessibility, brand-identity, brand-guidelines, extract-design-system, build-web-apps:web-design-guidelines]
