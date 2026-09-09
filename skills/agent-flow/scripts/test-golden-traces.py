@@ -7,17 +7,11 @@ This is the test-golden-traces runner for testdata/golden-traces.
 from __future__ import annotations
 
 import json
-import os
 import re
-import shutil
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 from typing import Any
-
-from test_model_settings import run_model_settings_tests
-from model_settings_fixtures import stage_test_observations
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -109,7 +103,6 @@ def validate_case_shape(raw_case: Any, index: int, seen_ids: set[str]) -> dict[s
 
 
 def run_validate(case: dict[str, Any]) -> subprocess.CompletedProcess[str]:
-    codex_home = stage_test_observations(case["path"])
     return subprocess.run(
         [
             sys.executable,
@@ -119,7 +112,6 @@ def run_validate(case: dict[str, Any]) -> subprocess.CompletedProcess[str]:
             "--mode",
             case["mode"],
         ],
-        env={**os.environ, "CODEX_HOME": str(codex_home)},
         text=True,
         capture_output=True,
         check=False,
@@ -150,7 +142,6 @@ def check_case(case: dict[str, Any]) -> None:
 
 
 def main() -> int:
-    run_model_settings_tests()
     manifest = load_manifest()
     seen_ids: set[str] = set()
     cases = [
@@ -158,10 +149,7 @@ def main() -> int:
         for index, raw_case in enumerate(manifest["cases"], start=1)
     ]
     for case in cases:
-        with tempfile.TemporaryDirectory(prefix="golden-runtime-") as temporary:
-            run = Path(temporary) / "run"
-            shutil.copytree(case["path"], run)
-            check_case({**case, "path": run})
+        check_case(case)
     print("PASS golden trace runs")
     return 0
 

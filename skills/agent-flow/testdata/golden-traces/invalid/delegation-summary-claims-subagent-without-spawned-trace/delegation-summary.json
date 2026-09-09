@@ -6,11 +6,9 @@
     {
       "lane_id": "worker-a",
       "role": "typescript-worker",
-      "codex_thread_id": "3e6609e5-88a8-79df-86a5-1034d4aaa814",
+      "codex_thread_id": "thread-worker-a",
       "trace": "agents/typescript-worker/trace.jsonl",
-      "handoff": "handoffs/worker-a.md",
-      "assignment_id": "worker-a",
-      "parent_thread_id": "b5293c92-7f1e-7744-86f4-8a894cc5f102"
+      "handoff": "handoffs/worker-a.md"
     }
   ],
   "role_lanes": [],

@@ -14,7 +14,6 @@ from agent_config import (
     read_frontmatter,
     resolve_role_path,
     role_config,
-    role_instructions,
     validate_role_metadata,
 )
 
@@ -29,7 +28,6 @@ def main() -> int:
         help="Escalation trigger for this task. Can be passed multiple times.",
     )
     parser.add_argument("--agents-dir", type=Path, default=default_agents_dir(), help="Directory with role .md files.")
-    parser.add_argument("--include-instructions", action="store_true", help="Include the role instructions used by Codex config sync.")
     args = parser.parse_args()
 
     try:
@@ -45,14 +43,7 @@ def main() -> int:
             print(f"{role_path}: {error}", file=sys.stderr)
         return 1
 
-    try:
-        config = role_config(metadata, args.role, args.trigger)
-        if args.include_instructions:
-            config["developer_instructions"] = role_instructions(role_path, metadata)
-    except AgentConfigError as exc:
-        print(exc, file=sys.stderr)
-        return 1
-    print(json.dumps(config, ensure_ascii=False, indent=2))
+    print(json.dumps(role_config(metadata, args.role, args.trigger), ensure_ascii=False, indent=2))
     return 0
 
 

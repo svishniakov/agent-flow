@@ -114,7 +114,7 @@ For full `release` trace:
 - Architecture Approval Gate reviewed any rejected, regressed, or uncertain architecture attempt before retrying implementation.
 - Local Best Practice auto gate was used only for an analyzer-confirmed local practice with clear context, no matching `Do not reuse when`, no external write, and fresh verification.
 - regression demotion froze or demoted any practice that failed after reuse.
-- Model/reasoning upgrade is not the default fix; context, architecture contract, evidence, and verification must be improved before escalating cost.
+- Model/reasoning upgrade is not the default fix; context, architecture contract, evidence, and verification must be improved before raising reasoning within the same model.
 - No unrelated refactor.
 - No dead code, fake tests, or generic abstraction.
 - No user changes reverted.

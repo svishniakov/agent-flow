@@ -67,7 +67,3 @@ Claim evidence:
 ## Stop Conditions
 
 Fixture stop conditions.
-
-assignment_id: architecture-contract
-codex_thread_id: 49bc839a-79f0-78e8-8e66-79deac158be8
-parent_thread_id: b5293c92-7f1e-7744-86f4-8a894cc5f102

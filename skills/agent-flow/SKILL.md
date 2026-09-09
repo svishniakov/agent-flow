@@ -211,60 +211,21 @@ items.
 
 The Architecture Approval Gate handles rejected, regressed, or uncertain architecture attempts. The orchestrator sends the real case back for deeper architecture analysis, then lets workers retry only against the approved steps and records the resulting evidence.
 
-Reasoning upgrade is not the default fix. Diagnose requirements, context, tools, implementation, tests, and the plan first; revise architecture when the diagnosis calls for it. A justified resolver trigger may raise reasoning to the role's configured ceiling while preserving the exact model ID and service tier. Record the trigger, reason, and supporting evidence before the next call; routine authorized escalation needs no new user approval. Preserve assignment_id, context, scope, and the attempt count. A specialist receives a separate bounded task under its own role. Reasoning escalation and renaming an assignment do not add or reset attempts under the existing Blocked Recovery Path. An ordinary fixable test failure does not start that entire path.
+Model/reasoning upgrade is not the default fix. Keep the exact model ID fixed and escalate reasoning only when the resolver trigger is justified by task risk; otherwise improve context, architecture contract, evidence, or verification first.
 
-## Astra-Sol model policy
+## Model profile
 
-This profile uses `gpt-6-astra` for 26 bundled roles and the main
-agent; `reviewer`, including `reviewer.qa`, uses `gpt-5.6-sol`. Start the main Codex
-session with Astra `high`. Its ceiling is `xhigh`, justified by coordination or
-architecture complexity after checking requirements, context, and tools.
-`agents/orchestrator.md`
-configures a separate helper and does not select the main session's model.
-Read `references/astra-instructions.md` when entering this branch's flow. The same
-guidance is included unchanged in generated child instructions, including Sol's.
-The file's historical Astra heading labels the shared workflow instructions;
-the role's model comes from its frontmatter. Keep the user-selected main
-model unchanged; if it differs from Astra, report that this run does not exercise
-the Astra-Sol configuration.
+Start the main agent with `gpt-6-astra` at `high` reasoning. The 26 bundled roles
+other than `reviewer` use `gpt-6-astra`; `reviewer` uses `gpt-5.6-sol`.
+Role frontmatter defines the existing default and escalation settings.
+Keep the exact model ID unchanged within each role, including retries and
+escalation. Apply the existing reasoning triggers and workflow; different roles
+may use different models.
 
-Role defaults and justified reasoning escalation come from role frontmatter and
-the approved matrix in `docs/implementation/impl-007-astra-sol-rollout.md`.
-Documenter and QA start at Astra `high` with an `xhigh` ceiling. Plan review normally
-starts at Sol `high`; independent final `reviewer.qa` is a separate assignment
-resolved with `--role reviewer --trigger qa-critical`, selecting Sol `xhigh`.
-This profile caps reasoning at `xhigh`; `low` and `max` are not automatic fallback or
-retry targets. Unavailable models and mismatched launch settings must be reported,
-not hidden by substituting another model. Subscription runs are evaluated by task
-quality, elapsed time, and observed usage; direct API pricing is not their bill.
-
-The resolver is stateless. The orchestrator keeps the reached reasoning level for
-every continuation; a later resolver result without a trigger does not authorize
-a downgrade. Repeated triggers do not raise the ceiling, and `xhigh` to `xhigh` is
-not an escalation. Confirm host application before dependent execution. When
-settings are session-bound, a supported explicit continuation in a new session of
-the same model may carry the same assignment_id, both session IDs, complete context,
-ownership, and attempt count after the previous execution stops. Do not use silent
-close/resume drift as escalation. Without a supported path and application evidence,
-stop dependent work with the precise blocker. Check the actual model, reasoning,
-and service tier on the next invocation, including ordinary follow-up without an
-explicit effort. Restarting an app-server, rehydrating a native agent, or resuming
-a session does not guarantee preserved settings. Keep the verified live-session
-path when continuing; any changed path needs fresh application evidence. See
-`references/delegation.md`.
-
-Root may use a verified `turn/start` effort change. Native child follow-up preserves
-settings and cannot apply escalation; Codex 0.153.4 rejects direct app-server input
-to multi-agent v2 children. Use a verified successor with the same assignment and
-task_name, context snapshot, attempts, and linked old/new parent and session IDs.
-A new parent also continues the same root assignment. Do not reuse failed
-close/resume behavior as a settings mechanism.
-
-Every handoff preserves the original goal and acceptance criteria, accepted and
-superseded decisions, unknowns, edit boundaries, completed work, check results, and
-accessible evidence. New specs and tests agreeing with each other do not override
-the user's original requirements. Historical A/B/C settings and journals remain
-unchanged; the current adaptive profile has not inherited their validation results.
+Complete the authorized task against the original acceptance criteria. Resolve
+routine uncertainty from available context, distinguish facts from assumptions,
+and ask only when a missing decision materially changes scope or correctness.
+Keep changes within scope and verify the result before claiming completion.
 
 ## Subagent Tool Discovery
 
@@ -366,33 +327,16 @@ For each subagent, provide a self-contained delegation packet and require a hand
 Treat that packet as the source of truth for task-specific instructions. Include only active gates and the exact constraints needed by the assigned lane; do not copy the full gate catalog into every role prompt or packet.
 
 When a run directory exists, record real subagents with
-`scripts/record-agent-trace.py`: every subagent event carries `--assignment-id`,
-`--codex-thread-id`, and `--parent-thread-id`; initial `--stage spawned` also
-requires `--launch-evidence` pointing to the actual launch records. The spelling
-`spawn` is rejected. Then record a terminal handoff/blocked/fail event with the
-same identifiers. Update `delegation-summary.json`
+`scripts/record-agent-trace.py`: first `stage=spawned` with `codex_thread_id`,
+then a terminal handoff/blocked/fail event. Update `delegation-summary.json`
 and `final.md` `Delegation Trace`; role lanes remain `role-lane` and are not
 sidecars.
 
-Both compact and full runs require `model-settings.json` for `root` and every
-actual assignment. Preserve the baseline, ceiling, session and parent IDs, and
-ordered invocation/escalation records with pointers to launcher and client
-evidence. Record escalation grounds before the affected call; retain attempts
-and context through continuations. Two reviewer assignments require separate
-session evidence even when their role trace file is shared. Use the field and
-CLI examples in `references/traceable-runs.md`; synthetic fixtures and a UUID-like
-string do not establish a real launch. Child launches require native evidence;
-generic app-server launch evidence is root-only. Client pointers must reference
-original rollouts in `CODEX_HOME/sessions`, not copied files. Native continuations
-use the `native-followup` request bundle; null/default tier observations mean no
-override for a null tier policy. `--allow-pending` permits a missing ledger only
-before execution. Historical A/B/C journals remain unchanged.
-
 Before launching a subagent, read the bundled role file `agents/<role>.md` and resolve `stable_agent_name`, `stable_agent_slug`, and optional `nickname_candidates` from `agents/agent-identities.json`.
 
-Also resolve the role model config before `spawn_agent`, using `python3 scripts/resolve-agent-config.py --role <role> --include-instructions` plus any justified task triggers such as `--trigger security`, `--trigger broad-scope`, or `--trigger release`. For a new assignment, use the returned `model`, `reasoning_effort`, and complete `developer_instructions`. For a continuation, retain the reached reasoning level and its recorded trigger as required by the model policy above. Pass `service_tier` only when non-null and supported by the current tool schema; if the required tier cannot be applied, report the blocker.
+Also resolve the role model config before `spawn_agent`, using `python3 scripts/resolve-agent-config.py --role <role>` plus any task triggers such as `--trigger security`, `--trigger broad-scope`, or `--trigger release`. Pass the returned `model` and `reasoning_effort` into `spawn_agent`. Pass `service_tier` only when the resolver returns a non-null value.
 
-Use a named `agent_type` only when its fixed model, reasoning, and service tier match the selected assignment settings. A custom-agent file can override explicit spawn arguments. If the named role is absent or pins different settings, use the built-in `default` with explicit model and reasoning, the complete resolved role instructions followed by the delegation packet, and limited context (`fork_turns="none"` where supported). Do not use a full-history fork when it prevents overrides. Keep the role identity in the packet and existing trace. If no supported path can apply the selected settings, report a launch blocker. See `references/delegation.md` for selection evidence.
+When Codex custom-agent files have been generated for the current project or user config, and the current `spawn_agent` schema exposes the Agent Flow role as an available `agent_type`, pass that role slug as `agent_type`. This lets Codex App, CLI, and IDE show configured `nickname_candidates` in subagent activity. If the role is not exposed in the current tool schema, use the closest available built-in `agent_type` and keep Agent Flow identity in trace metadata.
 
 If the task would benefit from independent workers but the selected budget is `light`, keep the implementation lane solo or escalate the budget only with a concrete reason. Do not spawn implementation subagents for `light`. If the run changes product/repo files, tests, runtime docs, validator behavior, templates, golden traces, ADR/plan/spec status, or creates a commit, Mandatory Independent QA Review Gate still requires a real `reviewer.qa` subagent before any positive final.
 

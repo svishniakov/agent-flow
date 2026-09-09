@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from agent_config import AgentConfigError, default_agents_dir, read_frontmatter, role_instructions, validate_role_metadata
+from agent_config import AgentConfigError, default_agents_dir, read_frontmatter, validate_role_metadata
 
 
 MANAGED_HEADER = "# Synced by Agent Flow. Edit agents/agent-identities.json or agents/*.md, then rerun sync.\n"
@@ -42,6 +42,15 @@ def load_identities(path: Path) -> dict[str, dict[str, Any]]:
             raise AgentConfigError(f"{path}: agents[{index}] missing role")
         result[role] = entry
     return result
+
+
+def role_body(path: Path) -> str:
+    lines = path.read_text(encoding="utf-8").splitlines()
+    try:
+        end_index = next(index for index, line in enumerate(lines[1:], start=1) if line.strip() == "---")
+    except StopIteration as exc:
+        raise AgentConfigError(f"{path}: missing closing frontmatter marker") from exc
+    return "\n".join(lines[end_index + 1 :]).strip() + "\n"
 
 
 def toml_string(value: str) -> str:
@@ -82,7 +91,7 @@ def render_agent_toml(role_path: Path, metadata: dict[str, str], identity: dict[
         f"model = {toml_string(metadata['model'])}",
         f"model_reasoning_effort = {toml_string(metadata['reasoning_effort'])}",
         f"nickname_candidates = {toml_array(nickname_candidates(identity, role_path.stem))}",
-        f"developer_instructions = {toml_string(role_instructions(role_path, metadata))}",
+        f"developer_instructions = {toml_string(role_body(role_path))}",
         "",
     ]
     return "\n".join(lines)

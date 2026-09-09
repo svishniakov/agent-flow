@@ -1,3 +1,0 @@
-{"captured_at": "2026-09-09T00:00:00+00:00", "method": "thread/start", "result": {"thread": {"id": "b5293c92-7f1e-7744-86f4-8a894cc5f102", "parentThreadId": null}, "model": "gpt-6-astra", "reasoningEffort": "high", "serviceTier": null}}
-{"captured_at": "2026-09-09T00:00:01+00:00", "method": "turn/start", "params": {"threadId": "b5293c92-7f1e-7744-86f4-8a894cc5f102", "effort": "high"}, "result": {"turn": {"id": "fixture-turn-root"}}}
-{"captured_at": "2026-09-09T00:00:03+00:00", "method": "turn/completed", "params": {"threadId": "b5293c92-7f1e-7744-86f4-8a894cc5f102", "turn": {"id": "fixture-turn-root", "status": "completed"}}}

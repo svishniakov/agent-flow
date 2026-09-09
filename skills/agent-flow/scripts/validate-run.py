@@ -10,8 +10,6 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-from model_settings import validate_model_settings
-
 from architecture_capabilities import (
     ARCHITECTURE_CAPABILITY_REGISTRY_PATH,
     validate_architecture_capabilities_shape,
@@ -6522,7 +6520,6 @@ def main() -> int:
             args.allow_pending,
         )
 
-    errors.extend(validate_model_settings(run_dir, allow_pending=args.allow_pending))
     if errors:
         for error in errors:
             print(f"FAIL {error}")

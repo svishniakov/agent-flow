@@ -4,14 +4,12 @@
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -19,7 +17,6 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import harness_promotion
 from evidence_records import parse_notes
 from harness_promotion import PromotionError, PromotionRecord, promote_harness_evaluation
-from model_settings_fixtures import stage_test_observations
 
 
 PROMOTE = ROOT / "scripts" / "promote-harness-evaluation.py"
@@ -66,7 +63,6 @@ def write_blocked_learning_harness(run_dir: Path) -> None:
 
 
 def run_promote(run_dir: Path, notes: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    codex_home = stage_test_observations(run_dir)
     return subprocess.run(
         [
             sys.executable,
@@ -78,7 +74,6 @@ def run_promote(run_dir: Path, notes: Path, *args: str) -> subprocess.CompletedP
             *args,
         ],
         cwd=ROOT,
-        env={**os.environ, "CODEX_HOME": str(codex_home)},
         text=True,
         capture_output=True,
         check=False,
@@ -246,9 +241,7 @@ def test_projected_invalid_record_aborts_before_write() -> None:
         harness_promotion.promotable_records = invalid_records
         try:
             try:
-                codex_home = stage_test_observations(run_dir)
-                with patch.dict(os.environ, {"CODEX_HOME": str(codex_home)}):
-                    promote_harness_evaluation(run_dir, notes)
+                promote_harness_evaluation(run_dir, notes)
             except PromotionError as error:
                 if "projected Evidence Records invalid" not in str(error):
                     raise AssertionError(f"wrong error: {error}")

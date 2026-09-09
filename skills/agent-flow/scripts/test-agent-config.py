@@ -3,12 +3,9 @@
 
 from __future__ import annotations
 
-import json
 import subprocess
 import sys
 import tempfile
-from itertools import combinations
-from unittest.mock import patch
 from pathlib import Path
 
 from agent_config import (
@@ -16,7 +13,6 @@ from agent_config import (
     default_agents_dir,
     read_frontmatter,
     role_config,
-    role_instructions,
     split_inline_list,
     validate_role_metadata,
 )
@@ -150,32 +146,6 @@ def test_role_validation(root: Path) -> None:
     ):
         raise AssertionError("escalated config selection failed")
 
-    for model in ("gpt-6-astra", "gpt-5.6-sol"):
-        same_model = {**metadata, "model": model, "escalation_model": model, "escalation_reasoning_effort": "high"}
-        assert_no_errors("same-model escalation", validate_role_metadata(role_path, same_model))
-        assert role_config(same_model, "fixture-role", ["security"])["model"] == model
-
-    for changes, needle in [
-        ({"reasoning_effort": "high", "escalation_reasoning_effort": "medium"}, "must not decrease"),
-        ({"escalation_service_tier": "priority"}, "must match service_tier"),
-        ({"model": "gpt-6-astra", "escalation_model": "gpt-6-astra", "escalation_reasoning_effort": "max"}, "ceiling"),
-        ({"model": "gpt-5.6-sol", "escalation_model": "gpt-5.6-sol", "escalation_reasoning_effort": "xhigh"}, "ceiling"),
-    ]:
-        invalid = {**metadata, **changes}
-        assert_has_error("invalid escalation", validate_role_metadata(role_path, invalid), needle)
-        expect_error("resolver rejects invalid escalation", lambda: role_config(invalid, "fixture-role"), needle)
-    priority = {**metadata, "service_tier": "priority", "escalation_service_tier": "priority"}
-    assert role_config(priority, "fixture-role", ["security"])["service_tier"] == "priority"
-
-    for target in ("gpt-6-astra", "gpt-5.6-terra"):
-        changed_model = {**metadata, "escalation_model": target}
-        assert_has_error("model substitution", validate_role_metadata(role_path, changed_model), "escalation_model must match model")
-        expect_error("resolver rejects model substitution", lambda: role_config(changed_model, "fixture-role", ["security"]), "escalation_model must match model")
-
-    for effort in ("none", "minimal", "ultra"):
-        unsupported = {**metadata, "model": "gpt-6-astra", "escalation_model": "gpt-6-astra", "reasoning_effort": effort}
-        assert_has_error("unsupported portable reasoning", validate_role_metadata(role_path, unsupported), "invalid reasoning_effort")
-
     bad_metadata = {
         "name": "wrong-name",
         "description": "Bad role.",
@@ -205,53 +175,44 @@ def test_role_validation(root: Path) -> None:
         assert_has_error("missing keys", missing_errors, f"missing required frontmatter key: {key}")
 
 
-def test_astra_sol_assignments() -> None:
-    agents_dir = default_agents_dir()
-    paths = sorted(agents_dir.glob("*.md"))
-    assert len(paths) == 27
-    for path in paths:
+def test_active_replacement_models() -> None:
+    role_paths = sorted(default_agents_dir().glob("*.md"))
+    assert len(role_paths) == 27
+    for path in role_paths:
         metadata = read_frontmatter(path)
-        role = path.stem
-        effort = "xhigh" if role == "supervising-architect" else "high" if role in HIGH_REASONING_ROLES else "medium"
-        escalation = "xhigh" if effort in {"high", "xhigh"} else "high"
-        model = "gpt-5.6-sol" if role == "reviewer" else "gpt-6-astra"
-        expected = (model, effort, model, escalation)
-        actual = tuple(metadata[key] for key in ("model", "reasoning_effort", "escalation_model", "escalation_reasoning_effort"))
-        assert actual == expected, (role, actual, expected)
-        triggers = split_inline_list(metadata["escalation_triggers"])
-        for count in range(len(triggers) + 1):
-            for selected in combinations(triggers, count):
-                result = role_config(metadata, role, list(selected))
-                assert result["model"] == model
-                assert result["reasoning_effort"] == (escalation if selected else effort)
-                assert result["escalated"] == bool(selected and effort != escalation)
-                assert result["service_tier"] == metadata.get("service_tier")
-        assert role_config(metadata, role, ["unmatched"])["reasoning_effort"] == effort
-
-    reviewer = agents_dir / "reviewer.md"
-    metadata = read_frontmatter(reviewer)
-    astra_metadata = {**metadata, "model": "gpt-6-astra", "escalation_model": "gpt-6-astra"}
-    assert role_instructions(reviewer, metadata) == role_instructions(reviewer, astra_metadata)
-    assert role_config(metadata, "reviewer", ["qa-critical"])["reasoning_effort"] == "xhigh"
-    original_read = Path.read_text
-    def missing_guidance(path, *args, **kwargs):
-        if path.name == "astra-instructions.md":
-            raise FileNotFoundError(path)
-        return original_read(path, *args, **kwargs)
-    with patch.object(Path, "read_text", missing_guidance):
-        expect_error("missing shared instructions", lambda: role_instructions(reviewer, metadata), "could not read Astra instructions")
+        model = "gpt-5.6-sol" if path.stem == "reviewer" else "gpt-6-astra"
+        effort = "xhigh" if path.stem == "supervising-architect" else (
+            "high" if path.stem in HIGH_REASONING_ROLES else "medium"
+        )
+        ceiling = "high" if effort == "medium" else "xhigh"
+        assert metadata["model"] == metadata["escalation_model"] == model, path.stem
+        assert metadata["reasoning_effort"] == effort, path.stem
+        assert metadata["escalation_reasoning_effort"] == ceiling, path.stem
+        assert_no_errors(path.stem, validate_role_metadata(path, metadata))
+        default = role_config(metadata, path.stem)
+        triggered = role_config(metadata, path.stem, split_inline_list(metadata["escalation_triggers"])[:1])
+        assert default["model"] == triggered["model"] == model, path.stem
+        assert default["reasoning_effort"] == effort, path.stem
+        assert triggered["reasoning_effort"] == ceiling and triggered["escalated"], path.stem
 
 
-def test_resolver_instructions() -> None:
-    command = [sys.executable, str(Path(__file__).with_name("resolve-agent-config.py")), "--role", "python-worker"]
-    default = json.loads(subprocess.check_output(command, text=True))
-    assert "developer_instructions" not in default
-    escalated = json.loads(subprocess.check_output(command + ["--trigger", "public-contract", "--include-instructions"], text=True))
-    assert escalated["model"] == default["model"] == "gpt-6-astra"
-    assert default["reasoning_effort"] == "medium"
-    assert escalated["reasoning_effort"] == "high"
-    assert escalated["developer_instructions"].startswith("# Astra execution instructions\n")
-    assert "Use the delegation packet as the source of truth" in escalated["developer_instructions"]
+def test_cross_model_escalation(root: Path) -> None:
+    role_path = write_file(root, "fixture-role.md", VALID_FRONTMATTER)
+    metadata = read_frontmatter(role_path)
+    for model, target in [("gpt-6-astra", "gpt-5.6-sol"), ("gpt-5.6-sol", "gpt-6-astra")]:
+        invalid = {**metadata, "model": model, "escalation_model": target}
+        assert_has_error("model substitution", validate_role_metadata(role_path, invalid), "escalation_model must match model")
+        expect_error("resolver rejects substitution", lambda: role_config(invalid, "fixture-role", ["security"]), "escalation_model must match model")
+        role_path.write_text(VALID_FRONTMATTER.replace("model: gpt-5.6-luna", "model: " + model, 1)
+                             .replace("escalation_model: gpt-5.6-luna", "escalation_model: " + target))
+        result = subprocess.run([sys.executable, str(Path(__file__).with_name("resolve-agent-config.py")),
+                                 "--agents-dir", str(root), "--role", "fixture-role", "--trigger", "security"],
+                                text=True, capture_output=True)
+        assert result.returncode == 1 and "escalation_model must match model" in result.stderr
+        assert not result.stdout
+        valid = {**invalid, "escalation_model": model}
+        assert_no_errors("same-model escalation", validate_role_metadata(role_path, valid))
+        assert role_config(valid, "fixture-role", ["security"])["model"] == model
 
 
 def main() -> int:
@@ -259,8 +220,8 @@ def main() -> int:
         root = Path(temp_dir)
         test_frontmatter_reader(root)
         test_role_validation(root)
-        test_astra_sol_assignments()
-        test_resolver_instructions()
+        test_active_replacement_models()
+        test_cross_model_escalation(root)
     print("PASS agent config fixture tests")
     return 0
 

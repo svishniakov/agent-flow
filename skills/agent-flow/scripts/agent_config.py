@@ -209,9 +209,8 @@ def split_inline_list(value: str | None) -> list[str]:
 
 
 def role_config(metadata: dict[str, str], role: str, triggers: list[str] | None = None) -> dict[str, Any]:
-    errors = escalation_errors(metadata)
-    if errors:
-        raise AgentConfigError("; ".join(errors))
+    if metadata.get("escalation_model") and metadata["escalation_model"] != metadata.get("model"):
+        raise AgentConfigError("escalation_model must match model; escalation cannot change the role's model")
     requested_triggers = triggers or []
     escalation_triggers = split_inline_list(metadata.get("escalation_triggers"))
     matched_triggers = [trigger for trigger in requested_triggers if trigger in escalation_triggers]
@@ -220,8 +219,7 @@ def role_config(metadata: dict[str, str], role: str, triggers: list[str] | None 
         or metadata.get("escalation_reasoning_effort")
         or metadata.get("escalation_service_tier")
     )
-    escalated = bool(matched_triggers and has_escalation
-                     and metadata.get("escalation_reasoning_effort") != metadata.get("reasoning_effort"))
+    escalated = bool(matched_triggers and has_escalation)
 
     default = {
         "model": metadata.get("model"),
@@ -246,24 +244,6 @@ def role_config(metadata: dict[str, str], role: str, triggers: list[str] | None 
         "default": default,
         "escalation": escalation,
     }
-
-
-def escalation_errors(metadata: dict[str, str]) -> list[str]:
-    errors = []
-    if metadata.get("escalation_model") and metadata["escalation_model"] != metadata.get("model"):
-        errors.append("escalation_model must match model; escalate reasoning within the role")
-    if metadata.get("escalation_service_tier", metadata.get("service_tier")) != metadata.get("service_tier"):
-        errors.append("escalation_service_tier must match service_tier")
-    levels = ["low", "medium", "high", "xhigh", "max"]
-    base = metadata.get("reasoning_effort")
-    ceiling = metadata.get("escalation_reasoning_effort", base)
-    if base in levels and ceiling in levels and levels.index(ceiling) < levels.index(base):
-        errors.append("escalation_reasoning_effort must not decrease reasoning")
-    if metadata.get("model") in {"gpt-6-astra", "gpt-5.6-sol"}:
-        expected = {"medium": "high", "high": "xhigh", "xhigh": "xhigh"}
-        if base not in expected or ceiling != expected[base]:
-            errors.append("invalid escalation_reasoning_effort ceiling for Astra-Sol profile")
-    return errors
 
 
 def validate_model_field(metadata: dict[str, str], key: str, errors: list[str], required: bool = False) -> None:
@@ -328,7 +308,8 @@ def validate_role_metadata(path: Path, metadata: dict[str, str]) -> list[str]:
 
     validate_model_field(metadata, "model", errors, required=True)
     validate_model_field(metadata, "escalation_model", errors)
-    errors.extend(escalation_errors(metadata))
+    if metadata.get("escalation_model") and metadata["escalation_model"] != metadata.get("model"):
+        errors.append("escalation_model must match model; escalation cannot change the role's model")
     validate_reasoning_field(metadata, "reasoning_effort", errors, required=True)
     validate_reasoning_field(metadata, "escalation_reasoning_effort", errors)
     validate_service_tier_field(metadata, "service_tier", errors)
@@ -353,22 +334,3 @@ def validate_role_metadata(path: Path, metadata: dict[str, str]) -> list[str]:
         errors.append(f"name does not match file stem: {name} != {path.stem}")
 
     return errors
-
-
-def role_instructions(path: Path, metadata: dict[str, str]) -> str:
-    lines = path.read_text(encoding="utf-8").splitlines()
-    try:
-        end_index = next(index for index, line in enumerate(lines[1:], start=1) if line.strip() == "---")
-    except StopIteration as exc:
-        raise AgentConfigError(f"{path}: missing closing frontmatter marker") from exc
-    body = "\n".join(lines[end_index + 1:]).strip()
-    if metadata.get("model") in {"gpt-6-astra", "gpt-5.6-sol"}:
-        guidance_path = Path(__file__).resolve().parents[1] / "references" / "astra-instructions.md"
-        try:
-            guidance = guidance_path.read_text(encoding="utf-8").strip()
-        except OSError as exc:
-            raise AgentConfigError(f"could not read Astra instructions: {guidance_path}") from exc
-        if not guidance:
-            raise AgentConfigError(f"empty Astra instructions: {guidance_path}")
-        return f"{guidance}\n\n{body}\n"
-    return body + "\n"

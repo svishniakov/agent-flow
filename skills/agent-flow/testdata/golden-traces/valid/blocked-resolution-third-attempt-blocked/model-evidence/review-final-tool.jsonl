@@ -1,3 +1,0 @@
-{"captured_at": "2026-09-09T00:00:15+00:00", "method": "thread/start", "result": {"thread": {"id": "eff08e33-b2cf-70ca-88ee-fd2ba985f174", "parentThreadId": "b5293c92-7f1e-7744-86f4-8a894cc5f102"}, "model": "gpt-5.6-sol", "reasoningEffort": "high", "serviceTier": null}}
-{"captured_at": "2026-09-09T00:00:16+00:00", "method": "turn/start", "params": {"threadId": "eff08e33-b2cf-70ca-88ee-fd2ba985f174", "effort": "high"}, "result": {"turn": {"id": "fixture-turn-review-final"}}}
-{"captured_at": "2026-09-09T00:00:18+00:00", "method": "turn/completed", "params": {"threadId": "eff08e33-b2cf-70ca-88ee-fd2ba985f174", "turn": {"id": "fixture-turn-review-final", "status": "completed"}}}
