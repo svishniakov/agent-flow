@@ -62,7 +62,7 @@ Agent Flow-invoked request:
 - Authorizes the orchestrator to choose solo or subagent execution according to budget.
 - Keeps `light` solo for implementation ownership.
 - Allows `standard` and `release` subagents when they add independent evidence, parallelism, or review value.
-- Requires the `reviewer.qa` subagent before any positive final for file-changing implementation/change work.
+- После изменения файлов требует отдельные `qa-verifier` и `reviewer` с доказательствами текущей редакции.
 
 ## Subagent Discovery
 
@@ -79,7 +79,7 @@ Only after the budget/task shape justifies subagents or a required subagent gate
 - Prefer solo implementation for `light`.
 - In `standard`, use subagents only for narrow independent lanes, QA, review, or research evidence.
 - In `release`, consider architect, QA, reviewer, and worker lanes by default; skip only with a concrete reason.
-- Enforce Mandatory Independent QA Review Gate for Agent Flow implementation/change runs that change product or repo files, tests, runtime docs, validator behavior, templates, golden traces, ADR/plan/spec status, or create a commit: `reviewer.qa` must run as a real subagent, role-lane review does not satisfy it, and launch/runtime failure records `mandatory_independent_qa_review` blocker kind `launch-failure` or `runtime-failure` before closing `blocked`.
+- Mandatory Independent QA Review Gate требует для изменения файлов отдельные `qa-verifier` и `reviewer`. Контракт `delegation-summary.json.verification` одинаков для compact/full/auto; role-lane его не заменяет. При недоступных доказательствах запишите `verification.blocker` и завершите `blocked`. Подробности: `references/traceable-runs.md`.
 - Use workflow patterns as internal recipes only when they strengthen routing or verification.
 - Treat unclear Agent Flow scope as intake and routing work, not as a reason to launch brainstorming.
 - Treat uncertain dependency overlap as a stop condition, not as a warning to ignore.
@@ -109,7 +109,7 @@ Only after the budget/task shape justifies subagents or a required subagent gate
 - Enforce Mitigation Gate before `pass-with-risks`: write `risk-mitigations.json`, mark every risk as `identified`, include `problem`, `impact`, `affected_scope`, evidence, and `next_gate=resolution`, record the ids in `Risk Mitigations`, then route reviewer `Risk Mitigation Review`.
 - Enforce Resolution Gate after Mitigation Gate before `pass-with-risks`: write `risk-resolutions.json`, create one record per identified risk, include `resolution_type`, concrete `resolution`, evidence, `verification`, `verified_by`, `reviewed_by`, record the ids in `Risk Resolutions`, route QA `Risk Resolution Verification`, and route reviewer `Risk Resolution Review`; only `fixed`, `mitigated`, or `contained` may close `pass-with-risks`, while `unresolved` is only valid for `blocked` or `fail`.
 - Enforce Blocked Resolution Gate inside Resolution Gate: blocked attempts require `blocked_lesson`, `rollback`, `forbidden_repeat`, and a Blocked Recovery Path; attempt 1 blocked routes to Senior QA `Senior QA Test Design Review` and architect `Resolution Architect Review` before attempt 2; attempt 2 blocked routes to `Supervising Architect Review` before attempt 3; a third blocked attempt ends as `blocked` or `fail`.
-- Enforce Delegation Trace Gate for positive schema v2 lane-map runs: keep `delegation-summary.json`, final `Delegation Trace`, `Subagents Used`, `Role Lanes Used`, and `Subagent Trace Evidence` synchronized with actual trace evidence.
+- Enforce Delegation Trace Gate for every positive traceable run, including compact without lane-map: keep `delegation-summary.json`, final `Delegation Trace`, `Subagents Used`, `Role Lanes Used`, and `Subagent Trace Evidence` synchronized with actual trace evidence.
 - Enforce Handoff State Gate when `handoff_state_required=true`: use `scripts/record-handoff-state.py` to record `queued`, `accepted`, and `completed` state in `lane-map.json`; terminal `pass`, `blocked`, and `fail` lane statuses must match `handoff_state`, and batch items must be completed before batch acceptance.
 - For lane-map schema v2, set `budget`, `architecture_contract_required`, `architecture_contract_independent`, `architecture_context`, and `architecture_capabilities` explicitly.
 - Send rejected, regressed, or uncertain architecture attempts through the Architecture Approval Gate before retrying implementation.
@@ -151,7 +151,7 @@ Before final answer:
 3. Confirm trace artifacts only if used.
 4. Confirm Delegation Trace Gate: no role-lane is described as sidecar/subagent unless spawned trace evidence and terminal handoff exist.
 5. Confirm Handoff State Gate when `handoff_state_required=true`: no required lane has missing state, accepted terminal state, missing `completed_at`, handoff mismatch, or invalid batch order.
-6. Confirm Mandatory Independent QA Review Gate when implementation/change work changed files or creates a commit: `reviewer.qa` ran as a real subagent, `delegation-summary.json` covers it, spawned trace has `codex_thread_id`, and terminal handoff exists. If not, final is `blocked`.
+6. Проверьте собственные `completion_turn_id` QA/reviewer, фактические роли и модели, текущий `reviewed_result_hash` и `qa_handoff_sha256` из итогового хода reviewer. Незавершённые или устаревшие доказательства блокируют положительный итог.
 7. Confirm Claim Evidence Gate when architecture governance applies: `claim-evidence.json` exists, every `Claim Evidence` id has an `owner_lane`, `supported` status, evidence `markers`, and no unresolved `gap` before a positive final verdict.
 8. Confirm Acceptance Criteria Traceability Gate, Surface Evidence Gate, and Contract Negative Fixture Gate when architecture governance applies: `acceptance-traceability.json` exists, every `Acceptance Criteria` id is `supported` with marker-backed evidence, every `surface_expectations` item has matching `surface`/`polarity`/`proof_kind` evidence, and every `gate`, `cli`, `query`, `storage`, `config`, or `parser` item has marker-backed `negative_fixture_evidence`.
 9. If a traceable run has learning triggers, create `harness-evaluation.json` before final validation and keep it signal-only.

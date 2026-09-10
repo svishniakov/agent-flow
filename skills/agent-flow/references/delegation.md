@@ -8,7 +8,7 @@ Unmarked requests are also solo unless the user explicitly asks for subagents.
 
 If `spawn_agent` is unavailable after an optional subagent path is selected, say so and continue only when no required subagent gate applies.
 
-Mandatory Independent QA Review Gate is not optional delegation. Any Agent Flow implementation/change run that changes product or repo files, tests, runtime docs, validator behavior, templates, golden traces, ADR/plan/spec status, or creates a commit must run a real `reviewer.qa` subagent before any `ship` or `pass-with-risks` final. Role-lane review does not satisfy this gate. If reviewer launch or runtime fails, the run records `mandatory_independent_qa_review` blocker evidence with kind `launch-failure` or `runtime-failure` and closes `blocked`; there is no solo or role-lane fallback for a positive final.
+Mandatory Independent QA Review Gate требует для `change` два отдельных назначения: `qa-verifier` проверяет результат, `reviewer` проверяет его и доказательства QA. Оба работают как реальные дочерние сессии текущего root; их IDs отличаются от IDs авторов. Модели берутся из действующих файлов ролей через `agent_config`. `reviewer.qa` допустим только как имя назначения канонического `reviewer`; QA под этим именем не заменяет reviewer.
 
 Before treating `spawn_agent` as unavailable, discover it through active tools and `tool_search` when available.
 
@@ -43,7 +43,7 @@ delegation for these cases:
 | design, naming, or architecture options | generate-and-filter or tournament | candidates benefit from rubric-based selection |
 | large triage queue | classify-and-act + quarantine | untrusted input must be separated from actions |
 
-For `light`, use the solo implementation variant or escalate the budget only when there is a concrete reason. File-changing implementation still needs the mandatory `reviewer.qa` subagent before a positive final.
+Для `light` реализация остаётся у одного автора. После изменения файлов обязательны отдельные `qa-verifier` и `reviewer`; повышение budget само по себе не требуется.
 
 ## Quarantine
 
@@ -450,7 +450,7 @@ This is mandatory only for delegated subagents in a traceable run. A handoff fil
 
 ## Delegation Trace Gate
 
-For positive schema v2 lane-map runs, the orchestrator writes
+For every positive traceable run, including compact without lane-map, the orchestrator writes
 `delegation-summary.json` and keeps it synchronized with `lane-map.json`,
 `timeline.jsonl`, and `agents/<role>/trace.jsonl`.
 

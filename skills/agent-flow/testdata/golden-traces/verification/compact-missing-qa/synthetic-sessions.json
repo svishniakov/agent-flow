@@ -1,0 +1,120 @@
+{
+  "00000000-0000-4000-8000-000000000002": [
+    {
+      "type": "session_meta",
+      "payload": {
+        "id": "00000000-0000-4000-8000-000000000002",
+        "session_id": "00000000-0000-4000-8000-000000000001",
+        "parent_thread_id": "00000000-0000-4000-8000-000000000001",
+        "agent_role": "qa-verifier",
+        "depth": 1,
+        "source": {
+          "subagent": {
+            "thread_spawn": {
+              "parent_thread_id": "00000000-0000-4000-8000-000000000001",
+              "agent_role": "qa-verifier",
+              "depth": 1
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "event_msg",
+      "timestamp": "2026-09-10T10:00:10+00:00",
+      "payload": {
+        "type": "task_started",
+        "turn_id": "00000000-0000-4000-8000-000000000002-turn"
+      }
+    },
+    {
+      "type": "turn_context",
+      "payload": {
+        "turn_id": "00000000-0000-4000-8000-000000000002-turn",
+        "model": "gpt-6-astra"
+      }
+    },
+    {
+      "type": "response_item",
+      "payload": {
+        "type": "message",
+        "role": "assistant",
+        "phase": "final_answer",
+        "content": [
+          {
+            "type": "output_text",
+            "text": "{\"verdict\": \"passed\", \"reviewed_result_hash\": \"7789ebcbd84f25d3bc0621faf2762029db7d98750ab82e86d76b9dc56b8d2228\", \"handoff\": \"handoffs/evidence-qa.md\", \"handoff_sha256\": \"f745224a19737b97d6aeee12003a741b028177e86f5c14078b4ad9c3e4ff3f8c\"}"
+          }
+        ]
+      }
+    },
+    {
+      "type": "event_msg",
+      "timestamp": "2026-09-10T10:00:10+00:00",
+      "payload": {
+        "type": "task_complete",
+        "turn_id": "00000000-0000-4000-8000-000000000002-turn",
+        "last_agent_message": "{\"verdict\": \"passed\", \"reviewed_result_hash\": \"7789ebcbd84f25d3bc0621faf2762029db7d98750ab82e86d76b9dc56b8d2228\", \"handoff\": \"handoffs/evidence-qa.md\", \"handoff_sha256\": \"f745224a19737b97d6aeee12003a741b028177e86f5c14078b4ad9c3e4ff3f8c\"}"
+      }
+    }
+  ],
+  "00000000-0000-4000-8000-000000000003": [
+    {
+      "type": "session_meta",
+      "payload": {
+        "id": "00000000-0000-4000-8000-000000000003",
+        "session_id": "00000000-0000-4000-8000-000000000001",
+        "parent_thread_id": "00000000-0000-4000-8000-000000000001",
+        "agent_role": "reviewer",
+        "depth": 1,
+        "source": {
+          "subagent": {
+            "thread_spawn": {
+              "parent_thread_id": "00000000-0000-4000-8000-000000000001",
+              "agent_role": "reviewer",
+              "depth": 1
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "event_msg",
+      "timestamp": "2026-09-10T10:00:20+00:00",
+      "payload": {
+        "type": "task_started",
+        "turn_id": "00000000-0000-4000-8000-000000000003-turn"
+      }
+    },
+    {
+      "type": "turn_context",
+      "payload": {
+        "turn_id": "00000000-0000-4000-8000-000000000003-turn",
+        "model": "gpt-5.6-sol"
+      }
+    },
+    {
+      "type": "response_item",
+      "payload": {
+        "type": "message",
+        "role": "assistant",
+        "phase": "final_answer",
+        "content": [
+          {
+            "type": "output_text",
+            "text": "{\"verdict\": \"passed\", \"reviewed_result_hash\": \"7789ebcbd84f25d3bc0621faf2762029db7d98750ab82e86d76b9dc56b8d2228\", \"handoff\": \"handoffs/evidence-reviewer.md\", \"handoff_sha256\": \"3cb82076231fcc4571707b4f8921487418523e7af1b7aadd547f9fb64ed6e835\", \"qa_handoff_sha256\": \"f745224a19737b97d6aeee12003a741b028177e86f5c14078b4ad9c3e4ff3f8c\"}"
+          }
+        ]
+      }
+    },
+    {
+      "type": "event_msg",
+      "timestamp": "2026-09-10T10:00:20+00:00",
+      "payload": {
+        "type": "task_complete",
+        "turn_id": "00000000-0000-4000-8000-000000000003-turn",
+        "last_agent_message": "{\"verdict\": \"passed\", \"reviewed_result_hash\": \"7789ebcbd84f25d3bc0621faf2762029db7d98750ab82e86d76b9dc56b8d2228\", \"handoff\": \"handoffs/evidence-reviewer.md\", \"handoff_sha256\": \"3cb82076231fcc4571707b4f8921487418523e7af1b7aadd547f9fb64ed6e835\", \"qa_handoff_sha256\": \"f745224a19737b97d6aeee12003a741b028177e86f5c14078b4ad9c3e4ff3f8c\"}"
+      }
+    }
+  ]
+}

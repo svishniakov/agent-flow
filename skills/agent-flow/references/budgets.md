@@ -21,11 +21,11 @@ Use for small and medium solo work:
 Rules:
 
 - no implementation subagents;
-- no `.agent-work/runs/`;
+- для обычных консультаций run-каталог не нужен; машинная проверка изменения использует compact и общий verification-контракт;
 - no full manifest/route/plan bundle;
 - `.agent-work/tasks/` still follows global project memory rules from the current user's Codex instructions, usually `~/.codex/AGENTS.md`;
 - main agent may edit product files;
-- if Agent Flow implementation/change work changes product or repo files, tests, runtime docs, validator behavior, templates, golden traces, ADR/plan/spec status, or creates a commit, Mandatory Independent QA Review Gate still requires a real `reviewer.qa` subagent before a positive final;
+- Mandatory Independent QA Review Gate требует для `change` два отдельных назначения: `qa-verifier` проверяет результат, `reviewer` проверяет его и доказательства QA. Оба работают как реальные дочерние сессии текущего root; их IDs отличаются от IDs авторов. Модели берутся из действующих файлов ролей через `agent_config`. `reviewer.qa` допустим только как имя назначения канонического `reviewer`; QA под этим именем не заменяет reviewer.
 - quick adversarial checks are allowed when one skeptical pass improves evidence;
 - final answer includes changed files, checks, and residual risks when relevant.
 
@@ -46,7 +46,7 @@ Rules:
 - subagents are allowed when work can be split into narrow independent lanes, review, or QA evidence;
 - workflow patterns may be recorded in `run.md` or `checks.md` when they explain the evidence;
 - Lane Sharding may use `lane-map.json` when durable lane evidence is useful;
-- compact trace preferred: `run.md`, `checks.md`, `final.md`, plus artifacts that prove the result;
+- compact trace: `run.md`, `checks.md`, `final.md`, `delegation-summary.json` с `verification` и доказательства; lane-map необязателен;
 - full trace is optional, not default.
 
 ## Release
@@ -68,7 +68,7 @@ Rules:
 - explicit residual risks;
 - orchestrator should consider architect, QA, reviewer, and worker lanes by default;
 - subagents may be skipped only when a concrete reason makes solo safer and sufficient;
-- Mandatory Independent QA Review Gate still requires `reviewer.qa` as a real subagent for file-changing implementation/change work;
+- Mandatory Independent QA Review Gate требует для `change` два отдельных назначения: `qa-verifier` проверяет результат, `reviewer` проверяет его и доказательства QA. Оба работают как реальные дочерние сессии текущего root; их IDs отличаются от IDs авторов. Модели берутся из действующих файлов ролей через `agent_config`. `reviewer.qa` допустим только как имя назначения канонического `reviewer`; QA под этим именем не заменяет reviewer.
 - code review that touches architecture, public contracts, APIs, data flow, security, migrations, or multiple subsystems requires an architect-owned review contract before reviewer verdict;
 - lane-map schema v2 must set `budget=release` and `architecture_contract_required=true`;
 - loops, tournaments, and fan-out work require budget caps and stop conditions;

@@ -9,6 +9,8 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+from verification_evidence import empty_verification
+
 from architecture_capabilities import (
     ARCHITECTURE_CONTEXT_AXES,
     load_matrix_facets,
@@ -34,7 +36,7 @@ RUN_FILES = {
         "Role Lanes: none\n"
         "Subagent Trace Evidence: none\n\n"
         "## Mandatory Independent QA Review\n\n"
-        "TODO(agent): Mandatory Independent QA Review Gate. Before any positive final for implementation/change work, record reviewer.qa subagent lane id, delegation-summary.json coverage, spawned trace path, and terminal handoff artifact. role-lane review cannot replace it. If reviewer.qa launch/runtime failed, close blocked with mandatory_independent_qa_review blocker evidence kind launch-failure or runtime-failure.\n\n"
+        "TODO(agent): Mandatory Independent QA Review Gate. Запишите в delegation-summary.json verification два назначения: qa-verifier и reviewer, completion_turn_id, reviewed_result_hash, terminal handoff artifact с SHA-256 и qa_handoff_sha256 из итогового хода reviewer. role-lane не заменяет проверяющего. При недоступных доказательствах запишите verification.blocker и завершите blocked.\n\n"
         "## Boundary Evidence\n\n"
         "TODO(agent): summarize worker lane boundary artifacts and out-of-bound product-code status.\n\n"
         "## Acceptance Traceability\n\n"
@@ -84,6 +86,7 @@ def empty_delegation_summary() -> dict:
         "subagents": [],
         "role_lanes": [],
         "notes": "No lanes have executed yet. Update before any positive final verdict.",
+        "verification": empty_verification(),
     }
 
 
@@ -569,7 +572,7 @@ Boundary Evidence worker lanes:
 
 ## Mandatory Independent QA Review
 
-{AGENT_TODO_PLACEHOLDER} This review must be completed by the real reviewer.qa subagent. Confirm spawned trace evidence, delegation-summary.json coverage, and terminal handoff before any positive final.
+{AGENT_TODO_PLACEHOLDER} Ревью выполняет отдельный reviewer после QA от qa-verifier. Сверьте result_files, Initial Worktree Snapshot, границы задачи и текущий git status. В собственном завершённом ходе верните JSON с verdict, reviewed_result_hash, handoff, handoff_sha256 и qa_handoff_sha256. См. verification в references/traceable-runs.md.
 
 {AGENT_TODO_PLACEHOLDER} Report no drift or name the exact drift and required architect re-check. Mention Boundary Evidence for every worker lane id, mention Acceptance Criteria Traceability, Surface Evidence Gate, and Contract Negative Fixture coverage, mention every primary surface, and reject peripheral-only closure.
 """
@@ -771,12 +774,6 @@ def architecture_gate_lane_map(
         "architecture_contract_required": True,
         "architecture_contract_independent": False,
         "handoff_state_required": True,
-        "mandatory_independent_qa_review": {
-            "required": True,
-            "reviewer_lane": "review-contract",
-            "status": "planned",
-            "notes": "File-changing implementation/change runs must run reviewer.qa as a real subagent before positive final.",
-        },
         "architecture_context": context,
             "architecture_capabilities": {
                 "selected": capabilities,
@@ -923,6 +920,13 @@ def main() -> int:
     if not artifacts.exists():
         artifacts.write_text("[]\n", encoding="utf-8")
 
+    delegation_summary = run_dir / "delegation-summary.json"
+    if not delegation_summary.exists():
+        delegation_summary.write_text(
+            json.dumps(empty_delegation_summary(), ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
     if args.with_lanes:
         lane_map = run_dir / "lane-map.json"
         if not lane_map.exists():
@@ -937,12 +941,6 @@ def main() -> int:
                 else LANE_MAP
             )
             lane_map.write_text(json.dumps(lane_map_data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        delegation_summary = run_dir / "delegation-summary.json"
-        if not delegation_summary.exists():
-            delegation_summary.write_text(
-                json.dumps(empty_delegation_summary(), ensure_ascii=False, indent=2) + "\n",
-                encoding="utf-8",
-            )
         coverage_matrix = run_dir / "checks" / "coverage-matrix.md"
         if not coverage_matrix.exists():
             coverage_matrix.write_text(COVERAGE_MATRIX, encoding="utf-8")

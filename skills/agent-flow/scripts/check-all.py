@@ -132,12 +132,9 @@ HANDOFF_STATE_GATE_GUARD_TERMS = [
 ]
 MANDATORY_INDEPENDENT_QA_REVIEW_GUARD_TERMS = [
     "Mandatory Independent QA Review Gate",
-    "mandatory_independent_qa_review",
-    "reviewer.qa",
-    "terminal handoff",
-    "launch-failure",
-    "runtime-failure",
-    "role-lane",
+    "verification",
+    "qa-verifier",
+    "reviewer",
 ]
 VERIFICATION_READINESS_GATE_GUARD_TERMS = [
     "Verification Readiness Gate",
@@ -1329,6 +1326,7 @@ def main() -> int:
         ("lane boundary recorder fixtures", [sys.executable, "scripts/test-record-lane-boundary.py"]),
         ("codegraph fixtures", [sys.executable, "scripts/test-codegraph.py"]),
         ("lane fixture tests", [sys.executable, "scripts/test-validate-run-lanes.py"]),
+        ("QA/reviewer evidence fixtures", [sys.executable, "scripts/test-verification-evidence.py"]),
         ("golden trace runs", [sys.executable, "scripts/test-golden-traces.py"]),
         ("git diff hygiene", ["git", "-C", str(REPO_ROOT), "diff", "--check"]),
     ]

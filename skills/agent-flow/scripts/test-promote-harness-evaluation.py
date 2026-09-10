@@ -4,10 +4,14 @@
 from __future__ import annotations
 
 import json
+import importlib.util
 import shutil
 import subprocess
 import sys
 import tempfile
+from contextlib import redirect_stdout, redirect_stderr
+from io import StringIO
+from unittest.mock import patch
 from pathlib import Path
 from typing import Any
 
@@ -24,12 +28,18 @@ ANALYZE = ROOT / "scripts" / "analyze-evidence-records.py"
 VALID_CONTINUATION_RUN = ROOT / "testdata" / "golden-traces" / "valid" / "blocked-checkpoint-continuation-ship"
 VALID_BLOCKED_RUN = ROOT / "testdata" / "golden-traces" / "valid" / "blocked-resolution-third-attempt-blocked"
 INVALID_RUN = ROOT / "testdata" / "golden-traces" / "invalid" / "triggered-run-without-harness-evaluation"
+_spec = importlib.util.spec_from_file_location("verification_tests", ROOT / "scripts/test-verification-evidence.py")
+verification_tests = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(verification_tests)
+promotion_cli = verification_tests.module("promotion_cli", "promote-harness-evaluation.py")
+SESSION_SOURCES = {}
 
 
 def copy_run(root: Path, source: Path, name: str) -> Path:
     target = root / name
     shutil.copytree(source, target)
     normalize_harness_proposals(target)
+    SESSION_SOURCES[target.resolve()] = verification_tests.neighboring_pack(target)
     return target
 
 
@@ -63,21 +73,18 @@ def write_blocked_learning_harness(run_dir: Path) -> None:
 
 
 def run_promote(run_dir: Path, notes: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [
-            sys.executable,
-            str(PROMOTE),
-            "--run-dir",
-            str(run_dir),
-            "--notes",
-            str(notes),
-            *args,
-        ],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    stdout, stderr = StringIO(), StringIO()
+    argv = [str(PROMOTE), "--run-dir", str(run_dir), "--notes", str(notes), *args]
+    with patch.object(sys, "argv", argv), redirect_stdout(stdout), redirect_stderr(stderr):
+        code = promotion_cli.main()
+    return subprocess.CompletedProcess(argv, code, stdout.getvalue(), stderr.getvalue())
+
+
+def validate_fixture(run_dir: Path) -> tuple[str, str]:
+    errors = verification_tests.validator.validate_run(run_dir, "full", session_source=SESSION_SOURCES[run_dir])
+    if errors:
+        raise PromotionError("validate-run failed: " + "\n".join(errors))
+    return harness_promotion.validation_command_text(run_dir), "Synthetic verification passed"
 
 
 def run_analyzer(notes: Path) -> dict[str, Any]:
@@ -310,4 +317,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    with patch.object(harness_promotion, "validate_run", validate_fixture):
+        raise SystemExit(main())

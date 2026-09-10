@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import importlib.util
 import subprocess
 import sys
 import tempfile
@@ -14,6 +15,10 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 VALIDATE_RUN = ROOT / "scripts" / "validate-run.py"
+_spec = importlib.util.spec_from_file_location("verification_tests", ROOT / "scripts/test-verification-evidence.py")
+verification_tests = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(verification_tests)
+SESSION_SOURCES = {}
 REQUIRED_FILES = [
     "manifest.md",
     "context.md",
@@ -1162,6 +1167,7 @@ def write_run(
     include_simplicity_final: bool = True,
     include_boundary_final: bool = True,
     include_mandatory_qa_final: bool = True,
+    verification_pack: bool = True,
 ) -> Path:
     run_dir = root / "run"
     (run_dir / "handoffs").mkdir(parents=True)
@@ -1785,6 +1791,8 @@ def write_run(
         timeline_event("final", summary="Fixture final event.", next_step="handoff")
     )
     write_jsonl(run_dir / "timeline.jsonl", timeline_events)
+    if verification_pack and delegation_summary_data is DEFAULT:
+        SESSION_SOURCES[run_dir] = verification_tests.neighboring_pack(run_dir, complete=verification_pack != "incomplete")
     return run_dir
 
 
@@ -1796,6 +1804,7 @@ def write_compact_run(
     final_risk_ids: Any = DEFAULT,
     risk_resolutions_data: Any = DEFAULT,
     final_resolution_ids: Any = DEFAULT,
+    verification_pack: bool = True,
 ) -> Path:
     run_dir = root / "run"
     run_dir.mkdir(parents=True)
@@ -1842,16 +1851,14 @@ def write_compact_run(
             json.dumps(risk_resolutions_data, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
+    if verification_pack:
+        SESSION_SOURCES[run_dir] = verification_tests.neighboring_pack(run_dir)
     return run_dir
 
 
 def validate(run_dir: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [sys.executable, str(VALIDATE_RUN), "--run-dir", str(run_dir)],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    errors = verification_tests.validator.validate_run(run_dir, session_source=SESSION_SOURCES.get(run_dir, verification_tests.SyntheticSource()))
+    return subprocess.CompletedProcess([], int(bool(errors)), "\n".join(errors), "")
 
 
 def add_agent_placeholder(run_dir: Path, relative_path: str) -> Path:
@@ -2653,7 +2660,7 @@ def main() -> int:
                 lane_map_extra={"schema_version": 2, "budget": "standard"},
                 delegation_summary_data=OMIT,
             ),
-            "delegation-summary.json is required for positive lane-map run",
+            "delegation-summary.json is required for positive final",
         )
 
         expect_pass(
@@ -3667,13 +3674,14 @@ def main() -> int:
                     "architecture_contract_required": False,
                 },
             ),
-            "positive implementation/change run requires reviewer.qa subagent",
+            "verification.qa requires separate qa-verifier subagent",
         )
 
         expect_fail(
             "mandatory independent qa rejects role-lane reviewer only",
             write_run(
                 temp / "mandatory-qa-role-lane-reviewer-only",
+                verification_pack="incomplete",
                 lanes=[
                     lane(
                         "worker-a",
@@ -3689,7 +3697,7 @@ def main() -> int:
                     "architecture_contract_required": False,
                 },
             ),
-            "Mandatory Independent QA Review Gate rejects role-lane-only review",
+            "verification.qa requires separate qa-verifier subagent",
         )
 
         expect_pass(
@@ -3728,7 +3736,7 @@ def main() -> int:
                 ],
                 delegation_summary_data=OMIT,
             ),
-            "Mandatory Independent QA Review Gate requires delegation-summary.json",
+            "delegation-summary.json is required for positive final",
         )
 
         expect_pass(
@@ -7356,7 +7364,7 @@ def main() -> int:
                     "architecture_contract_required": False,
                 },
             ),
-            "positive implementation/change run requires reviewer.qa subagent",
+            "verification.qa requires separate qa-verifier subagent",
         )
 
         expect_pass(

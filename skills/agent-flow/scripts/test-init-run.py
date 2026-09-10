@@ -312,8 +312,8 @@ def main() -> int:
             raise AssertionError("reviewer handoff missing Contract Negative Fixture")
         if "## Mandatory Independent QA Review" not in reviewer_handoff:
             raise AssertionError("reviewer handoff missing Mandatory Independent QA Review section")
-        if "real reviewer.qa subagent" not in reviewer_handoff:
-            raise AssertionError("reviewer handoff missing reviewer.qa subagent instruction")
+        if "qa_handoff_sha256" not in reviewer_handoff:
+            raise AssertionError("reviewer handoff missing QA evidence binding")
 
         acceptance_traceability = json.loads(
             (run_dir / "acceptance-traceability.json").read_text(encoding="utf-8")
@@ -375,8 +375,9 @@ def main() -> int:
             "Mandatory Independent QA Review Gate",
             "terminal handoff artifact",
             "role-lane",
-            "launch-failure",
-            "runtime-failure",
+            "qa-verifier",
+            "completion_turn_id",
+            "verification.blocker",
         ]:
             if expected_line not in final_text:
                 raise AssertionError(f"generated final.md missing delegation trace line: {expected_line}")
@@ -416,11 +417,9 @@ def main() -> int:
             raise AssertionError("generated lane-map.json must include review-contract lane")
         if reviewer_lane.get("execution_mode") != "subagent":
             raise AssertionError("generated reviewer lane must use execution_mode=subagent")
-        mandatory_review = lane_map.get("mandatory_independent_qa_review")
-        if not isinstance(mandatory_review, dict):
-            raise AssertionError("generated lane-map.json must include mandatory_independent_qa_review")
-        if mandatory_review.get("reviewer_lane") != "review-contract":
-            raise AssertionError("mandatory_independent_qa_review must reference review-contract")
+        summary = json.loads((run_dir / "delegation-summary.json").read_text())
+        if not isinstance(summary.get("verification"), dict):
+            raise AssertionError("generated summary must include verification independently of lane-map")
 
         expect_valid_pending_run("generated pending run", run_dir)
 

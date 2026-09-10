@@ -4,6 +4,13 @@ Agent Flow ships with these subagent definitions in `agents/<role>.md`.
 They are used after the orchestrator selects a `standard` or `release` budget and decides delegation is worth the coordination cost, or after the user explicitly asks for subagents.
 If no spawn tool is available, use the same role guidance as a solo checklist or role lane only when that still satisfies the task.
 
+Для изменения файлов обязательны отдельные `qa-verifier` и `reviewer` при любом
+budget. Они являются прямыми дочерними сессиями root и не совпадают с авторами.
+`reviewer.qa` может быть именем назначения `reviewer`; канонический `agent_type`
+остаётся `reviewer`. При недоступных сессиях положительный итог блокируется.
+Реальные роль, модель и собственный завершённый ход проверяются по контракту
+`delegation-summary.json.verification` из `references/traceable-runs.md`.
+
 Stable identities and Codex display nicknames live in `agents/agent-identities.json`.
 
 Run `python3 scripts/sync-codex-agent-config.py --output-dir .codex/agents` from a target project to sync project-scoped Codex custom-agent files. Use `--output-dir ~/.codex/agents` only when the same Agent Flow role names should be visible across all local Codex projects. Synced files map Agent Flow role frontmatter to Codex fields: `name`, `description`, `model`, `model_reasoning_effort`, `developer_instructions`, and `nickname_candidates`.

@@ -73,6 +73,20 @@ For architecture-sensitive review, the packet must name the architect-owned revi
 - Return approval only when risks are acceptable.
 
 ## Output Contract
+Для финальной приёмки изменения прочитайте текущий QA handoff. Сверьте
+`result_files` с исходным `Initial Worktree Snapshot`, согласованными границами
+и текущим `git status --short`. Включите новые и удалённые файлы задачи;
+предсуществующие и параллельные изменения вне задачи оставьте за её пределами.
+Вы не должны совпадать с QA, root или авторами результата. Проверьте достаточность
+QA evidence и выбранных behavioral_checks, включая ограничения зашифрованных inputs.
+
+Запишите вывод, пути использованных доказательств и их SHA-256 в собственный handoff. Завершите собственный ход JSON-объектом
+с `verdict`, `reviewed_result_hash`, `handoff`, `handoff_sha256` и
+`qa_handoff_sha256` прочитанного QA handoff. Положительные значения `verdict`:
+`passed` или `pass-with-risks`; отрицательные: `fail` или `blocked`.
+При изменении результата или QA handoff требуется новое принятие текущей редакции.
+См. `references/traceable-runs.md`.
+
 Return:
 
 - findings ordered by severity

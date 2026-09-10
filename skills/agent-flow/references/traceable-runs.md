@@ -28,6 +28,7 @@ For `standard` budget, prefer a compact trace:
 run.md
 checks.md
 final.md
+delegation-summary.json
 artifacts/
 ```
 
@@ -160,15 +161,16 @@ If `lane-map.json` exists, validation also checks the Lane Sharding contract:
 - `role-lane` entries do not require a `codex_thread_id`;
 - schema v2 positive lane-map runs require `delegation-summary.json` and a final `Delegation Trace` section;
 - schema v2 lane-map runs may opt into Handoff State Gate with `handoff_state_required=true`; then each lane has `handoff_state`, terminal lane status must match handoff state, handoff paths must match, timestamps must be ordered, and batch items must be completed before batch acceptance;
-- positive implementation/change runs that changed files or contain `implementation`/`integration` worker lanes require Mandatory Independent QA Review Gate evidence: a real `reviewer.qa` subagent lane, `delegation-summary.json` coverage, spawned trace with `codex_thread_id`, terminal handoff, and final `Mandatory Independent QA Review`;
+- Mandatory Independent QA Review Gate требует для `change` два отдельных назначения: `qa-verifier` проверяет результат, `reviewer` проверяет его и доказательства QA. Оба работают как реальные дочерние сессии текущего root; их IDs отличаются от IDs авторов. Модели берутся из действующих файлов ролей через `agent_config`. `reviewer.qa` допустим только как имя назначения канонического `reviewer`; QA под этим именем не заменяет reviewer.
 - role-lane-only reviewer evidence is rejected when Mandatory Independent QA Review Gate applies;
-- a `blocked` implementation/change run may omit `reviewer.qa` only when `mandatory_independent_qa_review.blocker` records launch/runtime blocker evidence;
+- При недоступности запуска или исходной сессии записать причину в `verification.blocker` и завершить `blocked` или `fail`; успешные доказательства не выдумывать.
 - `Verdict: ship` is rejected while any critical lane is unresolved, failed, blocked, or missing replacement evidence.
 
 ## Delegation Trace Gate
 
-For schema v2 lane-map runs with `Verdict: ship` or `Verdict:
-pass-with-risks`, `delegation-summary.json` is required at the run root:
+Для любого положительного итога требуется `delegation-summary.json` версии 1.
+Ниже показаны поля назначений; объект `verification` описан далее и обязателен
+для `ship` и `pass-with-risks`, включая compact без lane-map:
 
 ```json
 {
@@ -242,19 +244,216 @@ come from `record-agent-trace.py`.
 
 ## Mandatory Independent QA Review Gate
 
-`solo` and `light` mean one implementation owner, not absence of independent QA.
+После изменения кода, tests, PRD, планов, runtime docs или шаблонов нужны два
+отдельных назначения. `qa-verifier` проверяет результат, `reviewer` проверяет
+его и доказательства QA. Правило действует при любом budget. `light` сохраняет
+одного автора реализации. Для обычной консультации run-каталог не нужен.
 
-Any Agent Flow implementation/change run that changes product or repo files, tests, runtime docs, validator behavior, templates, golden traces, ADR/plan/spec status, or creates a commit must run `reviewer.qa` as a real subagent before `Verdict: ship` or `Verdict: pass-with-risks`.
+Оба проверяющих должны быть прямыми дочерними сессиями текущего root. Их IDs
+отличаются друг от друга и от авторов результата. `reviewer.qa` допустим как имя
+назначения роли `reviewer`, но не как `agent_type` и не как замена QA.
+Ожидаемые модели читает `agent_config` из действующих файлов ролей. Роль из
+самоотчёта, событие `spawned` и role-lane сами по себе не доказывают исполнение.
 
-Runtime evidence must include:
+`delegation-summary.json` остаётся версии 1. Его `subagents` содержит обычные
+записи с `lane_id`, `role`, `codex_thread_id`, `trace` и `handoff`. В compact
+`lane_id` служит стабильным ID назначения без lane-map. Если lane-map существует,
+сохраняются проверки покрытия, роли, режима исполнения и успешного статуса lane.
+В final нужен `Delegation Trace`; краткий раздел `Mandatory Independent QA Review`
+может объяснить результат обеих проверок, но не заменяет машинные доказательства.
 
-- `lane-map.json` review lane with reviewer role and `execution_mode=subagent`;
-- `agents/<role>/trace.jsonl` spawned event with `codex_thread_id`;
-- terminal handoff event with the reviewer handoff artifact;
-- `delegation-summary.json` subagent record for the reviewer lane;
-- final `Mandatory Independent QA Review` section naming the reviewer lane and terminal handoff.
+### Объект verification
 
-Role-lane review, QA lane review, or Architecture Contract reviewer text does not replace this subagent. If launch or runtime fails, record `mandatory_independent_qa_review.status=blocked` with blocker kind `launch-failure` or `runtime-failure`, summary, and evidence path, then close the run `blocked`.
+| Поле | Содержание |
+| --- | --- |
+| `task_kind` | `change` для продуктовых изменений; `analysis` для анализа с пустым результатом |
+| `root_thread_id` | Реальный UUID текущего root; его модель и запуск не проверяются |
+| `author_thread_ids` | UUID авторов; для root-owned работы включает root, для worker subagents включает их IDs |
+| `result_files` | Полный список новых, изменённых и удалённых файлов относительно корня проекта |
+| `initial_snapshot` | Ссылка с SHA-256 на раздел `Initial Worktree Snapshot` в context.md или route.md |
+| `task_scope` | Ссылка с SHA-256 на согласованные границы в плане задачи; можно выбрать раздел |
+| `qa`, `reviewer` | `lane_id` двух записей в `subagents`; до назначения допускается `null` |
+| `result_hash` | Хеш, вычисленный recorder; при приёмке валидатор пересчитывает его по файлам |
+| `behavioral_checks` | Необязательный список проверок поведения, только если это требует приёмка задачи |
+| `blocker` | Конкретная причина для `blocked` или `fail` |
+
+Ссылка имеет вид `{"path":"context.md","section":"Initial Worktree Snapshot","sha256":"<SHA-256>"}`.
+`section` необязателен: без него хешируются все байты файла. С ним хешируется
+содержимое после заголовка до следующего заголовка, включая пробелы и переводы
+строк. Пути доказательств относительны run-каталогу; абсолютный путь допустим
+внутри проекта. `..` и выход за проект через symlink запрещены.
+
+Корень проекта определяется по родительскому `.agent-work`, затем по ближайшему
+Git-корню. Для отдельного run вне Git используется его родительская папка.
+В `result_files` указываются отдельные файлы, не каталоги. Рабочая память и `.git`
+не входят в продукт. Удаление кодируется значением `deleted`. Хеш строится из
+отсортированных путей и хешей текущих байтов, ссылок на исходный снимок и границы
+через однозначное JSON-кодирование. Untracked-файлы также читаются с диска.
+
+До QA зафиксируйте состав результата. В compact перечислите принадлежавшие задаче
+файлы в final, по одному пути в строке:
+
+```markdown
+## Worktree Hygiene
+
+Run-owned changed files:
+- `docs/prd/example.md`
+- `src/example.py`
+```
+
+В full валидатор также использует существующие Boundary Evidence и списки
+run-owned changed paths. Пропуск такого пути в `result_files` отклоняется.
+Reviewer сверяет список с исходным снимком, согласованной задачей и текущим
+`git status --short`. Предсуществующие и параллельные изменения вне задачи
+не включаются автоматически. Валидатор не определяет авторство по Git.
+
+Для compact analysis достаточно `task_kind: analysis`, реального root UUID,
+пустых `author_thread_ids`, `result_files`, `subagents`, `role_lanes`,
+`behavioral_checks` и значений `null` у ссылок и проверяющих. Оба флага
+`subagents_used` и `role_lanes_used` имеют значение `false`; final перечисляет
+`Subagents Used: no`, `Role Lanes Used: no`, `Subagent Lanes: none`,
+`Role Lanes: none`, `Subagent Trace Evidence: none`. Worker lanes или продуктовые
+пути противоречат классификации analysis.
+
+### Запись и собственный итог проверяющего
+
+`init-run.py` создаёт пустой summary даже без `--with-lanes`, а `--reuse` сохраняет
+заполненные данные. Compact использует тот же summary; обязательного lane-map нет.
+
+Перед QA подготовьте объект verification. Через существующий recorder передайте
+его строкой JSON или путём к локальному файлу. Если у исходного снимка и границ
+нет `sha256`, recorder запишет его; имеющиеся хеши проверит. Это момент фиксации
+редакции, а не подтверждение выполненного QA.
+
+```sh
+python3 skills/agent-flow/scripts/record-agent-trace.py \
+  --run-dir "$AF_RUN" --role orchestrator --execution-mode role-lane \
+  --stage verification --status active --summary "Редакция подготовлена к QA" \
+  --verification-json "$AF_VERIFICATION"
+```
+
+`AF_RUN` обозначает run-каталог; `AF_VERIFICATION` содержит подготовленный объект
+или путь к нему. Команда выводит `result_hash`. Передайте обоим проверяющим этот
+хеш, `result_files`, снимок, границы и критерии задачи. QA записывает проверки
+в handoff, reviewer читает его до итогового принятия.
+
+Каждый проверяющий завершает собственный ход JSON-объектом, отдельно или в
+последнем блоке `json` после пояснений:
+
+В handoff перечислите пути использованных доказательств и их SHA-256.
+Validator требует эти значения в handoff, связанном с исходным итоговым ходом.
+Правка checksum только в summary не принимает изменённое доказательство.
+
+```json
+{
+  "verdict": "passed",
+  "reviewed_result_hash": "<текущий result_hash>",
+  "handoff": "handoffs/qa.md",
+  "handoff_sha256": "<SHA-256 handoff>"
+}
+```
+
+Reviewer указывает свой handoff и добавляет `qa_handoff_sha256` с хешем
+прочитанного QA handoff. Допустимые положительные JSON-вердикты: `passed`,
+`pass-with-risks`. Для отрицательного итога используйте `fail` или `blocked`.
+Root не может заменить отрицательный ответ положительной записью summary.
+
+После реального запуска запишите назначение; подставляйте UUID из среды,
+не `/root/task_name` и не выдуманный ID:
+
+```sh
+python3 skills/agent-flow/scripts/record-agent-trace.py \
+  --run-dir "$AF_RUN" --role qa-verifier --lane-id qa-final \
+  --codex-thread-id "$AF_QA_ID" --stage spawned --status active \
+  --summary "QA запущен"
+
+python3 skills/agent-flow/scripts/record-agent-trace.py \
+  --run-dir "$AF_RUN" --role qa-verifier --lane-id qa-final \
+  --codex-thread-id "$AF_QA_ID" --completion-turn-id "$AF_QA_TURN" \
+  --stage handoff --status pass --summary "QA завершён" \
+  --artifact handoffs/qa.md --artifact checks/qa.md
+```
+
+Для reviewer повторите команды с `--role reviewer`, отдельным `lane-id`,
+его UUID, завершённым turn ID и файлами reviewer. Успешная запись добавляет
+`completion_turn_id`, `reviewed_result_hash`, `handoff_sha256`, список `evidence`
+со ссылками и хешами; указатель `verification.qa` или `verification.reviewer`
+обновляется автоматически. Данные проверяются до записи. Timeline дополняется,
+старые события и timestamps сохраняются. В full синхронизируйте статусы lanes.
+Новая редакция снимает оба прежних принятия; новое QA снимает принятие reviewer.
+Старые записи остаются в summary, но их невыбранные доказательства не принимают
+текущую редакцию и не мешают записать новую проверку.
+
+Исходная сессия ищется по UUID среди файлов `$CODEX_HOME/sessions`, по умолчанию
+`~/.codex/sessions`. Export из run-каталога не подходит. Проверяются `session_meta.id`,
+родство, каноническая роль, согласованность дублирующих metadata, собственные
+`task_started`, `turn_context.turn_id/model`, `task_complete.turn_id` и итоговый
+JSON выбранного хода. `session_meta.session_id` может содержать ID родителя.
+Унаследованный `turn_context` до собственного запуска не подтверждает модель.
+
+Reader реализует наблюдённую локальную структуру событий Desktop. Поддержка той
+же структуры из CLI требует свежего V9-прогона; неподдерживаемый формат блокирует
+приёмку. Это клиентские операционные доказательства, не серверная аттестация.
+Production CLI не принимает источник тестовых сессий через аргументы или environment.
+
+После исправления обновите редакцию, выполните затронутые QA-проверки и получите
+новый итог reviewer по текущему результату и QA handoff. Можно использовать новые
+ходы тех же независимых сессий. Полный повтор всех tests и повышение reasoning
+не являются автоматическими условиями. Даже без изменения продукта правка QA
+handoff требует нового `qa_handoff_sha256` в собственном ходе reviewer.
+
+`--allow-pending` допускает незавершённые данные только при незавершённом verdict
+и выводит `PRELIMINARY (not final acceptance)`. Повреждённые и противоречивые данные
+отклоняются. Ни этот флаг, ни `--allow-no-check` не ослабляют положительный final.
+Для `blocked` и `fail` сохраняются причина в `verification.blocker` и имеющиеся
+записи; успешный запуск проверяющих не требуется.
+
+### Условные проверки поведения
+
+`behavioral_checks` нужен только для выбранных критериев поведения агента.
+Каждая запись содержит `criterion_id`, `session_thread_id`, `verifier_thread_id`
+независимого reviewer, ссылку `handoff`, флаг `strict_inputs`, списки `inputs`
+и `outputs`. Каждая ссылка фиксирует `path`, `sha256`, `source_event` - номер
+строки исходного JSONL, начиная с 1. Для tool output нужен также `source_call_id`.
+
+Сохраните начальный пакет и каждый followup до передачи. Запишите событие
+`behavior-input-prepared` через recorder с одним `--artifact`: оно автоматически
+получит `input_sha256`. В соответствующем input укажите `prepared_event` - номер
+строки timeline. Привяжите запись к фактическому UUID сессии после запуска.
+Validator сравнит хеши, исходные байты и время подготовки с исходным событием
+передачи; одного mtime недостаточно. Outputs перечисляются в исходном порядке.
+`required_order` может задавать пары номеров выходных событий, например чтение
+источника перед вопросом. Смысл событий и полноту критериев оценивают QA и reviewer.
+
+При зашифрованных входах `strict_inputs: true` блокирует положительный итог.
+`false` разрешён, только если приёмке достаточно подготовленной копии; передача
+именно этих байтов тогда остаётся неподтверждённой. Поздняя копия, изменение байтов
+и синтетическая перестановка событий не являются реальным доказательством поведения.
+
+### Последующая приёмка V9
+
+Эти сценарии требуют разрешённых реальных дочерних сессий и выполняются отдельно
+от реализации одним агентом. Используйте свежие временные проекты и текущий
+checkout продукта; не устанавливайте глобальные конфигурации.
+
+1. В обычном Desktop создайте compact-задачу: добавить синтетический PRD из трёх
+   требований в `docs/example.md`. Зафиксируйте исходный снимок и границы. Запустите
+   настоящие QA/Astra и reviewer/Sol штатными средствами Desktop, передайте один
+   `result_hash`, запишите два собственных завершённых хода и выполните
+   `python3 skills/agent-flow/scripts/validate-run.py --run-dir "$AF_RUN" --mode compact`.
+2. В обычном CLI создайте full-задачу: исправить в синтетической Python-функции
+   границу сравнения, сначала получить падающий тест, затем успешный. Выполните
+   те же два назначения без launcher/API. До добавления иной ветки reader сохраните
+   обезличенную fixture фактически наблюдённой CLI-структуры. Выполните
+   `python3 skills/agent-flow/scripts/validate-run.py --run-dir "$AF_RUN" --mode full`.
+3. В каждом проекте измените один файл результата после принятия: валидатор должен
+   отказать. Получите новые QA/reviewer turns по новой редакции и повторите проверку.
+   Сохраните UUID, turn IDs, result hash, команды, exit codes и исходные клиентские
+   журналы на их местах. Синтетические tests не подтверждают фактический запуск модели.
+4. Отдельный независимый reviewer принимает точный итоговый diff реализации и
+   реальные доказательства обоих прогонов. До этого V9 и окончательная приёмка
+   неподтверждены. Исторические runs и A/B/C не переписываются; прежний PASS относится
+   к прежнему валидатору. Старые неполные runs могут не пройти новую финальную проверку.
 
 Schema v2 adds the Architecture Contract Gate:
 

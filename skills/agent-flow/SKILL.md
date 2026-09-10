@@ -194,7 +194,7 @@ Blocked Resolution Gate runs inside Resolution Gate when a resolution attempt bl
 
 Golden Trace Runs are the persisted acceptance pack for the architecture layer. `scripts/test-golden-traces.py` validates `testdata/golden-traces/` with real full trace directories, including expected failures.
 
-Delegation Trace Gate applies to positive traceable lane-map runs. The
+Delegation Trace Gate applies to every positive traceable run, including compact without lane-map. The
 orchestrator writes `delegation-summary.json` and a `Delegation Trace` section
 in `final.md` with `Subagents Used`, `Role Lanes Used`, and
 `Subagent Trace Evidence`. A real subagent needs spawned trace evidence plus a
@@ -286,7 +286,7 @@ Read `references/traceable-runs.md` only when the selected budget is `standard` 
 
 Read `references/harness-evaluation-loop.md` when a traceable run contains a learning trigger or when `harness-evaluation.json` already exists.
 
-Do not create `.agent-work/runs/` for `light` tasks.
+Для обычных консультаций light run-каталог не нужен. При машинной проверке изменения используйте compact и общий контракт verification.
 
 Create `.agent-work/runs/YYYY-MM-DD-task-slug/` for:
 
@@ -295,8 +295,8 @@ Create `.agent-work/runs/YYYY-MM-DD-task-slug/` for:
 - explicit user request for trace artifacts;
 - subagent delegation where handoffs need persistence.
 
-For lane-map traceable runs, keep `delegation-summary.json` synchronized with
-`lane-map.json`, `timeline.jsonl`, and per-agent traces. Positive final
+For every traceable run, keep `delegation-summary.json` synchronized with
+`lane-map.json` when present, `timeline.jsonl`, and per-agent traces. Positive final
 verdicts must not claim sidecar/subagent work unless a real spawned subagent
 trace and terminal handoff are recorded.
 
@@ -338,15 +338,17 @@ Also resolve the role model config before `spawn_agent`, using `python3 scripts/
 
 When Codex custom-agent files have been generated for the current project or user config, and the current `spawn_agent` schema exposes the Agent Flow role as an available `agent_type`, pass that role slug as `agent_type`. This lets Codex App, CLI, and IDE show configured `nickname_candidates` in subagent activity. If the role is not exposed in the current tool schema, use the closest available built-in `agent_type` and keep Agent Flow identity in trace metadata.
 
-If the task would benefit from independent workers but the selected budget is `light`, keep the implementation lane solo or escalate the budget only with a concrete reason. Do not spawn implementation subagents for `light`. If the run changes product/repo files, tests, runtime docs, validator behavior, templates, golden traces, ADR/plan/spec status, or creates a commit, Mandatory Independent QA Review Gate still requires a real `reviewer.qa` subagent before any positive final.
+Для обязательных QA и reviewer нужен точный канонический `agent_type` из
+контракта verification. Если он недоступен, положительный итог блокируется;
+близкая встроенная роль не заменяет фактическое назначение.
+
+Для `light` реализация остаётся у одного автора. После изменения файлов обязательны отдельные `qa-verifier` и `reviewer`; повышение budget само по себе не требуется.
 
 ## Mandatory Independent QA Review Gate
 
-`solo` and `light` mean one main implementation owner. They do not mean no independent review.
+Mandatory Independent QA Review Gate требует для `change` два отдельных назначения: `qa-verifier` проверяет результат, `reviewer` проверяет его и доказательства QA. Оба работают как реальные дочерние сессии текущего root; их IDs отличаются от IDs авторов. Модели берутся из действующих файлов ролей через `agent_config`. `reviewer.qa` допустим только как имя назначения канонического `reviewer`; QA под этим именем не заменяет reviewer.
 
-Any Agent Flow implementation/change run that changes product or repo files, tests, runtime docs, validator behavior, templates, golden traces, ADR/plan/spec status, or creates a commit must launch a real `reviewer.qa` subagent before `ship` or `pass-with-risks`. Role-lane review does not satisfy this gate.
-
-SubAgent Tool is mandatory Agent Flow infrastructure for this gate. If launch or runtime fails, record `mandatory_independent_qa_review` blocker evidence with kind `launch-failure` or `runtime-failure` and close `blocked`; do not fall back to solo or role-lane review for a positive final.
+Контракт `delegation-summary.json.verification` действует одинаково в compact/full/auto, включая отсутствие lane-map. Обязательны собственный `completion_turn_id`, текущий `reviewed_result_hash`, хеш handoff и `qa_handoff_sha256` в итоговом ходе reviewer. `analysis` с пустым результатом освобождён от этих двух назначений. При недоступных доказательствах записать `verification.blocker` и завершить `blocked`. Поля и порядок записи описаны в `references/traceable-runs.md`.
 
 For code review and release readiness work that touches architecture, public contracts, APIs, data flow, security, migrations, or multiple subsystems, require an architect-owned review contract before the reviewer verdict:
 

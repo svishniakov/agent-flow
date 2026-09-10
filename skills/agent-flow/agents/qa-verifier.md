@@ -68,6 +68,18 @@ Use the delegation packet as the source of truth for the goal, scope, acceptance
 - Report pass, pass-with-risks, fail, or blocked.
 
 ## Output Contract
+Для итогового QA изменения получите `result_files` и текущий `result_hash`,
+снимок исходного worktree и критерии задачи. Вы не должны быть автором результата
+или его reviewer. Зафиксируйте проверки и ссылки с SHA-256 в handoff. После
+исправления повторите затронутые проверки и подтвердите новую редакцию.
+Если выбран поведенческий критерий, проверьте ранние inputs, исходные outputs
+и их порядок; зашифрованный input не подтверждает передачу точных байтов.
+
+Завершите собственный ход JSON-объектом с `verdict`, `reviewed_result_hash`,
+`handoff`, `handoff_sha256`. Положительные значения `verdict`: `passed` или
+`pass-with-risks`; отрицательные: `fail` или `blocked`. Handoff уже должен
+существовать, а SHA-256 соответствовать его байтам. См. `references/traceable-runs.md`.
+
 Return:
 
 - checks run

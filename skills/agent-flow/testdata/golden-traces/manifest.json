@@ -3,6 +3,29 @@
   "description": "Golden Trace Runs acceptance pack for the architecture layer.",
   "cases": [
     {
+      "id": "compact-change-verification",
+      "path": "verification/compact-change",
+      "mode": "compact",
+      "expected": "pass",
+      "covers": ["compact independent QA and reviewer", "current result hash", "synthetic completed turns"]
+    },
+    {
+      "id": "compact-change-missing-qa",
+      "path": "verification/compact-missing-qa",
+      "mode": "compact",
+      "expected": "fail",
+      "expected_error": "verification.qa requires separate qa-verifier subagent",
+      "covers": ["missing QA is never auto-filled in focused fixtures"]
+    },
+    {
+      "id": "compact-change-wrong-reviewer-model",
+      "path": "verification/compact-wrong-reviewer-model",
+      "mode": "compact",
+      "expected": "fail",
+      "expected_error": "source model must be gpt-5.6-sol",
+      "covers": ["source model differs from canonical reviewer configuration"]
+    },
+    {
       "id": "standard-single-worker-no-architecture",
       "path": "valid/standard-single-worker-no-architecture",
       "mode": "full",
@@ -154,7 +177,7 @@
       "path": "invalid/mandatory-independent-qa-review-missing-subagent",
       "mode": "full",
       "expected": "fail",
-      "expected_error": "positive implementation/change run requires reviewer.qa subagent",
+      "expected_error": "verification.qa requires separate qa-verifier subagent",
       "covers": [
         "Mandatory Independent QA Review Gate",
         "mandatory-independent-qa-review",
@@ -166,7 +189,7 @@
       "path": "invalid/mandatory-independent-qa-review-role-lane-only",
       "mode": "full",
       "expected": "fail",
-      "expected_error": "Mandatory Independent QA Review Gate rejects role-lane-only review",
+      "expected_error": "verification.qa requires separate qa-verifier subagent",
       "covers": [
         "Mandatory Independent QA Review Gate",
         "mandatory-independent-qa-review",
@@ -178,7 +201,7 @@
       "path": "invalid/mandatory-independent-qa-review-missing-delegation-summary",
       "mode": "full",
       "expected": "fail",
-      "expected_error": "Mandatory Independent QA Review Gate requires delegation-summary.json",
+      "expected_error": "delegation-summary.json is required for positive final",
       "covers": [
         "Mandatory Independent QA Review Gate",
         "mandatory-independent-qa-review",

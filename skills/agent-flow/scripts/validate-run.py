@@ -10,6 +10,8 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
+from verification_evidence import validate_verification
+
 from architecture_capabilities import (
     ARCHITECTURE_CAPABILITY_REGISTRY_PATH,
     validate_architecture_capabilities_shape,
@@ -48,11 +50,6 @@ AGENT_TODO_PLACEHOLDER = "TODO(agent):"
 AGENT_EXECUTION_MODES = {"subagent", "role-lane"}
 DELEGATION_SUMMARY_PATH = "delegation-summary.json"
 DELEGATION_TRACE_SECTION = "Delegation Trace"
-MANDATORY_INDEPENDENT_QA_REVIEW_SECTION = "Mandatory Independent QA Review"
-MANDATORY_INDEPENDENT_QA_REVIEW_FIELD = "mandatory_independent_qa_review"
-MANDATORY_QA_REVIEWER_ROLES = {"reviewer", "reviewer.qa"}
-MANDATORY_QA_REVIEWER_BLOCKER_KINDS = {"launch-failure", "runtime-failure"}
-RUN_CHANGED_FILES_FIELDS = ("changed_files", "changed_paths", "run_changed_files")
 CONTINUATION_SUMMARY_PATH = "continuation-summary.json"
 CONTINUATION_SUMMARY_SECTION = "Continuation Summary"
 CONTINUATION_REVALIDATION_SECTION = "Continuation Revalidation"
@@ -2017,6 +2014,8 @@ def validate_delegation_summary_record_paths(
     lane: dict,
     record_label: str,
     errors: list[str],
+    *,
+    complete: bool,
 ) -> None:
     trace = require_non_empty_string(record, "trace", record_label, errors)
     if trace is not None:
@@ -2029,7 +2028,7 @@ def validate_delegation_summary_record_paths(
             if trace != expected_trace:
                 errors.append(f"{record_label}.trace must be {expected_trace}")
 
-    handoff = require_non_empty_string(record, "handoff", record_label, errors)
+    handoff = require_non_empty_string(record, "handoff", record_label, errors) if complete or record.get("handoff") is not None else None
     lane_handoff = lane.get("handoff")
     if handoff is not None:
         if not resolve_run_path(run_dir, handoff).exists():
@@ -2049,7 +2048,7 @@ def validate_delegation_summary(
     path = run_dir / DELEGATION_SUMMARY_PATH
     if not path.exists():
         if required:
-            return None, [f"{DELEGATION_SUMMARY_PATH} is required for positive lane-map run"]
+            return None, [f"{DELEGATION_SUMMARY_PATH} is required for positive final"]
         return None, []
 
     data, load_errors = load_json(path, DELEGATION_SUMMARY_PATH)
@@ -2059,7 +2058,7 @@ def validate_delegation_summary(
     if not isinstance(data, dict):
         return None, [f"{DELEGATION_SUMMARY_PATH} must be a JSON object"]
 
-    if data.get("version") != 1:
+    if type(data.get("version")) is not int or data.get("version") != 1:
         errors.append(f"{DELEGATION_SUMMARY_PATH}: version must be 1")
 
     subagents_used = data.get("subagents_used")
@@ -2075,6 +2074,9 @@ def validate_delegation_summary(
     role_lanes = data.get("role_lanes")
     subagent_ids = delegation_summary_ids(subagents, "subagents", DELEGATION_SUMMARY_PATH, errors)
     role_lane_ids = delegation_summary_ids(role_lanes, "role_lanes", DELEGATION_SUMMARY_PATH, errors)
+    all_ids = subagent_ids + role_lane_ids
+    if len(all_ids) != len(set(all_ids)):
+        errors.append(f"{DELEGATION_SUMMARY_PATH}: duplicate lane_id")
 
     notes = data.get("notes")
     if not isinstance(notes, str) or not notes.strip():
@@ -2092,20 +2094,21 @@ def validate_delegation_summary(
     expected_subagent_ids = sorted(
         lane["id"]
         for lane in lanes
-        if normalize_execution_mode(lane.get("execution_mode")) == "subagent"
+        if isinstance(lane.get("id"), str) and normalize_execution_mode(lane.get("execution_mode")) == "subagent"
         and normalize_lane_status(lane.get("status")) not in {"planned", "timed-out", "replaced"}
     )
     expected_role_lane_ids = sorted(
         lane["id"]
         for lane in lanes
-        if normalize_execution_mode(lane.get("execution_mode")) == "role-lane"
+        if isinstance(lane.get("id"), str) and normalize_execution_mode(lane.get("execution_mode")) == "role-lane"
         and normalize_lane_status(lane.get("status")) not in {"planned", "timed-out", "replaced"}
     )
-    if sorted(subagent_ids) != expected_subagent_ids:
+    has_lane_map = (run_dir / "lane-map.json").exists()
+    if has_lane_map and sorted(subagent_ids) != expected_subagent_ids:
         errors.append(
             f"{DELEGATION_SUMMARY_PATH}: subagents must cover execution_mode=subagent lanes"
         )
-    if sorted(role_lane_ids) != expected_role_lane_ids:
+    if has_lane_map and sorted(role_lane_ids) != expected_role_lane_ids:
         errors.append(
             f"{DELEGATION_SUMMARY_PATH}: role_lanes must cover execution_mode=role-lane lanes"
         )
@@ -2118,17 +2121,21 @@ def validate_delegation_summary(
             lane_id = require_non_empty_string(record, "lane_id", record_label, errors)
             role = require_non_empty_string(record, "role", record_label, errors)
             codex_thread_id = require_non_empty_string(record, "codex_thread_id", record_label, errors)
+            if role is not None and not re.fullmatch(r"[a-z0-9][a-z0-9._-]*", role):
+                errors.append(f"{record_label}.role must be a safe role name")
+                continue
             if lane_id is None:
                 continue
             lane = lane_by_id.get(lane_id)
-            if lane is None:
+            if lane is None and has_lane_map:
                 errors.append(f"{DELEGATION_SUMMARY_PATH}: unknown lane id: {lane_id}")
                 continue
+            lane = lane or {"execution_mode": "subagent", "role": role}
             if normalize_execution_mode(lane.get("execution_mode")) != "subagent":
                 errors.append(f"{DELEGATION_SUMMARY_PATH}: lane {lane_id} is not execution_mode=subagent")
             if role is not None and lane.get("role") != role:
                 errors.append(f"{record_label}.role must match lane role: {lane.get('role')}")
-            validate_delegation_summary_record_paths(run_dir, record, lane, record_label, errors)
+            validate_delegation_summary_record_paths(run_dir, record, lane, record_label, errors, complete=final_verdict in POSITIVE_FINAL_VERDICTS)
             if role is not None and codex_thread_id is not None:
                 events, event_errors = load_lane_trace_events(run_dir, role, lane_id)
                 errors.extend(event_errors)
@@ -2136,6 +2143,12 @@ def validate_delegation_summary(
                     event.get("codex_thread_id") == codex_thread_id for event in events
                 ):
                     errors.append(f"{record_label}.codex_thread_id missing from lane trace events")
+                if not has_lane_map:
+                    errors.extend(validate_subagent_lane_trace(
+                        run_dir, lane_id, role,
+                        lane_status="pass" if final_verdict in POSITIVE_FINAL_VERDICTS else "planned",
+                        handoff=record.get("handoff"),
+                    ))
 
     if isinstance(role_lanes, list):
         for index, record in enumerate(role_lanes):
@@ -2148,9 +2161,10 @@ def validate_delegation_summary(
             if lane_id is None:
                 continue
             lane = lane_by_id.get(lane_id)
-            if lane is None:
+            if lane is None and has_lane_map:
                 errors.append(f"{DELEGATION_SUMMARY_PATH}: unknown lane id: {lane_id}")
                 continue
+            lane = lane or {"execution_mode": "role-lane", "role": role}
             if normalize_execution_mode(lane.get("execution_mode")) != "role-lane":
                 errors.append(f"{DELEGATION_SUMMARY_PATH}: lane {lane_id} is not execution_mode=role-lane")
             if role is not None and lane.get("role") != role:
@@ -2261,236 +2275,19 @@ def validate_no_unbacked_subagent_claims(run_dir: Path) -> list[str]:
     return errors
 
 
-def lane_is_mandatory_qa_reviewer(lane: dict) -> bool:
-    return (
-        lane.get("type") == "review"
-        and isinstance(lane.get("role"), str)
-        and lane.get("role") in MANDATORY_QA_REVIEWER_ROLES
+def validate_mandatory_independent_qa_review_gate(run_dir: Path, *, session_source=None) -> list[str]:
+    """Mandatory Independent QA Review Gate: qa-verifier and reviewer evidence."""
+    verdict = read_single_field(run_dir / "final.md", "Verdict")
+    lane_map, _load_errors = load_json(run_dir / "lane-map.json", "lane-map.json")
+    # Structural lane-map errors are reported by validate_lane_map.
+    lane_map = lane_map if isinstance(lane_map, dict) else {}
+    lanes = [lane for lane in lane_map.get("lanes", []) if isinstance(lane, dict)] if isinstance(lane_map.get("lanes", []), list) else []
+    lane_by_id = {lane["id"]: lane for lane in lanes if isinstance(lane.get("id"), str)}
+    summary, errors = validate_delegation_summary(
+        run_dir, lanes, lane_by_id, verdict, required=verdict in POSITIVE_FINAL_VERDICTS,
     )
-
-
-def lane_has_successful_subagent_handoff(run_dir: Path, lane: dict) -> bool:
-    lane_id = lane.get("id")
-    role = lane.get("role")
-    if not isinstance(lane_id, str) or not lane_id:
-        return False
-    if not isinstance(role, str) or not role:
-        return False
-    if normalize_execution_mode(lane.get("execution_mode")) != "subagent":
-        return False
-    if normalize_lane_status(lane.get("status")) not in SUCCESSFUL_LANE_STATUSES:
-        return False
-    handoff = lane.get("handoff")
-    trace_errors = validate_subagent_lane_trace(
-        run_dir,
-        lane_id,
-        role,
-        lane_status=normalize_lane_status(lane.get("status")),
-        handoff=handoff if isinstance(handoff, str) else None,
-    )
-    return not trace_errors
-
-
-def lane_map_changed_files(data: dict) -> list[str]:
-    changed: list[str] = []
-    for field in RUN_CHANGED_FILES_FIELDS:
-        value = data.get(field)
-        if value is None:
-            continue
-        if isinstance(value, list):
-            changed.extend(item for item in value if isinstance(item, str) and item.strip())
-        elif isinstance(value, dict):
-            for nested in value.values():
-                if isinstance(nested, list):
-                    changed.extend(
-                        item for item in nested if isinstance(item, str) and item.strip()
-                    )
-    return changed
-
-
-def final_declares_run_owned_changes(run_dir: Path) -> bool:
-    final_path = run_dir / "final.md"
-    if not final_path.exists():
-        return False
-    text = final_path.read_text(encoding="utf-8")
-    match = re.search(
-        r"(?is)run-owned changed files\s*:\s*(?P<body>.*?)(?:\n\s*#{1,6}\s+|\Z)",
-        text,
-    )
-    if not match:
-        return False
-    body = match.group("body").strip()
-    if not body:
-        return False
-    normalized = " ".join(body.lower().split())
-    return normalized not in {"none", "n/a", "not applicable", "- none"}
-
-
-def mandatory_qa_review_applies(data: dict, run_dir: Path, lanes: list[dict]) -> bool:
-    has_worker_lane = any(lane.get("type") in WORKER_LANE_TYPES for lane in lanes)
-    has_changed_files = bool(lane_map_changed_files(data)) or final_declares_run_owned_changes(run_dir)
-    return has_worker_lane or has_changed_files
-
-
-def validate_mandatory_qa_blocker(run_dir: Path, data: dict) -> list[str]:
-    config = data.get(MANDATORY_INDEPENDENT_QA_REVIEW_FIELD)
-    if not isinstance(config, dict):
-        return [
-            "lane-map.json: blocked implementation/change run without reviewer.qa "
-            "requires mandatory_independent_qa_review blocker evidence"
-        ]
-    if config.get("status") != "blocked":
-        return [
-            "lane-map.json: mandatory_independent_qa_review.status must be blocked "
-            "when reviewer.qa launch/runtime failed"
-        ]
-
-    errors: list[str] = []
-    blocker = config.get("blocker")
-    if not isinstance(blocker, dict):
-        return ["lane-map.json: mandatory_independent_qa_review.blocker must be an object"]
-    kind = blocker.get("kind")
-    if kind not in MANDATORY_QA_REVIEWER_BLOCKER_KINDS:
-        allowed = ", ".join(sorted(MANDATORY_QA_REVIEWER_BLOCKER_KINDS))
-        errors.append(
-            "lane-map.json: mandatory_independent_qa_review.blocker.kind must be "
-            f"one of: {allowed}"
-        )
-    summary = blocker.get("summary")
-    if not isinstance(summary, str) or not summary.strip():
-        errors.append(
-            "lane-map.json: mandatory_independent_qa_review.blocker.summary "
-            "must be a non-empty string"
-        )
-    validate_existing_path_list(
-        run_dir,
-        blocker.get("evidence"),
-        "lane-map.json mandatory_independent_qa_review.blocker.evidence",
-        errors,
-    )
-    return errors
-
-
-def validate_mandatory_qa_delegation_summary(
-    run_dir: Path,
-    reviewer_lanes: list[dict],
-) -> list[str]:
-    path = run_dir / DELEGATION_SUMMARY_PATH
-    if not path.exists():
-        return [
-            "lane-map.json: Mandatory Independent QA Review Gate requires "
-            "delegation-summary.json reviewer.qa subagent evidence"
-        ]
-
-    summary, load_errors = load_json(path, DELEGATION_SUMMARY_PATH)
-    if load_errors:
-        return load_errors
-    if not isinstance(summary, dict):
-        return [f"{DELEGATION_SUMMARY_PATH} must be a JSON object"]
-
-    subagents = summary.get("subagents")
-    if not isinstance(subagents, list):
-        return [
-            "lane-map.json: Mandatory Independent QA Review Gate requires "
-            "delegation-summary.json subagents array"
-        ]
-
-    reviewer_ids = {
-        lane.get("id")
-        for lane in reviewer_lanes
-        if isinstance(lane.get("id"), str) and lane.get("id")
-    }
-    for record in subagents:
-        if not isinstance(record, dict):
-            continue
-        if record.get("lane_id") not in reviewer_ids:
-            continue
-        if record.get("role") not in MANDATORY_QA_REVIEWER_ROLES:
-            continue
-        if record.get("trace") and record.get("handoff") and record.get("codex_thread_id"):
-            return []
-
-    return [
-        "lane-map.json: Mandatory Independent QA Review Gate requires "
-        "delegation-summary.json reviewer.qa subagent record with trace, "
-        "handoff, and codex_thread_id"
-    ]
-
-
-def validate_mandatory_independent_qa_review_gate(
-    run_dir: Path,
-    data: dict,
-    lanes: list[dict],
-    final_verdict: str | None,
-    *,
-    allow_pending: bool,
-) -> list[str]:
-    if allow_pending:
-        return []
-    if final_verdict not in POSITIVE_FINAL_VERDICTS and final_verdict != "blocked":
-        return []
-    if not mandatory_qa_review_applies(data, run_dir, lanes):
-        return []
-
-    reviewer_lanes = [lane for lane in lanes if lane_is_mandatory_qa_reviewer(lane)]
-    successful_subagent_reviewers = [
-        lane
-        for lane in reviewer_lanes
-        if lane_has_successful_subagent_handoff(run_dir, lane)
-    ]
-
-    if final_verdict == "blocked":
-        if successful_subagent_reviewers:
-            return []
-        return validate_mandatory_qa_blocker(run_dir, data)
-
-    errors: list[str] = []
-    role_lane_reviewers = [
-        lane
-        for lane in reviewer_lanes
-        if normalize_execution_mode(lane.get("execution_mode")) == "role-lane"
-        and normalize_lane_status(lane.get("status")) in SUCCESSFUL_LANE_STATUSES
-    ]
-    if not successful_subagent_reviewers:
-        if role_lane_reviewers:
-            errors.append(
-                "lane-map.json: Mandatory Independent QA Review Gate rejects "
-                "role-lane-only review; reviewer.qa must run as a real subagent"
-            )
-        else:
-            errors.append(
-                "lane-map.json: positive implementation/change run requires "
-                "reviewer.qa subagent with spawned trace and terminal handoff"
-        )
-        return errors
-
-    errors.extend(
-        validate_mandatory_qa_delegation_summary(
-            run_dir,
-            successful_subagent_reviewers,
-        )
-    )
-
-    final_path = run_dir / "final.md"
-    if final_path.exists():
-        text = final_path.read_text(encoding="utf-8")
-        if not has_markdown_heading(text, MANDATORY_INDEPENDENT_QA_REVIEW_SECTION):
-            errors.append(
-                f"final.md missing section: {MANDATORY_INDEPENDENT_QA_REVIEW_SECTION}"
-            )
-        else:
-            section = markdown_section_text(text, MANDATORY_INDEPENDENT_QA_REVIEW_SECTION)
-            for lane in successful_subagent_reviewers:
-                lane_id = lane.get("id")
-                if isinstance(lane_id, str) and lane_id and not contains_facet_id(section, lane_id):
-                    errors.append(
-                        "final.md Mandatory Independent QA Review missing "
-                        f"reviewer lane id: {lane_id}"
-                    )
-            if "terminal handoff" not in section.lower():
-                errors.append(
-                    "final.md Mandatory Independent QA Review must mention terminal handoff"
-                )
+    if summary is not None:
+        errors.extend(validate_verification(run_dir, summary, {**lane_map, "lanes": lanes}, verdict, session_source))
     return errors
 
 
@@ -5689,27 +5486,6 @@ def validate_lane_map(
             )
         )
 
-    delegation_summary_required = (
-        schema_version == 2 and final_verdict in POSITIVE_FINAL_VERDICTS
-    )
-    _delegation_summary, delegation_summary_errors = validate_delegation_summary(
-        run_dir,
-        [lane for lane in lanes if isinstance(lane, dict)],
-        lane_by_id,
-        final_verdict,
-        required=delegation_summary_required,
-    )
-    errors.extend(delegation_summary_errors)
-    errors.extend(
-        validate_mandatory_independent_qa_review_gate(
-            run_dir,
-            data,
-            [lane for lane in lanes if isinstance(lane, dict)],
-            final_verdict,
-            allow_pending=allow_pending,
-        )
-    )
-
     if schema_version == 2:
         if budget == "standard" and worker_lane_count >= 2 and architecture_contract_required is not True:
             errors.append("lane-map.json: standard budget with 2 worker lanes requires architecture_contract_required=true")
@@ -6316,8 +6092,11 @@ def validate_verdict(path: Path) -> list[str]:
     return errors
 
 
-def validate_compact_run(run_dir: Path, allow_no_check: bool, allow_pending: bool) -> list[str]:
+def validate_compact_run(run_dir: Path, allow_no_check: bool, allow_pending: bool, *, session_source=None) -> list[str]:
     errors: list[str] = []
+    if read_single_field(run_dir / "final.md", "Verdict") in POSITIVE_FINAL_VERDICTS:
+        allow_pending = False
+    errors.extend(validate_mandatory_independent_qa_review_gate(run_dir, session_source=session_source))
 
     for name in COMPACT_REQUIRED_FILES:
         path = run_dir / name
@@ -6396,8 +6175,13 @@ def validate_full_run(
     require_handoff: bool,
     allow_no_check: bool,
     allow_pending: bool,
+    *,
+    session_source=None,
 ) -> list[str]:
     errors: list[str] = []
+    if read_single_field(run_dir / "final.md", "Verdict") in POSITIVE_FINAL_VERDICTS:
+        allow_pending = False
+    errors.extend(validate_mandatory_independent_qa_review_gate(run_dir, session_source=session_source))
 
     for name in FULL_REQUIRED_FILES:
         path = run_dir / name
@@ -6495,6 +6279,14 @@ def validate_full_run(
     return errors
 
 
+def validate_run(run_dir: Path, mode: str = "auto", *, require_handoff=False,
+                 allow_no_check=False, allow_pending=False, session_source=None) -> list[str]:
+    run_dir = Path(run_dir).resolve()
+    if detect_mode(run_dir, mode) == "compact":
+        return validate_compact_run(run_dir, allow_no_check, allow_pending, session_source=session_source)
+    return validate_full_run(run_dir, require_handoff, allow_no_check, allow_pending, session_source=session_source)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-dir", required=True)
@@ -6510,22 +6302,16 @@ def main() -> int:
         raise SystemExit(f"run dir not found: {run_dir}")
 
     mode = detect_mode(run_dir, args.mode)
-    if mode == "compact":
-        errors = validate_compact_run(run_dir, args.allow_no_check, args.allow_pending)
-    else:
-        errors = validate_full_run(
-            run_dir,
-            args.require_handoff,
-            args.allow_no_check,
-            args.allow_pending,
-        )
+    errors = validate_run(run_dir, mode, require_handoff=args.require_handoff,
+                          allow_no_check=args.allow_no_check, allow_pending=args.allow_pending)
 
     if errors:
         for error in errors:
             print(f"FAIL {error}")
         return 1
 
-    print(f"PASS {run_dir} ({mode})")
+    preliminary = args.allow_pending and read_single_field(run_dir / "final.md", "Verdict") not in FINAL_VERDICTS
+    print(f"{'PRELIMINARY (not final acceptance)' if preliminary else 'PASS'} {run_dir} ({mode})")
     return 0
 
 

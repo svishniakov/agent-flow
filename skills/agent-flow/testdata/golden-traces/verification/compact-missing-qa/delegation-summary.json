@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "subagents_used": true,
+  "role_lanes_used": false,
+  "subagents": [
+    {
+      "lane_id": "evidence-qa",
+      "role": "qa-verifier",
+      "codex_thread_id": "00000000-0000-4000-8000-000000000002",
+      "trace": "agents/qa-verifier/trace.jsonl",
+      "handoff": "handoffs/evidence-qa.md",
+      "completion_turn_id": "00000000-0000-4000-8000-000000000002-turn",
+      "reviewed_result_hash": "7789ebcbd84f25d3bc0621faf2762029db7d98750ab82e86d76b9dc56b8d2228",
+      "handoff_sha256": "f745224a19737b97d6aeee12003a741b028177e86f5c14078b4ad9c3e4ff3f8c",
+      "evidence": [
+        {
+          "path": "checks.md",
+          "sha256": "53c906c181b6278a9ac5ddbe02a1caaae977e61ecabb5318915f5143698f6e96"
+        }
+      ]
+    },
+    {
+      "lane_id": "evidence-reviewer",
+      "role": "reviewer",
+      "codex_thread_id": "00000000-0000-4000-8000-000000000003",
+      "trace": "agents/reviewer/trace.jsonl",
+      "handoff": "handoffs/evidence-reviewer.md",
+      "completion_turn_id": "00000000-0000-4000-8000-000000000003-turn",
+      "reviewed_result_hash": "7789ebcbd84f25d3bc0621faf2762029db7d98750ab82e86d76b9dc56b8d2228",
+      "handoff_sha256": "3cb82076231fcc4571707b4f8921487418523e7af1b7aadd547f9fb64ed6e835",
+      "evidence": [
+        {
+          "path": "checks.md",
+          "sha256": "53c906c181b6278a9ac5ddbe02a1caaae977e61ecabb5318915f5143698f6e96"
+        }
+      ]
+    }
+  ],
+  "role_lanes": [],
+  "notes": "Synthetic verification fixture.",
+  "verification": {
+    "task_kind": "change",
+    "root_thread_id": "00000000-0000-4000-8000-000000000001",
+    "author_thread_ids": [
+      "00000000-0000-4000-8000-000000000001"
+    ],
+    "result_files": [
+      "run/result.txt"
+    ],
+    "initial_snapshot": {
+      "path": "context.md",
+      "section": "Initial Worktree Snapshot",
+      "sha256": "834bfa2f4ec2d7e379dbb59b970deb4afc283f7cd4c5cf4b29c5931aab3e98be"
+    },
+    "task_scope": {
+      "path": "plan.md",
+      "sha256": "041e958d9025ea8f9b460d2b5b5fe806f01f9834353e4a4d8fc9af5b5c0981bd"
+    },
+    "qa": null,
+    "reviewer": "evidence-reviewer",
+    "behavioral_checks": []
+  }
+}

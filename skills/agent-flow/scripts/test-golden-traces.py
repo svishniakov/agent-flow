@@ -7,9 +7,12 @@ This is the test-golden-traces runner for testdata/golden-traces.
 from __future__ import annotations
 
 import json
+import importlib.util
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +24,10 @@ VALIDATE_RUN = ROOT / "scripts" / "validate-run.py"
 
 CASE_ID_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 VALID_EXPECTED = {"pass", "fail"}
-VALID_MODES = {"full"}
+VALID_MODES = {"full", "compact"}
+_spec = importlib.util.spec_from_file_location("verification_tests", ROOT / "scripts/test-verification-evidence.py")
+verification_tests = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(verification_tests)
 
 
 def fail(message: str) -> None:
@@ -73,7 +79,7 @@ def validate_case_shape(raw_case: Any, index: int, seen_ids: set[str]) -> dict[s
 
     mode = raw_case.get("mode", "full")
     if mode not in VALID_MODES:
-        fail(f"{case_id}: mode must be full")
+        fail(f"{case_id}: mode must be full or compact")
 
     expected = raw_case.get("expected")
     if expected not in VALID_EXPECTED:
@@ -103,19 +109,21 @@ def validate_case_shape(raw_case: Any, index: int, seen_ids: set[str]) -> dict[s
 
 
 def run_validate(case: dict[str, Any]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [
-            sys.executable,
-            str(VALIDATE_RUN),
-            "--run-dir",
-            str(case["path"]),
-            "--mode",
-            case["mode"],
-        ],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    with tempfile.TemporaryDirectory(prefix="agent-flow-golden-") as temp:
+        run = Path(temp) / "run"
+        shutil.copytree(case["path"], run)
+        if case["path"].parent.name == "verification":
+            # Focused cases own every byte, including deliberately missing records.
+            source = verification_tests.SyntheticSource()
+            source.sessions = json.loads((run / "synthetic-sessions.json").read_text())
+        elif case["id"] == "mandatory-independent-qa-review-missing-delegation-summary":
+            source = verification_tests.SyntheticSource()
+        else:
+            source = verification_tests.neighboring_pack(
+                run, complete=not case["id"].startswith("mandatory-independent-qa-review-"),
+            )
+        errors = verification_tests.validator.validate_run(run, case["mode"], session_source=source)
+        return subprocess.CompletedProcess([], int(bool(errors)), "\n".join(errors), "")
 
 
 def check_case(case: dict[str, Any]) -> None:
