@@ -10,7 +10,7 @@ import hashlib
 import json
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from agent_config import AgentConfigError, default_agents_dir, read_frontmatter, role_config, resolve_role_path
@@ -122,13 +122,89 @@ def empty_verification() -> dict:
             "qa": None, "reviewer": None, "behavioral_checks": []}
 
 
+def validate_summary_shape(data: dict) -> None:
+    require(isinstance(data, dict) and type(data.get("version")) is int and data["version"] == 1,
+            "delegation-summary.json must be a version 1 object")
+    for field in ("subagents_used", "role_lanes_used"):
+        require(isinstance(data.get(field), bool), f"delegation-summary.json: {field} must be a boolean")
+    require(isinstance(data.get("notes"), str) and bool(data["notes"].strip()),
+            "delegation-summary.json: notes must be a non-empty string")
+    require(all(isinstance(data.get(k), list) and all(isinstance(r, dict) for r in data[k])
+                for k in ("subagents", "role_lanes")), "delegation-summary records must be object arrays")
+    ids = [r.get("lane_id") for k in ("subagents", "role_lanes") for r in data[k]]
+    require(all(isinstance(value, str) and value for value in ids) and len(ids) == len(set(ids)),
+            "delegation-summary assignment IDs must be non-empty and unique")
+    require(isinstance(data.get("verification"), dict), "verification must be an object")
+
+
+def public_content(content) -> tuple[list[dict], bool]:
+    if not isinstance(content, list):
+        return [], True
+    visible = []
+    unavailable = False
+    for part in content:
+        if (isinstance(part, dict) and part.get("type") in {"input_text", "output_text"}
+                and isinstance(part.get("text"), str)):
+            visible.append({"type": part["type"], "text": part["text"]})
+        else:
+            unavailable = True
+    return visible, unavailable
+
+
 class CodexSessionSource:
     """Read only files whose names contain the requested UUID, never exports."""
 
+    def session_dir(self) -> Path:
+        codex_dir = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))).expanduser()
+        return codex_dir / "sessions"
+
+    def resolve_session(self, agent_path: str, root_id: str, role: str, *, thread_id=None) -> dict:
+        require(isinstance(agent_path, str) and re.fullmatch(r"/root(?:/[a-z0-9_]+)+", agent_path),
+                "--agent-path must be an exact canonical task path")
+        require(isinstance(root_id, str) and UUID.fullmatch(root_id),
+                "verification.root_thread_id must be registered before --resolve-session")
+        matches = []
+        try:
+            for path in self.session_dir().glob("**/*.jsonl"):
+                with path.open(encoding="utf-8") as handle:
+                    for line in handle:
+                        event = json.loads(line)
+                        require(isinstance(event, dict), "source metadata event must be an object")
+                        if event.get("type") != "session_meta":
+                            continue
+                        meta = event.get("payload", {})
+                        require(isinstance(meta, dict), "source metadata payload must be an object")
+                        spawn = child_spawn(meta)
+                        records = (meta, spawn)
+                        if (any(r.get("agent_path") == agent_path for r in records)
+                                and any(r.get("parent_thread_id") == root_id for r in records)):
+                            require(all(r.get("agent_path") == agent_path for r in records),
+                                    "conflicting source agent_path metadata")
+                            require(all(r.get("parent_thread_id") == root_id for r in records),
+                                    "conflicting source parent_thread_id metadata")
+                            require(all(r.get("agent_role") == role for r in records),
+                                    "conflicting source agent_role metadata")
+                            matches.append(meta.get("id"))
+                        break
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise EvidenceError("execution unconfirmed: unreadable session metadata during resolution") from exc
+        require(bool(matches), "execution unconfirmed: no matching source session; check exact path, root UUID and role")
+        require(len(matches) == 1, "execution unconfirmed: multiple source sessions; use a distinct explicit UUID")
+        resolved = matches[0]
+        require(thread_id is None or thread_id == resolved, "explicit Codex UUID conflicts with resolved source session")
+        events = self.read(resolved)
+        index, _ = session_metadata(events, resolved, root_id, role, source=self)
+        started = next(((i, e) for i, e in enumerate(events[index + 1:], index + 2)
+                        if e.get("type") == "event_msg" and e.get("payload", {}).get("type") == "task_started"), None)
+        require(started is not None, "execution unconfirmed: own task_started missing")
+        observed, _ = event_time(started[1], "started_at")
+        return {"codex_thread_id": resolved, "root_thread_id": root_id, "agent_path": agent_path,
+                "session_meta_event": index + 1, "task_started_event": started[0],
+                "observed_spawn_at": observed.isoformat()}
+
     def read(self, thread_id: str, *, event_indices=()) -> list[dict]:
         require(isinstance(thread_id, str) and UUID.fullmatch(thread_id), "invalid Codex thread ID")
-        codex_dir = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))).expanduser()
-        paths = list((codex_dir / "sessions").glob(f"**/*{thread_id}.jsonl"))
+        paths = list(self.session_dir().glob(f"**/*{thread_id}.jsonl"))
         require(len(paths) == 1, f"execution unconfirmed: source session {thread_id} missing or ambiguous")
         events = []
         try:
@@ -141,7 +217,7 @@ class CodexSessionSource:
                     require(isinstance(payload, dict), "source payload must be an object")
                     kind = event.get("type")
                     if kind == "session_meta":
-                        payload = {k: payload[k] for k in ("id", "session_id", "parent_thread_id", "agent_role", "source") if k in payload}
+                        payload = {k: payload[k] for k in ("id", "session_id", "parent_thread_id", "agent_role", "agent_path", "source") if k in payload}
                     elif kind == "turn_context":
                         payload = {k: payload[k] for k in ("turn_id", "model") if k in payload}
                     elif kind == "event_msg" and payload.get("type") in {"task_started", "task_complete"}:
@@ -151,17 +227,32 @@ class CodexSessionSource:
                         index in event_indices and payload.get("role") in {"user", "assistant"}
                     ):
                         payload = {k: payload[k] for k in ("type", "role", "phase", "content", "id") if k in payload}
+                        payload["content"], payload["content_unavailable"] = public_content(payload.get("content", []))
+                    elif kind == "response_item" and payload.get("type") == "agent_message" and index in event_indices:
+                        payload = {k: payload[k] for k in ("type", "author", "recipient", "content") if k in payload}
+                        payload["content"], payload["content_unavailable"] = public_content(payload.get("content", []))
+                    elif kind == "response_item" and payload.get("type") == "custom_tool_call_output" and index in event_indices:
+                        payload = {k: payload[k] for k in ("type", "call_id", "output") if k in payload}
+                        payload["output"], payload["output_unavailable"] = public_content(payload.get("output"))
                     elif kind == "response_item" and index in event_indices and payload.get("type") == "function_call_output":
                         payload = {k: payload[k] for k in ("type", "call_id", "output") if k in payload}
                     else:
                         payload = {}
-                    events.append({"type": kind, "timestamp": event.get("timestamp"), "payload": payload})
+                    filtered = {"type": kind, "payload": payload}
+                    if "timestamp" in event:
+                        filtered["timestamp"] = event["timestamp"]
+                    events.append(filtered)
         except (OSError, UnicodeError, json.JSONDecodeError) as exc:
             raise EvidenceError(f"execution unconfirmed: unreadable source session {thread_id}") from exc
         return events
 
 
 def timestamp(value) -> datetime:
+    if type(value) is int:
+        try:
+            return datetime.fromtimestamp(value, timezone.utc)
+        except (ValueError, OverflowError, OSError) as exc:
+            raise EvidenceError("invalid source Unix timestamp (seconds required)") from exc
     require(isinstance(value, str), "source timestamp missing")
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -171,48 +262,114 @@ def timestamp(value) -> datetime:
     return parsed
 
 
+def event_time(event: dict, field: str) -> tuple[datetime, datetime | None]:
+    payload = event.get("payload", {})
+    value = payload[field] if field in payload else event.get("timestamp")
+    start = timestamp(value)
+    if type(value) is not int:
+        return start, None
+    try:
+        end = start + timedelta(seconds=1)
+    except OverflowError as exc:
+        raise EvidenceError("invalid source Unix timestamp interval") from exc
+    if field in payload and "timestamp" in event:
+        outer = timestamp(event["timestamp"])
+        require(start <= outer < end, f"source {field} conflicts with outer timestamp")
+        if type(event["timestamp"]) is not int:
+            return outer, None
+    return start, end
+
+
+def completion_follows(later: dict, earlier: dict) -> bool:
+    end = earlier.get("completed_before")
+    return later["completed_at"] >= end if end is not None else later["completed_at"] > earlier["completed_at"]
+
+
 def final_json(text) -> dict:
     require(isinstance(text, str), "completion has no structured final answer")
     fenced = re.search(r"```(?:json)?\s*\n(.*?)\n```\s*$", text, re.S)
     try:
         data = json.loads(fenced.group(1) if fenced else text)
     except json.JSONDecodeError as exc:
-        raise EvidenceError("completion final answer must end in a JSON object") from exc
+        raise EvidenceError("completion final answer must end in a JSON object; continue the same assignment with a complete JSON answer, then register its new completion_turn_id") from exc
     require(isinstance(data, dict), "completion final answer must be an object")
     return data
 
 
-def completed_turn(source, thread_id: str, turn_id: str, root_id: str, role: str) -> dict:
-    events = source.read(thread_id)
+def child_spawn(meta: dict) -> dict:
+    spawn = meta.get("source", {})
+    spawn = spawn.get("subagent", {}) if isinstance(spawn, dict) else {}
+    spawn = spawn.get("thread_spawn", {}) if isinstance(spawn, dict) else {}
+    return spawn if isinstance(spawn, dict) else {}
+
+
+def own_metadata(events, thread_id: str):
     require(isinstance(events, list), "unsupported source events")
     metadata = [e.get("payload", {}) for e in events if e.get("type") == "session_meta"]
     require(len(metadata) == 1, "execution unconfirmed: missing or conflicting session metadata")
     meta = metadata[0]
+    require(isinstance(meta, dict), "source session metadata must be an object")
     require(meta.get("id") == thread_id, "source session id mismatch")
-    spawn = meta.get("source", {})
-    spawn = spawn.get("subagent", {}) if isinstance(spawn, dict) else {}
-    spawn = spawn.get("thread_spawn", {}) if isinstance(spawn, dict) else {}
+    return next(i for i, event in enumerate(events) if event.get("type") == "session_meta"), meta
+
+
+def verify_conversation_ancestry(source, thread_id: str, root_id: str, conversation_id: str) -> None:
+    require(isinstance(conversation_id, str) and UUID.fullmatch(conversation_id), "invalid conversation session_id metadata")
+    seen = {thread_id}
+    ancestor_id = root_id
+    while True:
+        require(ancestor_id not in seen, "conflicting session_id metadata: ancestry cycle")
+        seen.add(ancestor_id)
+        _, meta = own_metadata(source.read(ancestor_id), ancestor_id)
+        require(meta.get("session_id") == conversation_id, "conflicting session_id metadata in source ancestry")
+        spawn = child_spawn(meta)
+        parent = meta.get("parent_thread_id")
+        if ancestor_id == conversation_id:
+            require(parent is None and not spawn, "conflicting session_id metadata: conversation ancestor is not a root")
+            return
+        require(isinstance(parent, str) and UUID.fullmatch(parent), "conversation ancestry link unavailable")
+        require(spawn.get("parent_thread_id") == parent, "conflicting parent_thread_id in source ancestry")
+        require(isinstance(meta.get("agent_role"), str) and spawn.get("agent_role") == meta["agent_role"],
+                "conflicting agent_role in source ancestry")
+        ancestor_id = parent
+
+
+def session_metadata(events, thread_id: str, root_id: str, role: str, *, source):
+    index, meta = own_metadata(events, thread_id)
+    spawn = child_spawn(meta)
     require(isinstance(spawn, dict) and bool(spawn), "execution unconfirmed: not a child session")
     for record in (meta, spawn):
         require(record.get("parent_thread_id") == root_id, "source parent_thread_id mismatch")
         require(record.get("agent_role") == role, f"source agent_role must be {role}")
     if meta.get("session_id") is not None:
-        require(meta["session_id"] in {thread_id, root_id}, "conflicting session_id metadata")
+        if meta["session_id"] not in (thread_id, root_id):
+            verify_conversation_ancestry(source, thread_id, root_id, meta["session_id"])
+    return index, meta
+
+
+def completed_turn(source, thread_id: str, turn_id: str, root_id: str, role: str) -> dict:
+    events = source.read(thread_id)
+    meta_index, _ = session_metadata(events, thread_id, root_id, role, source=source)
     expected = role_config(read_frontmatter(resolve_role_path(default_agents_dir(), role)), role)["model"]
     require(isinstance(turn_id, str) and bool(turn_id), "completion_turn_id missing")
     active = None
     contexts = []
     finals = []
     completions = []
-    meta_index = next(i for i, event in enumerate(events) if event.get("type") == "session_meta")
-    for event in events[meta_index + 1:]:
+    last_started = None
+    started_event = None
+    started_at = None
+    for event_index, event in enumerate(events[meta_index + 1:], meta_index + 2):
         payload = event.get("payload", {})
         kind = event.get("type")
         if kind == "event_msg" and payload.get("type") == "task_started":
             require(active != turn_id, "selected turn restarted before completion")
             active = payload.get("turn_id")
+            last_started = active
             if active == turn_id:
                 contexts, finals = [], []
+                started_event = event_index
+                started_at, _ = event_time(event, "started_at")
         elif active == turn_id and kind == "turn_context":
             require(payload.get("turn_id") == turn_id, "foreign turn_context in selected turn")
             contexts.append(payload.get("model"))
@@ -225,10 +382,35 @@ def completed_turn(source, thread_id: str, turn_id: str, root_id: str, role: str
                 answer = final_json(payload.get("last_agent_message"))
                 if finals:
                     require(final_json(finals[-1]) == answer, "completion and final answer disagree")
-                completions.append({"answer": answer, "completed_at": timestamp(payload.get("completed_at") or event.get("timestamp"))})
+                completed_at, completed_before = event_time(event, "completed_at")
+                require(completed_before > started_at if completed_before is not None else completed_at >= started_at,
+                        "source completion is before its own task_started")
+                completions.append({"answer": answer, "completed_at": completed_at,
+                                    "completed_before": completed_before, "task_started_event": started_event,
+                                    "task_complete_event": event_index, "session_meta_event": meta_index + 1})
             active = None
     require(len(completions) == 1, "execution unconfirmed: own completed turn missing or ambiguous")
+    require(last_started == turn_id and active is None, "selected completion is stale or continuation is unfinished")
     return completions[0]
+
+
+def resolve_completion(source, thread_id: str, root_id: str, role: str, digest: str, handoffs: list[str]) -> str:
+    events = source.read(thread_id)
+    meta_index, _ = session_metadata(events, thread_id, root_id, role, source=source)
+    candidates = []
+    for event in events[meta_index + 1:]:
+        payload = event.get("payload", {})
+        if event.get("type") != "event_msg" or payload.get("type") != "task_complete":
+            continue
+        try:
+            answer = final_json(payload.get("last_agent_message"))
+        except EvidenceError:
+            continue
+        if answer.get("reviewed_result_hash") == digest and answer.get("handoff") in handoffs:
+            candidates.append(payload.get("turn_id"))
+    require(len(candidates) == 1, "completion resolution missing or ambiguous; supply --completion-turn-id for the current handoff/result hash")
+    completed_turn(source, thread_id, candidates[0], root_id, role)
+    return candidates[0]
 
 
 def changed_paths(run_dir: Path, lane_map: dict) -> set[str]:
@@ -302,27 +484,52 @@ def validate_behavioral_checks(run_dir: Path, checks: list, source, reviewer_id:
             require(index in own_events, "behavioral evidence must belong to own session turn")
             event = events[index - 1]
             payload = event.get("payload", {})
-            require(event.get("type") == "response_item" and payload.get("type") in {"message", "function_call_output"}, "behavioral source must be an observed message or tool output")
-            content = payload.get("content", [])
-            observed = "".join(c.get("text", "") for c in content if c.get("type") in {"input_text", "output_text"})
+            require(event.get("type") == "response_item" and payload.get("type") in {"message", "agent_message", "function_call_output", "custom_tool_call_output"}, "behavioral source must be an observed message or tool output")
+            content, unavailable = public_content(payload.get("content", []))
+            unavailable = unavailable or payload.get("content_unavailable", False)
+            observed = "".join(c["text"] for c in content)
             if ref in inputs:
-                require(payload.get("role") == "user", "behavioral input source must be a user message")
+                if payload.get("type") == "agent_message":
+                    meta = metadata[0]
+                    parent_id = meta.get("parent_thread_id")
+                    session_metadata(events, check["session_thread_id"], parent_id, meta.get("agent_role"), source=source)
+                    recipient = meta.get("agent_path")
+                    require(isinstance(recipient, str) and child_spawn(meta).get("agent_path") == recipient
+                            and payload.get("recipient") == recipient, "behavioral agent_message recipient mismatch")
+                    _, parent_meta = own_metadata(source.read(parent_id), parent_id)
+                    parent_spawn = child_spawn(parent_meta)
+                    parent_path = parent_meta.get("agent_path")
+                    if parent_meta.get("parent_thread_id") is None and not parent_spawn:
+                        parent_path = "/root"
+                    else:
+                        require(parent_spawn.get("agent_path") == parent_path, "behavioral parent agent_path metadata conflict")
+                    require(isinstance(parent_path, str) and payload.get("author") == parent_path,
+                            "behavioral agent_message author must be its source parent")
+                else:
+                    require(payload.get("type") == "message" and payload.get("role") == "user", "behavioral input source must be a user message")
                 prepared = ref.get("prepared_event")
                 timeline = [json.loads(line) for line in (run_dir / "timeline.jsonl").read_text().splitlines()]
                 require(type(prepared) is int and 1 <= prepared <= len(timeline), "behavioral preparation event missing")
                 capture = timeline[prepared - 1]
+                require(capture.get("stage") == "behavior-input-prepared", "behavioral preparation requires a behavior-input-prepared event")
                 require(capture.get("input_sha256") == ref["sha256"] and ref["path"] in capture.get("artifacts", []), "behavioral preparation does not bind input")
                 require(timestamp(capture.get("timestamp")) < timestamp(event.get("timestamp")), "behavioral input was prepared after invocation")
-                if not observed:
+                if unavailable or not observed:
                     require(not check["strict_inputs"], "strict behavioral inputs unconfirmed: source input encrypted or unavailable")
                     continue
             else:
-                if payload.get("type") == "function_call_output":
+                if payload.get("type") in {"function_call_output", "custom_tool_call_output"}:
                     require(isinstance(ref.get("source_call_id"), str) and ref["source_call_id"] == payload.get("call_id"), "behavioral tool call_id mismatch")
-                    observed = payload.get("output")
+                    if payload.get("type") == "custom_tool_call_output":
+                        parts, unavailable = public_content(payload.get("output"))
+                        require(not unavailable and not payload.get("output_unavailable", False), "behavioral tool output unavailable")
+                        observed = "".join(c["text"] for c in parts)
+                    else:
+                        observed = payload.get("output")
                     require(isinstance(observed, str), "behavioral tool output unavailable")
                 else:
-                    require(payload.get("role") == "assistant", "behavioral output source must be assistant message")
+                    require(payload.get("type") == "message" and payload.get("role") == "assistant", "behavioral output source must be assistant message")
+                    require(not unavailable, "behavioral assistant output unavailable")
                 positions.append(index)
             require(sha256(observed.encode()) == ref["sha256"], "behavioral source bytes mismatch")
         require(positions == sorted(set(positions)), "behavioral outputs must preserve source order")
@@ -427,7 +634,7 @@ def validate_verification(run_dir: Path, summary: dict, lane_map: dict, verdict:
                 require(answer.get(field) == value, f"{key}: source {field} mismatch")
             if key == "reviewer":
                 require(answer.get("qa_handoff_sha256") == accepted["qa"]["handoff_sha256"], "reviewer: source qa_handoff_sha256 mismatch")
-                require(completion["completed_at"] > accepted["qa"]["completed_at"], "reviewer acceptance must follow QA completion")
+                require(completion_follows(completion, accepted["qa"]), "reviewer acceptance must follow QA completion")
             accepted[key] = {**completion, "handoff_sha256": handoff_hash}
         validate_behavioral_checks(run_dir, checks, source, records[verification["reviewer"]]["codex_thread_id"])
         return []

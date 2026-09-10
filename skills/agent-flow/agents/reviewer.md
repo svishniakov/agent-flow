@@ -79,15 +79,21 @@ For architecture-sensitive review, the packet must name the architect-owned revi
 предсуществующие и параллельные изменения вне задачи оставьте за её пределами.
 Вы не должны совпадать с QA, root или авторами результата. Проверьте достаточность
 QA evidence и выбранных behavioral_checks, включая ограничения зашифрованных inputs.
+Проверьте, что QA уже зарегистрирован recorder, каждый выбранный поведенческий
+критерий есть в `behavioral_checks`, а `strict_inputs` не ослаблялся после диалога.
+Отсутствие обязательной записи или недоступные строгие входы блокируют принятие.
 
-Запишите вывод, пути использованных доказательств и их SHA-256 в собственный handoff. Завершите собственный ход JSON-объектом
+Запишите вывод, пути использованных доказательств и их SHA-256 в собственный handoff. Завершите собственный ход целым JSON-объектом
 с `verdict`, `reviewed_result_hash`, `handoff`, `handoff_sha256` и
 `qa_handoff_sha256` прочитанного QA handoff. Положительные значения `verdict`:
 `passed` или `pass-with-risks`; отрицательные: `fail` или `blocked`.
 При изменении результата или QA handoff требуется новое принятие текущей редакции.
+`handoff` задаётся относительно run-каталога и точно совпадает с `--artifact`
+recorder. Повествовательный отчёт остаётся в handoff; проза перед необрамлённым
+JSON не допускается. Поддерживаемый завершающий fenced JSON остаётся совместимым.
 См. `references/traceable-runs.md`.
 
-Return:
+В handoff отразите:
 
 - findings ordered by severity
 - open questions

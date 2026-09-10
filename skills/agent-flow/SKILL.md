@@ -62,6 +62,11 @@ Agent Flow-invoked work:
 
 Inside Agent Flow, the orchestrator owns the outcome:
 
+Для изменения файлов сначала выполните обязательную последовательность из
+`references/orchestrator.md`: штатный init и root UUID до делегирования,
+recorder и независимое принятие текущего хеша, свежий validator перед `done`.
+Исполняемые примеры находятся в `references/traceable-runs.md`.
+
 1. Classify the request.
 2. Pick the internal flow.
 3. Decide whether trace artifacts are needed.
@@ -81,7 +86,7 @@ Inside Agent Flow, the orchestrator owns the outcome:
 17. Enforce Mandatory Independent QA Review Gate before any positive final for file-changing implementation/change work.
 18. Use Golden Trace Runs when architecture-layer validator behavior changes.
 19. Verify evidence before any completion claim.
-20. Close the current project-memory task status before final handoff.
+20. Close the current project-memory task status after successful final validation and before final handoff.
 21. Return the final answer with residual risks.
 
 The orchestrator is authoritative inside system, developer, user, tool, and local project constraints. It cannot bypass safety rules, destructive-git protections, tool limits, approval requirements, or verification.
@@ -120,7 +125,7 @@ Before implementation or subagent launch, the main agent must follow global proj
 
 Before planning a new feature, product edit, cross-file implementation, or delegated run, read any named PRD/spec/design source needed to understand the request, then inspect active project memory for existing `Status: in_progress` or `Status: blocked` tasks. Ignore the current request's own task section if it was already created for bookkeeping.
 
-Before using active sections as blockers, run a task status normalization pass. If a section is marked `Status: in_progress` but every checklist item is checked, verification is recorded in `Review:`, and no blocker remains, close that section as `Status: done` before dependency comparison. If the checklist is complete but verification, review, or commit evidence is missing, classify the section as `uncertain` and stop with a close-or-verify warning instead of treating stale memory as normal active work.
+Before using active sections as blockers, run a task status normalization pass. If a section is marked `Status: in_progress` but every checklist item is checked, verification is recorded in `Review:`, and no blocker remains, apply the Done Gate before closing that section as `Status: done`. Для изменения файлов сначала подтвердите текущее независимое принятие и выполните свежую финальную валидацию; нормализация статуса не обходит эту процедуру. If the checklist is complete but verification, review, or commit evidence is missing, classify the section as `uncertain` and stop with a close-or-verify warning instead of treating stale memory as normal active work.
 
 Classify each active task against the new request:
 
@@ -300,7 +305,7 @@ For every traceable run, keep `delegation-summary.json` synchronized with
 verdicts must not claim sidecar/subagent work unless a real spawned subagent
 trace and terminal handoff are recorded.
 
-Do not create run directories for short consultation, one-off shell checks, or tiny one-file edits unless risk grows.
+Do not create run directories for short consultation or one-off read-only shell checks. Для изменения даже одного файла используйте штатный compact-журнал с общим verification-контрактом.
 
 For traceable implementation runs inside git repos, capture `git status --short` before edits and report worktree hygiene in `final.md`: run-owned changes, pre-existing dirty files, and any pre-existing file touched by the run.
 
@@ -327,7 +332,8 @@ For each subagent, provide a self-contained delegation packet and require a hand
 Treat that packet as the source of truth for task-specific instructions. Include only active gates and the exact constraints needed by the assigned lane; do not copy the full gate catalog into every role prompt or packet.
 
 When a run directory exists, record real subagents with
-`scripts/record-agent-trace.py`: first `stage=spawned` with `codex_thread_id`,
+`scripts/record-agent-trace.py`: first `stage=spawned` with `codex_thread_id`
+(либо `--resolve-session --agent-path` для canonical-only ответа),
 then a terminal handoff/blocked/fail event. Update `delegation-summary.json`
 and `final.md` `Delegation Trace`; role lanes remain `role-lane` and are not
 sidecars.
@@ -364,9 +370,10 @@ No completion claim without fresh evidence. Verification can be tests, build, li
 
 Before final response for any repo task, run the Task Status Completion Gate:
 
-- if the current task checklist is complete, verification is recorded, no blocker remains, and any requested product commit succeeded, set the current `.agent-work/tasks/todo.md` section to `Status: done`;
+- для изменения файлов сначала выполните свежий `validate-run.py --run-dir ...` без `--allow-pending` и `--allow-no-check`; stdout/stderr и exit code сохраните в `checks/final-validation.txt` по примеру в `references/traceable-runs.md`;
+- if the current task checklist is complete, final validation exited 0, verification is recorded, no blocker remains, and any requested product commit succeeded, set the current `.agent-work/tasks/todo.md` section to `Status: done`; для консультаций без run достаточно применимых прямых проверок;
 - if a product commit was created for the task, update the current task section after the commit with the commit/check evidence before final handoff;
-- if any checklist item, verification, approval, or commit step is missing, keep `Status: in_progress` or `Status: blocked` and record the exact missing item.
+- if any checklist item, verification, approval, or commit step is missing, keep `Status: in_progress` or `Status: blocked` and record the exact missing item. Изменение результата или доказательств после проверки требует повторного принятия по затронутой части и нового вызова валидатора. Число tests и текстовое одобрение не заменяют эту команду.
 
 For UI workflows, browser proof must exercise the claimed workflow through the UI. Direct API calls may prepare, inspect, or clean up state, but they do not prove clicks, selections, saves, reloads, or visual states unless the app UI performs those steps too.
 

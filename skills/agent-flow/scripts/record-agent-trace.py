@@ -20,6 +20,7 @@ from agent_config import AgentConfigError
 from verification_evidence import (
     CodexSessionSource, EvidenceError, completed_turn, empty_verification,
     evidence_path, reference_bytes, result_hash, sha256, validate_verification,
+    resolve_completion, completion_follows, validate_summary_shape,
 )
 
 
@@ -147,7 +148,7 @@ def upsert_artifacts(
 
 def prepare_summary(run_dir: Path, args, artifact_paths: list[str], source) -> tuple[dict | None, dict]:
     """Validate everything before writing any trace, directory or index."""
-    if not (args.verification_json or args.completion_turn_id or args.lane_id):
+    if not (args.verification_json or args.completion_turn_id or args.lane_id or args.resolve_session):
         return None, {}
     path = run_dir / "delegation-summary.json"
     data = json.loads(path.read_text()) if path.exists() else {
@@ -155,13 +156,7 @@ def prepare_summary(run_dir: Path, args, artifact_paths: list[str], source) -> t
         "subagents": [], "role_lanes": [], "notes": "Recorded agent assignments.",
         "verification": empty_verification(),
     }
-    if not isinstance(data, dict) or type(data.get("version")) is not int or data.get("version") != 1:
-        raise EvidenceError("delegation-summary.json must be a version 1 object")
-    if not all(isinstance(data.get(k), list) and all(isinstance(r, dict) for r in data[k]) for k in ("subagents", "role_lanes")):
-        raise EvidenceError("delegation-summary records must be object arrays")
-    ids = [r.get("lane_id") for k in ("subagents", "role_lanes") for r in data[k]]
-    if not all(isinstance(value, str) and value for value in ids) or len(ids) != len(set(ids)):
-        raise EvidenceError("delegation-summary assignment IDs must be non-empty and unique")
+    validate_summary_shape(data)
     if args.verification_json:
         raw = args.verification_json
         if not raw.lstrip().startswith("{"):
@@ -173,11 +168,11 @@ def prepare_summary(run_dir: Path, args, artifact_paths: list[str], source) -> t
     verification = data.get("verification")
     if not isinstance(verification, dict):
         raise EvidenceError("verification must be an object")
+    for field in ("initial_snapshot", "task_scope"):
+        ref = verification.get(field)
+        if isinstance(ref, dict) and "sha256" not in ref:
+            ref["sha256"] = sha256(reference_bytes(run_dir, ref))
     if verification.get("task_kind") == "change":
-        for field in ("initial_snapshot", "task_scope"):
-            ref = verification.get(field)
-            if isinstance(ref, dict) and "sha256" not in ref:
-                ref["sha256"] = sha256(reference_bytes(run_dir, ref))
         verification["result_hash"] = result_hash(run_dir, verification)
         selected = [r for r in data["subagents"] if r.get("lane_id") in (verification.get("qa"), verification.get("reviewer"))]
         if any(r.get("reviewed_result_hash") != verification["result_hash"] for r in selected):
@@ -188,6 +183,13 @@ def prepare_summary(run_dir: Path, args, artifact_paths: list[str], source) -> t
         existing = next((r for r in data["subagents"] if r.get("lane_id") == args.lane_id), None)
         record = dict(existing or {})
         thread_id = args.codex_thread_id or record.get("codex_thread_id")
+        role = "reviewer" if args.role == "reviewer.qa" else args.role
+        if args.resolve_session:
+            extra.update(source.resolve_session(args.agent_path, verification.get("root_thread_id"), role,
+                                                thread_id=thread_id))
+            thread_id = extra["codex_thread_id"]
+            args.codex_thread_id = thread_id
+            record.update({k: extra[k] for k in ("agent_path", "observed_spawn_at", "session_meta_event", "task_started_event")})
         if not thread_id:
             raise EvidenceError("subagent assignment requires --codex-thread-id")
         if existing and (existing.get("codex_thread_id") != thread_id or existing.get("role") != args.role):
@@ -198,6 +200,9 @@ def prepare_summary(run_dir: Path, args, artifact_paths: list[str], source) -> t
             verification["qa"] = verification["reviewer"] = None
         elif args.role in {"reviewer", "reviewer.qa"} and args.stage == "spawned":
             verification["reviewer"] = None
+        if args.resolve_session and args.stage == "handoff" and not args.completion_turn_id:
+            args.completion_turn_id = resolve_completion(source, thread_id, verification.get("root_thread_id"),
+                                                         role, verification.get("result_hash"), artifact_paths)
         if args.completion_turn_id:
             if args.stage != "handoff":
                 raise EvidenceError("--completion-turn-id requires stage=handoff")
@@ -210,13 +215,14 @@ def prepare_summary(run_dir: Path, args, artifact_paths: list[str], source) -> t
                 raise EvidenceError("successful handoff requires accepted source verdict and status")
             handoff = answer.get("handoff")
             if handoff not in artifact_paths:
-                raise EvidenceError("source handoff must be included in --artifact")
+                raise EvidenceError("source handoff must be included in --artifact; pass its exact path relative to the run directory")
             if answer.get("reviewed_result_hash") != verification.get("result_hash"):
-                raise EvidenceError("source reviewed_result_hash does not match current result")
+                raise EvidenceError("source reviewed_result_hash does not match current result; recompute with --verification-json and obtain acceptance of that current hash")
             if sha256(evidence_path(run_dir, handoff).read_bytes()) != answer.get("handoff_sha256"):
                 raise EvidenceError("source handoff_sha256 mismatch")
-            extra = {k: answer[k] for k in ("reviewed_result_hash", "handoff", "handoff_sha256")}
+            extra.update({k: answer[k] for k in ("reviewed_result_hash", "handoff", "handoff_sha256")})
             extra["completion_turn_id"] = args.completion_turn_id
+            extra.update({k: completion[k] for k in ("session_meta_event", "task_started_event", "task_complete_event")})
             record.update(extra)
             record["evidence"] = [{"path": p, "sha256": sha256(reference_bytes(run_dir, {"path": p}))}
                                   for p in artifact_paths if p != handoff]
@@ -226,6 +232,10 @@ def prepare_summary(run_dir: Path, args, artifact_paths: list[str], source) -> t
                 qa = next((r for r in data["subagents"] if r.get("lane_id") == verification.get("qa")), {})
                 if answer.get("qa_handoff_sha256") != qa.get("handoff_sha256") or not qa.get("handoff_sha256"):
                     raise EvidenceError("source qa_handoff_sha256 mismatch")
+                qa_completion = completed_turn(source, qa.get("codex_thread_id"), qa.get("completion_turn_id"),
+                                               verification.get("root_thread_id"), "qa-verifier")
+                if not completion_follows(completion, qa_completion):
+                    raise EvidenceError("reviewer acceptance must follow QA completion")
             verification["reviewer" if role == "reviewer" else "qa"] = args.lane_id
         elif args.stage == "handoff" and artifact_paths:
             record["handoff"] = artifact_paths[0]
@@ -255,6 +265,8 @@ def main(argv=None, *, session_source=None) -> int:
     parser.add_argument("--artifact", action="append", default=[])
     parser.add_argument("--execution-mode", choices=["subagent", "role-lane"], default="subagent")
     parser.add_argument("--codex-thread-id")
+    parser.add_argument("--resolve-session", action="store_true", help="Resolve exact child session metadata and current handoff completion.")
+    parser.add_argument("--agent-path", help="Exact canonical task path returned by the spawn tool.")
     parser.add_argument("--runtime-nickname")
     parser.add_argument("--lane-id")
     parser.add_argument("--wave", type=int)
@@ -263,8 +275,13 @@ def main(argv=None, *, session_source=None) -> int:
     parser.add_argument("--verification-json", help="Verification object as JSON or a local file path.")
     args = parser.parse_args(argv)
 
-    if args.execution_mode == "subagent" and args.stage == "spawned" and not args.codex_thread_id:
-        raise SystemExit("spawned subagent events require --codex-thread-id")
+    if args.resolve_session:
+        if not args.agent_path or args.execution_mode != "subagent" or not args.lane_id or args.stage not in {"spawned", "handoff"}:
+            parser.error("--resolve-session requires --agent-path, --lane-id, subagent mode and stage spawned or handoff")
+    elif args.agent_path:
+        parser.error("--agent-path requires --resolve-session")
+    if args.execution_mode == "subagent" and args.stage == "spawned" and not (args.codex_thread_id or args.resolve_session):
+        raise SystemExit("spawned subagent events require --codex-thread-id or --resolve-session --agent-path")
 
     run_dir = Path(args.run_dir).expanduser().resolve()
     if not run_dir.exists():
@@ -343,6 +360,11 @@ def main(argv=None, *, session_source=None) -> int:
         (run_dir / "delegation-summary.json").write_text(json.dumps(summary_data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         if summary_data["verification"].get("result_hash"):
             print(f"result_hash: {summary_data['verification']['result_hash']}")
+
+    if args.resolve_session:
+        fields = ("codex_thread_id", "root_thread_id", "agent_path", "observed_spawn_at", "session_meta_event",
+                  "task_started_event", "completion_turn_id", "task_complete_event")
+        print("resolver: " + json.dumps({k: completion_fields[k] for k in fields if k in completion_fields}, sort_keys=True))
 
     print(f"recorded timeline: {timeline_path}")
     print(f"recorded agent trace: {agent_trace_path}")

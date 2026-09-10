@@ -297,6 +297,7 @@ not repeat this shared contract. Include only gates active for the assigned
 lane; do not paste the full gate catalog into every packet.
 
 - role;
+- full instructions from the selected role file;
 - stable identity if available;
 - lane id, lane type, wave, and critical flag when Lane Sharding is used;
 - goal;
@@ -314,6 +315,7 @@ lane; do not paste the full gate catalog into every packet.
 - relevant skills/plugins;
 - expected artifact;
 - verification commands;
+- current recorder result hash, initial snapshot, task scope and evidence for QA/reviewer; selected behavioral criteria, input sufficiency and QA checklist before behavioral calls;
 - Definition of Done gates;
 - budget cap and stop condition for loops, tournaments, or repeated passes;
 - quarantine status if untrusted content is in scope;
@@ -441,12 +443,18 @@ Each call writes the same event to the run-level `timeline.jsonl` and to
 Actual spawned subagents and role lanes are different:
 
 - Use `--execution-mode subagent` only when a real subagent/spawn tool was used.
-- A real subagent trace must include a `stage=spawned` event with `--codex-thread-id`.
+- A real subagent trace must include a `stage=spawned` event with a real UUID. Use `--codex-thread-id` when returned by the tool; otherwise use recorder `--resolve-session --agent-path` against the pre-recorded root UUID. Registration uses current time; observed source start time remains separate.
 - A successful real subagent trace must include a terminal handoff event with the same lane id, status `pass` or `pass-with-risks`, and the lane handoff artifact.
 - Use `--execution-mode role-lane` when the main agent performed a scoped role review or checklist without a spawned runtime.
 - Do not report `role-lane` work as subagent execution in the final answer or performance analysis.
 
 This is mandatory only for delegated subagents in a traceable run. A handoff file without a matching role-owned timeline event is an incomplete traceable run. A trace that calls itself subagent work but has no spawned event with `codex_thread_id` is also incomplete.
+
+QA/reviewer завершают ход целым JSON по `traceable-runs.md`; повествовательный
+отчёт остаётся в handoff. Recorder проверяет QA сразу после завершения, до reviewer.
+Исправляйте оформление без переписи source или нового назначения. Если необходим
+новый ответ, продолжайте прежнюю сессию с теми же моделью, достигнутым reasoning
+и счётчиком. Подготовленные behavioral inputs сохраняются до каждого вызова.
 
 ## Delegation Trace Gate
 

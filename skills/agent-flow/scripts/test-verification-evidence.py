@@ -652,6 +652,7 @@ class EvidenceRegressions(unittest.TestCase):
         self.rejected("own completed turn missing")
 
     def test_reviewer_acceptance_must_follow_qa(self):
+        self.source.sessions[REVIEWER_ID][1]["timestamp"] = "2026-09-10T08:00:00+00:00"
         self.source.sessions[REVIEWER_ID][-1]["timestamp"] = "2026-09-10T09:00:00+00:00"
         self.rejected("must follow QA completion")
 

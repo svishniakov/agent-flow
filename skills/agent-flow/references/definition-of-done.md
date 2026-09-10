@@ -17,7 +17,7 @@ Done means scope is complete and evidence exists.
 
 Before final handoff for repo tasks:
 
-- update `.agent-work/tasks/todo.md` with final status and verification;
+- update `.agent-work/tasks/todo.md` with verification; set `Status: done` only after the final validation below succeeds;
 - promote relevant `Project memory handoff` items from subagent artifacts, if subagents were used;
 - add confirmed lessons to `.agent-work/tasks/lessons.md`;
 - record important decisions, tradeoffs, constraints, evidence links, and follow-up in `.agent-work/tasks/implementation-notes.md` when global criteria make notes relevant.
@@ -28,18 +28,26 @@ When a task creates reusable process evidence, record it under `## Evidence Reco
 
 Before final handoff for any repo task, audit the current `.agent-work/tasks/todo.md` section:
 
-- if every checklist item is checked, verification is recorded, no blocker remains, and any requested product commit succeeded, set `Status: done`;
+- для изменения файлов сначала подготовьте итоговые документы и выполните свежий `validate-run.py --run-dir ...` без `--allow-pending` и `--allow-no-check`; сохраните stdout/stderr и exit code в `checks/final-validation.txt`;
+- if every checklist item is checked, final validation exited 0, verification is recorded, no blocker remains, and any requested product commit succeeded, set `Status: done`; консультации без run завершаются после применимых прямых проверок;
 - if a product commit was created for the task, update the current task section after the commit with commit and check evidence before final handoff;
 - if every checklist item is checked but verification, review, approval, or commit evidence is missing, do not call the task done; keep `Status: in_progress` or `Status: blocked` and record the missing evidence;
 - if work is intentionally deferred, leave an unchecked item or explicit blocker so the dependency gate has an honest active task to read.
 
 A task section must not remain `Status: in_progress` only because the agent forgot to flip the status after successful verification or commit.
 
+До успешной финальной команды отчёт остаётся кандидатом, задача не завершена.
+При отказе исправьте доступную ошибку и повторите команду. Недоступное обязательное
+доказательство запишите в `verification.blocker`. Новый результат или изменённый
+QA handoff требует актуального принятия; правка summary или final требует свежей
+валидации. Лог предыдущей команды не разрешает следующее завершение. Валидатор
+не может запретить произвольный final Codex, если агент его не вызвал.
+
 ## Traceable Gates
 
 For compact `standard` trace:
 
-- `run.md`, `checks.md`, and `final.md` exist;
+- `run.md`, `checks.md`, `context.md`, `final.md`, `timeline.jsonl` и штатный `delegation-summary.json` существуют; создавайте их через `init-run.py --mode compact`;
 - checks include command names and results;
 - residual risks are recorded.
 

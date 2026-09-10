@@ -1327,6 +1327,7 @@ def main() -> int:
         ("codegraph fixtures", [sys.executable, "scripts/test-codegraph.py"]),
         ("lane fixture tests", [sys.executable, "scripts/test-validate-run-lanes.py"]),
         ("QA/reviewer evidence fixtures", [sys.executable, "scripts/test-verification-evidence.py"]),
+        ("procedure completion fixtures", [sys.executable, "scripts/test-procedure-completion.py"]),
         ("golden trace runs", [sys.executable, "scripts/test-golden-traces.py"]),
         ("git diff hygiene", ["git", "-C", str(REPO_ROOT), "diff", "--check"]),
     ]

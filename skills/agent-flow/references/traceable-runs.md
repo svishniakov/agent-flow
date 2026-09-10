@@ -4,7 +4,8 @@ Traceable runs store evidence for work that needs durable review history.
 
 `.agent-work/tasks/` is project memory and follows the current user's Codex instructions, usually `~/.codex/AGENTS.md`, for all repo tasks. This file governs only `.agent-work/runs/` trace artifacts.
 
-Do not create a traceable run for `light` budget work.
+Для консультаций с budget `light` журнал не нужен. Изменение файлов использует
+штатный compact-журнал и тот же verification-контракт, что full.
 
 ## Location
 
@@ -27,12 +28,20 @@ For `standard` budget, prefer a compact trace:
 ```text
 run.md
 checks.md
+context.md
 final.md
 delegation-summary.json
+timeline.jsonl
 artifacts/
 ```
 
 Use this when the user needs continuity and evidence, but not a full release record.
+
+Создавайте compact командой `init-run.py --repo <project> --slug <task> --mode compact`.
+Без `--mode` сохраняется прежний full. Compact не создаёт lane-map и архитектурные
+handoffs; несовместимые архитектурные параметры отклоняются до записи. `--reuse`
+сохраняет прежний формат и заполненный summary. Некорректный summary требует
+диагностики и явного исправления; повторный init не заменяет его новым.
 
 ## Full Structure
 
@@ -83,11 +92,12 @@ When a traceable run creates a product commit, use this order:
 1. finish implementation;
 2. run the required checks;
 3. create the product commit with only in-scope product/docs changes;
-4. update the current `.agent-work/tasks/todo.md` section with commit/check evidence and set `Status: done` when the Task Status Completion Gate is satisfied;
+4. update the current `.agent-work/tasks/todo.md` section with commit/check evidence, keeping `Status: in_progress` until final validation;
 5. append a run-local `stage=commit` orchestrator event with the commit hash;
 6. write or update `final.md` with the commit hash, evidence and risks;
 7. append the single final orchestrator timeline event;
-8. run `scripts/validate-run.py --run-dir <run-dir>`.
+8. run `scripts/validate-run.py --run-dir <run-dir>` and save stdout/stderr plus exit code as shown below;
+9. only after exit 0 and completion of all task criteria, set `Status: done` and send the final answer.
 
 Do not create a second commit just to include `.agent-work/` trace changes. The
 timeline records the product commit hash locally after the product commit
@@ -317,28 +327,78 @@ Reviewer сверяет список с исходным снимком, сог�
 
 ### Запись и собственный итог проверяющего
 
-`init-run.py` создаёт пустой summary даже без `--with-lanes`, а `--reuse` сохраняет
-заполненные данные. Compact использует тот же summary; обязательного lane-map нет.
-
-Перед QA подготовьте объект verification. Через существующий recorder передайте
-его строкой JSON или путём к локальному файлу. Если у исходного снимка и границ
-нет `sha256`, recorder запишет его; имеющиеся хеши проверит. Это момент фиксации
-редакции, а не подтверждение выполненного QA.
+`AF_PACKAGE` ниже обозначает фактически загруженный каталог skill, `AF_PROJECT` -
+рабочий проект, `AF_RUN` - путь, возвращённый init. Для изолированной проверки
+используйте временную копию пакета и передайте её точный путь всем участникам.
 
 ```sh
-python3 skills/agent-flow/scripts/record-agent-trace.py \
+python3 "$AF_PACKAGE/scripts/init-run.py" \
+  --repo "$AF_PROJECT" --slug completion-check --mode compact
+```
+
+`init-run.py` создаёт штатный summary версии 1 даже без `--with-lanes`.
+Не собирайте summary вручную. `--reuse` сохраняет заполненные данные и формат;
+ошибка существующего summary требует явного исправления, не перезаписи init.
+
+До первого spawn заполните `context.md` с разделом `Initial Worktree Snapshot`
+и границы задачи в `run.md` или `plan.md`. Сохраните отдельный входной объект
+verification, взяв его из созданного summary. Установите реальный root UUID
+из среды в `root_thread_id`, ссылки `initial_snapshot` и `task_scope`.
+Для этого промежуточного шага оставьте `task_kind: null`, `qa: null`,
+`reviewer: null`, пустые `author_thread_ids`, `result_files` и `behavioral_checks`.
+Например, источником UUID может быть `CODEX_THREAD_ID`, если он совпадает с
+`session_meta.id` текущей сессии. При отсутствии подтверждённого UUID остановите
+делегирование с конкретной диагностикой; canonical path его не заменяет.
+
+```json
+{
+  "task_kind": null,
+  "root_thread_id": "<реальный UUID текущего root>",
+  "author_thread_ids": [],
+  "result_files": [],
+  "initial_snapshot": {"path": "context.md", "section": "Initial Worktree Snapshot"},
+  "task_scope": {"path": "run.md", "section": "Task Scope"},
+  "qa": null,
+  "reviewer": null,
+  "behavioral_checks": []
+}
+```
+
+`AF_VERIFICATION` - файл с этим объектом, например `checks/verification-input.json`.
+Заголовок `Task Scope` и непустой текст границ должны существовать до команды.
+
+```sh
+python3 "$AF_PACKAGE/scripts/record-agent-trace.py" \
+  --run-dir "$AF_RUN" --role orchestrator --execution-mode role-lane \
+  --stage verification --status active --summary "Root UUID и границы записаны до делегирования" \
+  --verification-json "$AF_VERIFICATION"
+```
+
+Recorder заполняет отсутствующие SHA-256 ссылок и проверяет имеющиеся. Частичный
+объект не вычисляет result hash и не разрешает положительный итог. После этой
+записи canonical-only назначения уже можно разрешать по точному parent UUID.
+
+Перед QA возьмите текущий verification из summary, установите `task_kind: change`,
+полные `author_thread_ids` и `result_files`. Сохраните текущие behavioral_checks
+и ссылки. Через recorder передайте объект строкой JSON или путём к локальному
+файлу. Команда вычисляет штатный хеш файлов вместе со снимком и границами.
+Не заменяйте его собственной формулой хеширования списка файлов.
+
+```sh
+python3 "$AF_PACKAGE/scripts/record-agent-trace.py" \
   --run-dir "$AF_RUN" --role orchestrator --execution-mode role-lane \
   --stage verification --status active --summary "Редакция подготовлена к QA" \
   --verification-json "$AF_VERIFICATION"
 ```
 
-`AF_RUN` обозначает run-каталог; `AF_VERIFICATION` содержит подготовленный объект
-или путь к нему. Команда выводит `result_hash`. Передайте обоим проверяющим этот
-хеш, `result_files`, снимок, границы и критерии задачи. QA записывает проверки
-в handoff, reviewer читает его до итогового принятия.
+Команда выводит `result_hash`. Передайте обоим проверяющим этот хеш, `result_files`,
+снимок, границы, критерии задачи и полные инструкции роли. QA записывает проверки
+в handoff. Сначала зарегистрируйте собственный итог QA; reviewer получает уже
+зарегистрированное принятие и читает этот handoff до своей проверки.
 
-Каждый проверяющий завершает собственный ход JSON-объектом, отдельно или в
-последнем блоке `json` после пояснений:
+Каждый проверяющий завершает собственный ход целым JSON-объектом. Поддержка
+последнего fenced блока `json` сохраняется; проза перед необрамлённым JSON
+не принимается. Подробный отчёт остаётся в handoff:
 
 В handoff перечислите пути использованных доказательств и их SHA-256.
 Validator требует эти значения в handoff, связанном с исходным итоговым ходом.
@@ -358,21 +418,51 @@ Reviewer указывает свой handoff и добавляет `qa_handoff_s
 `pass-with-risks`. Для отрицательного итога используйте `fail` или `blocked`.
 Root не может заменить отрицательный ответ положительной записью summary.
 
-После реального запуска запишите назначение; подставляйте UUID из среды,
-не `/root/task_name` и не выдуманный ID:
+После реального запуска запишите назначение; подставляйте UUID из среды.
+Если инструмент вернул UUID, прямой путь остаётся доступен:
 
 ```sh
-python3 skills/agent-flow/scripts/record-agent-trace.py \
+python3 "$AF_PACKAGE/scripts/record-agent-trace.py" \
   --run-dir "$AF_RUN" --role qa-verifier --lane-id qa-final \
   --codex-thread-id "$AF_QA_ID" --stage spawned --status active \
   --summary "QA запущен"
 
-python3 skills/agent-flow/scripts/record-agent-trace.py \
+python3 "$AF_PACKAGE/scripts/record-agent-trace.py" \
   --run-dir "$AF_RUN" --role qa-verifier --lane-id qa-final \
   --codex-thread-id "$AF_QA_ID" --completion-turn-id "$AF_QA_TURN" \
   --stage handoff --status pass --summary "QA завершён" \
   --artifact handoffs/qa.md --artifact checks/qa.md
 ```
+
+Если ответ содержит только canonical name, передайте точный возвращённый путь:
+
+```sh
+python3 "$AF_PACKAGE/scripts/record-agent-trace.py" \
+  --run-dir "$AF_RUN" --role qa-verifier --lane-id qa-final \
+  --resolve-session --agent-path "$AF_QA_PATH" --stage spawned --status active \
+  --summary "Назначение QA разрешено по исходной сессии"
+
+python3 "$AF_PACKAGE/scripts/record-agent-trace.py" \
+  --run-dir "$AF_RUN" --role qa-verifier --lane-id qa-final \
+  --resolve-session --agent-path "$AF_QA_PATH" --stage handoff --status pass \
+  --summary "Собственное завершение QA зарегистрировано" \
+  --artifact handoffs/qa.md --artifact checks/qa.md
+```
+
+Resolver ищет metadata по exact canonical path, `verification.root_thread_id`
+и канонической роли. При нуле кандидатов, нескольких совпадениях или конфликте
+явного UUID запись отклоняется. Он не выбирает похожее имя или самую свежую сессию.
+Для handoff без `--completion-turn-id` выбирается собственное завершение,
+связанное с текущим hash и handoff; незавершённое продолжение и неоднозначность
+отклоняются. Явный `--completion-turn-id` сохраняется для различимого хода.
+Вывод содержит использованные UUID и номера исходных событий. Время регистрации
+остаётся текущим, наблюдаемое время запуска хранится отдельно.
+
+Путь `handoff` в JSON относителен run-каталогу и точно совпадает с `--artifact`.
+Сразу после QA выполните recorder: неверное оформление или путь исправляется
+до reviewer. Если достаточно исправить аргументы команды, повторно используйте
+готовое завершение. Если нужен другой ответ, продолжайте ту же сессию с прежними
+моделью, достигнутым reasoning и счётчиком; не переписывайте исходный ответ.
 
 Для reviewer повторите команды с `--role reviewer`, отдельным `lane-id`,
 его UUID, завершённым turn ID и файлами reviewer. Успешная запись добавляет
@@ -388,8 +478,15 @@ python3 skills/agent-flow/scripts/record-agent-trace.py \
 `~/.codex/sessions`. Export из run-каталога не подходит. Проверяются `session_meta.id`,
 родство, каноническая роль, согласованность дублирующих metadata, собственные
 `task_started`, `turn_context.turn_id/model`, `task_complete.turn_id` и итоговый
-JSON выбранного хода. `session_meta.session_id` может содержать ID родителя.
+JSON выбранного хода. `session_meta.session_id` может содержать ID внешнего root
+для вложенного назначения. Такая связь принимается только по непрерывной цепочке
+исходных сессий до этого root; прямой родитель и роль назначения проверяются отдельно.
 Унаследованный `turn_context` до собственного запуска не подтверждает модель.
+
+Reader принимает ISO-время с часовым поясом и целые Unix-секунды, исключая bool.
+Для целого числа согласованная внешняя метка должна находиться в той же секунде
+и может уточнить порядок. Конфликт или некорректная внутренняя метка отклоняются.
+Без уточняющей метки секундный интервал не становится миллисекундным временем.
 
 Reader реализует наблюдённую локальную структуру событий Desktop. Поддержка той
 же структуры из CLI требует свежего V9-прогона; неподдерживаемый формат блокирует
@@ -411,10 +508,20 @@ handoff требует нового `qa_handoff_sha256` в собственно�
 ### Условные проверки поведения
 
 `behavioral_checks` нужен только для выбранных критериев поведения агента.
+До запуска запишите выбранные критерии в scope/план и QA checklist. Для каждого
+заранее определите достаточность доступных входов и `strict_inputs`. QA обязан
+отклонить отсутствующую запись выбранного критерия; непустого массива недостаточно.
 Каждая запись содержит `criterion_id`, `session_thread_id`, `verifier_thread_id`
 независимого reviewer, ссылку `handoff`, флаг `strict_inputs`, списки `inputs`
 и `outputs`. Каждая ссылка фиксирует `path`, `sha256`, `source_event` - номер
 строки исходного JSONL, начиная с 1. Для tool output нужен также `source_call_id`.
+
+До назначения reviewer поле `verifier_thread_id` остаётся незаполненным в
+промежуточной записи. QA проверяет выбранный критерий, inputs и outputs; после
+регистрации его принятия запустите reviewer, разрешите его настоящий UUID и
+дополните это поле через recorder. Reviewer проверяет окончательную привязку к
+собственной сессии. Положительный итог требует заполненного поля; запускать
+reviewer заранее ради UUID или подставлять чужой ID не нужно.
 
 Сохраните начальный пакет и каждый followup до передачи. Запишите событие
 `behavior-input-prepared` через recorder с одним `--artifact`: оно автоматически
@@ -429,12 +536,51 @@ Validator сравнит хеши, исходные байты и время п�
 `false` разрешён, только если приёмке достаточно подготовленной копии; передача
 именно этих байтов тогда остаётся неподтверждённой. Поздняя копия, изменение байтов
 и синтетическая перестановка событий не являются реальным доказательством поведения.
+Нельзя ослаблять `strict_inputs` после обнаружения шифрования, чтобы получить PASS.
+
+В Desktop вход от родителя может иметь тип `agent_message`, а результат инструмента -
+`custom_tool_call_output` со списком текстовых частей. Reader проверяет адресата и
+родителя сообщения; для вывода инструмента сверяет весь текст и `call_id`. Служебный
+текст рядом с зашифрованной частью не подтверждает байты входа.
+Если критерий требует доказать вопрос агента, сохраните его обычный ответ из исходной
+сессии до followup. Зашифрованный аргумент `send_message` и пересказ получателя этого
+не доказывают; недоступный output оставляет критерий незакрытым.
+
+### Финальная команда и завершение задачи
+
+Подготовьте `final.md` с допустимым `Verdict`, остальные документы и единственное
+финальное событие timeline. Пока команда не прошла, отчёт остаётся кандидатом,
+текущая задача имеет `Status: in_progress`.
+
+```sh
+python3 "$AF_PACKAGE/scripts/validate-run.py" --run-dir "$AF_RUN" \
+  > "$AF_RUN/checks/final-validation.txt" 2>&1
+AF_VALIDATION_EXIT=$?
+printf '\nexit_code: %s\n' "$AF_VALIDATION_EXIT" >> "$AF_RUN/checks/final-validation.txt"
+cat "$AF_RUN/checks/final-validation.txt"
+test "$AF_VALIDATION_EXIT" -eq 0
+```
+
+Запускайте этот пример в shell без `errexit`, чтобы сохранить код отказа.
+Не используйте `--allow-pending` или `--allow-no-check`. Лог финальной команды
+не включается в проверяемый result hash или собственные QA/reviewer evidence,
+иначе его запись изменит входы той же проверки. Это отчёт, не кэш разрешения.
+Каждое последующее завершение требует свежего вызова валидатора.
+
+При exit 1 исправьте доступную ошибку и повторите команду. При недоступном
+обязательном доказательстве запишите `verification.blocker`, отрицательный
+`Verdict` и незакрытый критерий. Только при exit 0 и выполненных критериях
+установите `Status: done`, затем отправьте положительный final пользователю.
+Не редактируйте после этого результат, handoffs, summary или итоговый отчёт без
+затронутого повторного принятия и свежей валидации. Обновление статуса в памяти
+не меняет продуктовый результат. Число tests и текстовое одобрение reviewer
+не заменяют финальную команду; Python не перехватывает произвольный ответ Codex.
 
 ### Последующая приёмка V9
 
 Эти сценарии требуют разрешённых реальных дочерних сессий и выполняются отдельно
-от реализации одним агентом. Используйте свежие временные проекты и текущий
-checkout продукта; не устанавливайте глобальные конфигурации.
+от реализации. Используйте свежие временные проекты и копию проверяемого пакета;
+всем участникам передайте точный путь копии. Глобальные конфигурации не меняйте.
 
 1. В обычном Desktop создайте compact-задачу: добавить синтетический PRD из трёх
    требований в `docs/example.md`. Зафиксируйте исходный снимок и границы. Запустите
@@ -448,12 +594,28 @@ checkout продукта; не устанавливайте глобальны�
    `python3 skills/agent-flow/scripts/validate-run.py --run-dir "$AF_RUN" --mode full`.
 3. В каждом проекте измените один файл результата после принятия: валидатор должен
    отказать. Получите новые QA/reviewer turns по новой редакции и повторите проверку.
+   Если первый run уже имеет финальное событие, сохраните его историю и создайте
+   штатным init отдельный run для новой редакции. Продолжайте те же независимые
+   назначения; время повторной регистрации остаётся текущим. Не добавляйте второе
+   final к завершённому timeline. Общую тестовую задачу оставляйте `in_progress`
+   до окончания всех проверок и последней успешной финальной команды.
    Сохраните UUID, turn IDs, result hash, команды, exit codes и исходные клиентские
    журналы на их местах. Синтетические tests не подтверждают фактический запуск модели.
 4. Отдельный независимый reviewer принимает точный итоговый diff реализации и
    реальные доказательства обоих прогонов. До этого V9 и окончательная приёмка
    неподтверждены. Исторические runs и A/B/C не переписываются; прежний PASS относится
    к прежнему валидатору. Старые неполные runs могут не пройти новую финальную проверку.
+
+Для проверки процедуры завершения в одном свежем run заранее выберите
+поведенческий критерий и сбой регистрации. Сохраните все inputs до отправки;
+QA должен отклонить пропущенную обязательную behavioral запись. Неверный путь
+handoff должен отказать до записи; исправление аргумента использует готовый ход.
+Финальная команда с отсутствующим обязательным полем должна отказать; после
+исправления root повторяет её до `done` и положительного ответа. Наблюдатель
+проверяет source metadata, собственные `task_complete`, tool calls и порядок
+событий. Повторный пропуск команды оставляет приёмку процедуры открытой, даже
+при успешных Python tests. При недоступности среды или строгих входов фиксируется
+точный blocker; другая модель, API и сброс подписки не заменяют проверку.
 
 Schema v2 adds the Architecture Contract Gate:
 

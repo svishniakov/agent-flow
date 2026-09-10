@@ -9,7 +9,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from verification_evidence import empty_verification
+from verification_evidence import EvidenceError, empty_verification, validate_summary_shape
 
 from architecture_capabilities import (
     ARCHITECTURE_CONTEXT_AXES,
@@ -865,12 +865,13 @@ def write_architecture_gate_artifacts(
     )
 
 
-def main() -> int:
+def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo", required=True, help="Project repo path.")
     parser.add_argument("--slug", required=True, help="Short task slug.")
     parser.add_argument("--date", help="YYYY-MM-DD. Defaults to local date.")
     parser.add_argument("--reuse", action="store_true", help="Reuse an existing run directory.")
+    parser.add_argument("--mode", choices=("compact", "full"), help="Journal format. Defaults to full for a new run; reuse preserves its format.")
     parser.add_argument("--with-lanes", action="store_true", help="Create Lane Sharding skeleton artifacts.")
     parser.add_argument("--architecture-gate", action="store_true", help="Create Architecture Artifact Authoring Automation skeleton.")
     parser.add_argument("--budget", choices=sorted(TRACE_BUDGETS), help="Trace budget for schema v2 architecture runs.")
@@ -882,7 +883,11 @@ def main() -> int:
         default=[],
         help="Worker lane in lane-id:type:role form. Type must be implementation or integration.",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
+
+    if args.mode == "compact" and any((args.with_lanes, args.architecture_gate, args.budget,
+                                       args.architecture_context_json, args.architecture_capabilities, args.worker_lane)):
+        parser.error("--mode compact is incompatible with lane and architecture generation flags")
 
     architecture_context: dict[str, list[str]] | None = None
     architecture_capabilities: list[str] = []
@@ -907,17 +912,43 @@ def main() -> int:
     if run_dir.exists() and not args.reuse:
         raise SystemExit(f"run dir already exists: {run_dir} (use --reuse or choose another slug/date)")
 
-    (run_dir / "handoffs").mkdir(parents=True, exist_ok=True)
-    (run_dir / "checks").mkdir(parents=True, exist_ok=True)
-    (run_dir / "artifacts").mkdir(parents=True, exist_ok=True)
+    mode = args.mode or "full"
+    if run_dir.exists():
+        existing_mode = "compact" if (run_dir / "run.md").exists() and not (run_dir / "manifest.md").exists() else "full"
+        if args.mode and args.mode != existing_mode:
+            parser.error("--reuse cannot change the existing journal format")
+        mode = existing_mode
+        if mode == "compact" and any((args.with_lanes, args.architecture_gate, args.budget,
+                                       args.architecture_context_json, args.architecture_capabilities, args.worker_lane)):
+            parser.error("compact --reuse is incompatible with lane and architecture generation flags")
+        summary_path = run_dir / "delegation-summary.json"
+        if not summary_path.exists():
+            parser.error("delegation-summary.json is missing from the existing run; restore its original state before --reuse or initialize a new run with another slug")
+        try:
+            summary = json.loads(summary_path.read_text())
+            validate_summary_shape(summary)
+        except (EvidenceError, OSError, UnicodeError, json.JSONDecodeError) as exc:
+            parser.error(f"delegation-summary.json is malformed; correct it before --reuse: {exc}")
 
-    for name, content in RUN_FILES.items():
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "handoffs").mkdir(exist_ok=True)
+    (run_dir / "checks").mkdir(exist_ok=True)
+    if mode == "full":
+        (run_dir / "artifacts").mkdir(exist_ok=True)
+
+    files = RUN_FILES if mode == "full" else {
+        "run.md": "# Run\n\nStatus: active\n\n## Task Scope\n\n",
+        "checks.md": "# Checks\n\n",
+        "context.md": RUN_FILES["context.md"],
+        "final.md": RUN_FILES["final.md"].split("## Boundary Evidence")[0],
+    }
+    for name, content in files.items():
         path = run_dir / name
         if not path.exists():
             path.write_text(content, encoding="utf-8")
 
     artifacts = run_dir / "artifacts.json"
-    if not artifacts.exists():
+    if mode == "full" and not artifacts.exists():
         artifacts.write_text("[]\n", encoding="utf-8")
 
     delegation_summary = run_dir / "delegation-summary.json"

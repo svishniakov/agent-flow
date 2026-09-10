@@ -46,7 +46,7 @@ Rules:
 - subagents are allowed when work can be split into narrow independent lanes, review, or QA evidence;
 - workflow patterns may be recorded in `run.md` or `checks.md` when they explain the evidence;
 - Lane Sharding may use `lane-map.json` when durable lane evidence is useful;
-- compact trace: `run.md`, `checks.md`, `final.md`, `delegation-summary.json` с `verification` и доказательства; lane-map необязателен;
+- compact trace создаётся `init-run.py --mode compact`: `run.md`, `checks.md`, `context.md`, `final.md`, timeline, штатный `delegation-summary.json` с `verification` и доказательства; lane-map необязателен;
 - full trace is optional, not default.
 
 ## Release
@@ -76,6 +76,10 @@ Rules:
 - no final `ship` verdict unless acceptance checks passed.
 
 ## Escalation
+
+`--mode compact|full` выбирает формат журнала, не budget или новый workflow.
+Обязательная последовательность записи и завершения одинакова для обоих форматов:
+`orchestrator.md`, раздел «Обязательная последовательность для изменения файлов».
 
 Escalate from `light` to `standard` or `release` only for a concrete reason. Record that reason briefly when trace artifacts are created.
 

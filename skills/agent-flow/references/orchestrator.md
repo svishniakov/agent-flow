@@ -28,6 +28,19 @@ The orchestrator must obey:
 
 ## Start Of Request
 
+### Обязательная последовательность для изменения файлов
+
+1. До первого делегирования создайте журнал через `init-run.py --mode compact|full`. Заполните исходный снимок и границы, затем через recorder сохраните частичный verification с реальным `root_thread_id`. Порядок и команды: `traceable-runs.md`, раздел «Запись и собственный итог проверяющего».
+2. Зарегистрируйте каждое настоящее назначение через `record-agent-trace.py`. Если инструмент вернул только canonical name, используйте `--resolve-session --agent-path`; UUID берётся из исходной сессии, не из догадки.
+3. Для выбранного поведенческого критерия до отправки сохраните полный начальный пакет и каждый followup, запишите `behavior-input-prepared`. Заранее зафиксируйте критерий, QA checklist и достаточность `strict_inputs`.
+4. Перед QA передайте recorder полный `result_files` и `task_kind: change`. Используйте выведенный `result_hash`, который включает файлы, снимок и границы. Каждое назначение получает полные инструкции роли, текущие ограничения и доказательства.
+5. Получите собственный итог QA как целый JSON и сразу зарегистрируйте его через recorder. Только после успешной записи передайте reviewer текущий результат и принятый QA handoff; зарегистрируйте собственный JSON reviewer с `qa_handoff_sha256`.
+6. Ошибку записи исправляйте по диагностике. Не переписывайте исходные ответы. Новый ответ, если он нужен, получают продолжением того же назначения с прежними моделью, достигнутым reasoning и счётчиком попыток. Исправление регистрации само по себе не требует нового запуска модели.
+7. Подготовьте `final.md`, завершите остальные документы и timeline. Выполните свежий `validate-run.py --run-dir ...` без допуска незавершённых данных. Сохраните stdout/stderr и exit code в `checks/final-validation.txt`. При отказе исправьте доступные ошибки и повторите команду; при недоступных обязательных доказательствах укажите `verification.blocker` и отрицательный итог.
+8. Только после успешной команды и закрытия всех критериев установите `Status: done`, затем сообщите результат. Изменения результата требуют повторного принятия; изменения handoff, summary или итогового отчёта требуют затронутых проверок и свежей валидации. Сохранённый лог команды не служит разрешением на следующее завершение.
+
+Этот порядок дополняет применимые gates ниже. Скрипт проверяет только вызванную команду и не перехватывает произвольный final Codex.
+
 1. Enter this route only after the latest user message contains `Agent Flow`, `AgentFlow`, `$agent-flow`, or `agent-flow`.
 2. Strip the invocation marker and read local project rules.
 3. Detect the project repo and apply global project memory rules from the current user's Codex instructions, usually `~/.codex/AGENTS.md`.
@@ -158,11 +171,11 @@ Before final answer:
 10. If `implementation-notes.md` gained Evidence Records, run or account for the evidence analyzer before relying on a learned practice.
 11. If an implementation plan was created or materially revised, confirm the current revision has independent Devil's Advocate verdict `passed`; any review-driven edit makes the previous verdict stale.
 12. If product changes must be committed, create the product commit after checks and before final trace closure. Do not include `.agent-work/` in the product commit unless the user explicitly requested it.
-13. Run the Task Status Completion Gate for the current `.agent-work/tasks/todo.md` section. If the checklist is complete, verification is recorded, no blocker remains, and the requested commit succeeded, set `Status: done`; otherwise record the missing item and keep `Status: in_progress` or `Status: blocked`.
+13. Проверьте checklist текущей задачи и запишите недостающие доказательства. До финальной валидации сохраняйте `Status: in_progress`; недоступные обязательные доказательства означают `Status: blocked`.
 14. If a trace timeline exists and a product commit was created, append an orchestrator `stage=commit` event with the commit hash.
 15. Compare the initial worktree snapshot with current `git status --short`.
 16. In `final.md`, record run-owned changes, product commit hash when applicable, pre-existing dirty files left untouched, and pre-existing dirty files touched by the run.
 17. If a trace timeline exists, append the final orchestrator event after `final.md` records the verdict and commit hash.
-18. Run final trace validation.
-19. Record residual risks.
-20. Keep final answer short and evidence-based.
+18. Выполните `validate-run.py --run-dir ...` без `--allow-pending` и `--allow-no-check`; сохраните вывод и код выхода в `checks/final-validation.txt`. Отказ требует исправления и нового вызова, а не оговорки о пропущенном валидаторе.
+19. Только при exit 0, полном checklist и отсутствии блокеров выполните Task Status Completion Gate и установите `Status: done`. Остаточные риски должны быть записаны до проверки; правка итоговых доказательств после неё требует свежей валидации.
+20. Keep final answer short and evidence-based. Положительный финальный ответ следует после успешной валидации и обновления памяти.

@@ -74,13 +74,20 @@ Use the delegation packet as the source of truth for the goal, scope, acceptance
 исправления повторите затронутые проверки и подтвердите новую редакцию.
 Если выбран поведенческий критерий, проверьте ранние inputs, исходные outputs
 и их порядок; зашифрованный input не подтверждает передачу точных байтов.
+Сверьте каждый выбранный критерий из scope и QA checklist с `behavioral_checks`.
+Пропущенная запись означает `blocked` или `fail`, даже если продуктовые tests прошли.
+Проверьте, что достаточность входов и `strict_inputs` выбраны до диалога; при
+недоступных строгих входах верните `blocked`, не ослабляя критерий.
 
-Завершите собственный ход JSON-объектом с `verdict`, `reviewed_result_hash`,
+Завершите собственный ход целым JSON-объектом с `verdict`, `reviewed_result_hash`,
 `handoff`, `handoff_sha256`. Положительные значения `verdict`: `passed` или
 `pass-with-risks`; отрицательные: `fail` или `blocked`. Handoff уже должен
-существовать, а SHA-256 соответствовать его байтам. См. `references/traceable-runs.md`.
+существовать, а SHA-256 соответствовать его байтам. `handoff` задаётся относительно
+run-каталога и точно совпадает с `--artifact` recorder. Повествовательный отчёт
+запишите в handoff; не добавляйте прозу перед необрамлённым JSON. Reader также
+сохраняет поддержку завершающего fenced JSON. См. `references/traceable-runs.md`.
 
-Return:
+В handoff отразите:
 
 - checks run
 - important outputs

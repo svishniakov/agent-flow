@@ -11,6 +11,12 @@ budget. Они являются прямыми дочерними сессиям
 Реальные роль, модель и собственный завершённый ход проверяются по контракту
 `delegation-summary.json.verification` из `references/traceable-runs.md`.
 
+В каждое назначение передавайте полные инструкции выбранной роли и актуальные
+доказательства. Если spawn возвращает только canonical path, разрешайте UUID
+через recorder `--resolve-session --agent-path`, используя уже записанный root UUID.
+После QA сразу зарегистрируйте его собственный итог; reviewer запускается после
+успешной записи QA. Ошибка регистрации не меняет модель, reasoning или счётчик.
+
 Stable identities and Codex display nicknames live in `agents/agent-identities.json`.
 
 Run `python3 scripts/sync-codex-agent-config.py --output-dir .codex/agents` from a target project to sync project-scoped Codex custom-agent files. Use `--output-dir ~/.codex/agents` only when the same Agent Flow role names should be visible across all local Codex projects. Synced files map Agent Flow role frontmatter to Codex fields: `name`, `description`, `model`, `model_reasoning_effort`, `developer_instructions`, and `nickname_candidates`.
