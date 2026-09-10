@@ -1,318 +1,115 @@
-# AgentFlow
+# Agent Flow
 
 [English version](README.md)
 
-AgentFlow - локальный фреймворк оркестрации и проверки агентной разработки в
-Codex. Он превращает один явно помеченный запрос в управляемый инженерный
-workflow: с проектной памятью, ограниченными role lanes, архитектурными
-gate-проверками, проверкой trace artifacts и локальным обучением на реальных
-прогонах.
-
-Используйте его, когда coding agent должен не просто внести правку, а удержать
-scope, показать evidence, оставить проверяемые `handoff`-файлы и ответить на
-главный вопрос: что изменилось, почему это безопасно и чем это проверено.
-
-AgentFlow рассчитан на Codex и модели OpenAI. Claude Code, Cursor, Hermes и
-другие hosts не входят в scope этого пакета.
-
-## Inspired by
-
-AgentFlow не является обёрткой над этими проектами и не зависит от них в
-runtime. Это источники, которые повлияли на форму AgentFlow: локальное состояние,
-gate-проверки с evidence, проверяемые handoff-файлы, CodeGraph и аккуратное
-обучение на подтверждённых прогонах.
-
-GitHub repositories:
-
-- [kayba-ai/agentic-context-engine](https://github.com/kayba-ai/agentic-context-engine)
-  — структурное локальное обучение, skillbook-подход, provenance и счётчики
-  полезных/вредных примеров.
-- [hexo-ai/sia](https://github.com/hexo-ai/sia) — self-improvement loop, где
-  изменения harness отделены от изменений модели.
-- [Ancienttwo/repo-harness](https://github.com/Ancienttwo/repo-harness) —
-  repo-local workflow state, contracts, checks, review evidence и handoffs.
-- [DanMcInerney/architect-loop](https://github.com/DanMcInerney/architect-loop)
-  — разделение architect/builder, source-backed design и boundary evidence.
-- [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) —
-  Engineering Simplicity Gate: сначала нативное, минимальное и уже существующее
-  решение, а только потом новые abstractions или dependencies.
-- [unclebob/swarm-forge](https://github.com/unclebob/swarm-forge) — простая
-  multi-agent coordination, durable handoffs и дисциплина очереди работ.
-- [DeusData/codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp)
-  — code intelligence и knowledge-graph tradeoffs, которые помогли очертить
-  границы локального CodeGraph.
-
-arXiv papers:
-
-- [Evolving Contexts for Self-Improving Language Models](https://arxiv.org/abs/2510.04618)
-  — Agentic Context Engineering и структурная эволюция context.
-- [SIA: Self Improving AI with Harness & Weight Updates](https://arxiv.org/abs/2605.27276)
-  — разделение learning в harness и learning через обновление весов.
-- [Self-Harness: Harnesses That Improve Themselves](https://arxiv.org/abs/2606.09498)
-  — идея улучшать сам harness через evaluation evidence, но с guardrails.
-
-## Зачем он нужен
-
-Coding agents часто ломаются одинаково:
-
-- выходят за границы задачи;
-- делают архитектурные заявления без подтверждения в файлах или тестах;
-- называют работу в role-lane subagent run, хотя subagent trace не было;
-- оставляют риск как `pass-with-risks`, но не доводят его до resolution;
-- повторяют локальную ошибку, потому что прошлый урок был записан как обычная
-  заметка, а не как структурированное evidence.
-
-AgentFlow ставит на такие места явные gate-проверки. Пользователь не выбирает
-глубину workflow вручную. Оркестратор читает задачу, смотрит состояние проекта,
-выбирает минимально достаточный route и требует evidence до финального ответа.
+Agent Flow - скилл для выполнения задач разработки в Codex Desktop и CLI. Главный агент разбирает задачу, выбирает исполнителей, координирует изменения и проверяет результат. Фреймворк применяется в разных проектах; правила конкретного продукта берутся из его документации.
 
 ## Запуск
 
-AgentFlow включается только если последний запрос пользователя содержит один из
-маркеров:
-
 ```text
-Agent Flow <задача>
-AgentFlow <задача>
-$agent-flow <задача>
-agent-flow <задача>
+Agent Flow Реализуй план из docs/implementation-plan.md и проверь результат.
 ```
 
-Маркер может стоять в начале, середине или конце промпта. Если маркера нет,
-запрос остаётся обычной solo-работой Codex. Проектный `AGENTS.md` не может
-самостоятельно включить AgentFlow.
+Достаточно указать `Agent Flow` в запросе. Также поддерживаются `AgentFlow`, `$agent-flow` и `agent-flow`. Без маркера скилл не включается. Состав команды и объём проверок выбирает главный агент по задаче.
 
-## Что контролирует AgentFlow
+## Основные функции
 
-У фреймворка пять основных слоёв.
-
-### 1. Оркестрация
-
-Оркестратор отвечает за route, порядок работы и финальную интеграцию. Он решает,
-останется ли задача solo, нужны ли trace artifacts, role lanes или настоящие
-subagents. `light`-задачи остаются компактными. `standard` и `release` могут
-подключать architecture, implementation, QA, review и integration lanes, если
-дополнительный контроль действительно нужен.
-
-### 2. Проектная память
-
-Перед новой фичей AgentFlow читает task memory текущего проекта. Dependency Gate
-останавливает или откладывает новый run, если активная задача может затронуть те
-же файлы, API, модель данных, UI flow, тесты, deploy path или acceptance
-criteria.
-
-Task Status Completion Gate следит, чтобы память не врала: завершённая работа
-переходит из `in_progress` в `done` только после проверки или commit evidence.
-
-### 3. Архитектурный контроль
-
-Для архитектурно чувствительной работы AgentFlow требует Architecture Contract до
-старта workers. Trace runs со schema v2 могут включать:
-
-- Architecture Matrix facets для product, surface, stack, risk и verification
-  context;
-- Architecture Capability Router из
-  `registries/architecture-capabilities.json`;
-- Architecture Design Mode и approved Architecture Design Brief;
-- Architecture Artifact Authoring Automation через
-  `init-run.py --architecture-gate`;
-- Architecture Context Propagation от architect к workers, QA и reviewer;
-- Architecture Execution Control, включая Engineering Simplicity Gate, Simplicity
-  Scope Coverage, Lane Boundary Evidence Gate и Claim Evidence Gate.
-
-Это не декоративный checklist. `scripts/validate-run.py` блокирует
-положительный финальный verdict, если нужных artifacts нет, они устарели, идут в
-неправильном порядке или не подтверждены evidence.
-
-### 4. Проверяемые trace runs
-
-Traceable work сохраняет локальную историю выполнения в run directory. Главный
-машинный файл - `lane-map.json`; validator проверяет ownership lanes, handoffs,
-artifact paths, timeline events, subagent traces, handoff state, архитектурные
-controls и правила финального verdict. Opt-in Handoff State Gate использует
-`handoff_state_required` и `scripts/record-handoff-state.py` для состояний
-`queued`, `accepted` и `completed`.
-
-Golden Trace Runs в `testdata/golden-traces/` - пакет acceptance-проверок для
-runtime. Там есть валидные и специально невалидные runs, чтобы изменения
-архитектурного слоя проверялись на полных сохранённых traces.
-
-### 5. Локальное обучение
-
-AgentFlow учится локально, а не глобально. Harness Evaluation Loop пишет
-`harness-evaluation.json`, когда run даёт полезный материал для обучения:
-continuation, blocked recovery, risk resolution, architecture drift, readiness
-recovery или non-positive architecture final.
-
-Проверенные findings можно промоутить только в `## Evidence Records` текущего
-проекта. Architecture Matrix, capability registry, role prompts, validator
-guards и Golden Trace Runs остаются каноническими runtime artifacts и не
-становятся promotion targets для project traces.
-
-После promotion запись получает поля `Section`, `Keywords`, `Provenance`,
-`Helpful`, `Harmful`, `Neutral` и `Active`. Они помогают анализатору отделять
-уроки для задачи от уроков про harness/runtime, считать полезные и вредные
-повторы и не учитывать выключенные записи. Это не добавляет `ace-framework`,
-MCP server, vector store или отдельный skillbook. Главными gate-полями остаются
-`Outcome`, `Evidence`, reuse boundaries и свежая проверка.
-
-Local Best Practice auto gate переиспользует подход только после подтверждения
-через Evidence Records analyzer: контекст должен совпадать, reuse boundaries
-должны быть записаны, `Do not reuse when` не должен срабатывать, а свежая
-проверка должна пройти.
-
-## Что лежит в репозитории
-
-| Path | Назначение |
+| Функция | Для чего нужна |
 | --- | --- |
-| `skills/agent-flow/SKILL.md` | Agent Skills entrypoint и runtime contract |
-| `skills/agent-flow/agents/*.md` | 27 встроенных role prompts |
-| `skills/agent-flow/references/` | runtime references и gate-контракты |
-| `skills/agent-flow/registries/` | зависимости ролей и architecture capabilities |
-| `skills/agent-flow/scripts/` | канонические runtime и developer scripts |
-| `skills/agent-flow/testdata/` | CodeGraph fixtures и Golden Trace Runs |
-| `skills/agent-flow/docs/` | подробная документация, ADR и implementation notes |
-| `scripts/*.py` | root wrappers, которые вызывают канонические scripts |
+| Планирование и координация | Разбить задачу на шаги, назначить исполнителей и собрать результат |
+| Контекст проекта | Сохранить решения, текущие задачи и результаты проверок между этапами |
+| Архитектурная проверка | Согласовать границы модулей и ограничения до сложных изменений |
+| Проверка реализации | Проверить критерии приёмки, тесты и замечания независимого reviewer |
+| Исправление ошибок | Разобрать причину сбоя и повторить работу с уточнённым заданием |
+| Контроль объёма | Выявить лишние зависимости, абстракции и изменения вне задачи |
+| CodeGraph | Найти связи кода, затронутые участки и связанные тесты |
+| Уроки проекта | Сохранить подтверждённые выводы для последующих задач |
 
-В репозитории сейчас 27 ролей и 138 role skill dependencies.
+Исполнители получают конкретную задачу, границы правок и критерии приёмки. Независимый reviewer проверяет изменения перед завершением. Существующий валидатор рабочих записей проверяет результаты делегирования и обязательные проверки.
 
-## Установка
+## Агенты и модели
 
-Рекомендуемая установка через Skills CLI:
+Профиль содержит 27 ролей: 26 используют Astra, reviewer использует Sol. Главный агент запускается отдельно на `gpt-6-astra/high`; роль `orchestrator` служит его помощником.
 
-```bash
-npx skills add https://github.com/svishniakov/agent-flow
-```
+Reasoning задаёт глубину рассуждений. В таблице указаны исходный уровень и уровень при эскалации. Эскалация зависит от условий в файле роли. Точный ID модели внутри роли сохраняется, в том числе при повторных попытках. Разные роли могут использовать разные модели.
 
-Явная глобальная установка для Codex:
+| Агент | Задачи | Модель | Reasoning | При эскалации |
+| --- | --- | --- | --- | --- |
+| Главный агент | Ведёт задачу и принимает результат | `gpt-6-astra` | `high` | Настройка сеанса |
+| [ai-slops-hunter](skills/agent-flow/agents/ai-slops-hunter.md) | Убирает лишний код и шаблонный текст | `gpt-6-astra` | `medium` | `high` |
+| [architect](skills/agent-flow/agents/architect.md) | Определяет архитектуру, границы модулей и план реализации | `gpt-6-astra` | `high` | `xhigh` |
+| [backend-worker](skills/agent-flow/agents/backend-worker.md) | Реализует серверную логику, API и работу с данными | `gpt-6-astra` | `medium` | `high` |
+| [bun-worker](skills/agent-flow/agents/bun-worker.md) | Работает с Bun, зависимостями, сборкой и тестами | `gpt-6-astra` | `medium` | `high` |
+| [design-asset-generator](skills/agent-flow/agents/design-asset-generator.md) | Создаёт изображения и графические материалы | `gpt-6-astra` | `medium` | `high` |
+| [design-documenter](skills/agent-flow/agents/design-documenter.md) | Ведёт DESIGN.md и требования к дизайну | `gpt-6-astra` | `medium` | `high` |
+| [design-orchestrator](skills/agent-flow/agents/design-orchestrator.md) | Координирует дизайн и передачу макетов в разработку | `gpt-6-astra` | `high` | `xhigh` |
+| [documenter](skills/agent-flow/agents/documenter.md) | Пишет планы, спецификации, README и документацию | `gpt-6-astra` | `high` | `xhigh` |
+| [frontend-worker](skills/agent-flow/agents/frontend-worker.md) | Реализует интерфейсы, стили и клиентское состояние | `gpt-6-astra` | `medium` | `high` |
+| [golang-worker](skills/agent-flow/agents/golang-worker.md) | Реализует Go-сервисы, CLI и тесты | `gpt-6-astra` | `medium` | `high` |
+| [ios-worker](skills/agent-flow/agents/ios-worker.md) | Реализует SwiftUI и функции платформ Apple | `gpt-6-astra` | `medium` | `high` |
+| [marketing-growth-strategist](skills/agent-flow/agents/marketing-growth-strategist.md) | Прорабатывает позиционирование, запуск и рост продукта | `gpt-6-astra` | `high` | `xhigh` |
+| [orchestrator](skills/agent-flow/agents/orchestrator.md) | Помогает главному агенту координировать работу | `gpt-6-astra` | `medium` | `high` |
+| [pencil-designer](skills/agent-flow/agents/pencil-designer.md) | Создаёт и проверяет макеты в Pencil | `gpt-6-astra` | `medium` | `high` |
+| [product-manager](skills/agent-flow/agents/product-manager.md) | Определяет проблему, ценность, объём и критерии приёмки | `gpt-6-astra` | `high` | `xhigh` |
+| [python-worker](skills/agent-flow/agents/python-worker.md) | Реализует Python-код, CLI и обработку данных | `gpt-6-astra` | `medium` | `high` |
+| [qa-verifier](skills/agent-flow/agents/qa-verifier.md) | Воспроизводит ошибки и проверяет реализацию | `gpt-6-astra` | `high` | `xhigh` |
+| [rag-retrieval-engineer](skills/agent-flow/agents/rag-retrieval-engineer.md) | Проектирует поиск, RAG и проверку качества выдачи | `gpt-6-astra` | `high` | `xhigh` |
+| [researcher](skills/agent-flow/agents/researcher.md) | Исследует документацию, API и существующие решения | `gpt-6-astra` | `medium` | `high` |
+| [reviewer](skills/agent-flow/agents/reviewer.md) | Независимо проверяет результат, регрессии и полноту тестов | `gpt-5.6-sol` | `high` | `xhigh` |
+| [senior-qa-verifier](skills/agent-flow/agents/senior-qa-verifier.md) | Разбирает сбои проверок и уточняет тестовые сценарии | `gpt-6-astra` | `high` | `xhigh` |
+| [supervising-architect](skills/agent-flow/agents/supervising-architect.md) | Проводит повторную архитектурную оценку сложных блокеров | `gpt-6-astra` | `xhigh` | `xhigh` |
+| [typescript-worker](skills/agent-flow/agents/typescript-worker.md) | Реализует TypeScript/JavaScript-код и тесты | `gpt-6-astra` | `medium` | `high` |
+| [ui-reference-researcher](skills/agent-flow/agents/ui-reference-researcher.md) | Подбирает примеры интерфейсов и дизайн-систем | `gpt-6-astra` | `medium` | `high` |
+| [ui-ux-design-director](skills/agent-flow/agents/ui-ux-design-director.md) | Выбирает концепцию интерфейса и визуальное направление | `gpt-6-astra` | `high` | `xhigh` |
+| [ui-ux-designer](skills/agent-flow/agents/ui-ux-designer.md) | Разрабатывает экраны, сценарии и прототипы | `gpt-6-astra` | `medium` | `high` |
+| [visual-qa](skills/agent-flow/agents/visual-qa.md) | Проверяет макеты, адаптивность и соответствие DESIGN.md | `gpt-6-astra` | `high` | `xhigh` |
+
+У главного агента нет отдельного файла роли с настройкой эскалации. Его стартовый уровень `high` задан в [SKILL.md](skills/agent-flow/SKILL.md). Настройки остальных агентов берутся из [файлов ролей](skills/agent-flow/agents); инструкции из этих же файлов передаются в конфигурации Codex.
+
+## Последние изменения
+
+Редакция `6f6c078`, 9 сентября 2026 года:
+
+- Обновлены модели и промпты для профиля Astra/Sol.
+- Для `documenter` и `qa-verifier` закреплены исходный `high` и эскалация до `xhigh`.
+- Добавлен запрет смены модели внутри одной роли. Повышение reasoning сохранено.
+- Восстановлен workflow версии `3d95caf`: прежние маршруты, делегирование, проверки и попытки исправления.
+- Удалены добавленные обязательные `model-settings.json` и требования захвата `thread/start` и `turn/start`. Прежние рабочие журналы сохранены.
+
+[Действующее решение по миграции](skills/agent-flow/docs/implementation/impl-007-astra-sol-rollout.md).
+
+## Установка и конфигурации
+
+Глобальная установка для Codex:
 
 ```bash
 npx skills add https://github.com/svishniakov/agent-flow -a codex -g
 python3 ~/.agents/skills/agent-flow/scripts/check-agent-deps.py --post-install
+python3 ~/.agents/skills/agent-flow/scripts/sync-codex-agent-config.py --output-dir ~/.codex/agents
 ```
 
-`--post-install` только проверяет зависимости. Он показывает недостающие skills
-для ролей и печатает ручные инструкции для `core`. Дополнительные skills не
-устанавливаются автоматически. Старые установки в `~/.codex/skills/agent-flow`
-checker тоже учитывает.
+Проверка зависимостей сообщает о недостающих скиллах. Генератор создаёт или обновляет 27 конфигураций ролей. После изменения файлов ролей повторите генерацию.
 
-Для локальной разработки symlink должен вести на пакет `skills/agent-flow`, а
-не на корень репозитория:
+Пакет скилла находится в `skills/agent-flow/`. При установке из локальной копии ссылка должна вести в этот каталог.
 
-```bash
-ln -sfn "$PWD/skills/agent-flow" ~/.agents/skills/agent-flow
-```
+## Проверки репозитория
 
-Если нужен локальный CodeGraph, сначала поставьте зависимости парсеров:
+Команды из корня репозитория:
 
 ```bash
-python3 -m pip install -r ~/.agents/skills/agent-flow/requirements-codegraph.txt
-python3 ~/.agents/skills/agent-flow/scripts/codegraph.py doctor
-```
-
-## Обновление
-
-Для установки через Skills CLI:
-
-```bash
-npx skills update agent-flow -g
-```
-
-Для старой установки через git/symlink:
-
-```bash
-python3 ~/.agents/skills/agent-flow/scripts/update-agent-flow-skill.py --dry-run
-python3 ~/.agents/skills/agent-flow/scripts/update-agent-flow-skill.py
-```
-
-Legacy updater делает `fetch` из `origin`, показывает локальное состояние и
-обновляет только clean checkout через fast-forward. `--overwrite` нужен только
-тогда, когда локальные правки или divergent commits действительно надо
-отбросить.
-
-## Локальные проверки
-
-Эти команды нужны для разработки репозитория AgentFlow, а не для базовой
-установки skill. Перед полным набором проверок поставьте CodeGraph parser
-dependencies:
-
-```bash
-python3 -m pip install -r skills/agent-flow/requirements-codegraph.txt
+python3 scripts/validate-agent-config.py
+python3 scripts/validate-role-catalog.py
+python3 scripts/sync-codex-agent-config.py --output-dir ~/.codex/agents --check
 python3 scripts/check-all.py
-python3 scripts/check-agent-deps.py --strict
-python3 scripts/validate-architecture-capabilities.py
 ```
 
-Ожидаемая последняя строка `check-all.py`:
-
-```text
-PASS all Agent Flow checks
-```
-
-## Примеры промптов
-
-Прочитать репозиторий без правок:
-
-```text
-Agent Flow Прочитай репозиторий и проектную память. Верни активные задачи, блокеры, следующие действия и риски. Ничего не меняй.
-```
-
-Исправить баг с проверкой:
-
-```text
-Agent Flow Разбери баг: <описание>. Найди причину, внеси минимальную правку, запусти проверки и верни изменённые файлы плюс остаточные риски.
-```
-
-Сделать архитектурно чувствительное изменение:
-
-```text
-Agent Flow Реализуй <feature>. Используй architecture gates там, где они нужны, держи worker changes внутри approved boundaries, проверь результат и покажи evidence.
-```
-
-Сделать refactor на основе архитектурного анализа:
-
-```text
-Agent Flow Перед refactor проанализируй проект на architecture drift. Опиши текущие module boundaries, data flow, public contracts и ownership hotspots. Если refactor не нужен, так и скажи. Если нужен, предложи минимальный behavior-preserving refactor, реализуй только этот scope и запусти релевантные проверки.
-```
-
-Убрать overengineering через Simplicity Gate:
-
-```text
-Agent Flow Проверь кодовую базу на overengineering через Engineering Simplicity Gate и Simplicity Scope Coverage. Найди лишние abstractions, duplicated helpers, dependency drift, слишком широкие изменения или код под проблемы, которых у нас нет. Убирай только evidence-backed issues, не добавляй новые frameworks, сохрани поведение и проверь cleanup.
-```
-
-Подготовить release review:
-
-```text
-Agent Flow Подготовь эту feature к release. Прогони architecture, QA и review gates, затем верни статус ship/pass-with-risks/blocked с evidence.
-```
-
-## Eval моделей
-
-`scripts/model-eval.py` проверяет coding-модели на реальных snapshots. Базовый запуск состоит из двух парных повторов. Если результаты расходятся, `run-adaptive` планирует только третий повтор для обеих моделей. `run-recovery` отдельно перезапускает ячейки, упавшие из-за инфраструктуры.
-
-Без `--execute` команды только строят план и не обращаются к моделям:
-
-```bash
-python3 scripts/model-eval.py run --corpus "$CORPUS" --certification "$CERTIFICATION" --artifacts "$RUN_DIR"
-python3 scripts/model-eval.py run-adaptive --corpus "$CORPUS" --certification "$CERTIFICATION" --base-plan "$BASE_PLAN" --base-cells "$BASE_CELLS" --base-score "$BASE_SCORE" --artifacts "$ADAPTIVE_DIR"
-python3 scripts/model-eval.py run-recovery --corpus "$CORPUS" --certification "$CERTIFICATION" --parent-plan "$PARENT_PLAN" --parent-cells "$PARENT_CELLS" --artifacts "$RECOVERY_DIR"
-```
-
-Запуск моделей требует отдельного `--execute`. Eval использует вход через подписку ChatGPT и не требует API key.
+Полный набор проверок требует зависимостей из [requirements-codegraph.txt](skills/agent-flow/requirements-codegraph.txt). Ожидаемый итог: `PASS all Agent Flow checks`.
 
 ## Документация
 
-- [English README](README.md)
-- [Architecture Matrix](skills/agent-flow/references/architecture-matrix.md)
-- [Architecture Capability Router](skills/agent-flow/references/architecture-capability-router.md)
-- [Traceable Runs](skills/agent-flow/references/traceable-runs.md)
-- [Harness Evaluation Loop](skills/agent-flow/references/harness-evaluation-loop.md)
-- [Predictability Eval Implementation Plan](skills/agent-flow/docs/implementation/impl-004-predictability-eval-implementation-plan.md)
-- [Definition of Done](skills/agent-flow/references/definition-of-done.md)
-- [Subagent Policy](skills/agent-flow/references/subagents.md)
-- [Delegation Rules](skills/agent-flow/references/delegation.md)
-- [Role Catalog](skills/agent-flow/references/role-catalog.md)
-- [English overview](skills/agent-flow/docs/en/agent-flow.md)
-- [Русское описание](skills/agent-flow/docs/ru/agent-flow.md)
-- [License](LICENSE)
+- [Инструкции скилла](skills/agent-flow/SKILL.md)
+- [Правила делегирования](skills/agent-flow/references/delegation.md)
+- [Критерии завершения](skills/agent-flow/references/definition-of-done.md)
+- [Рабочие записи и их проверка](skills/agent-flow/references/traceable-runs.md)
+- [CodeGraph](skills/agent-flow/docs/adr/adr-001-codegraph.md)
+- [Лицензия](LICENSE)
