@@ -5,6 +5,8 @@ description: "Use only when the user explicitly invokes Agent Flow anywhere in t
 
 # Agent Flow
 
+Document status: done
+
 Agent Flow turns an explicitly invoked user request into a finished, verified result through the smallest sufficient workflow.
 
 ## No Preflight
@@ -125,15 +127,17 @@ Before implementation or subagent launch, the main agent must follow global proj
 
 Before planning a new feature, product edit, cross-file implementation, or delegated run, read any named PRD/spec/design source needed to understand the request, then inspect active project memory for existing `Status: in_progress` or `Status: blocked` tasks. Ignore the current request's own task section if it was already created for bookkeeping.
 
-Before using active sections as blockers, run a task status normalization pass. If a section is marked `Status: in_progress` but every checklist item is checked, verification is recorded in `Review:`, and no blocker remains, apply the Done Gate before closing that section as `Status: done`. Для изменения файлов сначала подтвердите текущее независимое принятие и выполните свежую финальную валидацию; нормализация статуса не обходит эту процедуру. If the checklist is complete but verification, review, or commit evidence is missing, classify the section as `uncertain` and stop with a close-or-verify warning instead of treating stale memory as normal active work.
+`in_progress` and `blocked` are lookup cues, not evidence of a live session or a dependency. Before classification, check the old task's scope, remaining requirements and blocker; look up later completion and checks by the same task/plan ID in memory and linked documents in every named repository. Verify supplied SHA with Git and compare the actual result with the requirements: a commit alone does not prove completion. Read a linked session's actual state when tools allow it; a finished/interrupted session does not prove implementation completion, and unavailable session listing alone does not block work.
+
+Correct a confirmed completed record narrowly, including stale unchecked items supported by later evidence. For `blocked`, also verify that its stated cause is removed. Record task ID, completed scope, verification sources, repository/SHA when delivery required a commit, date and correction reason. Preserve unresolved or transferred requirements and their continuation. Historical record correction needs source verification, not a new run or repeat QA/reviewer of the old implementation. Do not rewrite old runs or handoffs; repeated intake must not duplicate closure. Current implementation still requires the existing independent acceptance gates. Details: `references/project-memory-and-env.md`.
 
 Classify each active task against the new request:
 
-- `clear`: no shared files, contracts, data model, user flow, infra, generated assets, or release surface.
-- `uncertain`: possible overlap, stale active notes, missing ownership, or unclear affected surface.
-- `dependent`: the active work may change the same files, API/types, DB/storage schema, routes, UI flow, design source, tests, deployment path, or acceptance criteria.
+- `clear`: the new scope is independent, even if old work remains unfinished or cannot be closed. Continue and preserve its truthful status.
+- `uncertain`: after available checks, a specific result needed by the new task is still unproven. Name that missing fact and stop only the dependent part.
+- `dependent`: confirmed ongoing work changes a necessary shared file or contract. Cite the session/activity evidence and concrete overlap; stop only the conflicting part.
 
-If any active task is `dependent` or `uncertain`, stop before implementation, subagent launch, or traceable run setup. Tell the user which active task is involved, what could conflict, and recommend waiting for that feature to finish before starting the new one. Offer only these exits:
+Age, stale notes, unchecked boxes, a missing old run, similar titles or a common feature area are not standalone blockers. Continue authorized independent work, including its delegation or trace setup. Ask the user only after available fact checks leave a material dependency unresolved. For a real conflict, offer these exits without automatically closing the other task:
 
 - wait for the active task to finish and restart from the resulting project state;
 - merge the work into one coordinated Agent Flow run;
@@ -369,6 +373,12 @@ Read `references/definition-of-done.md` before final response on traceable work.
 No completion claim without fresh evidence. Verification can be tests, build, lint, browser screenshots, visual diff, QA notes, docs review, or a checklist tied to acceptance criteria.
 
 Before final response for any repo task, run the Task Status Completion Gate:
+
+- at intake, list related PRD, ADR, design/spec, implementation plan (including the source plan), research and other changed/created documents in the existing scope, for every affected repository; carry this list into delegation;
+- finish scope/checks, then prepare final document statuses before result hashing and QA/reviewer: `Document status: done` means the current text is complete; a plan/spec separately uses `Implementation status: not_started`, `in_progress`, `blocked` or `done`. Keep ADR decision states. Close implementation checklists only against verified requirements, remove or label conflicting historical instructions. The final-status candidate is not an accepted task completion;
+- include all related delivery documents in `result_files`; QA/reviewer accept their full bytes including statuses. Status edits after acceptance require renewed acceptance of the changed revision;
+- when commit is authorized, compare staged diff with the accepted delivery list, verify document statuses in the index, create scoped commits and inspect each repository's committed documents with `git show`. A finished document commit contains `Document status: done`; an explicitly requested intermediate snapshot retains truthful WIP status. No commit is required when none was requested;
+- record commit evidence in each affected repository's task memory and the timeline after commit, never put a future commit's own SHA inside its document. Commit failure keeps delivery incomplete; validator failure after commit preserves the SHA and unresolved criteria, not a false done claim;
 
 - для изменения файлов сначала выполните свежий `validate-run.py --run-dir ...` без `--allow-pending` и `--allow-no-check`; stdout/stderr и exit code сохраните в `checks/final-validation.txt` по примеру в `references/traceable-runs.md`;
 - if the current task checklist is complete, final validation exited 0, verification is recorded, no blocker remains, and any requested product commit succeeded, set the current `.agent-work/tasks/todo.md` section to `Status: done`; для консультаций без run достаточно применимых прямых проверок;

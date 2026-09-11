@@ -267,7 +267,10 @@ REQUIRED_RUNTIME_TEXT = {
         "AgentFlow",
         "Action Authorization",
         "Task Status Completion Gate",
-        "task status normalization pass",
+        "lookup cues, not evidence",
+        "Historical record correction",
+        "Document status: done",
+        "Implementation status: not_started",
         "Evidence Records",
         "Architecture Contract Gate",
         *ARCHITECTURE_DESIGN_CORE_GUARD_TERMS,
@@ -350,13 +353,14 @@ REQUIRED_RUNTIME_TEXT = {
         "at least two worker lanes",
     ],
     "references/project-memory-and-env.md": [
-        "normalize stale completed sections",
-        "classify it as `uncertain`",
+        "Historical record correction",
+        "Repeated intake is idempotent",
+        "Stop only the conflicting part",
     ],
     "references/orchestrator.md": [
         "anywhere in the latest request",
         "AgentFlow",
-        "Normalize stale completed task sections",
+        "Check old task facts and later evidence",
         "Task Status Completion Gate",
         "Evidence Records",
         "Architecture Contract Gate",
@@ -622,7 +626,7 @@ REQUIRED_RUNTIME_TEXT = {
         "contract_sections",
     ],
     "agents/orchestrator.md": [
-        "Normalize stale completed `todo.md` sections",
+        "Check old scope, blocker, later evidence",
         "project-memory task status",
         "Evidence Records",
         "Architecture Contract Gate",
@@ -1261,6 +1265,28 @@ def run_required_runtime_text_guard() -> int:
         for needle in needles:
             if needle not in text:
                 failures.append(f"{raw_path}: missing {needle!r}")
+    # These retired rules caused false dependency stops and repeat acceptance of history.
+    forbidden = (
+        "stale notes => uncertain => stop",
+        "stop with a close-or-verify warning",
+        "uncertain`: possible overlap, stale active notes",
+        "If any active task is `dependent` or `uncertain`, stop before",
+        "If any task is `uncertain` or `dependent`, stop before",
+        "Treat uncertain dependency overlap as a stop condition",
+        "If an active task has uncertain or direct overlap, stop",
+        "Do not continue past an uncertain or direct active-task dependency",
+        "нормализация статуса не обходит эту процедуру",
+        "asks to verify or close it before new work",
+        "просит проверить или закрыть её перед новой работой",
+    )
+    paths = [ROOT / "SKILL.md", ROOT / "agents/orchestrator.md"]
+    paths.extend((ROOT / "references").glob("*.md"))
+    paths.extend(ROOT / "docs" / language / "agent-flow.md" for language in ("en", "ru"))
+    for path in paths:
+        text = " ".join(path.read_text(encoding="utf-8").split())
+        for needle in forbidden:
+            if needle in text:
+                failures.append(f"{path.relative_to(ROOT)}: retired rule {needle!r}")
     if failures:
         print("FAIL task status completion guard", file=sys.stderr)
         for failure in failures:

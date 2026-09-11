@@ -1,5 +1,7 @@
 # Agent Flow: skill overview
 
+Document status: done
+
 Agent Flow is a Codex skill that helps move a complex task from the user request to a verified result. It does not activate automatically. The user must put one of these invocation markers anywhere in the prompt: `Agent Flow`, `AgentFlow`, `$agent-flow`, or `agent-flow`.
 
 The main idea is simple: the user invokes Agent Flow with one explicit marker, and the orchestrator chooses the right route. It keeps the task bounded, checks active project work for dependencies, gathers the needed context, switches internal budgets under the hood, decides whether subagents are useful, does the work, and verifies the result before the final response.
@@ -39,8 +41,8 @@ If the marker is absent, the request stays outside Agent Flow. Codex then works 
 - Do not run a separate brainstorming flow before Agent Flow.
 - Users do not choose budgets and do not need to explicitly request subagents.
 - The orchestrator decides from context whether to keep the task solo or use subagents.
-- Before new feature work, the orchestrator checks active `in_progress` and `blocked` tasks. If one can affect the new work, Agent Flow stops and recommends waiting or merging the work into one coordinated run.
-- After successful verification or product commit, the current task section must move from `in_progress` to `done` when its checklist is complete and no blocker remains.
+- Before new work, the orchestrator verifies actual dependencies and later evidence. Old `in_progress` or `blocked` status alone does not stop a new task.
+- Prepare final statuses of related documents before hashing and QA/reviewer. After current acceptance, any requested commit and final validation, close task records in every affected repository.
 - Trace artifacts are created only when justified by risk, an internal routing decision, or a direct user request.
 - `.agent-work/` must not be included in product commits.
 
@@ -48,11 +50,19 @@ If the marker is absent, the request stays outside Agent Flow. Codex then works 
 
 Dependency Gate protects separate feature sessions from stepping on each other. At the start of new feature work, the orchestrator reads project memory and checks active tasks marked `in_progress` or `blocked`.
 
-Before blocking, it checks for stale completed task sections. If an `in_progress` section has all checklist items checked, verification recorded, and no blocker, the orchestrator closes it as `done` first. If evidence is missing, the gate treats the section as `uncertain` and asks to verify or close it before new work.
+Before blocking, compare old scope, remaining requirements and blocker with the new request. Look up later evidence by task/plan ID across linked repositories, verify commits and checks, and inspect linked session state when available. A SHA or finished session alone does not prove completion; unavailable session listing alone does not block work.
 
-If an active task may change the same files, API contracts, data model, UI flow, tests, deploy path, or acceptance criteria, the new session stops before planning or implementation. The warning names the active task, explains the practical risk, and recommends waiting for the active feature to finish.
+Correct a confirmed completed record narrowly, even if old boxes are unchecked; for `blocked`, also confirm removal of its cause. Record sources, date and reason without a new run or repeat acceptance of old implementation. Repeat intake must not duplicate closure. Unproven old work keeps its truthful status while independent new work proceeds.
+
+Stop only the part with confirmed ongoing changes to a necessary shared file/contract, or a specific required result still unproven after available checks. Name concrete evidence and the missing fact before asking the user. Continue authorized independent work.
 
 The user can still continue by explicitly accepting the recorded risk. Another option is to merge the work into one coordinated Agent Flow run. Internal lanes inside one Agent Flow run are not blocked by this gate.
+
+## Document and task completion
+
+At intake, list related documents in every affected repository, including the source plan. Finish scope/checks, prepare final statuses before hashing and QA/reviewer, and include complete document bytes in `result_files`. `Document status: done` means the text is complete. A separate `Implementation status: not_started`, `in_progress`, `blocked` or `done` describes execution; preserve ADR decision states. A plan commit does not complete its future implementation.
+
+Acceptance covers status fields; editing them later requires renewed acceptance. For an authorized commit, inspect staged statuses, create scoped commits, and inspect documents with `git show` in each repository. Record actual SHA in memory/timeline, run fresh final validation, then close related task records. Commit or validator failure keeps delivery incomplete. Without a commit request, completion does not require one. Unrelated documents and historical runs stay unchanged. Details: [Definition of Done](../../references/definition-of-done.md).
 
 ## Internal flows
 

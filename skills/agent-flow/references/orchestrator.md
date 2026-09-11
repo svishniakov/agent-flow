@@ -1,5 +1,7 @@
 # Orchestrator Rules
 
+Document status: done
+
 ## Authority
 
 The orchestrator owns routing, sequencing, verification, and final integration only after the user explicitly invokes Agent Flow anywhere in the latest request.
@@ -33,10 +35,10 @@ The orchestrator must obey:
 1. До первого делегирования создайте журнал через `init-run.py --mode compact|full`. Заполните исходный снимок и границы, затем через recorder сохраните частичный verification с реальным `root_thread_id`. Порядок и команды: `traceable-runs.md`, раздел «Запись и собственный итог проверяющего».
 2. Зарегистрируйте каждое настоящее назначение через `record-agent-trace.py`. Если инструмент вернул только canonical name, используйте `--resolve-session --agent-path`; UUID берётся из исходной сессии, не из догадки.
 3. Для выбранного поведенческого критерия до отправки сохраните полный начальный пакет и каждый followup, запишите `behavior-input-prepared`. Заранее зафиксируйте критерий, QA checklist и достаточность `strict_inputs`.
-4. Перед QA передайте recorder полный `result_files` и `task_kind: change`. Используйте выведенный `result_hash`, который включает файлы, снимок и границы. Каждое назначение получает полные инструкции роли, текущие ограничения и доказательства.
+4. Закончите scope и проверки, подготовьте окончательные статусы и checklist всех связанных документов каждого репозитория, включая исходный план. Перед QA передайте recorder их полный `result_files` и `task_kind: change`. Используйте выведенный `result_hash`, который включает полные bytes со статусами, снимок и границы. Каждое назначение получает полные инструкции роли, текущие ограничения и доказательства. Это кандидат результата; текущая задача остаётся активной до приёмки и финальной валидации.
 5. Получите собственный итог QA как целый JSON и сразу зарегистрируйте его через recorder. Только после успешной записи передайте reviewer текущий результат и принятый QA handoff; зарегистрируйте собственный JSON reviewer с `qa_handoff_sha256`.
 6. Ошибку записи исправляйте по диагностике. Не переписывайте исходные ответы. Новый ответ, если он нужен, получают продолжением того же назначения с прежними моделью, достигнутым reasoning и счётчиком попыток. Исправление регистрации само по себе не требует нового запуска модели.
-7. Подготовьте `final.md`, завершите остальные документы и timeline. Выполните свежий `validate-run.py --run-dir ...` без допуска незавершённых данных. Сохраните stdout/stderr и exit code в `checks/final-validation.txt`. При отказе исправьте доступные ошибки и повторите команду; при недоступных обязательных доказательствах укажите `verification.blocker` и отрицательный итог.
+7. Если commit запрошен, сверяйте index с принятой поставкой, создайте scoped commit и проверьте документы через `git show` в каждом репозитории; запишите SHA в память и timeline. Подготовьте `final.md` и завершите timeline. Принятые документы больше не меняйте без повторной приёмки. Выполните свежий `validate-run.py --run-dir ...` без допуска незавершённых данных. Сохраните stdout/stderr и exit code в `checks/final-validation.txt`. При отказе исправьте доступные ошибки и повторите команду; при недоступных обязательных доказательствах укажите `verification.blocker` и отрицательный итог.
 8. Только после успешной команды и закрытия всех критериев установите `Status: done`, затем сообщите результат. Изменения результата требуют повторного принятия; изменения handoff, summary или итогового отчёта требуют затронутых проверок и свежей валидации. Сохранённый лог команды не служит разрешением на следующее завершение.
 
 Этот порядок дополняет применимые gates ниже. Скрипт проверяет только вызванную команду и не перехватывает произвольный final Codex.
@@ -46,8 +48,8 @@ The orchestrator must obey:
 3. Detect the project repo and apply global project memory rules from the current user's Codex instructions, usually `~/.codex/AGENTS.md`.
 4. Create/read `.agent-work/tasks/todo.md` and `.agent-work/tasks/lessons.md` for repo tasks.
 5. Read `implementation-notes.md` when global criteria make it relevant.
-6. Read named PRD/spec/design docs and environment docs needed for the task.
-7. Normalize stale completed task sections before dependency classification.
+6. Read named PRD/spec/design docs and environment docs needed for the task. List all related delivery documents in existing scope per repository, including the source implementation plan, for later status and acceptance checks.
+7. Check old task facts and later evidence across named repositories before dependency classification; narrowly correct confirmed completed records under `project-memory-and-env.md` without repeat acceptance of old implementation.
 8. Run the dependency gate for new feature work, product edits, cross-file implementation, or delegation.
 9. If this is a traceable implementation run inside a git repo, capture `git status --short` before edits and record the initial worktree snapshot.
 10. Classify request type.
@@ -95,7 +97,7 @@ Only after the budget/task shape justifies subagents or a required subagent gate
 - Mandatory Independent QA Review Gate требует для изменения файлов отдельные `qa-verifier` и `reviewer`. Контракт `delegation-summary.json.verification` одинаков для compact/full/auto; role-lane его не заменяет. При недоступных доказательствах запишите `verification.blocker` и завершите `blocked`. Подробности: `references/traceable-runs.md`.
 - Use workflow patterns as internal recipes only when they strengthen routing or verification.
 - Treat unclear Agent Flow scope as intake and routing work, not as a reason to launch brainstorming.
-- Treat uncertain dependency overlap as a stop condition, not as a warning to ignore.
+- Stop only the part with a confirmed active conflict or a specific required result still unproven after available checks. Stale status and unavailable session listing alone are not blockers; continue independent scope.
 - Use Evidence Records from `implementation-notes.md` as local learning input when a similar problem and approach appear again.
 - Local Best Practice auto gate may apply an analyzer-confirmed active practice automatically only when context match is clear, `Do not reuse when` does not match, helpful evidence outweighs harmful evidence, the action is not an external write, and fresh verification evidence exists.
 - For implementation-plan authoring, apply `references/implementation-plan-authoring.md`: gather project context, identify stack and affected technical areas, select the minimal relevant skills available to the main agent, read selected skills completely, apply their conclusions to impact/risk/check/stage analysis, record used skills and gaps, start from one stage, split only for real dependencies or independently verifiable boundaries, keep tests inside stages, avoid per-stage rollback, and require independent Devil's Advocate `passed` on the current revision before finalizing.
@@ -148,7 +150,7 @@ Stop or ask the user when:
 - scope is contradictory;
 - required credential or approval is missing;
 - product direction needs user choice;
-- the dependency gate finds an active `in_progress` or `blocked` task with uncertain or direct overlap;
+- after checking available sources, the dependency gate confirms a live conflict or cannot establish readiness of a specific required result; stop that dependent part, continue independent work;
 - design approval is required before UI implementation;
 - destructive action is requested ambiguously;
 - an implementation-plan expertise gap prevents reliable impact, risk, check, dependency, or stage-boundary assessment;
@@ -160,7 +162,7 @@ Stop or ask the user when:
 Before final answer:
 
 1. Check latest user message.
-2. Verify changed files and command outputs.
+2. Verify changed files and command outputs. Audit the per-repository document list established at intake, including the source implementation plan and separately tracked PRD/ADR/spec/research. Prepare final document and implementation statuses and checklists before result hashing and QA/reviewer; include their full bytes in `result_files` under `definition-of-done.md`. Keep the current task active until acceptance and final validation.
 3. Confirm trace artifacts only if used.
 4. Confirm Delegation Trace Gate: no role-lane is described as sidecar/subagent unless spawned trace evidence and terminal handoff exist.
 5. Confirm Handoff State Gate when `handoff_state_required=true`: no required lane has missing state, accepted terminal state, missing `completed_at`, handoff mismatch, or invalid batch order.
@@ -170,8 +172,8 @@ Before final answer:
 9. If a traceable run has learning triggers, create `harness-evaluation.json` before final validation and keep it signal-only.
 10. If `implementation-notes.md` gained Evidence Records, run or account for the evidence analyzer before relying on a learned practice.
 11. If an implementation plan was created or materially revised, confirm the current revision has independent Devil's Advocate verdict `passed`; any review-driven edit makes the previous verdict stale.
-12. If product changes must be committed, create the product commit after checks and before final trace closure. Do not include `.agent-work/` in the product commit unless the user explicitly requested it.
-13. Проверьте checklist текущей задачи и запишите недостающие доказательства. До финальной валидации сохраняйте `Status: in_progress`; недоступные обязательные доказательства означают `Status: blocked`.
+12. If commit is authorized, compare staged diff with accepted delivery files and inspect document statuses in the index. Create scoped commits and verify SHA and document bytes with `git show` in every affected repository. If commit is not requested, do not make it a condition of completion. Do not include `.agent-work/` in the product commit unless the user explicitly requested it.
+13. Проверьте связанные checklist и память во всех затронутых репозиториях; запишите commit evidence и недостающие доказательства. До финальной валидации сохраняйте текущую задачу `Status: in_progress`; недоступные обязательные доказательства означают `Status: blocked`. Ошибка commit не разрешает заявлять поставку; отказ validator после commit сохраняет SHA и незакрытые критерии. Правка статусов документов после QA требует принятия новой редакции.
 14. If a trace timeline exists and a product commit was created, append an orchestrator `stage=commit` event with the commit hash.
 15. Compare the initial worktree snapshot with current `git status --short`.
 16. In `final.md`, record run-owned changes, product commit hash when applicable, pre-existing dirty files left untouched, and pre-existing dirty files touched by the run.

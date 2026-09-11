@@ -1,5 +1,7 @@
 # Traceable Runs
 
+Document status: done
+
 Traceable runs store evidence for work that needs durable review history.
 
 `.agent-work/tasks/` is project memory and follows the current user's Codex instructions, usually `~/.codex/AGENTS.md`, for all repo tasks. This file governs only `.agent-work/runs/` trace artifacts.
@@ -89,15 +91,24 @@ Trace artifacts are local audit memory. They are not part of the product commit 
 
 When a traceable run creates a product commit, use this order:
 
-1. finish implementation;
-2. run the required checks;
-3. create the product commit with only in-scope product/docs changes;
-4. update the current `.agent-work/tasks/todo.md` section with commit/check evidence, keeping `Status: in_progress` until final validation;
+1. finish implementation and required checks; audit the related-document list established at intake for every repository, including the source plan;
+2. prepare final document/implementation statuses and checklists under `definition-of-done.md` before result hashing; include all related delivery documents in `result_files` and obtain QA/reviewer acceptance of their full current bytes. Task memory remains active while this candidate awaits acceptance;
+3. compare staged diff with the accepted delivery list, inspect document statuses in the index, create scoped product/docs commits, and verify SHA and committed document bytes with `git show` in every affected repository;
+4. update related `.agent-work/tasks/todo.md` sections in each repository with commit/check evidence, keeping the current task `Status: in_progress` until final validation;
 5. append a run-local `stage=commit` orchestrator event with the commit hash;
 6. write or update `final.md` with the commit hash, evidence and risks;
 7. append the single final orchestrator timeline event;
 8. run `scripts/validate-run.py --run-dir <run-dir>` and save stdout/stderr plus exit code as shown below;
 9. only after exit 0 and completion of all task criteria, set `Status: done` and send the final answer.
+
+No commit is required when the user did not request it. A finished document uses
+`Document status: done`; separate implementation status stays factual. An explicitly
+requested intermediate snapshot retains WIP status. Never put a future commit's own
+SHA inside its document. Status edits after acceptance require renewed acceptance.
+Commit failure leaves delivery incomplete; validation failure after commit retains
+the actual SHA and unresolved criteria and requires correction before completion.
+Historical record correction uses verified sources under `project-memory-and-env.md`,
+without a new run or repeat acceptance of the old implementation.
 
 Do not create a second commit just to include `.agent-work/` trace changes. The
 timeline records the product commit hash locally after the product commit
@@ -378,7 +389,10 @@ Recorder заполняет отсутствующие SHA-256 ссылок и �
 объект не вычисляет result hash и не разрешает положительный итог. После этой
 записи canonical-only назначения уже можно разрешать по точному parent UUID.
 
-Перед QA возьмите текущий verification из summary, установите `task_kind: change`,
+Перед QA подготовьте окончательные статусы и checklist связанных документов
+каждого репозитория по `definition-of-done.md`. Включите исходный план и все
+документы поставки в список; приёмка охватывает полные bytes со статусами.
+Возьмите текущий verification из summary, установите `task_kind: change`,
 полные `author_thread_ids` и `result_files`. Сохраните текущие behavioral_checks
 и ссылки. Через recorder передайте объект строкой JSON или путём к локальному
 файлу. Команда вычисляет штатный хеш файлов вместе со снимком и границами.

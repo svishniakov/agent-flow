@@ -1,5 +1,7 @@
 # Delegation
 
+Document status: done
+
 Use subagents only after Agent Flow is active and the selected budget permits delegation.
 
 Agent Flow-invoked requests let the orchestrator choose execution topology. `light` budget stays solo for implementation ownership. `standard` and `release` budgets may use subagents when delegation adds independent evidence, parallelism, or review value.
@@ -58,6 +60,20 @@ Privileged actions must be performed by the orchestrator or a separate acting
 role using sanitized findings.
 
 ## Product Ownership
+
+Carry dependency facts in the existing packet: old task/plan ID, scope overlap
+or confirmed independence, later completion sources, blocker removal and linked
+session state when available. A stale status is not an instruction to stop.
+Apply `project-memory-and-env.md` before delegating the dependent part; authorized
+independent work can continue. Historical record correction does not require a
+new assignment for old implementation.
+
+Carry the full related-document list per repository, including the source plan,
+PRD, ADR, design/spec and research, and state who closes each document and related
+memory record. Root owns integration across repositories. Workers hand off actual
+completion evidence and remaining requirements; QA/reviewer check final statuses
+within the full `result_files` bytes before authorized commit. A plan document
+can be done while its separate implementation remains not_started or incomplete.
 
 Assign product edits to workers only for explicitly delegated scopes:
 

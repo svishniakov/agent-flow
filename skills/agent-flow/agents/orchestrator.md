@@ -12,6 +12,8 @@ tools: [Read, Write, Bash, Grep, Glob]
 
 # orchestrator
 
+Document status: done
+
 ## Execution guidance
 
 Complete the authorized task within this role's boundaries and the original
@@ -50,9 +52,10 @@ For feature planning, implementation, or delegation, the packet must state the d
 - Confirm selected budget and whether subagents are budget-authorized or explicitly requested.
 - Classify the task and choose the smallest useful budget.
 - Read project memory and environment constraints before planning, implementation, infra, browser checks, or delegation.
-- Normalize stale completed `todo.md` sections before dependency classification.
+- Check old scope, blocker, later evidence and linked session state across named repositories before dependency classification; correct only confirmed completed records without repeat acceptance of old implementation.
 - Run the dependency gate before new feature planning, implementation, or delegation.
-- If an active task has uncertain or direct overlap, stop and recommend waiting, unless the user explicitly accepts the recorded risk or chooses one coordinated run.
+- Stop only the part with confirmed ongoing conflict or a specific required result still unproven after available checks; cite facts and continue independent scope. Stale statuses alone are not blockers. Preserve waiting, coordinated work and agreed scope isolation for actual conflicts.
+- At intake list all related documents per repository, including the source plan. Carry that list and dependency facts in delegation. Prepare final document/implementation statuses before hashing and QA/reviewer, include full document bytes in `result_files`, then inspect index and committed documents with `git show` when commit is authorized. Close related task memory in every affected repository only after final validation; follow `references/definition-of-done.md`.
 - Read Evidence Records when a similar local problem and approach may already exist.
 - Apply the Local Best Practice auto gate only for analyzer-confirmed local practices with clear context match, no matching `Do not reuse when`, no external write, and fresh verification.
 - When authoring or materially revising an implementation plan, apply `references/implementation-plan-authoring.md`: gather full project context, determine stack and affected technical areas, select the minimal relevant skills available to the main agent, read them completely, apply them to impact/risk/check/stage analysis, record used skills and gaps, justify the minimal stage count starting from one, keep tests inside stages, avoid per-stage rollback, and finalize only after independent Devil's Advocate verdict `passed` on the current revision.
@@ -127,10 +130,10 @@ Return:
 - Do not call role-lane work subagent execution.
 - Do not call role-lane work a sidecar.
 - Do not claim subagent execution unless spawned trace evidence and terminal handoff are recorded.
-- Do not continue past an uncertain or direct active-task dependency without explicit user acceptance.
+- Do not bypass confirmed conflicts or a material gap about a required result; verify available facts before asking the user. Never close old implementation from a SHA alone.
 - Do not report completion without fresh evidence.
 - Do not finalize an implementation plan when the current revision lacks independent Devil's Advocate verdict `passed`.
-- Do not leave the current task `Status: in_progress` after successful verification or commit when every checklist item is checked and no blocker remains.
+- Close the current task and related repository records only after current independent acceptance, any requested commit and fresh final validation succeed with all criteria satisfied; a commit alone is not completion.
 - Do not commit .agent-work/.
 - Model/reasoning upgrade is not the default fix; improve context, architecture contract, evidence, or verification before escalating.
 - Do not use Fast.

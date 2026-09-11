@@ -1,5 +1,7 @@
 # Definition Of Done
 
+Document status: done
+
 Done means scope is complete and evidence exists.
 
 ## Base Gates
@@ -26,15 +28,54 @@ When a task creates reusable process evidence, record it under `## Evidence Reco
 
 ## Task Status Completion Gate
 
+### Related documents in every repository
+
+At intake, list the related PRD, ADR, design/spec, implementation plan, research
+and other created/changed documents in existing scope. Include the source plan
+whose implementation is being completed even if product edits did not touch it.
+Carry the full per-repository list in delegation and check it at delivery.
+
+Use `Document status: in_progress` while drafting and `Document status: done` for
+the completed current text. Plans/specs with separate implementation also carry
+`Implementation status: not_started`, `in_progress`, `blocked` or `done`. Research
+and references without separate implementation need no implementation field.
+Preserve ADR decision states (`accepted`, `rejected`, `superseded`). A plan commit
+completes its document, not its future implementation; a partial implementation
+commit does not satisfy remaining requirements.
+
+Finish scope and checks, then prepare final statuses and implementation checklists
+before hashing and QA/reviewer. Remove or mark as history conflicting active text.
+Include the full delivery document list in `result_files`; acceptance covers full
+bytes including statuses. The final-status candidate is not yet accepted and task
+memory stays active. A status edit after QA requires acceptance of the new revision.
+
+For an authorized commit, compare staged diff with accepted files, inspect document
+statuses in the index, then create scoped commits and check each repository's
+documents with `git show`. Finished documents enter Git with `Document status: done`.
+Only an explicitly requested intermediate snapshot may retain truthful WIP status.
+Do not require commit if none was requested. Never write a future commit's own SHA
+inside its document; record actual SHA in memory and timeline after commit.
+
+Synchronize related task records and implementation statuses in every affected
+repository. Historical record correction follows `project-memory-and-env.md` and
+needs verified closing sources, not new QA/reviewer or a new run for old work.
+Unrelated active documents and historical runs stay unchanged.
+
+### Current task delivery
+
 Before final handoff for any repo task, audit the current `.agent-work/tasks/todo.md` section:
 
 - для изменения файлов сначала подготовьте итоговые документы и выполните свежий `validate-run.py --run-dir ...` без `--allow-pending` и `--allow-no-check`; сохраните stdout/stderr и exit code в `checks/final-validation.txt`;
 - if every checklist item is checked, final validation exited 0, verification is recorded, no blocker remains, and any requested product commit succeeded, set `Status: done`; консультации без run завершаются после применимых прямых проверок;
-- if a product commit was created for the task, update the current task section after the commit with commit and check evidence before final handoff;
-- if every checklist item is checked but verification, review, approval, or commit evidence is missing, do not call the task done; keep `Status: in_progress` or `Status: blocked` and record the missing evidence;
+- if product commits were created, update task sections in every affected repository after commit with SHA and committed-document/check evidence before final handoff;
+- if every checklist item is checked but required verification, review, approval, or requested commit evidence is missing, do not call the task done; keep `Status: in_progress` or `Status: blocked` and record the missing evidence;
 - if work is intentionally deferred, leave an unchecked item or explicit blocker so the dependency gate has an honest active task to read.
 
 A task section must not remain `Status: in_progress` only because the agent forgot to flip the status after successful verification or commit.
+
+Commit failure leaves delivery incomplete. If final validation fails after commit,
+preserve its real SHA and unresolved criteria, continue the authorized correction,
+and do not infer task completion from the existence of that commit.
 
 До успешной финальной команды отчёт остаётся кандидатом, задача не завершена.
 При отказе исправьте доступную ошибку и повторите команду. Недоступное обязательное

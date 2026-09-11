@@ -1,5 +1,7 @@
 # Implementation Plan Authoring
 
+Document status: done
+
 Use this reference when Agent Flow creates or materially revises an implementation plan, whether the user asks for the plan directly or another flow reaches the implementation-plan step.
 
 This is a prompt-level contract. It adds no selector, registry, runtime stage picker, plan state machine, Markdown parser, JSON artifact, public mode, lane type, execution gate, Architecture Capability Router change, role frontmatter change, `agent-skills.json` change, `recommended_skills` change, testing-only stage, per-stage rollback, or fixed upper limit on stage count.
@@ -20,12 +22,20 @@ Light, Standard, and Release remain future execution budgets. They do not get se
 6. Record the skills used, the purpose of each skill, and any expertise gaps. Skill names alone are not enough; their conclusions must appear in scope assessment, risks, checks, dependencies, or stage boundaries.
 7. Use project sources, local instructions, approved documents, and current code as primary evidence. General skill guidance cannot expand product scope or override project constraints.
 8. Decide the minimal justified number of implementation stages. Start from one stage and split only when a separate boundary is proven.
-9. Write a draft implementation plan.
-10. Send the draft to an independent Devil's Advocate reviewer.
+9. Write a draft implementation plan with `Document status: in_progress` and separate `Implementation status: not_started` (or the factual current implementation state for an existing plan).
+10. Prepare the final-status candidate (`Document status: done`, truthful separate implementation status) before hashing and sending its complete bytes to independent QA/Devil's Advocate. Task preparation remains active until acceptance; a rejected candidate is not completed delivery.
 11. Fix technical findings directly when they do not change product scope or expected behavior.
 12. After any review-driven fix, send the revised draft to a new independent Devil's Advocate review.
 13. Repeat fix and review until the current revision receives verdict `passed`.
-14. Finalize only the revision that received `passed`.
+14. Finalize only the revision that received `passed`, including its status fields. Status edits after acceptance require renewed review. If commit was requested, inspect staged and committed document bytes; otherwise do not require commit to complete plan preparation.
+
+Document completion means the current text is ready, not that its implementation
+was performed. A prepared plan normally has `Document status: done` and
+`Implementation status: not_started`, even inside a commit. Partial work remains
+`in_progress` or `blocked`; a SHA is not proof of all requirements. When executing
+the plan, include it and linked documents across every affected repository in the
+delivery list under `definition-of-done.md`. Preserve ADR decision statuses and
+unresolved requirements; do not migrate unrelated historical plans.
 
 Involve the user only when a decision changes product scope or expected behavior.
 

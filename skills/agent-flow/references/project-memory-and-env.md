@@ -1,5 +1,7 @@
 # Project Memory And Environment
 
+Document status: done
+
 Agent Flow must not start work blind.
 
 ## Required Intake
@@ -16,6 +18,7 @@ Before planning, delegation, product edits, infra commands, DB/storage work, bro
   - close the current `todo.md` task as `Status: done` when its checklist, verification, blockers, and requested commit state satisfy the Task Status Completion Gate;
 - project-declared legacy memory such as `docs/tasks/*` only when local project instructions explicitly name it as current memory;
 - PRD/spec/design docs named by the user;
+- the full related-document list in existing scope per repository, including the source implementation plan, ADR and research; retain it for delegation and final acceptance under `definition-of-done.md`;
 - environment docs for infra, Docker, local dev, migrations, test data, and app startup when the task can touch them;
 - package scripts or task docs for the commands you plan to run.
 
@@ -30,15 +33,33 @@ delegation, inspect `.agent-work/tasks/todo.md` for existing sections marked
 `Status: in_progress` or `Status: blocked`. Ignore the section for the current
 request if it was already added as bookkeeping.
 
-Before dependency classification, normalize stale completed sections:
+`in_progress` and `blocked` are lookup cues, not proof of ongoing work. Check
+the found task's scope, remaining requirements and stated blocker. Search later
+completion and checks by the same task/plan ID in memory and linked documents
+across every named repository. Verify supplied SHA and relevant committed content;
+a commit alone does not prove all requirements. Similar titles or a common product
+area do not prove a conflict. Read a linked session's actual state when available;
+a finished/interrupted session does not prove completion, and unavailable session
+listing alone is not a blocker.
 
-- if a section is `Status: in_progress`, every checklist item is checked,
-  `Review:` records verification, and no blocker remains, update that section
-  to `Status: done` and do not use it as a blocker;
-- if every checklist item is checked but verification, review, approval, or
-  commit evidence is missing, keep it active and classify it as `uncertain`;
-- if a product commit is recorded as the task result, the current task section
-  must be updated after the commit and before final handoff.
+Separate old work's state from its relationship to the new task. A completed
+document may describe implementation that has not started.
+
+### Historical record correction
+
+For either old status, verified later completion can support a narrow correction
+even when old checklist items are unchecked. Match evidence to those requirements;
+for `blocked`, separately confirm removal of its stated cause and absence of new
+work under that record. Record the task ID, completed scope, verification sources,
+repository/SHA when commit was part of delivery, date and correction reason.
+Later verified completion takes precedence over earlier pending notes. Preserve
+unresolved requirements; when transferred, link their continuation explicitly.
+
+Source verification is sufficient for historical record correction: no new run
+or repeat QA/reviewer of the old implementation is required. Do not rewrite old
+runs, final messages or evidence. Repeated intake is idempotent: do not add another
+closure or return the corrected record to active blockers. This exception does
+not waive current implementation's independent acceptance.
 
 If the new request names a PRD, spec, design source, issue, or task document,
 read that source before dependency classification. The gate must compare active
@@ -55,11 +76,12 @@ For each active task, compare it with the new request across practical surfaces:
 
 Classify every active task:
 
-- `clear`: no meaningful overlap with the new request.
-- `uncertain`: possible overlap, stale active notes, incomplete ownership, or
-  too little context to prove independence.
-- `dependent`: active work may affect the new request, or the new request may
-  affect the active work.
+- `clear`: independence is confirmed. Continue even if old work is unfinished
+  or evidence is insufficient to close it; keep that old status truthful.
+- `uncertain`: available sources leave a material gap about a specific result
+  required by the new task. Stop only that dependent part and name the missing fact.
+- `dependent`: confirmed ongoing work changes the same necessary file or contract.
+  Stop only the conflicting part and cite actual activity and concrete overlap.
 
 If every active task is `clear`, continue and record that the dependency gate
 passed in task memory or trace notes when those artifacts exist.
@@ -70,20 +92,13 @@ result as local evidence: cite shared files, symbols, tests, and gaps when they
 help the user decide, but keep the orchestrator responsible for the final
 classification.
 
-If any task is `uncertain` or `dependent`, stop before implementation,
-delegation, or trace setup. The user-facing warning must include:
-
-- active task title and status;
-- likely shared surface or missing context;
-- practical risk, such as rework, conflicting contracts, broken tests, or
-  inconsistent UX;
-- recommendation to wait for the active feature to finish and restart from that
-  result.
-
-The orchestrator may continue only after the user explicitly accepts the risk.
-If continuing, record the override, isolate scope, and avoid writes to the
-active task's likely ownership unless the user chose to merge the work into one
-coordinated Agent Flow run.
+Stale notes, age, unchecked boxes, missing old runs and the word `uncertain` do
+not independently stop implementation, delegation or trace setup. Continue the
+authorized independent part. Involve the user only after available checks leave
+a material dependency unresolved. Explain the task ID, concrete shared file or
+required result, missing fact and practical risk. For a real conflict, recommend
+waiting, merging into one coordinated run, or explicit agreement on isolated
+scope. Record that agreement; never bypass a real conflict by closing old work.
 
 Do not block internal lane sharding, workers, or QA/review lanes that belong to
 the same Agent Flow run. The gate protects separate user-launched feature
