@@ -24,6 +24,7 @@ Light, Standard, and Release remain future execution budgets. They do not get se
 8. Decide the minimal justified number of implementation stages. Start from one stage and split only when a separate boundary is proven.
 9. Write a draft implementation plan with `Document status: in_progress` and separate `Implementation status: not_started` (or the factual current implementation state for an existing plan).
 10. Prepare the final-status candidate (`Document status: done`, truthful separate implementation status) before hashing and sending its complete bytes to independent QA/Devil's Advocate. Task preparation remains active until acceptance; a rejected candidate is not completed delivery.
+    Assign requirements and acceptance-criteria readiness to `qa-verifier` as `qa.requirements`, following its Requirements Review Assignment. Give Devil's Advocate the current QA handoff along with the plan. Resolve material requirements findings with their owners and recheck the revised source before accepting the plan; preserve explicit project constraints and do not import values from skill examples.
 11. Fix technical findings directly when they do not change product scope or expected behavior.
 12. After any review-driven fix, send the revised draft to a new independent Devil's Advocate review.
 13. Repeat fix and review until the current revision receives verdict `passed`.

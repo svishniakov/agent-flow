@@ -80,8 +80,8 @@ def run_promote(run_dir: Path, notes: Path, *args: str) -> subprocess.CompletedP
     return subprocess.CompletedProcess(argv, code, stdout.getvalue(), stderr.getvalue())
 
 
-def validate_fixture(run_dir: Path) -> tuple[str, str]:
-    errors = verification_tests.validator.validate_run(run_dir, "full", session_source=SESSION_SOURCES[run_dir])
+def validate_fixture(run_dir: Path, *, snapshot=None) -> tuple[str, str]:
+    errors = verification_tests.validator.validate_run(run_dir, "full", session_source=SESSION_SOURCES[run_dir], snapshot=snapshot)
     if errors:
         raise PromotionError("validate-run failed: " + "\n".join(errors))
     return harness_promotion.validation_command_text(run_dir), "Synthetic verification passed"

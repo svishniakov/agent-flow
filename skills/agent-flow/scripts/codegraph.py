@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local CodeGraph v1 CLI for AgentFlow."""
+"""Local CodeGraph v1 CLI for AgentFlow. Run inside the project's Git working tree."""
 
 from __future__ import annotations
 
@@ -71,19 +71,23 @@ def find_repo_root(start: Path) -> Path:
     current = start.resolve()
     if current.is_file():
         current = current.parent
-    for candidate in [current, *current.parents]:
-        if (candidate / ".git").exists():
-            return candidate
-    return current
+    result = run_git(current, ["rev-parse", "--show-toplevel"])
+    if result.returncode:
+        raise CodeGraphError(
+            "codegraph_repository_required", "CodeGraph requires a Git working tree",
+            {"path": str(current), "returncode": result.returncode,
+             "stderr": result.stderr.decode("utf-8", "replace").strip()},
+        )
+    return Path(result.stdout.decode("utf-8").strip()).resolve()
 
 
 def run_git(repo_root: Path, args: list[str]) -> subprocess.CompletedProcess[bytes]:
-    return subprocess.run(
-        ["git", *args],
-        cwd=repo_root,
-        capture_output=True,
-        check=False,
-    )
+    try:
+        return subprocess.run(
+            ["git", *args], cwd=repo_root, capture_output=True, check=False,
+        )
+    except OSError as exc:
+        raise CodeGraphError("codegraph_git_unavailable", "Cannot run Git", {"message": str(exc)}) from exc
 
 
 def success(repo_root: Path, index_path: Path, data: Any, *, fresh: bool = True) -> dict[str, Any]:
@@ -254,37 +258,25 @@ class ParseResult:
 
 def scan_repo(repo_root: Path, config: dict[str, Any]) -> list[FileRecord]:
     tracked_result = run_git(repo_root, ["ls-files", "-z"])
+    if tracked_result.returncode:
+        raise CodeGraphError(
+            "codegraph_git_scan_failed", "Cannot list tracked files",
+            {"returncode": tracked_result.returncode, "stderr": tracked_result.stderr.decode("utf-8", "replace").strip()},
+        )
     candidate_result = run_git(repo_root, ["ls-files", "--cached", "--others", "--exclude-standard", "-z"])
-    if candidate_result.returncode == 0:
-        tracked = set(tracked_result.stdout.decode("utf-8", "replace").split("\0")) if tracked_result.returncode == 0 else set()
-        raw_paths = [path for path in candidate_result.stdout.decode("utf-8", "replace").split("\0") if path]
-        records: list[FileRecord] = []
-        for rel_path in sorted(dict.fromkeys(raw_paths)):
-            if not is_relevant(rel_path, config):
-                continue
-            path = repo_root / rel_path
-            if not path.is_file():
-                continue
-            data = path.read_bytes()
-            stat = path.stat()
-            records.append(
-                FileRecord(
-                    path=rel_path,
-                    language=LANGUAGE_BY_SUFFIX[path.suffix],
-                    content_hash=content_hash(data),
-                    size_bytes=len(data),
-                    mtime_ns=stat.st_mtime_ns,
-                    tracked=rel_path in tracked,
-                )
-            )
-        return records
-
-    records = []
-    for path in sorted(repo_root.rglob("*")):
-        if not path.is_file():
-            continue
-        rel_path = repo_relative(path, repo_root)
+    if candidate_result.returncode:
+        raise CodeGraphError(
+            "codegraph_git_scan_failed", "Cannot list working-tree files",
+            {"returncode": candidate_result.returncode, "stderr": candidate_result.stderr.decode("utf-8", "replace").strip()},
+        )
+    tracked = set(tracked_result.stdout.decode("utf-8", "replace").split("\0"))
+    raw_paths = [path for path in candidate_result.stdout.decode("utf-8", "replace").split("\0") if path]
+    records: list[FileRecord] = []
+    for rel_path in sorted(set(raw_paths)):
         if not is_relevant(rel_path, config):
+            continue
+        path = repo_root / rel_path
+        if not path.is_file():
             continue
         data = path.read_bytes()
         stat = path.stat()
@@ -295,7 +287,7 @@ def scan_repo(repo_root: Path, config: dict[str, Any]) -> list[FileRecord]:
                 content_hash=content_hash(data),
                 size_bytes=len(data),
                 mtime_ns=stat.st_mtime_ns,
-                tracked=False,
+                tracked=rel_path in tracked,
             )
         )
     return records
@@ -1639,7 +1631,9 @@ def handle(args: argparse.Namespace, repo_root: Path) -> tuple[int, dict[str, An
     index_path = repo_root / DEFAULT_INDEX_PATH
     if args.command == "doctor":
         ok, data = doctor(repo_root)
-        return (0 if ok else 1), success(repo_root, index_path, data, fresh=ok)
+        if not ok:
+            return 1, error_envelope("codegraph_doctor_failed", "CodeGraph checks failed", data)
+        return 0, success(repo_root, index_path, data)
     if args.command == "index":
         return 0, success(repo_root, index_path, rebuild_index(repo_root))
     if args.command == "status":
@@ -1671,7 +1665,6 @@ def main(argv: list[str] | None = None) -> int:
         exit_code, payload = handle(args, repo_root)
         return emit(payload, exit_code)
     except CodeGraphError as exc:
-        repo_root = find_repo_root(Path.cwd())
         return emit(error_envelope(exc.code, exc.message, exc.details), 1)
     except Exception as exc:
         return emit(

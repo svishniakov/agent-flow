@@ -11,9 +11,12 @@ from contextlib import redirect_stdout
 from datetime import datetime
 from io import StringIO
 from pathlib import Path
+import uuid
+from journal_io import JournalSnapshot, transact, connect_database
 from unittest.mock import patch
 
 import verification_evidence as evidence
+import task_workspace as workspace
 from importlib.util import module_from_spec, spec_from_file_location
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -28,6 +31,10 @@ def load(name, filename):
 
 base = load("evidence_fixtures", "test-verification-evidence.py")
 recorder = load("procedure_recorder", "record-agent-trace.py")
+
+
+def publish_fixture(run, name, content):
+    transact(run, str(uuid.uuid4()), {}, lambda snapshot: ({name: content}, {}))
 
 
 class ProcedureTests(unittest.TestCase):
@@ -52,12 +59,11 @@ class ProcedureTests(unittest.TestCase):
 
     def test_numeric_observed_format(self):
         self.numeric()
-        self.assertEqual(self.complete()["completed_at"], datetime.fromisoformat("2026-09-10T13:41:41.240+00:00"))
+        self.assertEqual(self.complete()["completed_at"], datetime.fromisoformat("2026-09-10T13:41:41+00:00"))
 
-    def test_numeric_conflicting_outer_rejected(self):
+    def test_numeric_adjacent_publication_accepted(self):
         self.numeric("2026-09-10T13:41:42.240Z")
-        with self.assertRaisesRegex(evidence.EvidenceError, "conflict"):
-            self.complete()
+        self.assertIsNotNone(self.complete()["completed_before"])
 
     def test_invalid_present_inner_not_replaced(self):
         for value in (False, True, None, "", 1.25, [], 10**30):
@@ -196,11 +202,11 @@ class ProcedureTests(unittest.TestCase):
         result = self.init("--mode", "compact")
         self.assertEqual(result.returncode, 0, result.stderr)
         run = Path(result.stdout.strip())
-        self.assertEqual({p.name for p in run.iterdir() if p.is_file()},
+        self.assertEqual({Path(name).name for name, data in JournalSnapshot.open(run).documents.items() if data is not None},
                          {"run.md", "checks.md", "final.md", "context.md", "delegation-summary.json", "timeline.jsonl"})
-        self.assertFalse((run / "lane-map.json").exists())
-        (run / "context.md").write_text("# Context\n\n## Initial Worktree Snapshot\n\nClean.\n")
-        (run / "run.md").write_text("# Task\n\nSynthetic scope.\n")
+        self.assertFalse(JournalSnapshot.open(run).exists("lane-map.json"))
+        publish_fixture(run, "context.md", "# Context\n\n## Initial Worktree Snapshot\n\nClean.\n")
+        publish_fixture(run, "run.md", "# Task\n\nSynthetic scope.\n")
         verification = {**evidence.empty_verification(), "root_thread_id": base.ROOT_ID,
                         "initial_snapshot": {"path": "context.md", "section": "Initial Worktree Snapshot"},
                         "task_scope": {"path": "run.md"}}
@@ -209,7 +215,7 @@ class ProcedureTests(unittest.TestCase):
                 "--verification-json", json.dumps(verification)]
         with redirect_stdout(StringIO()):
             self.assertEqual(recorder.main(args, session_source=self.source), 0)
-        stored = json.loads((run / "delegation-summary.json").read_text())["verification"]
+        stored = json.loads(JournalSnapshot.open(run).read_text("delegation-summary.json"))["verification"]
         self.assertNotIn("result_hash", stored)
         for field in ("initial_snapshot", "task_scope"):
             self.assertEqual(stored[field]["sha256"], evidence.sha256(evidence.reference_bytes(run, stored[field])))
@@ -225,28 +231,28 @@ class ProcedureTests(unittest.TestCase):
         result = self.init()
         self.assertEqual(result.returncode, 0, result.stderr)
         run = Path(result.stdout.strip())
-        before = {p: p.read_bytes() for p in run.rglob("*") if p.is_file()}
+        before = dict(JournalSnapshot.open(run).documents)
         self.assertNotEqual(self.init("--reuse", "--mode", "compact").returncode, 0)
-        self.assertEqual(before, {p: p.read_bytes() for p in run.rglob("*") if p.is_file()})
-        (run / "delegation-summary.json").write_text("{broken")
+        self.assertEqual(before, dict(JournalSnapshot.open(run).documents))
+        publish_fixture(run, "delegation-summary.json", "{broken")
         self.assertNotEqual(self.init("--reuse").returncode, 0)
-        self.assertEqual((run / "delegation-summary.json").read_text(), "{broken")
+        self.assertEqual(JournalSnapshot.open(run).read_text("delegation-summary.json"), "{broken")
 
     def test_reuse_requires_summary_flags_and_notes(self):
         result = self.init()
         self.assertEqual(result.returncode, 0, result.stderr)
         run = Path(result.stdout.strip())
         path = run / "delegation-summary.json"
-        original = json.loads(path.read_text())
+        original = json.loads(JournalSnapshot.open(run).read_text(path))
         for field, value in (("subagents_used", "false"), ("role_lanes_used", None), ("notes", "")):
             with self.subTest(field=field):
                 changed = {**original, field: value}
                 if value is None:
                     del changed[field]
-                path.write_text(json.dumps(changed))
-                before = {p: p.read_bytes() for p in run.rglob("*") if p.is_file()}
+                publish_fixture(run, "delegation-summary.json", json.dumps(changed))
+                before = dict(JournalSnapshot.open(run).documents)
                 self.assertNotEqual(self.init("--reuse").returncode, 0)
-                self.assertEqual(before, {p: p.read_bytes() for p in run.rglob("*") if p.is_file()})
+                self.assertEqual(before, dict(JournalSnapshot.open(run).documents))
 
     def test_reuse_missing_summary_preserves_existing_run(self):
         for mode in ("compact", "full"):
@@ -256,14 +262,16 @@ class ProcedureTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 run = Path(result.stdout.strip())
                 summary = run / "delegation-summary.json"
-                summary.unlink()
-                before = {p: p.read_bytes() for p in run.rglob("*") if p.is_file()}
+                connection = connect_database(run)
+                connection.execute("DELETE FROM documents WHERE path='delegation-summary.json'")
+                connection.close()
+                before = dict(JournalSnapshot.open(run).documents)
                 entries = set(run.rglob("*"))
                 reused = self.init("--reuse")
                 self.assertNotEqual(reused.returncode, 0)
                 self.assertIn("delegation-summary.json", reused.stderr)
-                self.assertFalse(summary.exists())
-                self.assertEqual(before, {p: p.read_bytes() for p in run.rglob("*") if p.is_file()})
+                self.assertFalse(JournalSnapshot.open(run).exists(summary))
+                self.assertEqual(before, dict(JournalSnapshot.open(run).documents))
                 self.assertEqual(entries, set(run.rglob("*")))
 
     def test_reuse_existing_empty_directory_requires_summary(self):
@@ -322,8 +330,8 @@ class ProcedureTests(unittest.TestCase):
         result = self.init("--mode", "compact")
         self.assertEqual(result.returncode, 0, result.stderr)
         run = Path(result.stdout.strip())
-        (run / "context.md").write_text("# Context\n\n## Initial Worktree Snapshot\n\nClean.\n")
-        (run / "run.md").write_text("# Run\n\n## Task Scope\n\nChange result.txt.\n")
+        publish_fixture(run, "context.md", "# Context\n\n## Initial Worktree Snapshot\n\nClean.\n")
+        publish_fixture(run, "run.md", "# Run\n\n## Task Scope\n\nChange result.txt.\n")
         verification = {**evidence.empty_verification(), "root_thread_id": base.ROOT_ID,
                         "initial_snapshot": {"path": "context.md", "section": "Initial Worktree Snapshot"},
                         "task_scope": {"path": "run.md", "section": "Task Scope"}}
@@ -336,13 +344,13 @@ class ProcedureTests(unittest.TestCase):
             return output.getvalue()
 
         def stored():
-            return json.loads((run / "delegation-summary.json").read_text())
+            return json.loads(JournalSnapshot.open(run).read_text("delegation-summary.json"))
 
         def no_writes(*args):
-            before = {p: p.read_bytes() for p in run.rglob("*") if p.is_file()}
+            before = dict(JournalSnapshot.open(run).documents)
             with self.assertRaises(SystemExit):
                 record(*args)
-            self.assertEqual(before, {p: p.read_bytes() for p in run.rglob("*") if p.is_file()})
+            self.assertEqual(before, dict(JournalSnapshot.open(run).documents))
 
         register = ["--role", "orchestrator", "--execution-mode", "role-lane", "--stage", "verification", "--status", "active"]
         record(*register, "--verification-json", json.dumps(verification))
@@ -354,22 +362,27 @@ class ProcedureTests(unittest.TestCase):
         output = record(*qa_args, "--stage", "spawned", "--status", "active")
         resolved = json.loads(next(line.removeprefix("resolver: ") for line in output.splitlines() if line.startswith("resolver: ")))
         self.assertEqual(resolved["codex_thread_id"], base.QA_ID)
-        event = json.loads((run / "timeline.jsonl").read_text().splitlines()[-1])
+        event = json.loads(JournalSnapshot.open(run).read_text("timeline.jsonl").splitlines()[-1])
         self.assertGreater(evidence.timestamp(event["timestamp"]), evidence.timestamp(event["observed_spawn_at"]))
-        (self.root / "result.txt").write_text("Synthetic result\n")
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True)
+        retained = tempfile.TemporaryDirectory()
+        self.addCleanup(retained.cleanup)
+        prepared = workspace.prepare(run, self.root.resolve(), Path(retained.name).resolve() / "bundle")
+        (Path(prepared["working_root"]) / "result.txt").write_text("Synthetic result\n")
+        sealed = workspace.seal(run)
         verification = stored()["verification"]
         verification.update(task_kind="change", result_files=["result.txt"], author_thread_ids=[base.ROOT_ID])
         record(*register, "--verification-json", json.dumps(verification))
         digest = stored()["verification"]["result_hash"]
-        (run / "checks.md").write_text("Synthetic tests passed.\n")
+        publish_fixture(run, "checks.md", "Synthetic tests passed.\n")
         (run / "handoffs").mkdir(exist_ok=True)
         qa_hash = None
         for role, thread, lane in (("qa-verifier", base.QA_ID, "qa"), ("reviewer", base.REVIEWER_ID, "reviewer")):
             args = ["--role", role, "--lane-id", lane, "--resolve-session", "--agent-path", f"/root/{lane}"]
             handoff = f"handoffs/{lane}.md"
-            (run / handoff).write_text("checks.md " + evidence.sha256((run / "checks.md").read_bytes()) + "\n")
+            publish_fixture(run, handoff, "checks.md " + evidence.sha256(JournalSnapshot.open(run).read_bytes("checks.md")) + "\n")
             answer = {"verdict": "passed", "reviewed_result_hash": digest, "handoff": handoff,
-                      "handoff_sha256": evidence.sha256((run / handoff).read_bytes())}
+                      "handoff_sha256": evidence.sha256(JournalSnapshot.open(run).read_bytes(handoff))}
             if qa_hash:
                 answer["qa_handoff_sha256"] = qa_hash
             events = self.metadata(thread, role=role, path=f"/root/{lane}")
@@ -396,14 +409,14 @@ class ProcedureTests(unittest.TestCase):
             if lane == "qa":
                 qa_hash = answer["handoff_sha256"]
         summary = stored()
-        (run / "final.md").write_text("# Final\n\nVerdict: ship\n\n" + base.delegation_section(summary))
+        publish_fixture(run, "final.md", "# Final\n\nVerdict: ship\n\n" + base.delegation_section(summary))
         record("--role", "orchestrator", "--execution-mode", "role-lane", "--stage", "final", "--status", "pass")
         with patch.dict(os.environ, {"CODEX_HOME": str(self.root / "codex")}):
             self.assertEqual(base.validator.validate_run(run, mode="auto", session_source=source), [])
             self.assertEqual(evidence.validate_verification(run, summary, {}, "ship", source), [])
             (self.root / "unrelated.txt").write_text("Parallel work")
             self.assertEqual(evidence.validate_verification(run, summary, {}, "ship", source), [])
-            (self.root / "result.txt").write_text("New revision")
+            (Path(sealed["candidate_root"]) / "result.txt").write_text("New revision")
             self.assertTrue(evidence.validate_verification(run, summary, {}, "ship", source))
         self.assertEqual(summary["verification"]["author_thread_ids"], [base.ROOT_ID])
         self.assertEqual([r["codex_thread_id"] for r in summary["subagents"]], [base.QA_ID, base.REVIEWER_ID])
@@ -425,6 +438,98 @@ class ProcedureTests(unittest.TestCase):
         with self.assertRaisesRegex(evidence.EvidenceError, "ambiguous"):
             evidence.resolve_completion(self.source, base.QA_ID, base.ROOT_ID, "qa-verifier", "a" * 64, ["qa.md"])
         self.assertEqual(evidence.completed_turn(self.source, base.QA_ID, "new-turn", base.ROOT_ID, "qa-verifier")["answer"], answer)
+
+
+class JournalCLITests(unittest.TestCase):
+    """Real entrypoints; controlled source files via the internal reader seam."""
+    def test_complete_cli_procedure_and_stale_negatives(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve() / "source"
+            root.mkdir()
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            sessions = root.parent / "synthetic-sessions"
+            sessions.mkdir()
+            bootstrap = root.parent / "test-bootstrap"
+            bootstrap.mkdir()
+            # Only this child process imports the test seam. No CODEX_HOME override.
+            (bootstrap / "sitecustomize.py").write_text(
+                "from pathlib import Path\nimport sys\n"
+                f"sys.path.insert(0, {str(SCRIPTS)!r})\n"
+                "from verification_evidence import CodexSessionSource\n"
+                f"CodexSessionSource.session_dir = lambda self: Path({str(sessions)!r})\n")
+            env = {**os.environ, "PYTHONPATH": str(bootstrap), "PYTHONDONTWRITEBYTECODE": "1"}
+
+            def cli(name, *args, wrapper=False, ok=True):
+                script = SCRIPTS.parents[2] / "scripts" / name if wrapper else SCRIPTS / name
+                result = subprocess.run([sys.executable, "-B", str(script), *args], env=env, capture_output=True, text=True)
+                if ok:
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                else:
+                    self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                return result
+
+            result = cli("init-run.py", "--repo", str(root), "--slug", "cli", "--mode", "compact", wrapper=True)
+            run = Path(result.stdout.strip())
+            prepared = json.loads(cli("task-workspace.py", "--run-dir", str(run), "prepare", "--source", str(root),
+                                      "--destination", str(root.parent / "workspace")).stdout)
+            (Path(prepared["working_root"]) / "result.txt").write_text("Synthetic product\n")
+            sealed = json.loads(cli("task-workspace.py", "--run-dir", str(run), "seal").stdout)
+            publish_fixture(run, "context.md", "# Context\n\n## Initial Worktree Snapshot\n\nClean synthetic Git project.\n")
+            publish_fixture(run, "run.md", "# Run\n\n## Task Scope\n\nChange result.txt.\n")
+            publish_fixture(run, "checks.md", "Synthetic CLI assertions passed.\n")
+            verification = {**evidence.empty_verification(), "root_thread_id": base.ROOT_ID,
+                            "task_kind": "change", "author_thread_ids": [base.ROOT_ID],
+                            "result_files": ["result.txt"], "run_changed_files": ["result.txt"],
+                            "initial_snapshot": {"path": "context.md", "section": "Initial Worktree Snapshot"},
+                            "task_scope": {"path": "run.md", "section": "Task Scope"}}
+            cli("record-agent-trace.py", "--run-dir", str(run), "--role", "orchestrator", "--execution-mode", "role-lane",
+                "--stage", "verification", "--status", "active", "--summary", "Registered result",
+                "--verification-json", json.dumps(verification))
+            repeat = []
+            for role, thread, lane, second in (("qa-verifier", base.QA_ID, "qa", 10), ("reviewer", base.REVIEWER_ID, "reviewer", 20)):
+                args = ["--run-dir", str(run), "--role", role, "--lane-id", lane]
+                cli("record-agent-trace.py", *args, "--codex-thread-id", thread, "--stage", "spawned", "--status", "active", "--summary", "Assigned")
+                handoff = f"handoffs/{lane}.md"
+                publish_fixture(run, handoff, "Synthetic conclusion. checks.md " + evidence.sha256(JournalSnapshot.open(run).read_bytes("checks.md")) + "\n")
+                artifact_args = ["--artifact", handoff, "--artifact", "checks.md"]
+                before = dict(JournalSnapshot.open(run).documents)
+                prepared = cli("record-agent-trace.py", *args, "--prepare-conclusion", "--status", "pass", *artifact_args)
+                self.assertEqual(before, dict(JournalSnapshot.open(run).documents))
+                answer = json.loads(prepared.stdout)
+                handoff_args = [*args, "--completion-turn-id", thread + "-turn", "--stage", "handoff", "--status", "pass", "--summary", "Accepted", *artifact_args]
+                cli("record-agent-trace.py", *handoff_args, ok=False)
+                self.assertEqual(before, dict(JournalSnapshot.open(run).documents))
+                events = base.session(thread, role, answer, second)
+                (sessions / f"synthetic-{thread}.jsonl").write_text("".join(json.dumps(e) + "\n" for e in events))
+                cli("record-agent-trace.py", *handoff_args, wrapper=True)
+                repeat.append(handoff_args)
+            source_before = {p: p.read_bytes() for p in sessions.iterdir()}
+            before = dict(JournalSnapshot.open(run).documents)
+            for args in repeat:
+                repeated = cli("record-agent-trace.py", *args)
+                self.assertIn("unchanged", repeated.stdout)
+            self.assertEqual(before, dict(JournalSnapshot.open(run).documents))
+            publish_fixture(run, "final.md", "# Итог\n\nVerdict: ship\n\nРусское пояснение: файл исправлен.\n\nЧужие изменения:\n- other.txt\n")
+            cli("record-agent-trace.py", "--run-dir", str(run), "--render-final")
+            final = JournalSnapshot.open(run).read_bytes("final.md")
+            cli("record-agent-trace.py", "--run-dir", str(run), "--render-final", wrapper=True)
+            self.assertEqual(final, JournalSnapshot.open(run).read_bytes("final.md"))
+            cli("append-timeline.py", "--run-dir", str(run), "--role", "orchestrator", "--stage", "final", "--status", "pass", "--summary", "Complete", wrapper=True)
+            cli("validate-run.py", "--run-dir", str(run))
+            cli("validate-run.py", "--run-dir", str(run), "--mode", "compact", wrapper=True)
+            delivered = json.loads(cli("task-workspace.py", "--run-dir", str(run), "delivery").stdout)
+            self.assertEqual(delivered["candidate_root"], sealed["candidate_root"])
+            before = dict(JournalSnapshot.open(run).documents)
+            cli("init-run.py", "--repo", str(root), "--slug", "cli", "--reuse")
+            self.assertEqual(before, dict(JournalSnapshot.open(run).documents))
+            (Path(sealed["candidate_root"]) / "result.txt").write_text("Changed product\n")
+            stale = cli("validate-run.py", "--run-dir", str(run), ok=False)
+            self.assertIn("candidate changed", stale.stdout + stale.stderr)
+            (Path(sealed["candidate_root"]) / "result.txt").write_text("Synthetic product\n")
+            publish_fixture(run, "checks.md", "Changed QA evidence\n")
+            stale = cli("validate-run.py", "--run-dir", str(run), ok=False)
+            self.assertIn("sha256", stale.stdout + stale.stderr)
+            self.assertEqual(source_before, {p: p.read_bytes() for p in sessions.iterdir()})
 
 
 class BehavioralDialectTests(unittest.TestCase):

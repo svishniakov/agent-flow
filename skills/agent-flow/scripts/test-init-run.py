@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from journal_io import JournalSnapshot
 from typing import Any
 
 
@@ -145,7 +146,7 @@ def expect_valid_pending_run(name: str, run_dir: Path) -> None:
 
 
 def load_lane_map(run_dir: Path) -> dict[str, Any]:
-    lane_map = json.loads((run_dir / "lane-map.json").read_text(encoding="utf-8"))
+    lane_map = json.loads(JournalSnapshot.open(run_dir).read_text("lane-map.json"))
     if not isinstance(lane_map, dict):
         raise AssertionError("lane-map.json must be an object")
     return lane_map
@@ -212,11 +213,11 @@ def main() -> int:
 
         run_dir = Path(result.stdout.strip())
         for relative_path in EXPECTED_ARCHITECTURE_GATE_FILES:
-            if not (run_dir / relative_path).exists():
+            if not JournalSnapshot.open(run_dir).exists(relative_path):
                 raise AssertionError(f"missing generated file: {relative_path}")
             if relative_path == "delegation-summary.json":
                 continue
-            if AGENT_TODO_PLACEHOLDER not in (run_dir / relative_path).read_text(encoding="utf-8"):
+            if AGENT_TODO_PLACEHOLDER not in JournalSnapshot.open(run_dir).read_text(relative_path):
                 raise AssertionError(f"generated file must contain {AGENT_TODO_PLACEHOLDER}: {relative_path}")
 
         lane_map = load_lane_map(run_dir)
@@ -251,14 +252,14 @@ def main() -> int:
         if "checks/lane-boundary-worker-a.json" not in worker_lane.get("evidence", []):
             raise AssertionError("generated worker evidence must include boundary artifact")
         boundary_artifact = json.loads(
-            (run_dir / "checks/lane-boundary-worker-a.json").read_text(encoding="utf-8")
+            JournalSnapshot.open(run_dir).read_text("checks/lane-boundary-worker-a.json")
         )
         if boundary_artifact.get("version") != 1 or boundary_artifact.get("lane_id") != "worker-a":
             raise AssertionError("generated boundary artifact must match schema and lane id")
         if boundary_artifact.get("changed_paths") != []:
             raise AssertionError("generated boundary artifact must start with empty changed paths")
 
-        worker_handoff = (run_dir / "handoffs/worker-a.md").read_text(encoding="utf-8")
+        worker_handoff = JournalSnapshot.open(run_dir).read_text("handoffs/worker-a.md")
         if "## Engineering Simplicity" not in worker_handoff:
             raise AssertionError("worker handoff missing Engineering Simplicity section")
         if "## Boundary Evidence" not in worker_handoff:
@@ -287,7 +288,7 @@ def main() -> int:
         if "fix now if fixable" not in worker_handoff:
             raise AssertionError("worker handoff missing Engineering Simplicity remediation instruction")
 
-        qa_handoff = (run_dir / "handoffs/qa-behavior.md").read_text(encoding="utf-8")
+        qa_handoff = JournalSnapshot.open(run_dir).read_text("handoffs/qa-behavior.md")
         if "## Engineering Simplicity Scope" not in qa_handoff:
             raise AssertionError("QA handoff missing Engineering Simplicity Scope section")
         if "Boundary Evidence" not in qa_handoff:
@@ -299,7 +300,7 @@ def main() -> int:
         if "Contract Negative Fixture Gate" not in qa_handoff:
             raise AssertionError("QA handoff missing Contract Negative Fixture Gate")
 
-        reviewer_handoff = (run_dir / "handoffs/review-contract.md").read_text(encoding="utf-8")
+        reviewer_handoff = JournalSnapshot.open(run_dir).read_text("handoffs/review-contract.md")
         if "peripheral-only closure" not in reviewer_handoff:
             raise AssertionError("reviewer handoff missing peripheral-only closure rule")
         if "Boundary Evidence" not in reviewer_handoff or "worker-a" not in reviewer_handoff:
@@ -316,7 +317,7 @@ def main() -> int:
             raise AssertionError("reviewer handoff missing QA evidence binding")
 
         acceptance_traceability = json.loads(
-            (run_dir / "acceptance-traceability.json").read_text(encoding="utf-8")
+            JournalSnapshot.open(run_dir).read_text("acceptance-traceability.json")
         )
         acceptance_records = acceptance_traceability.get("acceptance")
         if not isinstance(acceptance_records, list) or not acceptance_records:
@@ -352,20 +353,20 @@ def main() -> int:
             if field not in fixture_records[0]:
                 raise AssertionError(f"generated negative fixture evidence missing {field}")
         for contract_type in CONTRACT_NEGATIVE_FIXTURE_TYPES:
-            if contract_type not in (run_dir / "handoffs/architecture-contract.md").read_text(encoding="utf-8"):
+            if contract_type not in JournalSnapshot.open(run_dir).read_text("handoffs/architecture-contract.md"):
                 raise AssertionError(f"architecture contract missing contract fixture type: {contract_type}")
 
-        architecture_contract = (run_dir / "handoffs/architecture-contract.md").read_text(encoding="utf-8")
+        architecture_contract = JournalSnapshot.open(run_dir).read_text("handoffs/architecture-contract.md")
         if "Acceptance Criteria: `architecture-contract-acceptance`" not in architecture_contract:
             raise AssertionError("architecture contract missing default Acceptance Criteria id")
 
-        delegation_summary = json.loads((run_dir / "delegation-summary.json").read_text(encoding="utf-8"))
+        delegation_summary = json.loads(JournalSnapshot.open(run_dir).read_text("delegation-summary.json"))
         if delegation_summary.get("subagents_used") is not False:
             raise AssertionError("generated delegation-summary.json must start with subagents_used=false")
         if delegation_summary.get("role_lanes_used") is not False:
             raise AssertionError("generated delegation-summary.json must start with role_lanes_used=false")
 
-        final_text = (run_dir / "final.md").read_text(encoding="utf-8")
+        final_text = JournalSnapshot.open(run_dir).read_text("final.md")
         for expected_line in [
             "## Delegation Trace",
             "Subagents Used: no",
@@ -417,7 +418,7 @@ def main() -> int:
             raise AssertionError("generated lane-map.json must include review-contract lane")
         if reviewer_lane.get("execution_mode") != "subagent":
             raise AssertionError("generated reviewer lane must use execution_mode=subagent")
-        summary = json.loads((run_dir / "delegation-summary.json").read_text())
+        summary = json.loads(JournalSnapshot.open(run_dir).read_text("delegation-summary.json"))
         if not isinstance(summary.get("verification"), dict):
             raise AssertionError("generated summary must include verification independently of lane-map")
 

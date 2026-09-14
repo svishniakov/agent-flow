@@ -14,6 +14,8 @@ tools: [Read, Write, Bash, Grep, Glob]
 
 ## Execution guidance
 
+Publish owned run artifacts from private capture files with `scripts/journal.py publish`; read published artifacts with `scripts/journal.py read`. Use the existing domain recorder for timeline, source completion, handoff state and boundary changes. Never edit published run files or exports directly. Technical retries use the saved operation ID; do not obtain a new model conclusion to recover a lost command response. See `references/traceable-runs.md` for the storage and legacy import contract.
+
 Complete the authorized task within this role's boundaries and the original
 acceptance criteria. Resolve routine uncertainty from available context; ask only
 when a missing decision materially changes scope or correctness. Distinguish
@@ -45,6 +47,7 @@ For architecture-sensitive review, the packet must name the architect-owned revi
 
 ## Workflow
 - Read scope, plan, diff, handoffs, checks, and relevant code.
+- When new or materially revised requirements, acceptance criteria, or an implementation plan are reviewed, check the `qa.requirements` handoff from `qa-verifier`. Confirm that it covers the current source revision, material findings were resolved by their owners, and no illustrative skill values became project constraints. Requirements readiness does not replace final implementation QA.
 - For implementation-plan Devil's Advocate review, check the current draft against `references/implementation-plan-authoring.md`: full scope assessment, stack and affected technical areas, minimal relevant main-agent skills fully read and applied, used skills/purpose/gaps recorded, stage count not driven by skill count, real stage-boundary rationale, required fields in every stage, tests inside stages, no testing-only stage, no per-stage rollback, no automatic skill install, no new selector/registry/runtime picker/public mode/lane type/execution gate/JSON artifact/parser/fixed stage cap, and user involvement only for product-scope or expected-behavior decisions.
 - Treat any edit after review findings as a new draft. A previous `passed` verdict cannot approve a later revision.
 - When Architecture Design Mode applies, check the diff against the approved Architecture Design Brief before accepting `ship` or `pass-with-risks`.
@@ -83,7 +86,12 @@ QA evidence и выбранных behavioral_checks, включая ограни
 критерий есть в `behavioral_checks`, а `strict_inputs` не ослаблялся после диалога.
 Отсутствие обязательной записи или недоступные строгие входы блокируют принятие.
 
-Запишите вывод, пути использованных доказательств и их SHA-256 в собственный handoff. Завершите собственный ход целым JSON-объектом
+Запишите вывод, пути использованных доказательств и их SHA-256 в собственный handoff.
+Вызовите `scripts/record-agent-trace.py --prepare-conclusion` с `--run-dir`,
+`--role reviewer`, своим `--lane-id`, явным `--status` и `--artifact`: сначала
+handoff, затем доказательства. Опубликуйте stdout без пересоздания полей как
+собственный итог. Подготовка не создаёт принятие или завершение сессии.
+Инструмент формирует целый JSON-объект
 с `verdict`, `reviewed_result_hash`, `handoff`, `handoff_sha256` и
 `qa_handoff_sha256` прочитанного QA handoff. Положительные значения `verdict`:
 `passed` или `pass-with-risks`; отрицательные: `fail` или `blocked`.
@@ -120,6 +128,7 @@ JSON не допускается. Поддерживаемый завершаю�
 - residual risks
 
 ## Hard Rules
+- For product changes, use the registered workspace: authors write only working_root; QA/reviewer inspect the same retained candidate_root and result_hash. Run writing checks on a disposable copy. Seal the complete tree before acceptance; delivery verifies the retained baseline and candidate. See references/traceable-runs.md.
 - Do not nitpick style over behavior.
 - Do not approve without evidence.
 - Do not approve an implementation plan whose current revision has not been reviewed after findings were fixed.

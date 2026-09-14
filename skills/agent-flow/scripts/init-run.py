@@ -7,9 +7,13 @@ import argparse
 import json
 import re
 from datetime import datetime
+from journal_io import (now_iso, encode_json, JournalSnapshot,
+                        initialize_journal, import_legacy, export_snapshot, capture_flat)
+import tempfile
+import sys
 from pathlib import Path
 
-from verification_evidence import EvidenceError, empty_verification, validate_summary_shape
+from verification_evidence import EvidenceError, empty_verification, validate_summary_shape, ensure_result_contract
 
 from architecture_capabilities import (
     ARCHITECTURE_CONTEXT_AXES,
@@ -110,7 +114,7 @@ def lane_boundary_artifact_path(lane_id: str) -> str:
 
 
 def lane_boundary_template(lane_id: str) -> str:
-    return json.dumps(
+    return encode_json(
         {
             "version": 1,
             "lane_id": lane_id,
@@ -123,8 +127,7 @@ def lane_boundary_template(lane_id: str) -> str:
             "command": "TODO(agent): run scripts/record-lane-boundary.py for this lane.",
             "notes": f"Boundary evidence for {lane_id}.",
         },
-        ensure_ascii=False,
-        indent=2,
+        pretty=True,
     ) + "\n"
 
 
@@ -495,7 +498,7 @@ def verification_readiness_template(context: dict[str, list[str]]) -> str:
         }
         for facet in selected_verification_gate_facets(context)
     ]
-    return json.dumps(
+    return encode_json(
         {
             "version": 1,
             "status": "needs-approval",
@@ -529,8 +532,7 @@ def verification_readiness_template(context: dict[str, list[str]]) -> str:
             ],
             "approval_executions": [],
         },
-        ensure_ascii=False,
-        indent=2,
+        pretty=True,
     ) + "\n"
 
 
@@ -572,14 +574,14 @@ Boundary Evidence worker lanes:
 
 ## Mandatory Independent QA Review
 
-{AGENT_TODO_PLACEHOLDER} Ревью выполняет отдельный reviewer после QA от qa-verifier. Сверьте result_files, Initial Worktree Snapshot, границы задачи и текущий git status. В собственном завершённом ходе верните JSON с verdict, reviewed_result_hash, handoff, handoff_sha256 и qa_handoff_sha256. См. verification в references/traceable-runs.md.
+{AGENT_TODO_PLACEHOLDER} Ревью выполняет отдельный reviewer после QA от qa-verifier. Сверьте result_files, Initial Worktree Snapshot, границы задачи и текущий git status. Вызовите scripts/record-agent-trace.py --prepare-conclusion со своим назначением, статусом и файлами. В собственном завершённом ходе опубликуйте stdout: JSON с verdict, reviewed_result_hash, handoff, handoff_sha256 и qa_handoff_sha256. См. verification в references/traceable-runs.md.
 
 {AGENT_TODO_PLACEHOLDER} Report no drift or name the exact drift and required architect re-check. Mention Boundary Evidence for every worker lane id, mention Acceptance Criteria Traceability, Surface Evidence Gate, and Contract Negative Fixture coverage, mention every primary surface, and reject peripheral-only closure.
 """
 
 
 def claim_evidence_template() -> str:
-    return json.dumps(
+    return encode_json(
         {
             "version": 1,
             "claims": [
@@ -600,13 +602,12 @@ def claim_evidence_template() -> str:
                 }
             ],
         },
-        ensure_ascii=False,
-        indent=2,
+        pretty=True,
     ) + "\n"
 
 
 def acceptance_traceability_template() -> str:
-    return json.dumps(
+    return encode_json(
         {
             "version": 1,
             "acceptance": [
@@ -657,8 +658,7 @@ def acceptance_traceability_template() -> str:
                 }
             ],
         },
-        ensure_ascii=False,
-        indent=2,
+        pretty=True,
     ) + "\n"
 
 
@@ -883,7 +883,10 @@ def main(argv=None) -> int:
         default=[],
         help="Worker lane in lane-id:type:role form. Type must be implementation or integration.",
     )
+    parser.add_argument("--source-root", help="Original project root, only for first import of a relocated legacy run.")
     args = parser.parse_args(argv)
+    if args.source_root and not args.reuse:
+        parser.error("--source-root is limited to legacy --reuse migration")
 
     if args.mode == "compact" and any((args.with_lanes, args.architecture_gate, args.budget,
                                        args.architecture_context_json, args.architecture_capabilities, args.worker_lane)):
@@ -913,8 +916,9 @@ def main(argv=None) -> int:
         raise SystemExit(f"run dir already exists: {run_dir} (use --reuse or choose another slug/date)")
 
     mode = args.mode or "full"
-    if run_dir.exists():
-        existing_mode = "compact" if (run_dir / "run.md").exists() and not (run_dir / "manifest.md").exists() else "full"
+    snapshot = JournalSnapshot.open(run_dir, legacy_source_root=args.source_root) if run_dir.exists() else None
+    if snapshot is not None and (snapshot.durable or snapshot.documents or not (run_dir / ".journal/state.sqlite3").exists()):
+        existing_mode = "compact" if snapshot.exists("run.md") and not snapshot.exists("manifest.md") else "full"
         if args.mode and args.mode != existing_mode:
             parser.error("--reuse cannot change the existing journal format")
         mode = existing_mode
@@ -922,13 +926,23 @@ def main(argv=None) -> int:
                                        args.architecture_context_json, args.architecture_capabilities, args.worker_lane)):
             parser.error("compact --reuse is incompatible with lane and architecture generation flags")
         summary_path = run_dir / "delegation-summary.json"
-        if not summary_path.exists():
+        if not snapshot.exists("delegation-summary.json"):
             parser.error("delegation-summary.json is missing from the existing run; restore its original state before --reuse or initialize a new run with another slug")
         try:
-            summary = json.loads(summary_path.read_text())
+            summary = json.loads(snapshot.read_text("delegation-summary.json"))
             validate_summary_shape(summary)
         except (EvidenceError, OSError, UnicodeError, json.JSONDecodeError) as exc:
             parser.error(f"delegation-summary.json is malformed; correct it before --reuse: {exc}")
+
+        snapshot = import_legacy(run_dir, source_root=Path(args.source_root).expanduser().resolve() if args.source_root else None)
+        snapshot = ensure_result_contract(run_dir)
+        print(run_dir)
+        print(f"view: {export_snapshot(snapshot)}", file=sys.stderr)
+        return 0
+
+    logical_run_dir = run_dir
+    draft = tempfile.TemporaryDirectory(prefix="agent-flow-init-")
+    run_dir = Path(draft.name).resolve()
 
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "handoffs").mkdir(exist_ok=True)
@@ -953,10 +967,7 @@ def main(argv=None) -> int:
 
     delegation_summary = run_dir / "delegation-summary.json"
     if not delegation_summary.exists():
-        delegation_summary.write_text(
-            json.dumps(empty_delegation_summary(), ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
+        delegation_summary.write_text(encode_json(empty_delegation_summary(), pretty=True) + "\n", encoding="utf-8")
 
     if args.with_lanes:
         lane_map = run_dir / "lane-map.json"
@@ -971,7 +982,7 @@ def main(argv=None) -> int:
                 if args.architecture_gate and architecture_context is not None and args.budget is not None
                 else LANE_MAP
             )
-            lane_map.write_text(json.dumps(lane_map_data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            lane_map.write_text(encode_json(lane_map_data, pretty=True) + "\n", encoding="utf-8")
         coverage_matrix = run_dir / "checks" / "coverage-matrix.md"
         if not coverage_matrix.exists():
             coverage_matrix.write_text(COVERAGE_MATRIX, encoding="utf-8")
@@ -986,7 +997,7 @@ def main(argv=None) -> int:
     timeline = run_dir / "timeline.jsonl"
     if not timeline.exists():
         event = {
-            "timestamp": datetime.now().astimezone().isoformat(),
+            "timestamp": now_iso(),
             "stage": "intake",
             "role": "orchestrator",
             "stable_agent_name": "orchestrator",
@@ -996,9 +1007,13 @@ def main(argv=None) -> int:
             "artifacts": [],
             "next_step": "route",
         }
-        timeline.write_text(json.dumps(event, ensure_ascii=False) + "\n", encoding="utf-8")
+        timeline.write_text(encode_json(event) + "\n", encoding="utf-8")
 
-    print(run_dir)
+    documents, _ = capture_flat(run_dir)
+    snapshot = initialize_journal(logical_run_dir, documents, source_root=repo)
+    draft.cleanup()
+    print(logical_run_dir)
+    print(f"view: {export_snapshot(snapshot)}", file=sys.stderr)
     return 0
 
 

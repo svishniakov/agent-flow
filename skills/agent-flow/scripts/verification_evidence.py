@@ -10,10 +10,13 @@ import hashlib
 import json
 import os
 import re
+import copy
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from agent_config import AgentConfigError, default_agents_dir, read_frontmatter, role_config, resolve_role_path
+from journal_io import JournalError, timestamp, event_time, source_time, declared_paths, JournalSnapshot, operation_id, transact
+from task_workspace import registered_workspace, verify_candidate, manifest_digest
 
 UUID = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}")
 SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -21,8 +24,7 @@ POSITIVE = {"ship", "pass-with-risks"}
 ACCEPTED = {"passed", "pass-with-risks"}
 
 
-class EvidenceError(ValueError):
-    pass
+EvidenceError = JournalError
 
 
 def require(condition, message):
@@ -34,7 +36,9 @@ def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def project_root(run_dir: Path) -> Path:
+def project_root(run_dir: Path, *, snapshot=None) -> Path:
+    if snapshot is not None:
+        return snapshot.source_root
     for parent in run_dir.parents:
         if parent.name == ".agent-work":
             return parent.parent.resolve()
@@ -59,20 +63,23 @@ def confined_path(root: Path, value: str, *, relative=False) -> Path:
     return path
 
 
-def evidence_path(run_dir: Path, value: str) -> Path:
+def evidence_path(run_dir: Path, value: str, *, snapshot=None) -> Path:
     require(isinstance(value, str) and bool(value), "evidence path must be a string")
     path = Path(value)
     require(".." not in path.parts, f"unsafe evidence path: {value}")
     if not path.is_absolute():
         path = run_dir / path
-    return confined_path(project_root(run_dir), str(path))
+    if snapshot is not None and (path.is_relative_to(snapshot.artifact_root) or path.is_relative_to(snapshot.logical_root)):
+        snapshot.key(path)
+        return path
+    return confined_path(project_root(run_dir, snapshot=snapshot), str(path))
 
 
-def reference_bytes(run_dir: Path, ref: dict) -> bytes:
+def reference_bytes(run_dir: Path, ref: dict, *, snapshot=None) -> bytes:
     require(isinstance(ref, dict), "evidence reference must be an object")
-    path = evidence_path(run_dir, ref.get("path"))
-    require(path.is_file(), f"evidence not found: {ref.get('path')}")
-    data = path.read_bytes()
+    snapshot = snapshot or JournalSnapshot.open(run_dir)
+    path = evidence_path(run_dir, ref.get("path"), snapshot=snapshot)
+    data = snapshot.read_bytes(path)
     section = ref.get("section")
     if section is not None:
         require(isinstance(section, str) and bool(section), "evidence section must be a string")
@@ -86,34 +93,167 @@ def reference_bytes(run_dir: Path, ref: dict) -> bytes:
     return data
 
 
-def verify_reference(run_dir: Path, ref: dict) -> str:
-    actual = sha256(reference_bytes(run_dir, ref))
+def verify_reference(run_dir: Path, ref: dict, *, snapshot=None) -> str:
+    actual = sha256(reference_bytes(run_dir, ref, snapshot=snapshot))
     require(ref.get("sha256") == actual, f"evidence sha256 mismatch: {ref.get('path')}")
     return actual
 
 
-def result_hash(run_dir: Path, verification: dict) -> str:
+def historical_result_hash(run_dir: Path, verification: dict, *, snapshot=None) -> str:
+    snapshot = snapshot or JournalSnapshot.open(run_dir)
     files = verification.get("result_files")
     require(isinstance(files, list) and bool(files), "change requires non-empty result_files")
     require(all(isinstance(p, str) for p in files), "result_files must contain paths")
     require(len(files) == len(set(files)), "result_files contains duplicates")
-    root = project_root(run_dir)
+    root = project_root(run_dir, snapshot=snapshot)
     entries = []
     for name in sorted(files):
         path = confined_path(root, name, relative=True)
         entries.append([name, sha256(path.read_bytes()) if path.exists() else "deleted"])
-    snapshot = verification.get("initial_snapshot")
-    require(isinstance(snapshot, dict) and isinstance(snapshot.get("section"), str) and snapshot["section"].lower() == "initial worktree snapshot",
+    initial = verification.get("initial_snapshot")
+    require(isinstance(initial, dict) and isinstance(initial.get("section"), str) and initial["section"].lower() == "initial worktree snapshot",
             "initial_snapshot must reference Initial Worktree Snapshot")
-    require(isinstance(snapshot.get("path"), str) and Path(snapshot["path"]).name in {"context.md", "route.md"},
+    require(isinstance(initial.get("path"), str) and Path(initial["path"]).name in {"context.md", "route.md"},
             "initial_snapshot must use context.md or route.md")
     refs = {}
     for field in ("initial_snapshot", "task_scope"):
         ref = verification.get(field)
-        digest = verify_reference(run_dir, ref)
+        digest = verify_reference(run_dir, ref, snapshot=snapshot)
         refs[field] = {"path": ref["path"], "section": ref.get("section"), "sha256": digest}
     encoded = json.dumps({"files": entries, **refs}, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return sha256(encoded.encode("utf-8"))
+
+
+def result_contract(snapshot):
+    transition = snapshot.operation_receipt("result-contract-v2")
+    if transition is not None:
+        return transition["result"]
+    initialized = snapshot.operation_receipt("initialize")
+    return initialized["result"] if initialized else {"result_contract_version": 1}
+
+
+def historical_identity(summary):
+    verification = summary.get("verification", {})
+    records = {record.get("lane_id"): record for record in summary.get("subagents", [])}
+    selected = []
+    for key in ("qa", "reviewer"):
+        record = records.get(verification.get(key))
+        if record is None:
+            return None
+        fields = {name: record.get(name) for name in ("role", "lane_id", "codex_thread_id", "completion_turn_id",
+                  "reviewed_result_hash", "handoff", "handoff_sha256", "qa_handoff_sha256")}
+        fields["evidence"] = sorted(record.get("evidence", []), key=lambda value: json.dumps(value, sort_keys=True))
+        selected.append(fields)
+    payload = {name: verification.get(name) for name in ("result_hash", "initial_snapshot", "task_scope", "root_thread_id", "task_kind")}
+    payload["result_hash"] = verification.get("result_hash") or selected[0]["reviewed_result_hash"]
+    payload["result_files"] = sorted(verification.get("result_files", []))
+    payload["author_thread_ids"] = sorted(verification.get("author_thread_ids", []))
+    payload["behavioral_checks"] = verification.get("behavioral_checks", [])
+    payload["accepted"] = selected
+    return sha256(json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode())
+
+
+def require_workspace_or_historical(snapshot, summary):
+    workspace = registered_workspace(snapshot)
+    if workspace is not None:
+        verify_candidate(workspace)
+        return workspace
+    contract = result_contract(snapshot)
+    if contract.get("result_contract_version", 1) < 2:
+        return None
+    expected = contract.get("historical_identity")
+    require(expected is not None and historical_identity(summary) == expected,
+            "fresh change acceptance requires registered and sealed workspace")
+    return None
+
+
+def result_hash(run_dir: Path, verification: dict, *, snapshot=None, require_ready=True):
+    snapshot = snapshot or JournalSnapshot.open(run_dir)
+    workspace = registered_workspace(snapshot)
+    if workspace is not None:
+        if "seal" not in workspace and not require_ready:
+            return None
+        sealed = verify_candidate(workspace)
+        files = verification.get("result_files")
+        require(isinstance(files, list) and bool(files), "change requires non-empty result_files")
+        require(all(isinstance(name, str) for name in files) and len(files) == len(set(files)),
+                "result_files must contain distinct paths")
+        require(set(files) == set(sealed["changed_paths"]),
+                "result_files must equal the full workspace delta")
+        initial = verification.get("initial_snapshot")
+        require(isinstance(initial, dict) and isinstance(initial.get("section"), str) and
+                initial["section"].lower() == "initial worktree snapshot",
+                "initial_snapshot must reference Initial Worktree Snapshot")
+        require(isinstance(initial.get("path"), str) and Path(initial["path"]).name in {"context.md", "route.md"},
+                "initial_snapshot must use context.md or route.md")
+        refs = {}
+        for name in ("initial_snapshot", "task_scope"):
+            reference = verification.get(name)
+            require(isinstance(reference, dict), f"missing source reference: {name}")
+            refs[name] = {"path": reference.get("path"), "section": reference.get("section"),
+                          "sha256": verify_reference(run_dir, reference, snapshot=snapshot)}
+        payload = {"hash_version": 2, "workspace_id": workspace["workspace_id"],
+                   "candidate_id": sealed["candidate_id"], "baseline_manifest_digest": workspace["baseline_digest"],
+                   "candidate_manifest_digest": sealed["candidate_digest"], "delta": sealed["delta"],
+                   "metadata_scope": workspace.get("metadata_scope"), **refs}
+        return sha256(json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode())
+    contract = result_contract(snapshot)
+    if contract.get("result_contract_version", 1) >= 2:
+        summary = json.loads(snapshot.read_text("delegation-summary.json")) if snapshot.exists("delegation-summary.json") else {}
+        summary["verification"] = verification
+        if not require_ready and (contract.get("historical_identity") is None or historical_identity(summary) != contract["historical_identity"]):
+            return None
+        require_workspace_or_historical(snapshot, summary)
+    return historical_result_hash(run_dir, verification, snapshot=snapshot)
+
+
+def ensure_result_contract(run_dir, source=None):
+    """One transition before caller inputs; only a currently eligible old pair is retained."""
+    snapshot = JournalSnapshot.open(run_dir)
+    if result_contract(snapshot).get("result_contract_version", 1) >= 2:
+        return snapshot
+    require(snapshot.durable, "import journal before result-contract transition")
+    captured = CapturedSource(source or CodexSessionSource())
+    summary = json.loads(snapshot.read_text("delegation-summary.json")) if snapshot.exists("delegation-summary.json") else {}
+    lanes = json.loads(snapshot.read_text("lane-map.json")) if snapshot.exists("lane-map.json") else {}
+    historical = None
+    if registered_workspace(snapshot) is None and summary.get("verification", {}).get("task_kind") == "change":
+        errors = validate_verification(run_dir, summary, lanes, "ship", captured, snapshot=snapshot)
+        if not errors:
+            historical = historical_identity(summary)
+    captured.frozen = True
+    payload = {"result_contract_version": 2}
+    identifier = operation_id(run_dir, "result-contract-transition", payload, identifier="result-contract-v2")
+    def transition(current):
+        require(current.revision == snapshot.revision, "journal changed during result-contract transition; retry")
+        if historical is not None:
+            require(not validate_verification(run_dir, summary, lanes, "ship", captured, snapshot=current),
+                    "historical acceptance changed during transition")
+        return {}, {"result_contract_version": 2, "historical_identity": historical}
+    transact(run_dir, identifier, payload, transition)
+    return JournalSnapshot.open(run_dir)
+
+
+class CapturedSource:
+    """Capture source reads before a write transaction; later new dependencies refuse."""
+    def __init__(self, source):
+        self.source, self.events, self.resolutions, self.frozen = source, {}, {}, False
+
+    def read(self, thread_id, *, event_indices=()):
+        key = (thread_id, tuple(event_indices))
+        if key not in self.events:
+            require(not self.frozen, "journal preconditions changed; capture source again")
+            self.events[key] = copy.deepcopy(self.source.read(thread_id, event_indices=event_indices))
+        return copy.deepcopy(self.events[key])
+
+    def resolve_session(self, agent_path, root_id, role, *, thread_id=None):
+        key = (agent_path, root_id, role, thread_id)
+        if key not in self.resolutions:
+            require(not self.frozen, "journal preconditions changed; resolve source again")
+            result = self.source.resolve_session(agent_path, root_id, role, thread_id=thread_id)
+            self.resolutions[key] = result
+            self.resolutions[(agent_path, root_id, role, result["codex_thread_id"])] = result
+        return copy.deepcopy(self.resolutions[key])
 
 
 def empty_verification() -> dict:
@@ -247,40 +387,9 @@ class CodexSessionSource:
         return events
 
 
-def timestamp(value) -> datetime:
-    if type(value) is int:
-        try:
-            return datetime.fromtimestamp(value, timezone.utc)
-        except (ValueError, OverflowError, OSError) as exc:
-            raise EvidenceError("invalid source Unix timestamp (seconds required)") from exc
-    require(isinstance(value, str), "source timestamp missing")
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError as exc:
-        raise EvidenceError("invalid source timestamp") from exc
-    require(parsed.tzinfo is not None, "source timestamp requires timezone")
-    return parsed
-
-
-def event_time(event: dict, field: str) -> tuple[datetime, datetime | None]:
-    payload = event.get("payload", {})
-    value = payload[field] if field in payload else event.get("timestamp")
-    start = timestamp(value)
-    if type(value) is not int:
-        return start, None
-    try:
-        end = start + timedelta(seconds=1)
-    except OverflowError as exc:
-        raise EvidenceError("invalid source Unix timestamp interval") from exc
-    if field in payload and "timestamp" in event:
-        outer = timestamp(event["timestamp"])
-        require(start <= outer < end, f"source {field} conflicts with outer timestamp")
-        if type(event["timestamp"]) is not int:
-            return outer, None
-    return start, end
-
-
 def completion_follows(later: dict, earlier: dict) -> bool:
+    if later.get("published_at") is not None and earlier.get("published_at") is not None:
+        return later["published_at"] > earlier["published_at"]
     end = earlier.get("completed_before")
     return later["completed_at"] >= end if end is not None else later["completed_at"] > earlier["completed_at"]
 
@@ -382,10 +491,12 @@ def completed_turn(source, thread_id: str, turn_id: str, root_id: str, role: str
                 answer = final_json(payload.get("last_agent_message"))
                 if finals:
                     require(final_json(finals[-1]) == answer, "completion and final answer disagree")
-                completed_at, completed_before = event_time(event, "completed_at")
+                observed = source_time(event, "completed_at")
+                completed_at, completed_before = observed.event_at, observed.event_before
                 require(completed_before > started_at if completed_before is not None else completed_at >= started_at,
                         "source completion is before its own task_started")
                 completions.append({"answer": answer, "completed_at": completed_at,
+                                    "published_at": observed.observed_at, "time_origin": observed.event_origin,
                                     "completed_before": completed_before, "task_started_event": started_event,
                                     "task_complete_event": event_index, "session_meta_event": meta_index + 1})
             active = None
@@ -413,39 +524,18 @@ def resolve_completion(source, thread_id: str, root_id: str, role: str, digest: 
     return candidates[0]
 
 
-def changed_paths(run_dir: Path, lane_map: dict) -> set[str]:
-    paths = set()
-    for field in ("changed_files", "changed_paths", "run_changed_files"):
-        value = lane_map.get(field, [])
-        if isinstance(value, dict):
-            value = [p for group in value.values() if isinstance(group, list) for p in group]
-        require(isinstance(value, list) and all(isinstance(p, str) for p in value), f"{field} must list paths")
-        paths.update(value)
-    for lane in lane_map.get("lanes", []):
-        if not isinstance(lane, dict):
-            continue
-        boundary = lane.get("boundary")
-        if isinstance(boundary, dict) and boundary.get("changed_paths_artifact"):
-            path = evidence_path(run_dir, boundary["changed_paths_artifact"])
-            require(path.is_file(), "Boundary Evidence missing")
-            data = json.loads(path.read_text())
-            require(isinstance(data, dict), "Boundary Evidence must be an object")
-            for field in ("changed_paths", "tracked_changed_paths", "untracked_paths"):
-                values = data.get(field, [])
-                require(isinstance(values, list) and all(isinstance(p, str) for p in values), "Boundary Evidence paths malformed")
-                paths.update(values)
-    text = (run_dir / "final.md").read_text() if (run_dir / "final.md").is_file() else ""
-    match = re.search(r"(?is)run-owned changed files\s*:\s*(.*?)(?:\n\s*#{1,6}\s+|\Z)", text)
-    if match:
-        for line in match.group(1).strip().splitlines():
-            value = re.sub(r"^\s*[-*] +", "", line).strip().strip("`")
-            if value.lower() not in {"", "none", "n/a", "not applicable"}:
-                paths.add(value)
-    return paths
+def changed_paths(run_dir: Path, lane_map: dict, verification=None, *, snapshot=None) -> set[str]:
+    snapshot = snapshot or JournalSnapshot.open(run_dir)
+    workspace = registered_workspace(snapshot)
+    if workspace is not None:
+        return set(workspace.get("seal", {}).get("changed_paths", []))
+    return declared_paths(run_dir, lane_map, verification or {}, evidence_path=evidence_path,
+                          confined_path=confined_path, root=project_root(run_dir, snapshot=snapshot), snapshot=snapshot)
 
 
-def validate_behavioral_checks(run_dir: Path, checks: list, source, reviewer_id: str):
+def validate_behavioral_checks(run_dir: Path, checks: list, source, reviewer_id: str, *, snapshot=None):
     """Check captured bytes and observable order; QA judges their meaning."""
+    snapshot = snapshot or JournalSnapshot.open(run_dir)
     require(isinstance(checks, list), "behavioral_checks must be an array")
     seen = set()
     for check in checks:
@@ -454,7 +544,7 @@ def validate_behavioral_checks(run_dir: Path, checks: list, source, reviewer_id:
         require(isinstance(criterion, str) and criterion and criterion not in seen, "behavioral criterion_id missing or duplicate")
         seen.add(criterion)
         require(check.get("verifier_thread_id") == reviewer_id, "behavioral check requires independent reviewer")
-        verify_reference(run_dir, check.get("handoff"))
+        verify_reference(run_dir, check.get("handoff"), snapshot=snapshot)
         require(isinstance(check.get("strict_inputs"), bool), "behavioral strict_inputs must be boolean")
         inputs, outputs = check.get("inputs"), check.get("outputs")
         require(isinstance(inputs, list) and inputs and isinstance(outputs, list) and outputs,
@@ -478,7 +568,7 @@ def validate_behavioral_checks(run_dir: Path, checks: list, source, reviewer_id:
                 own_events.add(index)
         positions = []
         for ref in [*inputs, *outputs]:
-            verify_reference(run_dir, ref)
+            verify_reference(run_dir, ref, snapshot=snapshot)
             index = ref.get("source_event")
             require(type(index) is int and 1 <= index <= len(events), "behavioral source_event unavailable")
             require(index in own_events, "behavioral evidence must belong to own session turn")
@@ -508,7 +598,7 @@ def validate_behavioral_checks(run_dir: Path, checks: list, source, reviewer_id:
                 else:
                     require(payload.get("type") == "message" and payload.get("role") == "user", "behavioral input source must be a user message")
                 prepared = ref.get("prepared_event")
-                timeline = [json.loads(line) for line in (run_dir / "timeline.jsonl").read_text().splitlines()]
+                timeline = [json.loads(line) for line in snapshot.read_text("timeline.jsonl").splitlines()]
                 require(type(prepared) is int and 1 <= prepared <= len(timeline), "behavioral preparation event missing")
                 capture = timeline[prepared - 1]
                 require(capture.get("stage") == "behavior-input-prepared", "behavioral preparation requires a behavior-input-prepared event")
@@ -540,7 +630,43 @@ def validate_behavioral_checks(run_dir: Path, checks: list, source, reviewer_id:
             require(pair[0] in positions and pair[1] in positions and pair[0] < pair[1], "behavioral required source order violated")
 
 
-def validate_verification(run_dir: Path, summary: dict, lane_map: dict, verdict: str | None, source=None) -> list[str]:
+def require_own_reviewer_handoff(run_dir, handoff, qa_handoff, *, snapshot=None):
+    snapshot = snapshot or JournalSnapshot.open(run_dir)
+    reviewer_path = evidence_path(run_dir, handoff, snapshot=snapshot)
+    qa_path = evidence_path(run_dir, qa_handoff, snapshot=snapshot)
+    reviewer_key, qa_key = snapshot.key(reviewer_path), snapshot.key(qa_path)
+    reviewer_identity, qa_identity = snapshot.identities.get(reviewer_key), snapshot.identities.get(qa_key)
+    require(reviewer_key != qa_key and not (reviewer_identity is not None and reviewer_identity == qa_identity),
+            "reviewer must use its own handoff file, distinct from accepted QA handoff")
+
+
+def accepted_record(run_dir, record, verification, role, source, *, qa_handoff=None, snapshot=None):
+    """Revalidate one source-bound acceptance, including current evidence bytes."""
+    thread = record.get("codex_thread_id")
+    require(thread not in [verification.get("root_thread_id"), *verification.get("author_thread_ids", [])],
+            "QA, reviewer, root and authors must be distinct")
+    require(record.get("role") in ({"reviewer", "reviewer.qa"} if role == "reviewer" else {role}), "incorrect canonical role")
+    if role == "reviewer":
+        require_own_reviewer_handoff(run_dir, record.get("handoff"), qa_handoff, snapshot=snapshot)
+    handoff_hash = verify_reference(run_dir, {"path": record.get("handoff"), "sha256": record.get("handoff_sha256")}, snapshot=snapshot)
+    text = reference_bytes(run_dir, {"path": record["handoff"]}, snapshot=snapshot).decode()
+    refs = record.get("evidence")
+    require(isinstance(refs, list) and bool(refs), "evidence references required")
+    for ref in refs:
+        verify_reference(run_dir, ref, snapshot=snapshot)
+        require(ref["path"] in text and ref["sha256"] in text, "evidence reference and sha256 must appear in source-bound handoff")
+    digest = verification.get("result_hash") or result_hash(run_dir, verification, snapshot=snapshot)
+    require(record.get("reviewed_result_hash") == digest, "reviewed_result_hash is stale")
+    completion = completed_turn(source, thread, record.get("completion_turn_id"), verification.get("root_thread_id"), role)
+    answer = completion["answer"]
+    require(isinstance(answer.get("verdict"), str) and answer["verdict"] in ACCEPTED, "source verdict does not accept result")
+    for field, value in (("reviewed_result_hash", digest), ("handoff", record.get("handoff")), ("handoff_sha256", handoff_hash)):
+        require(answer.get(field) == value, f"source {field} mismatch")
+    return {**completion, "handoff_sha256": handoff_hash}
+
+
+def validate_verification(run_dir: Path, summary: dict, lane_map: dict, verdict: str | None, source=None, *, snapshot=None) -> list[str]:
+    snapshot = snapshot or JournalSnapshot.open(run_dir)
     try:
         require(isinstance(summary.get("subagents"), list) and all(isinstance(r, dict) for r in summary["subagents"]),
                 "subagents must be an object array")
@@ -552,9 +678,15 @@ def validate_verification(run_dir: Path, summary: dict, lane_map: dict, verdict:
         files = verification.get("result_files")
         require(isinstance(files, list) and all(isinstance(p, str) for p in files), "verification.result_files must be a path array")
         require(len(files) == len(set(files)), "verification.result_files contains duplicates")
-        for name in files:
-            confined_path(project_root(run_dir), name, relative=True)
-        owned = changed_paths(run_dir, lane_map)
+        workspace = registered_workspace(snapshot)
+        if workspace is None:
+            for name in files:
+                confined_path(project_root(run_dir, snapshot=snapshot), name, relative=True)
+        else:
+            require(set(files) == set(workspace.get("seal", {}).get("changed_paths", [])),
+                    "result_files must equal the full workspace delta")
+        owned = changed_paths(run_dir, lane_map, verification, snapshot=snapshot)
+        require(owned <= set(files), "result_files omits run-owned paths: " + ", ".join(sorted(owned - set(files))))
         workers = any(isinstance(lane, dict) and lane.get("type") in {"implementation", "integration"} for lane in lane_map.get("lanes", []))
         require(kind != "analysis" or not (files or owned or workers), "analysis contradicts product changes or worker lanes")
         root_id = verification.get("root_thread_id")
@@ -571,7 +703,7 @@ def validate_verification(run_dir: Path, summary: dict, lane_map: dict, verdict:
         for field in ("initial_snapshot", "task_scope"):
             ref = verification.get(field)
             if ref is not None:
-                verify_reference(run_dir, ref)
+                verify_reference(run_dir, ref, snapshot=snapshot)
         for record in records.values():
             for field in ("reviewed_result_hash", "handoff_sha256"):
                 value = record.get(field)
@@ -582,9 +714,9 @@ def validate_verification(run_dir: Path, summary: dict, lane_map: dict, verdict:
             require(isinstance(refs, list), "subagent evidence must be an array")
             for ref in refs:
                 require(isinstance(ref, dict) and isinstance(ref.get("sha256"), str) and SHA256.fullmatch(ref["sha256"]), "subagent evidence reference must contain SHA-256")
-                evidence_path(run_dir, ref.get("path"))
+                evidence_path(run_dir, ref.get("path"), snapshot=snapshot)
                 if record["lane_id"] in {verification.get("qa"), verification.get("reviewer")}:
-                    verify_reference(run_dir, ref)
+                    verify_reference(run_dir, ref, snapshot=snapshot)
         if not positive:
             if verdict in {"blocked", "fail"}:
                 require(isinstance(verification.get("blocker"), str) and verification["blocker"].strip(), "blocked/fail verification requires blocker reason")
@@ -593,6 +725,11 @@ def validate_verification(run_dir: Path, summary: dict, lane_map: dict, verdict:
             require(not checks, "analysis without product result cannot claim behavioral acceptance")
             return []
         require(bool(authors), "change requires author_thread_ids")
+        qa_record = records.get(verification.get("qa"))
+        reviewer_record = records.get(verification.get("reviewer"))
+        if qa_record and reviewer_record:
+            require_own_reviewer_handoff(run_dir, reviewer_record.get("handoff"), qa_record.get("handoff"), snapshot=snapshot)
+        require_workspace_or_historical(snapshot, summary)
         worker_lanes = [lane for lane in lane_map.get("lanes", []) if lane.get("type") in {"implementation", "integration"}]
         if not worker_lanes or any(lane.get("execution_mode") == "role-lane" for lane in worker_lanes):
             require(root_id in authors, "root-owned changes require root in author_thread_ids")
@@ -601,7 +738,7 @@ def validate_verification(run_dir: Path, summary: dict, lane_map: dict, verdict:
             if author:
                 require(author in authors, "worker author missing from author_thread_ids")
         require(owned <= set(files), f"result_files omits run-owned paths: {', '.join(sorted(owned - set(files)))}")
-        digest = result_hash(run_dir, verification)
+        digest = result_hash(run_dir, verification, snapshot=snapshot)
         require(verification.get("result_hash", digest) == digest, "verification.result_hash is stale")
         source = source or CodexSessionSource()
         accepted = {}
@@ -618,25 +755,14 @@ def validate_verification(run_dir: Path, summary: dict, lane_map: dict, verdict:
             require(thread_id not in ids, f"{key}: QA, reviewer, root and authors must be distinct")
             ids.add(thread_id)
             require(isinstance(record.get("role"), str) and record["role"] in ({"reviewer", "reviewer.qa"} if key == "reviewer" else {"qa-verifier"}), f"{key}: incorrect canonical role")
-            handoff_hash = verify_reference(run_dir, {"path": record.get("handoff"), "sha256": record.get("handoff_sha256")})
-            handoff_text = evidence_path(run_dir, record["handoff"]).read_text(encoding="utf-8")
-            evidence = record.get("evidence")
-            require(isinstance(evidence, list) and bool(evidence), f"{key}: evidence references required")
-            for ref in evidence:
-                verify_reference(run_dir, ref)
-                require(ref["path"] in handoff_text and ref["sha256"] in handoff_text,
-                        f"{key}: evidence reference and sha256 must appear in source-bound handoff")
-            require(record.get("reviewed_result_hash") == digest, f"{key}: reviewed_result_hash is stale")
-            completion = completed_turn(source, thread_id, record.get("completion_turn_id"), root_id, role)
+            completion = accepted_record(run_dir, record, verification, role, source,
+                                         qa_handoff=accepted.get("qa", {}).get("answer", {}).get("handoff"), snapshot=snapshot)
             answer = completion["answer"]
-            require(isinstance(answer.get("verdict"), str) and answer["verdict"] in ACCEPTED, f"{key}: source verdict does not accept result")
-            for field, value in (("reviewed_result_hash", digest), ("handoff", record.get("handoff")), ("handoff_sha256", handoff_hash)):
-                require(answer.get(field) == value, f"{key}: source {field} mismatch")
             if key == "reviewer":
                 require(answer.get("qa_handoff_sha256") == accepted["qa"]["handoff_sha256"], "reviewer: source qa_handoff_sha256 mismatch")
                 require(completion_follows(completion, accepted["qa"]), "reviewer acceptance must follow QA completion")
-            accepted[key] = {**completion, "handoff_sha256": handoff_hash}
-        validate_behavioral_checks(run_dir, checks, source, records[verification["reviewer"]]["codex_thread_id"])
+            accepted[key] = completion
+        validate_behavioral_checks(run_dir, checks, source, records[verification["reviewer"]]["codex_thread_id"], snapshot=snapshot)
         return []
     except (EvidenceError, AgentConfigError, OSError, UnicodeError, json.JSONDecodeError) as exc:
         return [f"verification: {exc}"]

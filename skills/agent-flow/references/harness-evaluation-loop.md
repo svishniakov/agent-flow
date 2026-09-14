@@ -1,5 +1,7 @@
 # Harness Evaluation Loop
 
+Публикуйте run-артефакты штатными командами журнала; личные файлы служат входом `journal.py publish`, чтение выполняется через `journal.py read`. Прямое редактирование файлов run или экспорта не публикует изменения. Порядок публикации, повторов и импорта описан в [Traceable Runs](traceable-runs.md#публикация-и-чтение-журнала).
+
 Harness Evaluation Loop turns validated trace evidence into a structured learning
 record. It runs after the architecture, readiness, continuation, mitigation, and
 resolution gates have produced persisted artifacts, including Lane Boundary

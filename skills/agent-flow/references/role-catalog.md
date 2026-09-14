@@ -60,9 +60,9 @@ Overlap notes: Use `qa-verifier` for behavior checks; reviewer consumes QA evide
 ### qa-verifier
 
 Status: active
-Use when: Tests, logs, reproduction, browser/simulator smoke, regression checks, and readiness evidence are needed.
+Use when: Requirements and acceptance criteria need pre-development review (`qa.requirements`), or tests, logs, reproduction, browser/simulator smoke, regression checks, and readiness evidence are needed.
 Do not use when: The task is architectural critique or code review without execution evidence.
-Overlap notes: Use `reviewer` for risk analysis after QA evidence; use workers for fixes.
+Overlap notes: Requirements review identifies gaps for product-manager or architect without authoring their decisions. It does not replace final implementation QA. Use `reviewer` for independent risk analysis after QA evidence; use workers for code fixes.
 
 ### senior-qa-verifier
 

@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
-import sys
+import importlib.util
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from evidence_records import EvidenceError, analyze_notes, parse_notes
+from journal_io import JournalSnapshot
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -92,12 +92,13 @@ def finding_provenance(run_dir: Path, data: dict[str, Any], finding: dict[str, A
     )
 
 
-def load_harness_evaluation(run_dir: Path) -> dict[str, Any]:
+def load_harness_evaluation(run_dir: Path, *, snapshot=None) -> dict[str, Any]:
+    snapshot = snapshot or JournalSnapshot.open(run_dir)
     path = run_dir / HARNESS_EVALUATION_PATH
-    if not path.exists():
+    if not snapshot.exists(path):
         raise PromotionError(f"{HARNESS_EVALUATION_PATH} not found: {path}")
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(snapshot.read_text(path))
     except json.JSONDecodeError as error:
         raise PromotionError(f"{HARNESS_EVALUATION_PATH} invalid JSON: {error}") from error
     if not isinstance(data, dict):
@@ -109,27 +110,17 @@ def validation_command_text(run_dir: Path) -> str:
     return f"python3 scripts/validate-run.py --run-dir {run_dir} --mode full"
 
 
-def validate_run(run_dir: Path) -> tuple[str, str]:
-    command = [
-        sys.executable,
-        str(VALIDATE_RUN),
-        "--run-dir",
-        str(run_dir),
-        "--mode",
-        "full",
-    ]
-    result = subprocess.run(
-        command,
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+def validate_run(run_dir: Path, *, snapshot=None) -> tuple[str, str]:
+    snapshot = snapshot or JournalSnapshot.open(run_dir)
+    spec = importlib.util.spec_from_file_location("agent_flow_promotion_validator", VALIDATE_RUN)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    errors = module.validate_run(run_dir, mode="full", snapshot=snapshot)
     command_text = validation_command_text(run_dir)
-    if result.returncode:
-        output = (result.stdout + result.stderr).strip()
+    if errors:
+        output = "\n".join(errors)
         raise PromotionError(f"validate-run failed: {command_text}\n{output}")
-    return command_text, result.stdout + result.stderr
+    return command_text, f"PASS revision {snapshot.revision}"
 
 
 def selected_proposal_rationale(data: dict[str, Any]) -> str:
@@ -268,8 +259,9 @@ def insert_records(text: str, records: list[PromotionRecord]) -> str:
 def promote_harness_evaluation(run_dir: Path, notes_path: Path, *, dry_run: bool = False) -> PromotionResult:
     resolved_run_dir = run_dir.expanduser().resolve()
     resolved_notes = notes_path.expanduser()
-    command_text, _validation_output = validate_run(resolved_run_dir)
-    data = load_harness_evaluation(resolved_run_dir)
+    snapshot = JournalSnapshot.open(resolved_run_dir)
+    command_text, _validation_output = validate_run(resolved_run_dir, snapshot=snapshot)
+    data = load_harness_evaluation(resolved_run_dir, snapshot=snapshot)
     records = promotable_records(resolved_run_dir, data, command_text)
     if not records:
         return PromotionResult(promoted=0, skipped=0, dry_run=dry_run, record_ids=[])

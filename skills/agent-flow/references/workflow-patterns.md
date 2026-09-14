@@ -1,5 +1,9 @@
 # Workflow Patterns
 
+Для нового `change` сначала подготовьте отдельный workspace, перед QA сохраните полный кандидат через `task-workspace.py seal`, после приёмки выдайте его через `delivery`. Авторы работают в `working_root`, QA/reviewer проверяют один `candidate_root`; пишущие проверки используют расходную копию. Полный порядок: [рабочая копия и выдача результата](traceable-runs.md#полная-рабочая-копия-и-выдача-результата).
+
+Публикуйте run-артефакты штатными командами журнала; личные файлы служат входом `journal.py publish`, чтение выполняется через `journal.py read`. Прямое редактирование файлов run или экспорта не публикует изменения. Порядок публикации, повторов и импорта описан в [Traceable Runs](traceable-runs.md#публикация-и-чтение-журнала).
+
 Patterns are internal recipes for shaping complex Agent Flow tasks. They are not
 public modes and they are not required preflight. Subagent variants require a
 `standard` or `release` budget, or an explicit user request. Use the smallest

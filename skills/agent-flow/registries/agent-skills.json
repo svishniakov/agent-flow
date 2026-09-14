@@ -3084,6 +3084,31 @@
       }
     },
     {
+      "name": "qa-requirement-reviewer",
+      "aliases": [],
+      "tier": "recommended",
+      "required_by_roles": [
+        "qa-verifier"
+      ],
+      "install": {
+        "source_type": "git",
+        "global": {
+          "path": "~/.codex/skills/qa-requirement-reviewer",
+          "instructions": "Install skills/qa-requirement-reviewer from https://github.com/testomatio/skills at revision 1033bddfc457540b7231b22d048e2bc71bed6573 into the global skill root without modifying upstream files."
+        },
+        "project": {
+          "path": ".agents/skills/qa-requirement-reviewer",
+          "instructions": "Install skills/qa-requirement-reviewer from https://github.com/testomatio/skills at revision 1033bddfc457540b7231b22d048e2bc71bed6573 into the project skill root without modifying upstream files."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Upstream: https://skills.sh/testomatio/skills/qa-requirement-reviewer. MIT; version 1.0.0. Required for the qa.requirements assignment. Agent Flow's qa-verifier prompt owns project-specific instructions; illustrative upstream values are not project requirements."
+      }
+    },
+    {
       "name": "rag-implementation",
       "aliases": [],
       "tier": "optional",

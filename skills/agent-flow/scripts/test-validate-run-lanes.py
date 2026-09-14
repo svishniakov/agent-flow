@@ -2632,9 +2632,89 @@ def claim_gate_lanes(
     ]
 
 
+def test_final_format_regressions(temp: Path) -> None:
+    """Synthetic excerpts preserve actual authors' bytes and all substantive gates."""
+    validator = verification_tests.validator
+    failures = []
+    placeholder_root = temp / "placeholder-format"
+    placeholder_root.mkdir()
+    reference = "handoff.md"
+    positive = [
+        "QA-owned TODO(agent): отсутствуют.",
+        "Reviewer-owned `TODO(agent):` не осталось.",
+        "Reviewer-owned `TODO(agent):` placeholders в этом частном handoff не создавались.",
+    ]
+    negative = [
+        "TODO(agent): finish architecture artifact.",
+        "Inline TODO(agent): add tests.",
+        "Field: TODO(agent): add evidence.",
+        "- TODO(agent): add tests.",
+        "| notes | TODO(agent): add tests |",
+        "```text\nTODO(agent): add tests\n```",
+        '{"notes": "TODO(agent): add tests"}',
+        "QA-owned TODO(agent): отсутствуют. TODO(agent): add tests.",
+        "QA-owned TODO(agent): отсутствуют; TODO(agent): add tests.",
+        "TODO(agent): отсутствуют тесты, добавить их",
+        "Reviewer-owned `TODO(agent):` не осталось",  # Unfinished statement.
+        "QA-owned TODO(agent): возможно отсутствуют.",
+        "TODO(agent): отсутствуют.\nTODO(agent): unfinished",
+    ]
+    for index, text in enumerate(positive + negative):
+        (placeholder_root / reference).write_text(text, encoding="utf-8")
+        errors = validator.validate_no_agent_placeholders(placeholder_root, [{"handoff": reference}])
+        wanted = index >= len(positive)
+        if bool(errors) != wanted:
+            failures.append(f"placeholder format {index}: {errors!r}, expected blocked={wanted}")
+    action = "Removed duplicated helper and reused existing tenant helper."
+    worker_body = default_worker_handoff_bodies()
+    worker_body[ENGINEERING_SIMPLICITY_SECTION] += f"\nStatus: fixed\nActions:\n- {action}\n"
+    drift = (
+        "Engineering Simplicity проверена. Primary surfaces: api-service.\n\n"
+        "Закрытия только документацией или smoke scripts нет.\n\n"
+        f"Fixed worker lane id: `worker-a`.\nRemediation action: {action}"
+    )
+    boundary = "Worker lane: `worker-a`. Artifact: `checks/lane-boundary-worker-a.json`."
+    scenarios = [
+        ("separate-boundary-russian-fixed", drift, boundary, None),
+        ("missing-boundary", drift, None, "missing Boundary Evidence"),
+        ("empty-boundary", drift, "", "missing Boundary Evidence"),
+        ("wrong-boundary-worker", drift, boundary.replace("`worker-a`", "`worker-other`"), "missing Boundary Evidence lane"),
+        ("missing-boundary-artifact", drift, "Worker lane: worker-a.", "missing Boundary Evidence artifact"),
+        ("wrong-boundary-artifact-suffix", drift, boundary.replace(".json`", ".json.other`"), "missing Boundary Evidence artifact"),
+        ("wrong-fixed-worker", drift.replace("`worker-a`", "`worker-other`"), boundary, "missing fixed Engineering Simplicity lane"),
+        ("negated-fixed", drift.replace("Fixed worker", "Not Fixed worker"), boundary, "missing fixed Engineering Simplicity lane"),
+        ("unfixed", drift.replace("Fixed worker", "Unfixed worker"), boundary, "missing fixed Engineering Simplicity lane"),
+        ("negated-old-fixed", drift.replace("Fixed worker lane id: `worker-a`.", "Not fixed Engineering Simplicity for worker-a."), boundary, "missing fixed Engineering Simplicity lane"),
+        ("unfixed-old", drift.replace("Fixed worker lane id: `worker-a`.", "Unfixed Engineering Simplicity for worker-a."), boundary, "missing fixed Engineering Simplicity lane"),
+        ("missing-primary", drift.replace("api-service", "smoke-tests"), boundary, "missing Engineering Simplicity primary surface"),
+        ("accepted-peripheral", drift.replace("Закрытия только документацией или smoke scripts нет.", "Accepted peripheral-only closure."), boundary, "must reject peripheral-only closure"),
+        ("bare-peripheral", drift.replace("Закрытия только документацией или smoke scripts нет.", "peripheral-only closure"), boundary, "must reject peripheral-only closure"),
+    ]
+    for name, body, boundary_body, expected in scenarios:
+        bodies = {**default_reviewer_handoff_bodies(), CONTRACT_DRIFT_SECTION: body}
+        if boundary_body is not None:
+            bodies[LANE_BOUNDARY_SECTION] = boundary_body
+        run = write_run(
+            temp / ("format-" + name),
+            lanes=[architecture_lane(), worker_lane(
+                architecture_compliance_data=architecture_compliance(engineering_simplicity=engineering_simplicity_gate(
+                    status="fixed", findings=["Fixture duplicated helper removed."], actions=[action])),
+                handoff_section_bodies=worker_body), qa_control_lane(wave=3),
+                reviewer_control_lane(wave=4, handoff_sections=list(bodies), handoff_section_bodies=bodies)],
+            lane_map_extra=architecture_control_extra(),
+        )
+        result = validate(run)
+        if (expected is None and result.returncode) or (expected is not None and expected not in result.stdout):
+            failures.append(f"{name}: expected {expected!r}, got {result.stdout}")
+    if failures:
+        raise AssertionError("\n".join(failures))
+    print(f"PASS final format regressions: placeholder{len(positive) + len(negative)} + reviewer{len(scenarios)}; prior substantive negatives retained")
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory(prefix="agent-flow-lane-tests-") as temp_dir:
         temp = Path(temp_dir)
+        test_final_format_regressions(temp)
 
         expect_pass("no lane map keeps old behavior", write_run(temp / "no-lanes"))
 

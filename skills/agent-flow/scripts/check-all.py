@@ -13,15 +13,27 @@ import tempfile
 from pathlib import Path
 
 
+class CheckError(RuntimeError):
+    pass
+
+
 def find_repo_root(start: Path) -> Path:
-    for path in (start, *start.parents):
-        if (path / ".git").exists():
-            return path
-    return start
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=start, text=True, capture_output=True, check=False,
+        )
+    except OSError as exc:
+        raise CheckError(f"Cannot inspect Git repository: {exc}") from exc
+    if result.returncode:
+        raise CheckError(f"Git repository required (exit {result.returncode}): {result.stderr.strip()}")
+    repo_root = Path(result.stdout.strip()).resolve()
+    if (repo_root / "skills/agent-flow").resolve() != start.resolve() or not (repo_root / "scripts/check-all.py").is_file():
+        raise CheckError(f"Not the Agent Flow source repository: {repo_root}")
+    return repo_root
 
 
 ROOT = Path(__file__).resolve().parents[1]
-REPO_ROOT = find_repo_root(ROOT)
 SCRIPTS = ROOT / "scripts"
 GOLDEN_TRACE_MANIFEST = ROOT / "testdata" / "golden-traces" / "manifest.json"
 ROLE_PROMPT_INPUT_MARKER = "Use the delegation packet as the source of truth"
@@ -447,6 +459,9 @@ REQUIRED_RUNTIME_TEXT = {
         "two or more worker lanes",
     ],
     "references/traceable-runs.md": [
+        "--prepare-conclusion",
+        "--render-final",
+        "verification.run_changed_files",
         "`schema_version` is `1` or `2`",
         "`budget` is required",
         "`architecture`",
@@ -685,6 +700,7 @@ REQUIRED_RUNTIME_TEXT = {
         "forbidden_repeat",
     ],
     "agents/reviewer.md": [
+        "--prepare-conclusion",
         "Evidence Records",
         "Architecture Contract Gate",
         "Architecture Design Mode",
@@ -713,6 +729,7 @@ REQUIRED_RUNTIME_TEXT = {
         *BLOCKED_RESOLUTION_GATE_GUARD_TERMS,
     ],
     "agents/qa-verifier.md": [
+        "--prepare-conclusion",
         "Architecture Contract Gate",
         "Architecture Design Mode",
         "Architecture Design Brief",
@@ -1052,9 +1069,10 @@ def run_step(name: str, command: list[str]) -> int:
     return 0
 
 
-def run_content_guard(name: str, needle: str) -> int:
+def run_content_guard(name: str, needle: str, repo_root: Path) -> int:
     print(f"==> {name}")
     matches: list[str] = []
+    errors: list[str] = []
     for raw_path in PRODUCT_SEARCH_PATHS:
         path = ROOT / raw_path
         if path.is_dir():
@@ -1072,25 +1090,35 @@ def run_content_guard(name: str, needle: str) -> int:
                 text = candidate.read_text(encoding="utf-8")
             except UnicodeDecodeError:
                 continue
+            except OSError as exc:
+                errors.append(f"{candidate}: {exc}")
+                continue
             if needle in text:
                 matches.append(str(candidate.relative_to(ROOT)))
-    if REPO_ROOT != ROOT:
-        for path in (REPO_ROOT / "README.md", REPO_ROOT / "README.ru.md"):
-            if not path.exists():
+    if repo_root != ROOT:
+        for path in (repo_root / "README.md", repo_root / "README.ru.md"):
+            try:
+                text = path.read_text(encoding="utf-8")
+            except (OSError, UnicodeError) as exc:
+                errors.append(f"{path}: {exc}")
                 continue
-            text = path.read_text(encoding="utf-8")
             if needle in text:
-                matches.append(str(path.relative_to(REPO_ROOT)))
+                matches.append(str(path.relative_to(repo_root)))
     if matches:
         print(f"FAIL {name}: found forbidden text '{needle}'", file=sys.stderr)
         for match in matches:
             print(f"- {match}", file=sys.stderr)
+    if errors:
+        print(f"FAIL {name}: cannot read files", file=sys.stderr)
+        for error in errors:
+            print(f"- {error}", file=sys.stderr)
+    if matches or errors:
         return 1
     print(f"PASS {name}")
     return 0
 
 
-def run_readme_markdown_guard() -> int:
+def run_readme_markdown_guard(repo_root: Path) -> int:
     print("==> README Markdown-only guard")
     forbidden = [
         "<p",
@@ -1107,8 +1135,12 @@ def run_readme_markdown_guard() -> int:
     ]
     failures: list[str] = []
     for name in ["README.md", "README.ru.md"]:
-        path = REPO_ROOT / name
-        text = path.read_text(encoding="utf-8")
+        path = repo_root / name
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as exc:
+            failures.append(f"{path}: {exc}")
+            continue
         for needle in forbidden:
             if needle in text:
                 failures.append(f"{name}: {needle}")
@@ -1121,10 +1153,10 @@ def run_readme_markdown_guard() -> int:
     return 0
 
 
-def run_skills_cli_layout_guard() -> int:
+def run_skills_cli_layout_guard(repo_root: Path) -> int:
     print("==> Skills CLI layout guard")
     failures: list[str] = []
-    if REPO_ROOT != ROOT and (REPO_ROOT / "SKILL.md").exists():
+    if repo_root != ROOT and (repo_root / "SKILL.md").exists():
         failures.append("root SKILL.md must not exist; it shadows skills/agent-flow/SKILL.md")
     if not (ROOT / "SKILL.md").is_file():
         failures.append("skills/agent-flow/SKILL.md is missing")
@@ -1142,11 +1174,11 @@ def run_skills_cli_layout_guard() -> int:
     return 0
 
 
-def run_skills_cli_discovery_guard() -> int:
+def run_skills_cli_discovery_guard(repo_root: Path) -> int:
     print("==> Skills CLI discovery guard")
     result = subprocess.run(
-        ["npx", "-y", "skills", "add", str(REPO_ROOT), "--list"],
-        cwd=REPO_ROOT,
+        ["npx", "-y", "skills", "add", str(repo_root), "--list"],
+        cwd=repo_root,
         text=True,
         capture_output=True,
         check=False,
@@ -1162,7 +1194,7 @@ def run_skills_cli_discovery_guard() -> int:
     return 0
 
 
-def run_skills_cli_install_guard() -> int:
+def run_skills_cli_install_guard(repo_root: Path) -> int:
     print("==> Skills CLI clean install guard")
     with tempfile.TemporaryDirectory(prefix="agent-flow-skills-home-") as raw_home:
         env = os.environ.copy()
@@ -1173,7 +1205,7 @@ def run_skills_cli_install_guard() -> int:
                 "-y",
                 "skills",
                 "add",
-                str(REPO_ROOT),
+                str(repo_root),
                 "--skill",
                 "agent-flow",
                 "-a",
@@ -1181,7 +1213,7 @@ def run_skills_cli_install_guard() -> int:
                 "-g",
                 "-y",
             ],
-            cwd=REPO_ROOT,
+            cwd=repo_root,
             env=env,
             text=True,
             capture_output=True,
@@ -1203,12 +1235,12 @@ def run_skills_cli_install_guard() -> int:
     return 0
 
 
-def run_codegraph_dependency_preflight() -> int:
+def run_codegraph_dependency_preflight(repo_root: Path) -> int:
     print("==> CodeGraph parser dependency preflight")
     missing = [name for name in CODEGRAPH_REQUIRED_MODULES if importlib.util.find_spec(name) is None]
     if missing:
         requirements_path = ROOT / "requirements-codegraph.txt"
-        display_path = requirements_path.relative_to(REPO_ROOT) if REPO_ROOT != ROOT else requirements_path.name
+        display_path = requirements_path.relative_to(repo_root) if repo_root != ROOT else requirements_path.name
         print("FAIL CodeGraph parser dependency preflight", file=sys.stderr)
         print("Missing Python modules:", ", ".join(missing), file=sys.stderr)
         print("Install CodeGraph parser dependencies:", file=sys.stderr)
@@ -1220,15 +1252,15 @@ def run_codegraph_dependency_preflight() -> int:
 
 def git_tracked_paths_under(path: Path) -> set[str]:
     relative = path.relative_to(ROOT).as_posix()
-    result = subprocess.run(
-        ["git", "ls-files", "--cached", f"{relative}/**"],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            ["git", "ls-files", "--cached", f"{relative}/**"],
+            cwd=ROOT, text=True, capture_output=True, check=False,
+        )
+    except OSError as exc:
+        raise CheckError(f"Cannot run git ls-files: {exc}") from exc
     if result.returncode:
-        return set()
+        raise CheckError(f"git ls-files failed (exit {result.returncode}): {result.stderr.strip()}")
     return {line for line in result.stdout.splitlines() if line}
 
 
@@ -1244,7 +1276,12 @@ def run_golden_trace_artifacts_guard() -> int:
             continue
         run_dir = (GOLDEN_TRACE_MANIFEST.parent / raw_path).resolve()
         artifacts_dir = run_dir / "artifacts"
-        if not artifacts_dir.is_dir() or not git_tracked_paths_under(artifacts_dir):
+        try:
+            tracked_paths = git_tracked_paths_under(artifacts_dir)
+        except CheckError as exc:
+            print(f"FAIL golden trace artifacts packaging guard: {exc}", file=sys.stderr)
+            return 1
+        if not artifacts_dir.is_dir() or not tracked_paths:
             failures.append(raw_path)
     if failures:
         print("FAIL golden trace artifacts packaging guard", file=sys.stderr)
@@ -1316,9 +1353,18 @@ def run_role_prompt_dedup_guard() -> int:
 
 
 def main() -> int:
+    try:
+        repo_root = find_repo_root(ROOT)
+    except CheckError as exc:
+        print(f"FAIL repository preflight: {exc}", file=sys.stderr)
+        print("Run check-all.py from an Agent Flow source Git checkout. "
+              "For an installed skill, check dependencies with: "
+              f"python3 {SCRIPTS / 'check-agent-deps.py'} --scope core", file=sys.stderr)
+        return 1
     python_files = sorted(str(path.relative_to(ROOT)) for path in SCRIPTS.glob("*.py"))
     command_steps = [
         ("py_compile scripts", [sys.executable, "-m", "py_compile", *python_files]),
+        ("repository check fixtures", [sys.executable, "scripts/test-check-all.py"]),
         ("task facts fixtures", [sys.executable, "scripts/test-task-facts.py"]),
         ("model eval manifest fixtures", [sys.executable, "scripts/test-model-eval-manifest.py"]),
         ("model eval workspace fixtures", [sys.executable, "scripts/test-model-eval-workspace.py"]),
@@ -1353,9 +1399,12 @@ def main() -> int:
         ("codegraph fixtures", [sys.executable, "scripts/test-codegraph.py"]),
         ("lane fixture tests", [sys.executable, "scripts/test-validate-run-lanes.py"]),
         ("QA/reviewer evidence fixtures", [sys.executable, "scripts/test-verification-evidence.py"]),
+        ("journal IO fixtures", [sys.executable, "scripts/test-journal-io.py"]),
+        ("journal storage failures", [sys.executable, "scripts/test-journal-storage.py"]),
+        ("task workspace full coverage", [sys.executable, "scripts/test-task-workspace.py"]),
         ("procedure completion fixtures", [sys.executable, "scripts/test-procedure-completion.py"]),
         ("golden trace runs", [sys.executable, "scripts/test-golden-traces.py"]),
-        ("git diff hygiene", ["git", "-C", str(REPO_ROOT), "diff", "--check"]),
+        ("git diff hygiene", ["git", "-C", str(repo_root), "diff", "--check"]),
     ]
     content_steps = [
         ("personal path guard", "/Users/" + "ucnlejumper"),
@@ -1390,11 +1439,11 @@ def main() -> int:
     failures = 0
     golden_trace_artifacts_failed: bool | None = None
     codegraph_dependency_failed: bool | None = None
-    if run_skills_cli_layout_guard():
+    if run_skills_cli_layout_guard(repo_root):
         failures += 1
-    if run_skills_cli_discovery_guard():
+    if run_skills_cli_discovery_guard(repo_root):
         failures += 1
-    if run_skills_cli_install_guard():
+    if run_skills_cli_install_guard(repo_root):
         failures += 1
     for name, command in command_steps:
         if name in {"harness evaluation promotion fixtures", "golden trace runs"}:
@@ -1407,7 +1456,7 @@ def main() -> int:
                 continue
         if name == "codegraph fixtures":
             if codegraph_dependency_failed is None:
-                codegraph_dependency_failed = bool(run_codegraph_dependency_preflight())
+                codegraph_dependency_failed = bool(run_codegraph_dependency_preflight(repo_root))
                 if codegraph_dependency_failed:
                     failures += 1
             if codegraph_dependency_failed:
@@ -1416,9 +1465,9 @@ def main() -> int:
         if run_step(name, command):
             failures += 1
     for name, needle in content_steps:
-        if run_content_guard(name, needle):
+        if run_content_guard(name, needle, repo_root):
             failures += 1
-    if run_readme_markdown_guard():
+    if run_readme_markdown_guard(repo_root):
         failures += 1
     if run_required_runtime_text_guard():
         failures += 1

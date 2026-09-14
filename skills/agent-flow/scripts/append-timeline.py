@@ -4,9 +4,8 @@
 from __future__ import annotations
 
 import argparse
-import json
-from datetime import datetime
 from pathlib import Path
+from journal_io import now_iso, append_event, JournalError
 
 
 def main() -> int:
@@ -21,6 +20,7 @@ def main() -> int:
     parser.add_argument("--stable-agent-slug")
     parser.add_argument("--artifact", action="append", default=[])
     parser.add_argument("--commit-hash")
+    parser.add_argument("--operation-id", help="Saved machine request ID for retry.")
     args = parser.parse_args()
 
     run_dir = Path(args.run_dir).expanduser().resolve()
@@ -29,7 +29,7 @@ def main() -> int:
         raise SystemExit(f"run dir not found: {run_dir}")
 
     event = {
-        "timestamp": datetime.now().astimezone().isoformat(),
+        "timestamp": now_iso(),
         "stage": args.stage,
         "role": args.role,
         "stable_agent_name": args.stable_agent_name or args.role,
@@ -42,10 +42,12 @@ def main() -> int:
     if args.commit_hash:
         event["commit_hash"] = args.commit_hash
 
-    with timeline.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(event, ensure_ascii=False) + "\n")
+    try:
+        receipt = append_event(timeline, event, identifier=args.operation_id, assign_timestamp=True)
+    except (JournalError, OSError) as exc:
+        raise SystemExit(str(exc)) from exc
 
-    print(f"appended: {timeline}")
+    print(f"appended: {timeline} (revision {receipt['revision']})")
     return 0
 
 

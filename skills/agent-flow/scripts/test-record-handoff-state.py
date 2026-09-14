@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from journal_io import JournalSnapshot, import_legacy
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,6 +21,8 @@ def run(
     cwd: Path,
     check: bool = True,
 ) -> subprocess.CompletedProcess[str]:
+    if "--run-dir" in args:
+        import_legacy(Path(args[args.index("--run-dir") + 1]).resolve())
     result = subprocess.run(
         args,
         cwd=cwd,
@@ -66,7 +69,7 @@ def write_lane_map(run_dir: Path, lane_handoff: str = "handoffs/worker-a.md") ->
 
 
 def read_lane_map(run_dir: Path) -> dict:
-    return json.loads((run_dir / "lane-map.json").read_text(encoding="utf-8"))
+    return json.loads(JournalSnapshot.open(run_dir.resolve()).read_text("lane-map.json"))
 
 
 def assert_state(run_dir: Path, expected_status: str) -> dict:
@@ -92,7 +95,7 @@ def assert_state(run_dir: Path, expected_status: str) -> dict:
 
 def main() -> int:
     with tempfile.TemporaryDirectory(prefix="agent-flow-handoff-state-") as temp_dir:
-        root = Path(temp_dir)
+        root = Path(temp_dir).resolve()
 
         create_run = root / "create"
         write_lane_map(create_run)

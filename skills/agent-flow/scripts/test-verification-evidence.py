@@ -3,6 +3,7 @@
 
 import importlib.util
 import json
+from journal_io import JournalSnapshot, import_legacy, transact
 import subprocess
 import sys
 import tempfile
@@ -15,7 +16,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from verification_evidence import (EvidenceError, empty_verification, project_root,
-                                   reference_bytes, result_hash, sha256, changed_paths, confined_path)
+                                   reference_bytes, result_hash, historical_result_hash, sha256, changed_paths, confined_path)
 
 SCRIPTS = Path(__file__).resolve().parent
 
@@ -97,7 +98,7 @@ def acceptance_pack(run, *, files=None):
                     "task_scope": reference(run, "plan.md"), "qa": "evidence-qa", "reviewer": "evidence-reviewer"}
     summary = {"version": 1, "subagents_used": True, "role_lanes_used": False,
                "subagents": [], "role_lanes": [], "notes": "Synthetic verification fixture.", "verification": verification}
-    digest = result_hash(run, verification)
+    digest = historical_result_hash(run, verification)
     events = []
     qa_hash = None
     for key, role, thread_id, second in [("qa", "qa-verifier", QA_ID, 10), ("reviewer", "reviewer", REVIEWER_ID, 20)]:
@@ -128,6 +129,41 @@ def acceptance_pack(run, *, files=None):
     (run / "final.md").write_text("# Final\n\nVerdict: ship\n\n## Worktree Hygiene\n\nRun-owned changed files:\n" +
                                  "".join(f"- `{name}`\n" for name in files) + "\n" + delegation_section(summary))
     return summary, source
+
+
+def workspace_pack(case, files=None):
+    """Explicitly upgrade tests exercising NEW conclusions to a sealed workspace."""
+    from task_workspace import prepare, seal
+    subprocess.run(["git", "init", "-q", str(case.root)], check=True)
+    import_legacy(case.run)
+    temporary = tempfile.TemporaryDirectory()
+    case.addCleanup(temporary.cleanup)
+    workspace = prepare(case.run, case.root, Path(temporary.name).resolve() / "bundle")
+    for name in files or ["result.txt"]:
+        target = Path(workspace["working_root"]) / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("New synthetic workspace result.\n")
+    sealed = seal(case.run)
+    verification = case.summary["verification"]
+    verification["result_files"] = sealed["changed_paths"]
+    verification["run_changed_files"] = sealed["changed_paths"]
+    snapshot = JournalSnapshot.open(case.run)
+    digest = result_hash(case.run, verification, snapshot=snapshot)
+    verification["result_hash"] = digest
+    qa_hash = None
+    for index, record in enumerate(case.summary["subagents"]):
+        record["reviewed_result_hash"] = digest
+        record["handoff_sha256"] = sha256(snapshot.read_bytes(record["handoff"]))
+        answer = {"verdict": "passed", "reviewed_result_hash": digest, "handoff": record["handoff"],
+                  "handoff_sha256": record["handoff_sha256"]}
+        if index:
+            answer["qa_handoff_sha256"] = qa_hash
+        else:
+            qa_hash = record["handoff_sha256"]
+        case.source.sessions[record["codex_thread_id"]] = session(record["codex_thread_id"], record["role"], answer, 10 + index * 10)
+    transact(case.run, "fixture-workspace-summary", {},
+             lambda current: ({"delegation-summary.json": json.dumps(case.summary)}, {}))
+    return workspace
 
 
 def delegation_section(summary):
@@ -292,7 +328,7 @@ class OriginalRegressions(unittest.TestCase):
         fixtures = module("lane_fixtures", "test-validate-run-lanes.py")
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
 
     def test_bare_compact_cannot_ship(self):
         run = fixtures.write_compact_run(self.root, verdict="ship", verification_pack=False)
@@ -322,15 +358,16 @@ class OriginalRegressions(unittest.TestCase):
                                  "--slug", "evidence"], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         summary = Path(result.stdout.strip()) / "delegation-summary.json"
-        self.assertTrue(summary.exists())
-        self.assertIn("verification", json.loads(summary.read_text()))
+        snapshot = JournalSnapshot.open(summary.parent)
+        self.assertTrue(snapshot.exists(summary))
+        self.assertIn("verification", json.loads(snapshot.read_text(summary)))
 
 
 class EvidenceRegressions(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         self.run = self.root / "run"
         self.run.mkdir()
         (self.run / "run.md").write_text("# Synthetic compact change\n")
@@ -415,8 +452,7 @@ class EvidenceRegressions(unittest.TestCase):
         self.rejected("reviewed_result_hash is stale")
 
     def test_omitted_owned_path(self):
-        final = self.run / "final.md"
-        final.write_text(final.read_text().replace("- `result.txt`", "- `result.txt`\n- `omitted.txt`"))
+        self.summary["verification"]["run_changed_files"] = ["result.txt", "omitted.txt"]
         self.rejected("result_files omits run-owned paths: omitted.txt")
 
     def test_parallel_file_does_not_invalidate(self):
@@ -605,24 +641,26 @@ class EvidenceRegressions(unittest.TestCase):
                 "--codex-thread-id", QA_ID, "--stage", "handoff", "--status", "pass", "--summary", "QA finished",
                 "--completion-turn-id", record["completion_turn_id"], "--artifact", record["handoff"], "--artifact", "checks.md"]
         with redirect_stdout(StringIO()):
+            import_legacy(self.run)
             self.assertEqual(recorder.main(args, session_source=self.source), 0)
-        self.assertTrue((self.run / "timeline.jsonl").read_bytes().startswith(before))
-        state = {p: p.read_bytes() for p in self.run.rglob("*") if p.is_file()}
+        self.assertTrue(JournalSnapshot.open(self.run).read_bytes("timeline.jsonl").startswith(before))
+        state = dict(JournalSnapshot.open(self.run).documents)
         args.extend(["--verification-json", "[]"])
         with self.assertRaises(SystemExit):
             recorder.main(args, session_source=self.source)
-        self.assertEqual(state, {p: p.read_bytes() for p in self.run.rglob("*") if p.is_file()})
+        self.assertEqual(state, dict(JournalSnapshot.open(self.run).documents))
 
     def test_init_reuse_preserves_filled_summary(self):
         args = [sys.executable, str(SCRIPTS / "init-run.py"), "--repo", str(self.root), "--slug", "reuse"]
         result = subprocess.run(args, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         path = Path(result.stdout.strip()) / "delegation-summary.json"
-        write_json(path, self.summary)
-        before = path.read_bytes()
+        content = json.dumps(self.summary).encode()
+        transact(path.parent, "fixture-summary", {}, lambda snapshot: ({"delegation-summary.json": content}, {}))
+        before = JournalSnapshot.open(path.parent).read_bytes(path)
         result = subprocess.run([*args, "--reuse"], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(path.read_bytes(), before)
+        self.assertEqual(JournalSnapshot.open(path.parent).read_bytes(path), before)
 
     def test_malformed_fields_reject_without_crashing(self):
         original = deepcopy(self.summary)
@@ -707,11 +745,14 @@ class EvidenceRegressions(unittest.TestCase):
         self.rejected("source agent_role must be reviewer")
 
     def test_recorder_invalidates_old_review_when_qa_is_refreshed(self):
+        timeline = self.run / "timeline.jsonl"
+        timeline.write_text("\n".join(timeline.read_text().splitlines()[:-1]) + "\n")
         recorder = module("record_agent_trace", "record-agent-trace.py")
         record = self.summary["subagents"][0]
         (self.run / "checks.md").write_text("Fresh targeted checks\n")
         handoff = self.run / record["handoff"]
         handoff.write_text("# Fresh QA\n\nchecks.md " + reference(self.run, "checks.md")["sha256"] + "\n")
+        workspace_pack(self)
         answer = {"verdict": "passed", "reviewed_result_hash": record["reviewed_result_hash"],
                   "handoff": record["handoff"], "handoff_sha256": sha256(handoff.read_bytes())}
         self.source.sessions[QA_ID] = session(QA_ID, "qa-verifier", answer, 30)
@@ -725,11 +766,12 @@ class EvidenceRegressions(unittest.TestCase):
                 "--stage", "handoff", "--status", "pass", "--summary", "Fresh QA",
                 "--artifact", record["handoff"], "--artifact", "checks.md"]
         with redirect_stdout(StringIO()):
+            import_legacy(self.run)
             self.assertEqual(recorder.main(args, session_source=self.source), 0)
-        self.summary = json.loads((self.run / "delegation-summary.json").read_text())
+        self.summary = json.loads(JournalSnapshot.open(self.run).read_text("delegation-summary.json"))
         self.assertIsNone(self.summary["verification"]["reviewer"])
         self.assertEqual(len(self.summary["subagents"]), 2)
-        self.assertTrue((self.run / "timeline.jsonl").read_bytes().startswith(before))
+        self.assertTrue(JournalSnapshot.open(self.run).read_bytes("timeline.jsonl").startswith(before))
 
 
 if __name__ == "__main__":

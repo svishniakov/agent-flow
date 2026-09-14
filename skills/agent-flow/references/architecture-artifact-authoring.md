@@ -1,5 +1,7 @@
 # Architecture Artifact Authoring Automation
 
+Публикуйте run-артефакты штатными командами журнала; личные файлы служат входом `journal.py publish`, чтение выполняется через `journal.py read`. Прямое редактирование файлов run или экспорта не публикует изменения. Порядок публикации, повторов и импорта описан в [Traceable Runs](traceable-runs.md#публикация-и-чтение-журнала).
+
 Architecture Artifact Authoring Automation makes architecture artifacts agent-authored by default. The human does not fill the Architecture Design Brief, Architecture Contract, worker compliance, QA invariants, or reviewer sections by hand.
 
 ## Init Run

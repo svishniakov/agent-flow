@@ -11,6 +11,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from verification_evidence import validate_verification
+from task_workspace import registered_workspace, verify_candidate
+from journal_io import timestamp as journal_timestamp, validate_event, JournalError, JournalSnapshot
+from journal_io import (journal_read_text, journal_read_bytes, journal_exists, journal_is_file,
+                        journal_is_dir, journal_iterdir, journal_glob)
 
 from architecture_capabilities import (
     ARCHITECTURE_CAPABILITY_REGISTRY_PATH,
@@ -336,26 +340,27 @@ NEGATIVE_FIXTURE_POLARITIES = {"negative", "drift"}
 CONTRACT_NEGATIVE_FIXTURE_TYPES = {"gate", "cli", "query", "storage", "config", "parser"}
 
 
-def detect_mode(run_dir: Path, requested_mode: str) -> str:
+def detect_mode(run_dir: Path, requested_mode: str, *, snapshot=None) -> str:
+    snapshot = snapshot or JournalSnapshot.open(run_dir)
     if requested_mode != "auto":
         return requested_mode
 
-    if (run_dir / "run.md").exists() and not (run_dir / "manifest.md").exists():
+    if journal_exists(run_dir / "run.md", snapshot=snapshot) and not journal_exists(run_dir / "manifest.md", snapshot=snapshot):
         return "compact"
     return "full"
 
 
-def is_empty_file(path: Path) -> bool:
-    return not path.read_text(encoding="utf-8").strip()
+def is_empty_file(path: Path, *, snapshot=None) -> bool:
+    return not journal_read_text(path, encoding="utf-8", snapshot=snapshot).strip()
 
 
-def validate_artifacts_index(path: Path) -> list[str]:
+def validate_artifacts_index(path: Path, *, snapshot=None) -> list[str]:
     errors: list[str] = []
-    if not path.exists():
+    if not journal_exists(path, snapshot=snapshot):
         return errors
 
     try:
-        data = json.loads(path.read_text(encoding="utf-8") or "[]")
+        data = json.loads(journal_read_text(path, encoding="utf-8", snapshot=snapshot) or "[]")
     except json.JSONDecodeError as exc:
         return [f"artifacts.json invalid JSON: {exc}"]
 
@@ -371,22 +376,22 @@ def validate_artifacts_index(path: Path) -> list[str]:
     return errors
 
 
-def load_json(path: Path, display_name: str) -> tuple[object | None, list[str]]:
-    if not path.exists():
+def load_json(path: Path, display_name: str, *, snapshot=None) -> tuple[object | None, list[str]]:
+    if not journal_exists(path, snapshot=snapshot):
         return None, []
     try:
-        return json.loads(path.read_text(encoding="utf-8") or "null"), []
+        return json.loads(journal_read_text(path, encoding="utf-8", snapshot=snapshot) or "null"), []
     except json.JSONDecodeError as exc:
         return None, [f"{display_name} invalid JSON: {exc}"]
 
 
-def validate_jsonl(path: Path, display_name: str | None = None) -> list[str]:
+def validate_jsonl(path: Path, display_name: str | None = None, *, snapshot=None) -> list[str]:
     errors: list[str] = []
     label = display_name or path.name
-    if not path.exists():
+    if not journal_exists(path, snapshot=snapshot):
         return [f"missing {label}"]
     has_event = False
-    for index, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+    for index, line in enumerate(journal_read_text(path, encoding="utf-8", snapshot=snapshot).splitlines(), start=1):
         if not line.strip():
             continue
         has_event = True
@@ -400,6 +405,10 @@ def validate_jsonl(path: Path, display_name: str | None = None) -> list[str]:
             errors.append(f"{label}:{index}: event must be a JSON object")
             continue
 
+        try:
+            validate_event(event)
+        except JournalError as exc:
+            errors.append(f"{label}:{index}: {exc}")
         missing = REQUIRED_TIMELINE_KEYS - event.keys()
         if missing:
             errors.append(f"{label}:{index}: missing keys: {', '.join(sorted(missing))}")
@@ -410,13 +419,13 @@ def validate_jsonl(path: Path, display_name: str | None = None) -> list[str]:
     return errors
 
 
-def load_jsonl_events(path: Path) -> tuple[list[dict], list[str]]:
+def load_jsonl_events(path: Path, *, snapshot=None) -> tuple[list[dict], list[str]]:
     events: list[dict] = []
     errors: list[str] = []
-    if not path.exists():
+    if not journal_exists(path, snapshot=snapshot):
         return events, [f"missing {path.name}"]
 
-    for index, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+    for index, line in enumerate(journal_read_text(path, encoding="utf-8", snapshot=snapshot).splitlines(), start=1):
         if not line.strip():
             continue
         try:
@@ -435,11 +444,9 @@ def parse_event_timestamp(value: object) -> datetime | None:
     if not isinstance(value, str):
         return None
     try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
+        parsed = journal_timestamp(value)
+    except JournalError:
         return None
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
     return parsed
 
 
@@ -459,12 +466,12 @@ def normalize_lane_status(value: object) -> str | None:
     return value.replace("_", "-")
 
 
-def extract_declared_commit_hashes(path: Path) -> list[str]:
-    if not path.exists() or not path.is_file():
+def extract_declared_commit_hashes(path: Path, *, snapshot=None) -> list[str]:
+    if not journal_exists(path, snapshot=snapshot) or not journal_is_file(path, snapshot=snapshot):
         return []
 
     hashes: list[str] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in journal_read_text(path, encoding="utf-8", snapshot=snapshot).splitlines():
         if not COMMIT_DECLARATION_PATTERN.search(line):
             continue
         hashes.extend(match.group(0).lower() for match in COMMIT_HASH_PATTERN.finditer(line))
@@ -483,19 +490,19 @@ def event_commit_hashes(event: dict) -> list[str]:
     return [value.lower() for value in values]
 
 
-def read_fields(path: Path, name: str) -> list[str]:
+def read_fields(path: Path, name: str, *, snapshot=None) -> list[str]:
     prefix = f"{name}:"
     values: list[str] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in journal_read_text(path, encoding="utf-8", snapshot=snapshot).splitlines():
         if line.startswith(prefix):
             values.append(line[len(prefix) :].strip())
     return values
 
 
-def read_single_field(path: Path, name: str) -> str | None:
-    if not path.exists() or not path.is_file():
+def read_single_field(path: Path, name: str, *, snapshot=None) -> str | None:
+    if not journal_exists(path, snapshot=snapshot) or not journal_is_file(path, snapshot=snapshot):
         return None
-    values = read_fields(path, name)
+    values = read_fields(path, name, snapshot=snapshot)
     if len(values) != 1:
         return None
     return values[0]
@@ -505,12 +512,12 @@ def hashes_match(left: str, right: str) -> bool:
     return left.startswith(right) or right.startswith(left)
 
 
-def validate_final_timeline_event(run_dir: Path, require_timeline: bool) -> list[str]:
+def validate_final_timeline_event(run_dir: Path, require_timeline: bool, *, snapshot=None) -> list[str]:
     timeline_path = run_dir / "timeline.jsonl"
-    if not timeline_path.exists():
+    if not journal_exists(timeline_path, snapshot=snapshot):
         return ["missing timeline.jsonl for final timeline event"] if require_timeline else []
 
-    timeline_events, timeline_load_errors = load_jsonl_events(timeline_path)
+    timeline_events, timeline_load_errors = load_jsonl_events(timeline_path, snapshot=snapshot)
     if timeline_load_errors:
         return []
     if not timeline_events:
@@ -531,12 +538,12 @@ def validate_final_timeline_event(run_dir: Path, require_timeline: bool) -> list
     return errors
 
 
-def validate_timeline_sequence(run_dir: Path) -> list[str]:
+def validate_timeline_sequence(run_dir: Path, *, snapshot=None) -> list[str]:
     timeline_path = run_dir / "timeline.jsonl"
-    if not timeline_path.exists():
+    if not journal_exists(timeline_path, snapshot=snapshot):
         return []
 
-    timeline_events, timeline_load_errors = load_jsonl_events(timeline_path)
+    timeline_events, timeline_load_errors = load_jsonl_events(timeline_path, snapshot=snapshot)
     if timeline_load_errors or not timeline_events:
         return []
 
@@ -600,7 +607,7 @@ def validate_timeline_sequence(run_dir: Path) -> list[str]:
         if final_indexes and last_commit_index > max(final_indexes):
             errors.append("timeline.jsonl: orchestrator commit event must come before final event")
 
-    declared_commit_hashes = extract_declared_commit_hashes(run_dir / "final.md")
+    declared_commit_hashes = extract_declared_commit_hashes(run_dir / "final.md", snapshot=snapshot)
     if declared_commit_hashes:
         commit_events = [
             event
@@ -625,31 +632,31 @@ def validate_timeline_sequence(run_dir: Path) -> list[str]:
     return errors
 
 
-def validate_agent_traces(run_dir: Path) -> list[str]:
+def validate_agent_traces(run_dir: Path, *, snapshot=None) -> list[str]:
     errors: list[str] = []
     agents_dir = run_dir / "agents"
-    if not agents_dir.exists():
+    if not journal_exists(agents_dir, snapshot=snapshot):
         return errors
-    if not agents_dir.is_dir():
+    if not journal_is_dir(agents_dir, snapshot=snapshot):
         return ["agents exists but is not a directory"]
 
-    timeline_events, timeline_load_errors = load_jsonl_events(run_dir / "timeline.jsonl")
+    timeline_events, timeline_load_errors = load_jsonl_events(run_dir / "timeline.jsonl", snapshot=snapshot)
     timeline_event_keys = set()
     if not timeline_load_errors:
         timeline_event_keys = {event_key(event) for event in timeline_events}
     else:
         errors.extend(f"agents require timeline.jsonl: {error}" for error in timeline_load_errors)
 
-    for agent_dir in sorted(agents_dir.iterdir()):
+    for agent_dir in sorted(journal_iterdir(agents_dir, snapshot=snapshot)):
         display_dir = agent_dir.relative_to(run_dir).as_posix()
-        if not agent_dir.is_dir():
+        if not journal_is_dir(agent_dir, snapshot=snapshot):
             errors.append(f"{display_dir} is not a directory")
             continue
 
         trace_path = agent_dir / "trace.jsonl"
         display_name = trace_path.relative_to(run_dir).as_posix()
-        errors.extend(validate_jsonl(trace_path, display_name))
-        trace_events, trace_load_errors = load_jsonl_events(trace_path)
+        errors.extend(validate_jsonl(trace_path, display_name, snapshot=snapshot))
+        trace_events, trace_load_errors = load_jsonl_events(trace_path, snapshot=snapshot)
         if trace_load_errors:
             continue
 
@@ -702,7 +709,7 @@ def validate_lane_string_field(lane: dict, field: str, label: str, errors: list[
     return value
 
 
-def validate_lane_path_list(run_dir: Path, paths: object, label: str, field: str, errors: list[str]) -> list[str]:
+def validate_lane_path_list(run_dir: Path, paths: object, label: str, field: str, errors: list[str], *, snapshot=None) -> list[str]:
     if not isinstance(paths, list):
         errors.append(f"lane-map.json: lane {label} field '{field}' must be an array")
         return []
@@ -713,7 +720,7 @@ def validate_lane_path_list(run_dir: Path, paths: object, label: str, field: str
             errors.append(f"lane-map.json: lane {label} {field}[{index}] must be a non-empty string")
             continue
         result.append(path)
-        if not resolve_run_path(run_dir, path).exists():
+        if not journal_exists(resolve_run_path(run_dir, path), snapshot=snapshot):
             errors.append(f"lane-map.json: lane {label} {field}[{index}] not found: {path}")
     return result
 
@@ -827,6 +834,7 @@ def validate_handoff_states(
     normalized_status_by_id: dict[str, str],
     handoff_state_required: bool,
     final_verdict: str | None,
+    snapshot=None,
 ) -> list[str]:
     errors: list[str] = []
     state_by_lane_id: dict[str, dict] = {}
@@ -881,7 +889,7 @@ def validate_handoff_states(
                 f"lane-map.json: lane {label} handoff_state.handoff must match lane handoff: {lane_handoff}"
             )
         if state_status in {"completed", "blocked", "failed"} and handoff:
-            if not resolve_run_path(run_dir, handoff).exists():
+            if not journal_exists(resolve_run_path(run_dir, handoff), snapshot=snapshot):
                 errors.append(f"lane-map.json: lane {label} handoff_state.handoff not found: {handoff}")
 
         handoff_state_string(state, "to", label, errors)
@@ -981,13 +989,28 @@ def lane_artifact_references(lanes: list[object]) -> list[str]:
     return references
 
 
-def validate_no_agent_placeholders(run_dir: Path, lanes: list[object]) -> list[str]:
+def has_unfinished_agent_placeholder(text: str) -> bool:
+    # Only completed statements about the marker itself exempt that occurrence.
+    absence = re.compile(
+        r"(?im)(?:^|(?<=[.!?\n]))[ \t]*(?:(?:QA|Reviewer|Worker|Agent)-owned[ \t]+)?"
+        r"(?P<code>`?)TODO\(agent\):(?P=code)[ \t]+"
+        r"(?:отсутствуют|не осталось|placeholders в этом частном handoff не создавались)"
+        r"\.(?=\s|$)"
+    )
+    completed = [match.span() for match in absence.finditer(text)]
+    return any(
+        not any(start <= occurrence.start() < end for start, end in completed)
+        for occurrence in re.finditer(re.escape(AGENT_TODO_PLACEHOLDER), text)
+    )
+
+
+def validate_no_agent_placeholders(run_dir: Path, lanes: list[object], *, snapshot=None) -> list[str]:
     errors: list[str] = []
     for reference in lane_artifact_references(lanes):
         path = resolve_run_path(run_dir, reference)
-        if not path.exists() or not path.is_file():
+        if not journal_exists(path, snapshot=snapshot) or not journal_is_file(path, snapshot=snapshot):
             continue
-        if AGENT_TODO_PLACEHOLDER in path.read_text(encoding="utf-8"):
+        if has_unfinished_agent_placeholder(journal_read_text(path, encoding="utf-8", snapshot=snapshot)):
             errors.append(
                 "lane-map.json: positive final Verdict blocked by "
                 f"{AGENT_TODO_PLACEHOLDER} in {reference}"
@@ -1006,7 +1029,7 @@ def validate_risk_mitigation_text_field(risk: dict, field: str, label: str) -> l
     return []
 
 
-def validate_risk_mitigation_evidence(run_dir: Path, value: object, label: str) -> list[str]:
+def validate_risk_mitigation_evidence(run_dir: Path, value: object, label: str, *, snapshot=None) -> list[str]:
     errors: list[str] = []
     if not isinstance(value, list) or not value:
         return [f"risk-mitigations.json {label}.evidence must be a non-empty array"]
@@ -1016,7 +1039,7 @@ def validate_risk_mitigation_evidence(run_dir: Path, value: object, label: str) 
                 f"risk-mitigations.json {label}.evidence[{index}] must be a non-empty string"
             )
             continue
-        if not resolve_run_path(run_dir, path).exists():
+        if not journal_exists(resolve_run_path(run_dir, path), snapshot=snapshot):
             errors.append(
                 f"risk-mitigations.json {label}.evidence[{index}] not found: {path}"
             )
@@ -1026,15 +1049,15 @@ def validate_risk_mitigation_evidence(run_dir: Path, value: object, label: str) 
 def validate_risk_mitigations(
     run_dir: Path,
     final_verdict: str | None,
-) -> tuple[list[dict], list[str]]:
+ *, snapshot=None) -> tuple[list[dict], list[str]]:
     path = run_dir / RISK_MITIGATIONS_PATH
     required = final_verdict == "pass-with-risks"
-    if not path.exists():
+    if not journal_exists(path, snapshot=snapshot):
         if required:
             return [], [f"{RISK_MITIGATIONS_PATH} is required for Verdict: pass-with-risks"]
         return [], []
 
-    data, load_errors = load_json(path, RISK_MITIGATIONS_PATH)
+    data, load_errors = load_json(path, RISK_MITIGATIONS_PATH, snapshot=snapshot)
     if load_errors:
         return [], load_errors
     if not isinstance(data, dict):
@@ -1085,7 +1108,7 @@ def validate_risk_mitigations(
         for field in ["detected_by", "problem", "impact", "affected_scope", "owner_lane"]:
             errors.extend(validate_risk_mitigation_text_field(risk, field, label))
 
-        errors.extend(validate_risk_mitigation_evidence(run_dir, risk.get("evidence"), label))
+        errors.extend(validate_risk_mitigation_evidence(run_dir, risk.get("evidence"), label, snapshot=snapshot))
 
         if risk.get("next_gate") != RISK_MITIGATION_NEXT_GATE:
             errors.append(f"{RISK_MITIGATIONS_PATH} {label}.next_gate must be resolution")
@@ -1102,7 +1125,7 @@ def validate_risk_resolution_text_field(resolution: dict, field: str, label: str
     return []
 
 
-def validate_risk_resolution_evidence(run_dir: Path, value: object, label: str) -> list[str]:
+def validate_risk_resolution_evidence(run_dir: Path, value: object, label: str, *, snapshot=None) -> list[str]:
     errors: list[str] = []
     if not isinstance(value, list) or not value:
         return [f"{RISK_RESOLUTIONS_PATH} {label}.evidence must be a non-empty array"]
@@ -1112,7 +1135,7 @@ def validate_risk_resolution_evidence(run_dir: Path, value: object, label: str) 
                 f"{RISK_RESOLUTIONS_PATH} {label}.evidence[{index}] must be a non-empty string"
             )
             continue
-        if not resolve_run_path(run_dir, path).exists():
+        if not journal_exists(resolve_run_path(run_dir, path), snapshot=snapshot):
             errors.append(
                 f"{RISK_RESOLUTIONS_PATH} {label}.evidence[{index}] not found: {path}"
             )
@@ -1142,7 +1165,7 @@ def validate_risk_resolution_rollback(
     rollback: object,
     label: str,
     final_verdict: str | None,
-) -> list[str]:
+ *, snapshot=None) -> list[str]:
     if not isinstance(rollback, dict):
         return [f"{RISK_RESOLUTIONS_PATH} {label} missing rollback"]
 
@@ -1170,6 +1193,7 @@ def validate_risk_resolution_rollback(
                 run_dir,
                 rollback.get("evidence"),
                 f"{label}.rollback",
+                snapshot=snapshot,
             )
         )
     elif "evidence" in rollback:
@@ -1178,6 +1202,7 @@ def validate_risk_resolution_rollback(
                 run_dir,
                 rollback.get("evidence"),
                 f"{label}.rollback",
+                snapshot=snapshot,
             )
         )
     return errors
@@ -1219,7 +1244,7 @@ def validate_senior_qa_recovery(
     run_dir: Path,
     value: object,
     label: str,
-) -> list[str]:
+ *, snapshot=None) -> list[str]:
     if not isinstance(value, dict):
         return [f"{RISK_RESOLUTIONS_PATH} {label}.blocked_recovery missing senior_qa_test_design_review"]
 
@@ -1280,6 +1305,7 @@ def validate_senior_qa_recovery(
             run_dir,
             value.get("evidence"),
             f"{label}.blocked_recovery.senior_qa_test_design_review",
+            snapshot=snapshot,
         )
     )
     return errors
@@ -1293,6 +1319,7 @@ def validate_architect_recovery(
     decisions: set[str],
     *,
     require_instruction: bool = False,
+    snapshot=None,
 ) -> list[str]:
     if not isinstance(value, dict):
         return [f"{RISK_RESOLUTIONS_PATH} {label}.blocked_recovery missing {field}"]
@@ -1338,6 +1365,7 @@ def validate_architect_recovery(
             run_dir,
             value.get("evidence"),
             f"{label}.blocked_recovery.{field}",
+            snapshot=snapshot,
         )
     )
     return errors
@@ -1348,7 +1376,7 @@ def validate_resolution_attempts(
     resolution: dict,
     label: str,
     final_verdict: str | None,
-) -> list[str]:
+ *, snapshot=None) -> list[str]:
     attempts = resolution.get("attempts")
     if attempts is None:
         return []
@@ -1392,7 +1420,7 @@ def validate_resolution_attempts(
         for field in ["owner_lane", "resolution", "verification", "verified_by", "reviewed_by"]:
             errors.extend(validate_risk_resolution_text_field(attempt, field, attempt_label))
 
-        errors.extend(validate_risk_resolution_evidence(run_dir, attempt.get("evidence"), attempt_label))
+        errors.extend(validate_risk_resolution_evidence(run_dir, attempt.get("evidence"), attempt_label, snapshot=snapshot))
 
         if status == "blocked":
             if isinstance(number, int) and not isinstance(number, bool):
@@ -1404,7 +1432,7 @@ def validate_resolution_attempts(
                     f"{RISK_RESOLUTIONS_PATH} {attempt_label}.blocked_reason invalid "
                     f"(expected one of: {allowed})"
                 )
-            errors.extend(validate_risk_resolution_rollback(run_dir, attempt.get("rollback"), attempt_label, final_verdict))
+            errors.extend(validate_risk_resolution_rollback(run_dir, attempt.get("rollback"), attempt_label, final_verdict, snapshot=snapshot))
             errors.extend(validate_blocked_lesson(attempt.get("blocked_lesson"), attempt_label))
 
     if attempt_numbers != list(range(1, len(attempt_numbers) + 1)):
@@ -1429,6 +1457,7 @@ def validate_resolution_attempts(
                     run_dir,
                     recovery.get("senior_qa_test_design_review"),
                     label,
+                    snapshot=snapshot,
                 )
             )
             errors.extend(
@@ -1439,6 +1468,7 @@ def validate_resolution_attempts(
                     "architect_review",
                     ARCHITECT_REVIEW_DECISIONS,
                     require_instruction=True,
+                    snapshot=snapshot,
                 )
             )
         if 2 in blocked_attempt_numbers:
@@ -1449,6 +1479,7 @@ def validate_resolution_attempts(
                     label,
                     "supervising_architect_review",
                     SUPERVISING_ARCHITECT_REVIEW_DECISIONS,
+                    snapshot=snapshot,
                 )
             )
         if 3 in blocked_attempt_numbers and final_verdict not in {"blocked", "fail"}:
@@ -1464,15 +1495,15 @@ def validate_risk_resolutions(
     run_dir: Path,
     final_verdict: str | None,
     mitigation_risks: list[dict],
-) -> tuple[list[dict], list[str]]:
+ *, snapshot=None) -> tuple[list[dict], list[str]]:
     path = run_dir / RISK_RESOLUTIONS_PATH
     required = final_verdict == "pass-with-risks"
-    if not path.exists():
+    if not journal_exists(path, snapshot=snapshot):
         if required:
             return [], [f"{RISK_RESOLUTIONS_PATH} is required for Verdict: pass-with-risks"]
         return [], []
 
-    data, load_errors = load_json(path, RISK_RESOLUTIONS_PATH)
+    data, load_errors = load_json(path, RISK_RESOLUTIONS_PATH, snapshot=snapshot)
     if load_errors:
         return [], load_errors
     if not isinstance(data, dict):
@@ -1541,8 +1572,8 @@ def validate_risk_resolutions(
         for field in ["owner_lane", "resolution", "verification", "verified_by", "reviewed_by"]:
             errors.extend(validate_risk_resolution_text_field(resolution, field, label))
 
-        errors.extend(validate_risk_resolution_evidence(run_dir, resolution.get("evidence"), label))
-        errors.extend(validate_resolution_attempts(run_dir, resolution, label, final_verdict))
+        errors.extend(validate_risk_resolution_evidence(run_dir, resolution.get("evidence"), label, snapshot=snapshot))
+        errors.extend(validate_resolution_attempts(run_dir, resolution, label, final_verdict, snapshot=snapshot))
         parsed_resolutions.append(resolution)
 
     if final_verdict == "pass-with-risks":
@@ -1571,15 +1602,15 @@ def risk_resolution_ids(resolutions: list[dict]) -> list[str]:
     return ids
 
 
-def validate_final_risk_mitigation_coverage(final_path: Path, risk_ids: list[str]) -> list[str]:
-    if not final_path.exists() or not final_path.is_file():
+def validate_final_risk_mitigation_coverage(final_path: Path, risk_ids: list[str], *, snapshot=None) -> list[str]:
+    if not journal_exists(final_path, snapshot=snapshot) or not journal_is_file(final_path, snapshot=snapshot):
         return []
 
-    missing = missing_markdown_headings(final_path, [RISK_MITIGATIONS_SECTION])
+    missing = missing_markdown_headings(final_path, [RISK_MITIGATIONS_SECTION], snapshot=snapshot)
     if missing:
         return [f"final.md missing section: {section}" for section in missing]
 
-    section_text = markdown_section_text(final_path.read_text(encoding="utf-8"), RISK_MITIGATIONS_SECTION)
+    section_text = markdown_section_text(journal_read_text(final_path, encoding="utf-8", snapshot=snapshot), RISK_MITIGATIONS_SECTION)
     return [
         f"final.md Risk Mitigations missing risk id: {risk_id_value}"
         for risk_id_value in risk_ids
@@ -1587,15 +1618,15 @@ def validate_final_risk_mitigation_coverage(final_path: Path, risk_ids: list[str
     ]
 
 
-def validate_final_risk_resolution_coverage(final_path: Path, risk_ids: list[str]) -> list[str]:
-    if not final_path.exists() or not final_path.is_file():
+def validate_final_risk_resolution_coverage(final_path: Path, risk_ids: list[str], *, snapshot=None) -> list[str]:
+    if not journal_exists(final_path, snapshot=snapshot) or not journal_is_file(final_path, snapshot=snapshot):
         return []
 
-    missing = missing_markdown_headings(final_path, [RISK_RESOLUTIONS_SECTION])
+    missing = missing_markdown_headings(final_path, [RISK_RESOLUTIONS_SECTION], snapshot=snapshot)
     if missing:
         return [f"final.md missing section: {section}" for section in missing]
 
-    section_text = markdown_section_text(final_path.read_text(encoding="utf-8"), RISK_RESOLUTIONS_SECTION)
+    section_text = markdown_section_text(journal_read_text(final_path, encoding="utf-8", snapshot=snapshot), RISK_RESOLUTIONS_SECTION)
     return [
         f"final.md Risk Resolutions missing risk id: {risk_id_value}"
         for risk_id_value in risk_ids
@@ -1717,6 +1748,7 @@ def validate_recovery_handoff(
     risk_id_value: str,
     *,
     required_text: str | None = None,
+    snapshot=None,
 ) -> list[str]:
     errors: list[str] = []
     handoff = lane.get("handoff")
@@ -1724,10 +1756,10 @@ def validate_recovery_handoff(
         errors.append(f"lane-map.json: lane {lane_id} requires handoff for Blocked Resolution Gate")
         return errors
     handoff_path = resolve_run_path(run_dir, handoff)
-    for missing in missing_markdown_headings(handoff_path, [section]):
+    for missing in missing_markdown_headings(handoff_path, [section], snapshot=snapshot):
         errors.append(f"lane-map.json: lane {lane_id} handoff missing section: {missing}")
     text = markdown_section_text(
-        handoff_path.read_text(encoding="utf-8") if handoff_path.exists() else "",
+        journal_read_text(handoff_path, encoding="utf-8", snapshot=snapshot) if journal_exists(handoff_path, snapshot=snapshot) else "",
         section,
     )
     if not contains_facet_id(text, risk_id_value):
@@ -1780,7 +1812,7 @@ def validate_blocked_resolution_recovery_lanes(
     resolutions: list[dict],
     lane_by_id: dict[str, dict],
     normalized_status_by_id: dict[str, str],
-) -> list[str]:
+ *, snapshot=None) -> list[str]:
     errors: list[str] = []
     for index, resolution in enumerate(resolutions):
         risk_id_value = risk_id(resolution.get("risk_id"))
@@ -1824,6 +1856,7 @@ def validate_blocked_resolution_recovery_lanes(
                         senior_lane,
                         SENIOR_QA_TEST_DESIGN_REVIEW_SECTION,
                         risk_id_value,
+                        snapshot=snapshot,
                     )
                 )
 
@@ -1849,6 +1882,7 @@ def validate_blocked_resolution_recovery_lanes(
                         RESOLUTION_ARCHITECT_REVIEW_SECTION,
                         risk_id_value,
                         required_text=architect_instruction if isinstance(architect_instruction, str) else None,
+                        snapshot=snapshot,
                     )
                 )
 
@@ -1879,6 +1913,7 @@ def validate_blocked_resolution_recovery_lanes(
                         SUPERVISING_ARCHITECT_REVIEW_SECTION,
                         risk_id_value,
                         required_text=supervising_instruction if isinstance(supervising_instruction, str) else None,
+                        snapshot=snapshot,
                     )
                 )
 
@@ -1930,12 +1965,12 @@ def validate_blocked_resolution_recovery_lanes(
     return errors
 
 
-def load_lane_trace_events(run_dir: Path, role: str, lane_id: str) -> tuple[list[dict], list[str]]:
+def load_lane_trace_events(run_dir: Path, role: str, lane_id: str, *, snapshot=None) -> tuple[list[dict], list[str]]:
     trace_path = run_dir / "agents" / role / "trace.jsonl"
-    if not trace_path.exists():
+    if not journal_exists(trace_path, snapshot=snapshot):
         return [], [f"lane-map.json: lane {lane_id} missing trace file: agents/{role}/trace.jsonl"]
 
-    events, load_errors = load_jsonl_events(trace_path)
+    events, load_errors = load_jsonl_events(trace_path, snapshot=snapshot)
     if load_errors:
         return [], [f"lane-map.json: lane {lane_id} trace load error: {error}" for error in load_errors]
 
@@ -1949,8 +1984,9 @@ def validate_subagent_lane_trace(
     *,
     lane_status: str | None = None,
     handoff: str | None = None,
+    snapshot=None,
 ) -> list[str]:
-    events, errors = load_lane_trace_events(run_dir, role, lane_id)
+    events, errors = load_lane_trace_events(run_dir, role, lane_id, snapshot=snapshot)
     if errors:
         return errors
     if not events:
@@ -2016,11 +2052,12 @@ def validate_delegation_summary_record_paths(
     errors: list[str],
     *,
     complete: bool,
+    snapshot=None,
 ) -> None:
     trace = require_non_empty_string(record, "trace", record_label, errors)
     if trace is not None:
         trace_path = resolve_run_path(run_dir, trace)
-        if not trace_path.exists():
+        if not journal_exists(trace_path, snapshot=snapshot):
             errors.append(f"{record_label}.trace not found: {trace}")
         role = record.get("role")
         if isinstance(role, str) and role:
@@ -2031,7 +2068,7 @@ def validate_delegation_summary_record_paths(
     handoff = require_non_empty_string(record, "handoff", record_label, errors) if complete or record.get("handoff") is not None else None
     lane_handoff = lane.get("handoff")
     if handoff is not None:
-        if not resolve_run_path(run_dir, handoff).exists():
+        if not journal_exists(resolve_run_path(run_dir, handoff), snapshot=snapshot):
             errors.append(f"{record_label}.handoff not found: {handoff}")
         if isinstance(lane_handoff, str) and lane_handoff and handoff != lane_handoff:
             errors.append(f"{record_label}.handoff must match lane handoff: {lane_handoff}")
@@ -2044,14 +2081,15 @@ def validate_delegation_summary(
     final_verdict: str | None,
     *,
     required: bool,
+    snapshot=None,
 ) -> tuple[dict | None, list[str]]:
     path = run_dir / DELEGATION_SUMMARY_PATH
-    if not path.exists():
+    if not journal_exists(path, snapshot=snapshot):
         if required:
             return None, [f"{DELEGATION_SUMMARY_PATH} is required for positive final"]
         return None, []
 
-    data, load_errors = load_json(path, DELEGATION_SUMMARY_PATH)
+    data, load_errors = load_json(path, DELEGATION_SUMMARY_PATH, snapshot=snapshot)
     errors = list(load_errors)
     if errors:
         return None, errors
@@ -2103,7 +2141,7 @@ def validate_delegation_summary(
         if isinstance(lane.get("id"), str) and normalize_execution_mode(lane.get("execution_mode")) == "role-lane"
         and normalize_lane_status(lane.get("status")) not in {"planned", "timed-out", "replaced"}
     )
-    has_lane_map = (run_dir / "lane-map.json").exists()
+    has_lane_map = journal_exists(run_dir / "lane-map.json", snapshot=snapshot)
     if has_lane_map and sorted(subagent_ids) != expected_subagent_ids:
         errors.append(
             f"{DELEGATION_SUMMARY_PATH}: subagents must cover execution_mode=subagent lanes"
@@ -2135,9 +2173,9 @@ def validate_delegation_summary(
                 errors.append(f"{DELEGATION_SUMMARY_PATH}: lane {lane_id} is not execution_mode=subagent")
             if role is not None and lane.get("role") != role:
                 errors.append(f"{record_label}.role must match lane role: {lane.get('role')}")
-            validate_delegation_summary_record_paths(run_dir, record, lane, record_label, errors, complete=final_verdict in POSITIVE_FINAL_VERDICTS)
+            validate_delegation_summary_record_paths(run_dir, record, lane, record_label, errors, complete=final_verdict in POSITIVE_FINAL_VERDICTS, snapshot=snapshot)
             if role is not None and codex_thread_id is not None:
-                events, event_errors = load_lane_trace_events(run_dir, role, lane_id)
+                events, event_errors = load_lane_trace_events(run_dir, role, lane_id, snapshot=snapshot)
                 errors.extend(event_errors)
                 if events and not any(
                     event.get("codex_thread_id") == codex_thread_id for event in events
@@ -2148,6 +2186,7 @@ def validate_delegation_summary(
                         run_dir, lane_id, role,
                         lane_status="pass" if final_verdict in POSITIVE_FINAL_VERDICTS else "planned",
                         handoff=record.get("handoff"),
+                        snapshot=snapshot,
                     ))
 
     if isinstance(role_lanes, list):
@@ -2171,18 +2210,21 @@ def validate_delegation_summary(
                 errors.append(f"{record_label}.role must match lane role: {lane.get('role')}")
 
     if final_verdict in POSITIVE_FINAL_VERDICTS:
-        errors.extend(validate_final_delegation_trace(run_dir / "final.md", data))
+        errors.extend(validate_final_delegation_trace(run_dir / "final.md", data, snapshot=snapshot))
         if not subagent_ids:
-            errors.extend(validate_no_unbacked_subagent_claims(run_dir))
+            errors.extend(validate_no_unbacked_subagent_claims(run_dir, snapshot=snapshot))
 
     return data, errors
 
 
-def validate_final_delegation_trace(final_path: Path, summary: dict) -> list[str]:
+def validate_final_delegation_trace(final_path: Path, summary: dict, *, snapshot=None) -> list[str]:
     errors: list[str] = []
-    if not final_path.exists():
+    if not journal_exists(final_path, snapshot=snapshot):
         return errors
-    text = final_path.read_text(encoding="utf-8")
+    text = journal_read_text(final_path, encoding="utf-8", snapshot=snapshot)
+    generated = re.search(r"<!-- agent-flow:delegation:begin -->\n(.*?)<!-- agent-flow:delegation:end -->", text, re.S)
+    if generated:
+        text = generated.group(1)
     if not has_markdown_heading(text, DELEGATION_TRACE_SECTION):
         return [f"final.md missing section: {DELEGATION_TRACE_SECTION}"]
     section = markdown_section_text(text, DELEGATION_TRACE_SECTION)
@@ -2229,7 +2271,7 @@ def validate_final_delegation_trace(final_path: Path, summary: dict) -> list[str
     return errors
 
 
-def validate_no_unbacked_subagent_claims(run_dir: Path) -> list[str]:
+def validate_no_unbacked_subagent_claims(run_dir: Path, *, snapshot=None) -> list[str]:
     errors: list[str] = []
     allowed_fragments = [
         "subagents used: no",
@@ -2255,9 +2297,9 @@ def validate_no_unbacked_subagent_claims(run_dir: Path) -> list[str]:
     ]
     for relative in ["final.md", "route.md", "manifest.md"]:
         path = run_dir / relative
-        if not path.exists() or not path.is_file():
+        if not journal_exists(path, snapshot=snapshot) or not journal_is_file(path, snapshot=snapshot):
             continue
-        for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        for line_number, line in enumerate(journal_read_text(path, encoding="utf-8", snapshot=snapshot).splitlines(), start=1):
             normalized = " ".join(line.lower().split())
             if not normalized:
                 continue
@@ -2275,19 +2317,20 @@ def validate_no_unbacked_subagent_claims(run_dir: Path) -> list[str]:
     return errors
 
 
-def validate_mandatory_independent_qa_review_gate(run_dir: Path, *, session_source=None) -> list[str]:
+def validate_mandatory_independent_qa_review_gate(run_dir: Path, *, session_source=None, snapshot=None) -> list[str]:
     """Mandatory Independent QA Review Gate: qa-verifier and reviewer evidence."""
-    verdict = read_single_field(run_dir / "final.md", "Verdict")
-    lane_map, _load_errors = load_json(run_dir / "lane-map.json", "lane-map.json")
+    verdict = read_single_field(run_dir / "final.md", "Verdict", snapshot=snapshot)
+    lane_map, _load_errors = load_json(run_dir / "lane-map.json", "lane-map.json", snapshot=snapshot)
     # Structural lane-map errors are reported by validate_lane_map.
     lane_map = lane_map if isinstance(lane_map, dict) else {}
     lanes = [lane for lane in lane_map.get("lanes", []) if isinstance(lane, dict)] if isinstance(lane_map.get("lanes", []), list) else []
     lane_by_id = {lane["id"]: lane for lane in lanes if isinstance(lane.get("id"), str)}
     summary, errors = validate_delegation_summary(
         run_dir, lanes, lane_by_id, verdict, required=verdict in POSITIVE_FINAL_VERDICTS,
+        snapshot=snapshot,
     )
     if summary is not None:
-        errors.extend(validate_verification(run_dir, summary, {**lane_map, "lanes": lanes}, verdict, session_source))
+        errors.extend(validate_verification(run_dir, summary, {**lane_map, "lanes": lanes}, verdict, session_source, snapshot=snapshot))
     return errors
 
 
@@ -2326,12 +2369,31 @@ def contains_facet_id(text: str, facet: str) -> bool:
 
 def contains_fixed_simplicity_lane(text: str, lane_id: str) -> bool:
     lane_pattern = rf"(?<![A-Za-z0-9_-]){re.escape(lane_id)}(?![A-Za-z0-9_-])"
+    if contains_facet_id(text, ENGINEERING_SIMPLICITY_SECTION) and re.search(
+        rf"(?im)^[ \t]*(?:[-*][ \t]+)?Fixed worker lane id:[ \t]*`?{lane_pattern}`?\.?[ \t]*$",
+        text,
+    ):
+        return True
     patterns = [
         rf"(?is)fixed[^\n.]*Engineering Simplicity[^\n.]*{lane_pattern}",
         rf"(?is)Engineering Simplicity[^\n.]*fixed[^\n.]*{lane_pattern}",
         rf"(?is)Fixed Engineering Simplicity[^\n.]*{lane_pattern}",
     ]
-    return any(re.search(pattern, text) for pattern in patterns)
+    return any(
+        not re.search(r"(?i)\b(?:unfixed|(?:not|не)\s+(?:yet\s+)?fixed)\b", statement)
+        and any(re.search(pattern, statement) for pattern in patterns)
+        for statement in re.split(r"[.\n]", text)
+    )
+
+
+def rejects_peripheral_only_closure(text: str) -> bool:
+    return bool(re.search(
+        r"(?im)(?:^|(?<=[.;\n]))[ \t]*(?:"
+        r"rejected peripheral-only closure|peripheral-only closure rejected|"
+        r"Закрытия только документацией или smoke scripts нет"
+        r")\.(?=\s|$)",
+        text,
+    ))
 
 
 def successful_lane_event_indexes(timeline_events: list[dict], lane_id: str) -> list[int]:
@@ -2352,11 +2414,11 @@ def first_successful_lane_event_index(
     return min(indexes) if indexes else None
 
 
-def read_timeline_events(run_dir: Path) -> tuple[list[dict], list[str]]:
+def read_timeline_events(run_dir: Path, *, snapshot=None) -> tuple[list[dict], list[str]]:
     timeline_path = run_dir / "timeline.jsonl"
-    if not timeline_path.exists():
+    if not journal_exists(timeline_path, snapshot=snapshot):
         return [], ["missing timeline.jsonl for continuation validation"]
-    events, load_errors = load_jsonl_events(timeline_path)
+    events, load_errors = load_jsonl_events(timeline_path, snapshot=snapshot)
     if load_errors:
         return [], load_errors
     return events, []
@@ -2387,29 +2449,30 @@ def validate_markdown_section_coverage(
     missing_section_error: str,
     missing_id_error_prefix: str,
     errors: list[str],
+    snapshot=None,
 ) -> None:
-    if not path.exists():
+    if not journal_exists(path, snapshot=snapshot):
         return
-    missing = missing_markdown_headings(path, [section])
+    missing = missing_markdown_headings(path, [section], snapshot=snapshot)
     if missing:
         errors.append(missing_section_error)
         return
-    section_text = markdown_section_text(path.read_text(encoding="utf-8"), section)
+    section_text = markdown_section_text(journal_read_text(path, encoding="utf-8", snapshot=snapshot), section)
     for required_id in required_ids:
         if not contains_facet_id(section_text, required_id):
             errors.append(f"{missing_id_error_prefix}: {required_id}")
 
 
-def claim_evidence_ids_from_contract(path: Path) -> tuple[list[str], list[str]]:
-    if not path.exists():
+def claim_evidence_ids_from_contract(path: Path, *, snapshot=None) -> tuple[list[str], list[str]]:
+    if not journal_exists(path, snapshot=snapshot):
         return [], []
-    text = path.read_text(encoding="utf-8")
+    text = journal_read_text(path, encoding="utf-8", snapshot=snapshot)
     errors: list[str] = []
     claim_ids: list[str] = []
     seen: set[str] = set()
 
     for section in ["QA Gates", "Reviewer Checklist"]:
-        if missing_markdown_headings(path, [section]):
+        if missing_markdown_headings(path, [section], snapshot=snapshot):
             continue
         section_text = markdown_section_text(text, section)
         section_ids: list[str] = []
@@ -2434,16 +2497,16 @@ def claim_evidence_ids_from_contract(path: Path) -> tuple[list[str], list[str]]:
     return claim_ids, errors
 
 
-def acceptance_criteria_ids_from_contract(path: Path) -> tuple[list[str], list[str]]:
-    if not path.exists():
+def acceptance_criteria_ids_from_contract(path: Path, *, snapshot=None) -> tuple[list[str], list[str]]:
+    if not journal_exists(path, snapshot=snapshot):
         return [], []
-    text = path.read_text(encoding="utf-8")
+    text = journal_read_text(path, encoding="utf-8", snapshot=snapshot)
     errors: list[str] = []
     acceptance_ids: list[str] = []
     seen: set[str] = set()
 
     for section in ["QA Gates", "Reviewer Checklist"]:
-        if missing_markdown_headings(path, [section]):
+        if missing_markdown_headings(path, [section], snapshot=snapshot):
             continue
         section_text = markdown_section_text(text, section)
         section_ids: list[str] = []
@@ -2474,6 +2537,7 @@ def validate_marker_evidence_records(
     *,
     label: str,
     required: bool,
+    snapshot=None,
 ) -> list[str]:
     if not isinstance(records, list):
         return [f"{label} must be an array"]
@@ -2494,12 +2558,12 @@ def validate_marker_evidence_records(
         evidence_text = ""
         if evidence_path_value:
             evidence_path = resolve_run_path(run_dir, evidence_path_value)
-            if not evidence_path.exists():
+            if not journal_exists(evidence_path, snapshot=snapshot):
                 errors.append(f"{evidence_label}.path not found: {evidence_path_value}")
-            elif not evidence_path.is_file():
+            elif not journal_is_file(evidence_path, snapshot=snapshot):
                 errors.append(f"{evidence_label}.path must be a file: {evidence_path_value}")
             else:
-                evidence_text = evidence_path.read_text(encoding="utf-8")
+                evidence_text = journal_read_text(evidence_path, encoding="utf-8", snapshot=snapshot)
         marker_label = f"{evidence_label}.markers"
         raw_markers = evidence_record.get("markers")
         if not isinstance(raw_markers, list) or not raw_markers:
@@ -2576,6 +2640,7 @@ def validate_acceptance_marker_evidence_records(
     required: bool,
     expectations: dict[tuple[str, str], set[str]],
     negative_fixture: bool,
+    snapshot=None,
 ) -> tuple[set[tuple[str, str]], list[str]]:
     if not isinstance(records, list):
         return set(), [f"{label} must be an array"]
@@ -2618,14 +2683,14 @@ def validate_acceptance_marker_evidence_records(
         marker_backed = bool(evidence_path_value)
         if evidence_path_value:
             evidence_path = resolve_run_path(run_dir, evidence_path_value)
-            if not evidence_path.exists():
+            if not journal_exists(evidence_path, snapshot=snapshot):
                 errors.append(f"{evidence_label}.path not found: {evidence_path_value}")
                 marker_backed = False
-            elif not evidence_path.is_file():
+            elif not journal_is_file(evidence_path, snapshot=snapshot):
                 errors.append(f"{evidence_label}.path must be a file: {evidence_path_value}")
                 marker_backed = False
             else:
-                evidence_text = evidence_path.read_text(encoding="utf-8")
+                evidence_text = journal_read_text(evidence_path, encoding="utf-8", snapshot=snapshot)
                 evidence_loaded = True
 
         marker_label = f"{evidence_label}.markers"
@@ -2679,14 +2744,15 @@ def validate_acceptance_traceability_records(
     required_acceptance_ids: list[str],
     required: bool,
     final_verdict: str | None,
+    snapshot=None,
 ) -> list[str]:
     path = run_dir / ACCEPTANCE_TRACEABILITY_PATH
-    if not path.exists():
+    if not journal_exists(path, snapshot=snapshot):
         if required:
             return [f"{ACCEPTANCE_TRACEABILITY_PATH} is required for positive architecture contract run"]
         return []
 
-    data, load_errors = load_json(path, ACCEPTANCE_TRACEABILITY_PATH)
+    data, load_errors = load_json(path, ACCEPTANCE_TRACEABILITY_PATH, snapshot=snapshot)
     if load_errors:
         return load_errors
     if not isinstance(data, dict):
@@ -2769,6 +2835,7 @@ def validate_acceptance_traceability_records(
             required=True,
             expectations=surface_expectations,
             negative_fixture=False,
+            snapshot=snapshot,
         )
         covered_expectations.update(evidence_coverage)
         errors.extend(evidence_errors)
@@ -2785,6 +2852,7 @@ def validate_acceptance_traceability_records(
                 required=True,
                 expectations=surface_expectations,
                 negative_fixture=True,
+                snapshot=snapshot,
             )
             covered_expectations.update(fixture_coverage)
             errors.extend(fixture_errors)
@@ -2796,6 +2864,7 @@ def validate_acceptance_traceability_records(
                 required=False,
                 expectations=surface_expectations,
                 negative_fixture=True,
+                snapshot=snapshot,
             )
             covered_expectations.update(fixture_coverage)
             errors.extend(fixture_errors)
@@ -2825,14 +2894,15 @@ def validate_claim_evidence_records(
     final_verdict: str | None,
     lane_by_id: dict[str, dict],
     normalized_status_by_id: dict[str, str],
+    snapshot=None,
 ) -> list[str]:
     path = run_dir / CLAIM_EVIDENCE_PATH
-    if not path.exists():
+    if not journal_exists(path, snapshot=snapshot):
         if required:
             return [f"{CLAIM_EVIDENCE_PATH} is required for positive architecture contract run"]
         return []
 
-    data, load_errors = load_json(path, CLAIM_EVIDENCE_PATH)
+    data, load_errors = load_json(path, CLAIM_EVIDENCE_PATH, snapshot=snapshot)
     if load_errors:
         return load_errors
     if not isinstance(data, dict):
@@ -2910,16 +2980,16 @@ def validate_claim_evidence_records(
                 errors.append(f"{CLAIM_EVIDENCE_PATH} {label}.owner_lane has no handoff")
             else:
                 handoff_path = resolve_run_path(run_dir, handoff)
-                if not handoff_path.exists():
+                if not journal_exists(handoff_path, snapshot=snapshot):
                     errors.append(f"{CLAIM_EVIDENCE_PATH} {label}.owner handoff not found: {handoff}")
-                elif missing_markdown_headings(handoff_path, [section]):
+                elif missing_markdown_headings(handoff_path, [section], snapshot=snapshot):
                     errors.append(
                         f"{CLAIM_EVIDENCE_PATH} {label}.section missing from "
                         f"owner handoff: {section}"
                     )
                 else:
                     section_text = markdown_section_text(
-                        handoff_path.read_text(encoding="utf-8"),
+                        journal_read_text(handoff_path, encoding="utf-8", snapshot=snapshot),
                         section,
                     )
                     if not contains_facet_id(section_text, claim_id_value):
@@ -2958,13 +3028,13 @@ def validate_claim_evidence_records(
             evidence_text = ""
             if evidence_path_value:
                 evidence_path = resolve_run_path(run_dir, evidence_path_value)
-                if not evidence_path.exists():
+                if not journal_exists(evidence_path, snapshot=snapshot):
                     errors.append(
                         f"{CLAIM_EVIDENCE_PATH} {evidence_label}.path not found: "
                         f"{evidence_path_value}"
                     )
-                elif evidence_path.is_file():
-                    evidence_text = evidence_path.read_text(encoding="utf-8")
+                elif journal_is_file(evidence_path, snapshot=snapshot):
+                    evidence_text = journal_read_text(evidence_path, encoding="utf-8", snapshot=snapshot)
             markers = validate_string_list(
                 evidence_record.get("markers"),
                 f"{CLAIM_EVIDENCE_PATH} {evidence_label}.markers",
@@ -2993,20 +3063,21 @@ def validate_continuation_summary(
     normalized_status_by_id: dict[str, str],
     successful_worker_lanes: list[tuple[str, int, str | None]],
     verification_readiness_data: dict | None,
+    snapshot=None,
 ) -> list[str]:
-    timeline_events, timeline_errors = read_timeline_events(run_dir)
+    timeline_events, timeline_errors = read_timeline_events(run_dir, snapshot=snapshot)
     if timeline_errors:
         return []
 
     continuation_present = continuation_stage_present(timeline_events)
     path = run_dir / CONTINUATION_SUMMARY_PATH
     required = final_verdict in POSITIVE_FINAL_VERDICTS and continuation_present
-    if not path.exists():
+    if not journal_exists(path, snapshot=snapshot):
         if required:
             return [f"{CONTINUATION_SUMMARY_PATH} is required for positive continuation run"]
         return []
 
-    data, errors = load_json(path, CONTINUATION_SUMMARY_PATH)
+    data, errors = load_json(path, CONTINUATION_SUMMARY_PATH, snapshot=snapshot)
     if errors:
         return errors
     if not isinstance(data, dict):
@@ -3040,18 +3111,18 @@ def validate_continuation_summary(
         verdict = checkpoint.get("verdict")
         if verdict != "blocked":
             errors.append(f"{CONTINUATION_SUMMARY_PATH} previous_checkpoint.verdict must be blocked")
-        snapshot = validate_string(
+        checkpoint_snapshot = validate_string(
             checkpoint.get("snapshot"),
             f"{CONTINUATION_SUMMARY_PATH} previous_checkpoint.snapshot",
             errors,
         )
-        if snapshot:
-            snapshot_path = resolve_run_path(run_dir, snapshot)
-            if not snapshot_path.exists():
+        if checkpoint_snapshot:
+            snapshot_path = resolve_run_path(run_dir, checkpoint_snapshot)
+            if not journal_exists(snapshot_path, snapshot=snapshot):
                 errors.append(
-                    f"{CONTINUATION_SUMMARY_PATH} previous_checkpoint.snapshot not found: {snapshot}"
+                    f"{CONTINUATION_SUMMARY_PATH} previous_checkpoint.snapshot not found: {checkpoint_snapshot}"
                 )
-            elif read_single_field(snapshot_path, "Verdict") != "blocked":
+            elif read_single_field(snapshot_path, "Verdict", snapshot=snapshot) != "blocked":
                 errors.append(
                     f"{CONTINUATION_SUMMARY_PATH} previous_checkpoint.snapshot must record Verdict: blocked"
                 )
@@ -3088,7 +3159,7 @@ def validate_continuation_summary(
                 errors.append(f"{label}.id must be kebab-case")
             blocker_ids.append(blocker_id)
         validate_string(blocker.get("resolution"), f"{label}.resolution", errors)
-        validate_existing_path_list(run_dir, blocker.get("evidence"), f"{label}.evidence", errors)
+        validate_existing_path_list(run_dir, blocker.get("evidence"), f"{label}.evidence", errors, snapshot=snapshot)
     if len(set(blocker_ids)) != len(blocker_ids):
         errors.append(f"{CONTINUATION_SUMMARY_PATH} duplicate resolved blocker id")
 
@@ -3214,6 +3285,7 @@ def validate_continuation_summary(
             missing_section_error=f"lane-map.json: lane {lane_id} handoff missing section: {section}",
             missing_id_error_prefix=f"lane-map.json: lane {lane_id} {section} missing continuation id",
             errors=errors,
+            snapshot=snapshot,
         )
 
     if final_verdict in POSITIVE_FINAL_VERDICTS:
@@ -3225,6 +3297,7 @@ def validate_continuation_summary(
             missing_section_error=f"final.md missing section: {CONTINUATION_SUMMARY_SECTION}",
             missing_id_error_prefix="final.md Continuation Summary missing continuation id",
             errors=errors,
+            snapshot=snapshot,
         )
 
     validate_string(data.get("notes"), f"{CONTINUATION_SUMMARY_PATH} notes", errors)
@@ -3250,16 +3323,17 @@ def detect_harness_learning_triggers(
     resolution_records: list[dict],
     drifting_worker_lanes: list[tuple[str, int | None, str | None]],
     verification_readiness_data: dict | None,
+    snapshot=None,
 ) -> set[str]:
     triggers: set[str] = set()
-    timeline_events, timeline_errors = read_timeline_events(run_dir)
+    timeline_events, timeline_errors = read_timeline_events(run_dir, snapshot=snapshot)
     if not timeline_errors and continuation_stage_present(timeline_events):
         triggers.add("continuation")
-    if (run_dir / CONTINUATION_SUMMARY_PATH).exists():
+    if journal_exists(run_dir / CONTINUATION_SUMMARY_PATH, snapshot=snapshot):
         triggers.add("continuation")
-    if (run_dir / RISK_MITIGATIONS_PATH).exists():
+    if journal_exists(run_dir / RISK_MITIGATIONS_PATH, snapshot=snapshot):
         triggers.add("risk-mitigation")
-    if (run_dir / RISK_RESOLUTIONS_PATH).exists():
+    if journal_exists(run_dir / RISK_RESOLUTIONS_PATH, snapshot=snapshot):
         triggers.add("risk-resolution")
     if has_blocked_resolution_attempts(resolution_records):
         triggers.add("blocked-resolution")
@@ -3302,7 +3376,7 @@ def validate_harness_finding(
     known_capabilities: set[str],
     seen_ids: set[str],
     errors: list[str],
-) -> str | None:
+ *, snapshot=None) -> str | None:
     label = f"{HARNESS_EVALUATION_PATH} findings[{index}]"
     if not isinstance(finding, dict):
         errors.append(f"{label} must be an object")
@@ -3376,7 +3450,7 @@ def validate_harness_finding(
                 f"unselected capability: {capability}"
             )
 
-    validate_existing_path_list(run_dir, finding.get("evidence"), f"{label}.evidence", errors)
+    validate_existing_path_list(run_dir, finding.get("evidence"), f"{label}.evidence", errors, snapshot=snapshot)
     return finding_id
 
 
@@ -3386,7 +3460,7 @@ def validate_harness_proposal(
     index: int,
     seen_ids: set[str],
     errors: list[str],
-) -> str | None:
+ *, snapshot=None) -> str | None:
     label = f"{HARNESS_EVALUATION_PATH} proposals[{index}]"
     if not isinstance(proposal, dict):
         errors.append(f"{label} must be an object")
@@ -3421,7 +3495,7 @@ def validate_harness_proposal(
     if proposal.get("requires_human_approval") is not False:
         errors.append(f"{label}.requires_human_approval must be false")
     validate_string(proposal.get("rationale"), f"{label}.rationale", errors)
-    validate_existing_path_list(run_dir, proposal.get("evidence"), f"{label}.evidence", errors)
+    validate_existing_path_list(run_dir, proposal.get("evidence"), f"{label}.evidence", errors, snapshot=snapshot)
     return proposal_id
 
 
@@ -3435,14 +3509,15 @@ def validate_harness_evaluation(
     known_architecture_capability_ids: set[str],
     successful_reviewer_lanes: list[tuple[str, int, str | None]],
     require_reviewer_review: bool,
+    snapshot=None,
 ) -> list[str]:
     path = run_dir / HARNESS_EVALUATION_PATH
-    if not path.exists():
+    if not journal_exists(path, snapshot=snapshot):
         if learning_triggers:
             return [f"{HARNESS_EVALUATION_PATH} is required for triggered learning run"]
         return []
 
-    data, errors = load_json(path, HARNESS_EVALUATION_PATH)
+    data, errors = load_json(path, HARNESS_EVALUATION_PATH, snapshot=snapshot)
     if errors:
         return errors
     if not isinstance(data, dict):
@@ -3476,6 +3551,7 @@ def validate_harness_evaluation(
         data.get("source_artifacts"),
         f"{HARNESS_EVALUATION_PATH} source_artifacts",
         errors,
+        snapshot=snapshot,
     )
 
     if status == "blocked-learning":
@@ -3485,6 +3561,7 @@ def validate_harness_evaluation(
             data.get("blocked_evidence"),
             f"{HARNESS_EVALUATION_PATH} blocked_evidence",
             errors,
+            snapshot=snapshot,
         )
 
     findings = data.get("findings")
@@ -3526,6 +3603,7 @@ def validate_harness_evaluation(
             known_capability_set,
             seen_finding_ids,
             errors,
+            snapshot=snapshot,
         )
         if finding_id:
             finding_ids.append(finding_id)
@@ -3537,6 +3615,7 @@ def validate_harness_evaluation(
             index,
             seen_proposal_ids,
             errors,
+            snapshot=snapshot,
         )
         if proposal_id:
             proposal_ids.append(proposal_id)
@@ -3550,6 +3629,7 @@ def validate_harness_evaluation(
             missing_section_error=f"final.md missing section: {HARNESS_EVALUATION_SECTION}",
             missing_id_error_prefix="final.md Harness Evaluation missing harness id",
             errors=errors,
+            snapshot=snapshot,
         )
 
     if (
@@ -3576,6 +3656,7 @@ def validate_harness_evaluation(
                     f"{HARNESS_EVALUATION_REVIEW_SECTION} missing harness id"
                 ),
                 errors=errors,
+                snapshot=snapshot,
             )
 
     return errors
@@ -3681,7 +3762,7 @@ def validate_existing_path_list(
     value: object,
     label: str,
     errors: list[str],
-) -> list[str]:
+ *, snapshot=None) -> list[str]:
     if not isinstance(value, list) or not value:
         errors.append(f"{label} must be a non-empty array")
         return []
@@ -3691,7 +3772,7 @@ def validate_existing_path_list(
             errors.append(f"{label}[{index}] must be a non-empty string")
             continue
         paths.append(item)
-        if not resolve_run_path(run_dir, item).exists():
+        if not journal_exists(resolve_run_path(run_dir, item), snapshot=snapshot):
             errors.append(f"{label}[{index}] not found: {item}")
     return paths
 
@@ -3704,6 +3785,7 @@ def validate_verification_gate_records(
     *,
     status_field: str,
     allowed_statuses: set[str],
+    snapshot=None,
 ) -> tuple[set[tuple[str, str]], list[str]]:
     errors: list[str] = []
     seen: set[tuple[str, str]] = set()
@@ -3741,7 +3823,7 @@ def validate_verification_gate_records(
         validate_string(gate.get("notes"), f"{gate_label}.notes", errors)
         if status_field == "readiness":
             validate_string(gate.get("check"), f"{gate_label}.check", errors)
-        validate_existing_path_list(run_dir, gate.get("evidence"), f"{gate_label}.evidence", errors)
+        validate_existing_path_list(run_dir, gate.get("evidence"), f"{gate_label}.evidence", errors, snapshot=snapshot)
 
     for axis, facet in selected_pairs:
         if (axis, facet) not in seen:
@@ -3758,6 +3840,7 @@ def validate_verification_readiness(
     lane_by_id: dict[str, dict],
     normalized_status_by_id: dict[str, str],
     final_verdict: str | None,
+    snapshot=None,
 ) -> tuple[dict | None, list[str]]:
     errors: list[str] = []
     selected_pairs = selected_verification_gate_pairs(architecture_context_by_axis)
@@ -3774,7 +3857,7 @@ def validate_verification_readiness(
         errors.append("lane-map.json verification_readiness.artifact must be a non-empty string")
         return None, errors
     artifact_path = resolve_run_path(run_dir, artifact)
-    if not artifact_path.exists():
+    if not journal_exists(artifact_path, snapshot=snapshot):
         errors.append(f"{artifact} not found")
         return None, errors
 
@@ -3805,10 +3888,11 @@ def validate_verification_readiness(
                 for section in missing_markdown_headings(
                     handoff_path,
                     [VERIFICATION_GATE_RESULTS_SECTION],
+                    snapshot=snapshot,
                 ):
                     errors.append(f"lane-map.json: lane {lane_id} handoff missing section: {section}")
 
-    data, json_errors = load_json(artifact_path, artifact)
+    data, json_errors = load_json(artifact_path, artifact, snapshot=snapshot)
     errors.extend(json_errors)
     if not isinstance(data, dict):
         errors.append(f"{artifact} must be a JSON object")
@@ -3889,7 +3973,7 @@ def validate_verification_readiness(
         execution_status = execution.get("status")
         if execution_status not in VERIFICATION_APPROVAL_EXECUTION_STATUSES:
             errors.append(f"{label}.status invalid")
-        evidence = validate_existing_path_list(run_dir, execution.get("evidence"), f"{label}.evidence", errors)
+        evidence = validate_existing_path_list(run_dir, execution.get("evidence"), f"{label}.evidence", errors, snapshot=snapshot)
         if request_id and execution_status == "succeeded" and evidence:
             successful_execution_request_ids.add(request_id)
 
@@ -3919,6 +4003,7 @@ def validate_verification_readiness(
             selected_pairs,
             status_field="readiness",
             allowed_statuses=VERIFICATION_GATE_READINESS_STATUSES,
+            snapshot=snapshot,
         )
         errors.extend(gate_errors)
         blockers = attempt.get("blockers")
@@ -3973,11 +4058,11 @@ def validate_verification_readiness(
         if not any(request.get("status") == "declined" for request in request_by_id.values()):
             errors.append(f"{artifact} status paused-blocked requires a declined approval request")
         final_path = run_dir / "final.md"
-        if final_path.exists():
-            missing = missing_markdown_headings(final_path, [VERIFICATION_READINESS_SECTION])
+        if journal_exists(final_path, snapshot=snapshot):
+            missing = missing_markdown_headings(final_path, [VERIFICATION_READINESS_SECTION], snapshot=snapshot)
             for section in missing:
                 errors.append(f"final.md missing section: {section}")
-            final_text = markdown_section_text(final_path.read_text(encoding="utf-8"), VERIFICATION_READINESS_SECTION)
+            final_text = markdown_section_text(journal_read_text(final_path, encoding="utf-8", snapshot=snapshot), VERIFICATION_READINESS_SECTION)
             if "Готово" not in final_text:
                 errors.append("final.md Verification Readiness missing resume phrase: Готово")
             for blocker_id in blocked_ids:
@@ -3996,6 +4081,7 @@ def validate_qa_verification_results_shape(
     label: str,
     *,
     selected_pairs: list[tuple[str, str]],
+    snapshot=None,
 ) -> tuple[dict | None, list[str]]:
     results = lane.get("verification_results")
     if not isinstance(results, dict):
@@ -4011,6 +4097,7 @@ def validate_qa_verification_results_shape(
         selected_pairs,
         status_field="status",
         allowed_statuses=VERIFICATION_RESULT_STATUSES,
+        snapshot=snapshot,
     )
     errors.extend(gate_errors)
     if status == "pass":
@@ -4027,11 +4114,11 @@ def validate_qa_verification_results_shape(
     return results, errors
 
 
-def validate_selected_architecture_facets(path: Path, selected_facets: list[str]) -> list[str]:
-    if not path.exists() or not selected_facets:
+def validate_selected_architecture_facets(path: Path, selected_facets: list[str], *, snapshot=None) -> list[str]:
+    if not journal_exists(path, snapshot=snapshot) or not selected_facets:
         return []
     selected_architecture = markdown_section_text(
-        path.read_text(encoding="utf-8"),
+        journal_read_text(path, encoding="utf-8", snapshot=snapshot),
         "Selected Architecture",
     )
     return [
@@ -4044,11 +4131,11 @@ def validate_selected_architecture_facets(path: Path, selected_facets: list[str]
 def validate_selected_architecture_capabilities(
     path: Path,
     selected_capabilities: list[str],
-) -> list[str]:
-    if not path.exists() or not selected_capabilities:
+ *, snapshot=None) -> list[str]:
+    if not journal_exists(path, snapshot=snapshot) or not selected_capabilities:
         return []
     selected_architecture = markdown_section_text(
-        path.read_text(encoding="utf-8"),
+        journal_read_text(path, encoding="utf-8", snapshot=snapshot),
         "Selected Architecture",
     )
     return [
@@ -4062,10 +4149,10 @@ def missing_facets_in_markdown_sections(
     path: Path,
     headings: list[str],
     facets: list[str],
-) -> list[str]:
-    if not path.exists() or not facets:
+ *, snapshot=None) -> list[str]:
+    if not journal_exists(path, snapshot=snapshot) or not facets:
         return []
-    text = path.read_text(encoding="utf-8")
+    text = journal_read_text(path, encoding="utf-8", snapshot=snapshot)
     section_text = "\n".join(markdown_section_text(text, heading) for heading in headings)
     return [facet for facet in facets if not contains_facet_id(section_text, facet)]
 
@@ -4074,10 +4161,10 @@ def missing_capabilities_in_markdown_sections(
     path: Path,
     headings: list[str],
     capabilities: list[str],
-) -> list[str]:
-    if not path.exists() or not capabilities:
+ *, snapshot=None) -> list[str]:
+    if not journal_exists(path, snapshot=snapshot) or not capabilities:
         return []
-    text = path.read_text(encoding="utf-8")
+    text = journal_read_text(path, encoding="utf-8", snapshot=snapshot)
     section_text = "\n".join(markdown_section_text(text, heading) for heading in headings)
     return [
         capability
@@ -4086,8 +4173,8 @@ def missing_capabilities_in_markdown_sections(
     ]
 
 
-def parse_architecture_design_decision(path: Path) -> tuple[str | None, list[str]]:
-    text = path.read_text(encoding="utf-8")
+def parse_architecture_design_decision(path: Path, *, snapshot=None) -> tuple[str | None, list[str]]:
+    text = journal_read_text(path, encoding="utf-8", snapshot=snapshot)
     decision_text = markdown_section_text(text, ARCHITECTURE_DESIGN_DECISION_SECTION)
     status_lines = [
         line.strip()
@@ -4109,9 +4196,9 @@ def validate_architecture_design_brief(
     path: Path,
     selected_facets: list[str],
     selected_capabilities: list[str],
-) -> tuple[str | None, list[str]]:
+ *, snapshot=None) -> tuple[str | None, list[str]]:
     errors: list[str] = []
-    missing_sections = missing_markdown_headings(path, ARCHITECTURE_DESIGN_BRIEF_SECTIONS)
+    missing_sections = missing_markdown_headings(path, ARCHITECTURE_DESIGN_BRIEF_SECTIONS, snapshot=snapshot)
     errors.extend(
         f"architecture design brief missing section: {section}"
         for section in missing_sections
@@ -4124,6 +4211,7 @@ def validate_architecture_design_brief(
                 path,
                 [ARCHITECTURE_DESIGN_MATRIX_SECTION],
                 selected_facets,
+                snapshot=snapshot,
             )
         )
 
@@ -4134,29 +4222,30 @@ def validate_architecture_design_brief(
                 path,
                 [ARCHITECTURE_DESIGN_EXECUTION_PLAN_SECTION],
                 selected_capabilities,
+                snapshot=snapshot,
             )
         )
 
     decision_status: str | None = None
     if ARCHITECTURE_DESIGN_DECISION_SECTION not in missing_sections:
-        decision_status, decision_errors = parse_architecture_design_decision(path)
+        decision_status, decision_errors = parse_architecture_design_decision(path, snapshot=snapshot)
         errors.extend(decision_errors)
     return decision_status, errors
 
 
-def validate_architecture_contract_handoff(path: Path) -> list[str]:
-    if not path.exists():
+def validate_architecture_contract_handoff(path: Path, *, snapshot=None) -> list[str]:
+    if not journal_exists(path, snapshot=snapshot):
         return []
     return [
         f"architecture contract handoff missing section: {section}"
-        for section in missing_markdown_headings(path, ARCHITECTURE_CONTRACT_SECTIONS)
+        for section in missing_markdown_headings(path, ARCHITECTURE_CONTRACT_SECTIONS, snapshot=snapshot)
     ]
 
 
-def missing_markdown_headings(path: Path, headings: list[str]) -> list[str]:
-    if not path.exists():
+def missing_markdown_headings(path: Path, headings: list[str], *, snapshot=None) -> list[str]:
+    if not journal_exists(path, snapshot=snapshot):
         return []
-    text = path.read_text(encoding="utf-8")
+    text = journal_read_text(path, encoding="utf-8", snapshot=snapshot)
     return [heading for heading in headings if not has_markdown_heading(text, heading)]
 
 
@@ -4248,6 +4337,7 @@ def validate_scope_evidence_paths(
     *,
     prefix: str,
     required: bool,
+    snapshot=None,
 ) -> tuple[list[str], str, list[str]]:
     label = f"{prefix}.evidence"
     if not isinstance(value, list):
@@ -4266,10 +4356,10 @@ def validate_scope_evidence_paths(
             continue
         paths.append(item)
         path = resolve_run_path(run_dir, item)
-        if not path.exists():
+        if not journal_exists(path, snapshot=snapshot):
             errors.append(f"lane-map.json: {label}[{index}] not found: {item}")
             continue
-        text_parts.append(path.read_text(encoding="utf-8"))
+        text_parts.append(journal_read_text(path, encoding="utf-8", snapshot=snapshot))
     return paths, "\n".join(text_parts), errors
 
 
@@ -4320,8 +4410,8 @@ def validate_lane_boundary_artifact(
     artifact_path: Path,
     artifact_name: str,
     lane_id: str,
-) -> tuple[list[str], list[str]]:
-    data, load_errors = load_json(artifact_path, artifact_name)
+ *, snapshot=None) -> tuple[list[str], list[str]]:
+    data, load_errors = load_json(artifact_path, artifact_name, snapshot=snapshot)
     errors = list(load_errors)
     if load_errors:
         return [], errors
@@ -4347,6 +4437,20 @@ def validate_lane_boundary_artifact(
             errors.append(
                 f"lane-map.json: {artifact_name} {field} must be a non-empty string"
             )
+
+    workspace = registered_workspace(snapshot) if snapshot is not None else None
+    if workspace is not None:
+        try:
+            sealed = verify_candidate(workspace)
+            expected = {"workspace_id": workspace["workspace_id"], "candidate_id": sealed["candidate_id"],
+                        "baseline_digest": workspace["baseline_digest"], "candidate_digest": sealed["candidate_digest"],
+                        "changed_paths": sealed["changed_paths"], "tracked_changed_paths": [], "untracked_paths": []}
+            for key, value in expected.items():
+                if data.get(key) != value:
+                    errors.append(f"lane-map.json: {artifact_name} {key} must match the full registered workspace delta")
+            return sealed["changed_paths"], errors
+        except (JournalError, OSError) as exc:
+            return [], [*errors, f"lane-map.json: {artifact_name}: {exc}"]
 
     changed_paths, changed_errors = validate_repo_path_array(
         data.get("changed_paths"),
@@ -4385,6 +4489,7 @@ def validate_lane_boundary(
     *,
     required: bool,
     allow_pending: bool,
+    snapshot=None,
 ) -> tuple[str | None, list[str]]:
     raw_boundary = lane.get(LANE_BOUNDARY_FIELD)
     if raw_boundary is None:
@@ -4433,7 +4538,7 @@ def validate_lane_boundary(
                 "must be listed in lane evidence"
             )
         artifact_path = resolve_run_path(run_dir, changed_paths_artifact)
-        if not artifact_path.exists():
+        if not journal_exists(artifact_path, snapshot=snapshot):
             if strict_required:
                 errors.append(
                     f"lane-map.json: lane {label} "
@@ -4444,6 +4549,7 @@ def validate_lane_boundary(
                 artifact_path,
                 changed_paths_artifact,
                 label,
+                snapshot=snapshot,
             )
             errors.extend(artifact_errors)
             for changed_path in changed_paths:
@@ -4479,6 +4585,7 @@ def validate_engineering_simplicity_scope(
     *,
     required: bool,
     allow_pending: bool,
+    snapshot=None,
 ) -> tuple[list[str], list[str], set[str], list[str]]:
     raw_scope = data.get(ENGINEERING_SIMPLICITY_SCOPE_FIELD)
     if raw_scope is None:
@@ -4521,6 +4628,7 @@ def validate_engineering_simplicity_scope(
         evidence_value,
         prefix=ENGINEERING_SIMPLICITY_SCOPE_FIELD,
         required=strict_required,
+        snapshot=snapshot,
     )
     errors.extend(evidence_errors)
 
@@ -4542,6 +4650,7 @@ def validate_engineering_simplicity_scope_coverage(
     label: str,
     declared_primary_surfaces: set[str],
     declared_secondary_surfaces: set[str],
+    snapshot=None,
 ) -> tuple[list[str], list[str], list[str]]:
     prefix = (
         f"lane {label} "
@@ -4594,6 +4703,7 @@ def validate_engineering_simplicity_scope_coverage(
         raw_coverage.get("evidence"),
         prefix=prefix,
         required=True,
+        snapshot=snapshot,
     )
     errors.extend(evidence_errors)
     if evidence_text:
@@ -4870,9 +4980,10 @@ def validate_lane_map(
     resolution_records: list[dict] | None = None,
     *,
     allow_pending: bool = False,
+    snapshot=None,
 ) -> list[str]:
     lane_map_path = run_dir / "lane-map.json"
-    data, errors = load_json(lane_map_path, "lane-map.json")
+    data, errors = load_json(lane_map_path, "lane-map.json", snapshot=snapshot)
     if errors or data is None:
         return errors
 
@@ -4954,7 +5065,7 @@ def validate_lane_map(
         errors.append("lane-map.json field 'lanes' must be an array")
         return errors
 
-    final_verdict = read_single_field(run_dir / "final.md", "Verdict")
+    final_verdict = read_single_field(run_dir / "final.md", "Verdict", snapshot=snapshot)
     raw_worker_lane_count = sum(
         1
         for lane in lanes
@@ -4976,6 +5087,7 @@ def validate_lane_map(
         data,
         required=simplicity_scope_required,
         allow_pending=allow_pending,
+        snapshot=snapshot,
     )
     errors.extend(simplicity_scope_errors)
     simplicity_declared_primary_surfaces = set(simplicity_primary_surfaces)
@@ -5115,9 +5227,9 @@ def validate_lane_map(
         if critical is True and status in SUCCESSFUL_LANE_STATUSES:
             if not isinstance(handoff, str) or not handoff:
                 errors.append(f"lane-map.json: lane {label} successful critical lane requires handoff")
-            elif not resolve_run_path(run_dir, handoff).exists():
+            elif not journal_exists(resolve_run_path(run_dir, handoff), snapshot=snapshot):
                 errors.append(f"lane-map.json: lane {label} handoff not found: {handoff}")
-            evidence_paths = validate_lane_path_list(run_dir, evidence, label, "evidence", errors)
+            evidence_paths = validate_lane_path_list(run_dir, evidence, label, "evidence", errors, snapshot=snapshot)
             if not evidence_paths:
                 errors.append(f"lane-map.json: lane {label} successful critical lane requires evidence")
 
@@ -5133,6 +5245,7 @@ def validate_lane_map(
                     role,
                     lane_status=status,
                     handoff=handoff if isinstance(handoff, str) else None,
+                    snapshot=snapshot,
                 )
             )
 
@@ -5158,7 +5271,7 @@ def validate_lane_map(
                             )
                         else:
                             design_brief_path = resolve_run_path(run_dir, design_brief)
-                            if not design_brief_path.exists():
+                            if not journal_exists(design_brief_path, snapshot=snapshot):
                                 errors.append(
                                     f"lane-map.json: lane {label} "
                                     f"architecture_design_brief not found: {design_brief}"
@@ -5168,6 +5281,7 @@ def validate_lane_map(
                                     design_brief_path,
                                     architecture_context_facets,
                                     architecture_capabilities,
+                                    snapshot=snapshot,
                                 )
                                 for design_error in design_errors:
                                     errors.append(
@@ -5181,13 +5295,13 @@ def validate_lane_map(
                                         not_approved_architecture_design_lane_ids.append(lane_id)
                 if critical is True and isinstance(handoff, str) and handoff:
                     contract_path = resolve_run_path(run_dir, handoff)
-                    for contract_error in validate_architecture_contract_handoff(contract_path):
+                    for contract_error in validate_architecture_contract_handoff(contract_path, snapshot=snapshot):
                         errors.append(f"lane-map.json: lane {label} {contract_error}")
                     if architecture_contract_required:
                         if claim_evidence_candidate:
                             contract_claim_ids, contract_claim_errors = claim_evidence_ids_from_contract(
                                 contract_path
-                            )
+                            , snapshot=snapshot)
                             required_claim_ids.extend(contract_claim_ids)
                             for contract_claim_error in contract_claim_errors:
                                 claim_evidence_contract_errors.append(
@@ -5195,7 +5309,7 @@ def validate_lane_map(
                                 )
                         if acceptance_traceability_candidate:
                             contract_acceptance_ids, contract_acceptance_errors = (
-                                acceptance_criteria_ids_from_contract(contract_path)
+                                acceptance_criteria_ids_from_contract(contract_path, snapshot=snapshot)
                             )
                             required_acceptance_ids.extend(contract_acceptance_ids)
                             for contract_acceptance_error in contract_acceptance_errors:
@@ -5205,11 +5319,13 @@ def validate_lane_map(
                         for facet_error in validate_selected_architecture_facets(
                             contract_path,
                             architecture_context_facets,
+                            snapshot=snapshot,
                         ):
                             errors.append(f"lane-map.json: lane {label} {facet_error}")
                         for capability_error in validate_selected_architecture_capabilities(
                             contract_path,
                             architecture_capabilities,
+                            snapshot=snapshot,
                         ):
                             errors.append(f"lane-map.json: lane {label} {capability_error}")
         elif lane_type == "review" and status in SUCCESSFUL_LANE_STATUSES:
@@ -5243,6 +5359,7 @@ def validate_lane_map(
                     label,
                     required=lane_boundary_required,
                     allow_pending=allow_pending,
+                    snapshot=snapshot,
                 )
                 errors.extend(boundary_errors)
                 if boundary_artifact:
@@ -5267,10 +5384,11 @@ def validate_lane_map(
                     for section in missing_markdown_headings(
                         handoff_path,
                         expected_worker_sections,
+                        snapshot=snapshot,
                     ):
                         errors.append(f"lane-map.json: lane {label} handoff missing section: {section}")
-                    if lane_boundary_required and handoff_path.exists():
-                        handoff_text = handoff_path.read_text(encoding="utf-8")
+                    if lane_boundary_required and journal_exists(handoff_path, snapshot=snapshot):
+                        handoff_text = journal_read_text(handoff_path, encoding="utf-8", snapshot=snapshot)
                         boundary_text = markdown_section_text(
                             handoff_text,
                             LANE_BOUNDARY_SECTION,
@@ -5297,6 +5415,7 @@ def validate_lane_map(
                             handoff_path,
                             [ARCHITECTURE_COMPLIANCE_SECTION],
                             worker_matrix_facets,
+                            snapshot=snapshot,
                         ):
                             errors.append(
                                 f"lane-map.json: lane {label} "
@@ -5307,6 +5426,7 @@ def validate_lane_map(
                         handoff_path,
                         [ENGINEERING_SIMPLICITY_SECTION],
                         ENGINEERING_SIMPLICITY_REQUIRED_CHECKS,
+                        snapshot=snapshot,
                     ):
                         errors.append(
                             f"lane-map.json: lane {label} "
@@ -5330,6 +5450,7 @@ def validate_lane_map(
                                 label=label,
                                 declared_primary_surfaces=simplicity_declared_primary_surfaces,
                                 declared_secondary_surfaces=simplicity_declared_secondary_surfaces,
+                                snapshot=snapshot,
                             )
                             errors.extend(coverage_errors)
                             covered_primary_surfaces.update(worker_primary_surfaces)
@@ -5341,6 +5462,7 @@ def validate_lane_map(
                                 handoff_path,
                                 [ENGINEERING_SIMPLICITY_SECTION],
                                 covered_surfaces,
+                                snapshot=snapshot,
                             ):
                                 errors.append(
                                     f"lane-map.json: lane {label} "
@@ -5349,8 +5471,8 @@ def validate_lane_map(
                                 )
                         if isinstance(simplicity, dict) and simplicity.get("status") == "fixed":
                             handoff_text = (
-                                handoff_path.read_text(encoding="utf-8")
-                                if handoff_path.exists()
+                                journal_read_text(handoff_path, encoding="utf-8", snapshot=snapshot)
+                                if journal_exists(handoff_path, snapshot=snapshot)
                                 else ""
                             )
                             simplicity_text = markdown_section_text(
@@ -5404,6 +5526,7 @@ def validate_lane_map(
             normalized_status_by_id=normalized_status_by_id,
             handoff_state_required=handoff_state_required,
             final_verdict=final_verdict,
+            snapshot=snapshot,
         )
     )
 
@@ -5468,6 +5591,7 @@ def validate_lane_map(
                 final_verdict=final_verdict,
                 lane_by_id=lane_by_id,
                 normalized_status_by_id=normalized_status_by_id,
+                snapshot=snapshot,
             )
         )
     required_acceptance_ids = list(dict.fromkeys(required_acceptance_ids))
@@ -5483,6 +5607,7 @@ def validate_lane_map(
                 required_acceptance_ids=required_acceptance_ids,
                 required=acceptance_traceability_required,
                 final_verdict=final_verdict,
+                snapshot=snapshot,
             )
         )
 
@@ -5506,6 +5631,7 @@ def validate_lane_map(
         lane_by_id=lane_by_id,
         normalized_status_by_id=normalized_status_by_id,
         final_verdict=final_verdict,
+        snapshot=snapshot,
     )
     errors.extend(readiness_errors)
 
@@ -5534,6 +5660,7 @@ def validate_lane_map(
             normalized_status_by_id=normalized_status_by_id,
             successful_worker_lanes=successful_worker_lanes,
             verification_readiness_data=verification_readiness_data,
+            snapshot=snapshot,
         )
     )
     if not allow_pending:
@@ -5544,6 +5671,7 @@ def validate_lane_map(
             resolution_records=resolution_records,
             drifting_worker_lanes=drifting_worker_lanes,
             verification_readiness_data=verification_readiness_data,
+            snapshot=snapshot,
         )
         errors.extend(
             validate_harness_evaluation(
@@ -5555,12 +5683,13 @@ def validate_lane_map(
                 known_architecture_capability_ids=known_architecture_capability_ids,
                 successful_reviewer_lanes=successful_reviewer_lanes,
                 require_reviewer_review=True,
+                snapshot=snapshot,
             )
         )
 
     if architecture_contract_required:
         if final_verdict in POSITIVE_FINAL_VERDICTS:
-            errors.extend(validate_no_agent_placeholders(run_dir, lanes))
+            errors.extend(validate_no_agent_placeholders(run_dir, lanes, snapshot=snapshot))
 
         if not architecture_lane_ids:
             errors.append(
@@ -5656,10 +5785,11 @@ def validate_lane_map(
                     for section in missing_markdown_headings(
                         handoff_path,
                         [ARCHITECTURE_INVARIANTS_SECTION],
+                        snapshot=snapshot,
                     ):
                         errors.append(f"lane-map.json: lane {lane_id} handoff missing section: {section}")
-                    if boundary_worker_lane_ids and handoff_path.exists():
-                        handoff_text = handoff_path.read_text(encoding="utf-8")
+                    if boundary_worker_lane_ids and journal_exists(handoff_path, snapshot=snapshot):
+                        handoff_text = journal_read_text(handoff_path, encoding="utf-8", snapshot=snapshot)
                         invariants_text = markdown_section_text(
                             handoff_text,
                             ARCHITECTURE_INVARIANTS_SECTION,
@@ -5680,6 +5810,7 @@ def validate_lane_map(
                         for section in missing_markdown_headings(
                             handoff_path,
                             [ENGINEERING_SIMPLICITY_SCOPE_SECTION],
+                            snapshot=snapshot,
                         ):
                             errors.append(
                                 f"lane-map.json: lane {lane_id} handoff missing section: {section}"
@@ -5688,6 +5819,7 @@ def validate_lane_map(
                             handoff_path,
                             [ENGINEERING_SIMPLICITY_SCOPE_SECTION],
                             simplicity_primary_surfaces,
+                            snapshot=snapshot,
                         ):
                             errors.append(
                                 f"lane-map.json: lane {lane_id} "
@@ -5698,6 +5830,7 @@ def validate_lane_map(
                         handoff_path,
                         [ARCHITECTURE_INVARIANTS_SECTION],
                         qa_matrix_facets,
+                        snapshot=snapshot,
                     ):
                         errors.append(
                             f"lane-map.json: lane {lane_id} "
@@ -5721,6 +5854,7 @@ def validate_lane_map(
                     lane,
                     lane_id,
                     selected_pairs=selected_gate_pairs,
+                    snapshot=snapshot,
                 )
                 errors.extend(result_errors)
                 handoff = lane.get("handoff")
@@ -5734,6 +5868,7 @@ def validate_lane_map(
                     for section in missing_markdown_headings(
                         handoff_path,
                         [VERIFICATION_GATE_RESULTS_SECTION],
+                        snapshot=snapshot,
                     ):
                         errors.append(f"lane-map.json: lane {lane_id} handoff missing section: {section}")
                 if lane_status in SUCCESSFUL_LANE_STATUSES and (
@@ -5750,12 +5885,14 @@ def validate_lane_map(
                     for section in missing_markdown_headings(
                         handoff_path,
                         [ARCHITECTURE_MATRIX_MISMATCHES_SECTION, CONTRACT_DRIFT_SECTION],
+                        snapshot=snapshot,
                     ):
                         errors.append(f"lane-map.json: lane {lane_id} handoff missing section: {section}")
                     for facet in missing_facets_in_markdown_sections(
                         handoff_path,
                         [ARCHITECTURE_MATRIX_MISMATCHES_SECTION, CONTRACT_DRIFT_SECTION],
                         architecture_context_facets,
+                        snapshot=snapshot,
                     ):
                         errors.append(
                             f"lane-map.json: lane {lane_id} reviewer handoff "
@@ -5765,13 +5902,14 @@ def validate_lane_map(
                         handoff_path,
                         [ARCHITECTURE_MATRIX_MISMATCHES_SECTION, CONTRACT_DRIFT_SECTION],
                         architecture_capabilities,
+                        snapshot=snapshot,
                     ):
                         errors.append(
                             f"lane-map.json: lane {lane_id} reviewer handoff "
                             f"missing architecture capability: {capability}"
                         )
-                    if handoff_path.exists():
-                        handoff_text = handoff_path.read_text(encoding="utf-8")
+                    if journal_exists(handoff_path, snapshot=snapshot):
+                        handoff_text = journal_read_text(handoff_path, encoding="utf-8", snapshot=snapshot)
                         contract_drift_text = markdown_section_text(
                             handoff_text,
                             CONTRACT_DRIFT_SECTION,
@@ -5782,17 +5920,29 @@ def validate_lane_map(
                                 "missing Engineering Simplicity"
                             )
                         if boundary_worker_lane_ids:
-                            if not contains_facet_id(contract_drift_text, LANE_BOUNDARY_SECTION):
+                            boundary_text = markdown_section_text(handoff_text, LANE_BOUNDARY_SECTION)
+                            separate_boundary = bool(boundary_text)
+                            reviewed_boundary = boundary_text if separate_boundary else contract_drift_text
+                            if not separate_boundary and not contains_facet_id(contract_drift_text, LANE_BOUNDARY_SECTION):
                                 errors.append(
                                     f"lane-map.json: lane {lane_id} Contract Drift "
                                     "missing Boundary Evidence"
                                 )
                             for worker_lane_id in boundary_worker_lane_ids:
-                                if not contains_facet_id(contract_drift_text, worker_lane_id):
+                                if not contains_facet_id(reviewed_boundary, worker_lane_id):
                                     errors.append(
                                         f"lane-map.json: lane {lane_id} Contract Drift "
                                         "missing Boundary Evidence lane: "
                                         f"{worker_lane_id}"
+                                    )
+                                artifact = boundary_artifact_by_lane.get(worker_lane_id)
+                                if separate_boundary and artifact and not re.search(
+                                    rf"(?<![\w./\\-]){re.escape(artifact)}(?=$|[\s`),;]|\.(?=\s|$))",
+                                    boundary_text,
+                                ):
+                                    errors.append(
+                                        f"lane-map.json: lane {lane_id} Contract Drift "
+                                        f"missing Boundary Evidence artifact: {artifact}"
                                     )
                         for worker_lane_id in fixed_simplicity_worker_lane_ids:
                             if not contains_fixed_simplicity_lane(
@@ -5812,10 +5962,7 @@ def validate_lane_map(
                                         "missing Engineering Simplicity primary surface: "
                                         f"{surface}"
                                     )
-                            if not contains_facet_id(
-                                contract_drift_text,
-                                "peripheral-only closure",
-                            ):
+                            if not rejects_peripheral_only_closure(contract_drift_text):
                                 errors.append(
                                     f"lane-map.json: lane {lane_id} Contract Drift "
                                     "must reject peripheral-only closure"
@@ -5857,7 +6004,7 @@ def validate_lane_map(
                 )
             if simplicity_scope_required:
                 final_path = run_dir / "final.md"
-                final_text = final_path.read_text(encoding="utf-8") if final_path.exists() else ""
+                final_text = journal_read_text(final_path, encoding="utf-8", snapshot=snapshot) if journal_exists(final_path, snapshot=snapshot) else ""
                 if not has_markdown_heading(final_text, ENGINEERING_SIMPLICITY_SECTION):
                     errors.append(
                         "final.md missing section: Engineering Simplicity"
@@ -5875,7 +6022,7 @@ def validate_lane_map(
                             )
             if boundary_worker_lane_ids:
                 final_path = run_dir / "final.md"
-                final_text = final_path.read_text(encoding="utf-8") if final_path.exists() else ""
+                final_text = journal_read_text(final_path, encoding="utf-8", snapshot=snapshot) if journal_exists(final_path, snapshot=snapshot) else ""
                 if not has_markdown_heading(final_text, LANE_BOUNDARY_SECTION):
                     errors.append("final.md missing section: Boundary Evidence")
                 else:
@@ -5943,6 +6090,7 @@ def validate_lane_map(
                 resolution_records,
                 lane_by_id,
                 normalized_status_by_id,
+                snapshot=snapshot,
             )
         )
 
@@ -5965,10 +6113,11 @@ def validate_lane_map(
             for section in missing_markdown_headings(
                 handoff_path,
                 [RISK_MITIGATION_REVIEW_SECTION],
+                snapshot=snapshot,
             ):
                 errors.append(f"lane-map.json: lane {lane_id} handoff missing section: {section}")
             review_text = markdown_section_text(
-                handoff_path.read_text(encoding="utf-8") if handoff_path.exists() else "",
+                journal_read_text(handoff_path, encoding="utf-8", snapshot=snapshot) if journal_exists(handoff_path, snapshot=snapshot) else "",
                 RISK_MITIGATION_REVIEW_SECTION,
             )
             for risk_id_value in mitigation_risk_ids:
@@ -6016,10 +6165,11 @@ def validate_lane_map(
             for section in missing_markdown_headings(
                 handoff_path,
                 [RISK_RESOLUTION_VERIFICATION_SECTION],
+                snapshot=snapshot,
             ):
                 errors.append(f"lane-map.json: lane {lane_id} handoff missing section: {section}")
             verification_text = markdown_section_text(
-                handoff_path.read_text(encoding="utf-8") if handoff_path.exists() else "",
+                journal_read_text(handoff_path, encoding="utf-8", snapshot=snapshot) if journal_exists(handoff_path, snapshot=snapshot) else "",
                 RISK_RESOLUTION_VERIFICATION_SECTION,
             )
             for risk_id_value in resolution_risk_ids:
@@ -6043,10 +6193,11 @@ def validate_lane_map(
             for section in missing_markdown_headings(
                 handoff_path,
                 [RISK_RESOLUTION_REVIEW_SECTION],
+                snapshot=snapshot,
             ):
                 errors.append(f"lane-map.json: lane {lane_id} handoff missing section: {section}")
             review_text = markdown_section_text(
-                handoff_path.read_text(encoding="utf-8") if handoff_path.exists() else "",
+                journal_read_text(handoff_path, encoding="utf-8", snapshot=snapshot) if journal_exists(handoff_path, snapshot=snapshot) else "",
                 RISK_RESOLUTION_REVIEW_SECTION,
             )
             for risk_id_value in resolution_risk_ids:
@@ -6078,9 +6229,9 @@ def validate_lane_map(
     return errors
 
 
-def validate_verdict(path: Path) -> list[str]:
+def validate_verdict(path: Path, *, snapshot=None) -> list[str]:
     errors: list[str] = []
-    verdicts = read_fields(path, "Verdict")
+    verdicts = read_fields(path, "Verdict", snapshot=snapshot)
     if not verdicts:
         errors.append(f"{path.name}: missing Verdict field")
     elif len(verdicts) > 1:
@@ -6092,37 +6243,39 @@ def validate_verdict(path: Path) -> list[str]:
     return errors
 
 
-def validate_compact_run(run_dir: Path, allow_no_check: bool, allow_pending: bool, *, session_source=None) -> list[str]:
+def validate_compact_run(run_dir: Path, allow_no_check: bool, allow_pending: bool, *, session_source=None, snapshot=None) -> list[str]:
+    snapshot = snapshot or JournalSnapshot.open(run_dir)
     errors: list[str] = []
-    if read_single_field(run_dir / "final.md", "Verdict") in POSITIVE_FINAL_VERDICTS:
+    if read_single_field(run_dir / "final.md", "Verdict", snapshot=snapshot) in POSITIVE_FINAL_VERDICTS:
         allow_pending = False
-    errors.extend(validate_mandatory_independent_qa_review_gate(run_dir, session_source=session_source))
+    errors.extend(validate_mandatory_independent_qa_review_gate(run_dir, session_source=session_source, snapshot=snapshot))
 
     for name in COMPACT_REQUIRED_FILES:
         path = run_dir / name
-        if not path.exists():
+        if not journal_exists(path, snapshot=snapshot):
             errors.append(f"missing file: {name}")
             continue
-        if not path.is_file():
+        if not journal_is_file(path, snapshot=snapshot):
             errors.append(f"{name} exists but is not a file")
             continue
-        if is_empty_file(path) and not (name == "checks.md" and allow_no_check):
+        if is_empty_file(path, snapshot=snapshot) and not (name == "checks.md" and allow_no_check):
             errors.append(f"{name}: empty file")
 
     artifacts_dir = run_dir / "artifacts"
-    if artifacts_dir.exists() and not artifacts_dir.is_dir():
+    if journal_exists(artifacts_dir, snapshot=snapshot) and not journal_is_dir(artifacts_dir, snapshot=snapshot):
         errors.append("artifacts exists but is not a directory")
 
     final_path = run_dir / "final.md"
-    final_verdict = read_single_field(final_path, "Verdict") if not allow_pending else None
-    if not allow_pending and final_path.exists() and final_path.is_file():
-        errors.extend(validate_verdict(final_path))
-        mitigation_risks, mitigation_errors = validate_risk_mitigations(run_dir, final_verdict)
+    final_verdict = read_single_field(final_path, "Verdict", snapshot=snapshot) if not allow_pending else None
+    if not allow_pending and journal_exists(final_path, snapshot=snapshot) and journal_is_file(final_path, snapshot=snapshot):
+        errors.extend(validate_verdict(final_path, snapshot=snapshot))
+        mitigation_risks, mitigation_errors = validate_risk_mitigations(run_dir, final_verdict, snapshot=snapshot)
         errors.extend(mitigation_errors)
         resolution_records, resolution_errors = validate_risk_resolutions(
             run_dir,
             final_verdict,
             mitigation_risks,
+            snapshot=snapshot,
         )
         errors.extend(resolution_errors)
         if final_verdict == "pass-with-risks":
@@ -6130,12 +6283,14 @@ def validate_compact_run(run_dir: Path, allow_no_check: bool, allow_pending: boo
                 validate_final_risk_mitigation_coverage(
                     final_path,
                     risk_mitigation_ids(mitigation_risks),
+                    snapshot=snapshot,
                 )
             )
             errors.extend(
                 validate_final_risk_resolution_coverage(
                     final_path,
                     risk_resolution_ids(resolution_records),
+                    snapshot=snapshot,
                 )
             )
         elif final_verdict in {"blocked", "fail"} and resolution_records:
@@ -6143,20 +6298,21 @@ def validate_compact_run(run_dir: Path, allow_no_check: bool, allow_pending: boo
                 validate_final_risk_resolution_coverage(
                     final_path,
                     risk_resolution_ids(resolution_records),
+                    snapshot=snapshot,
                 )
             )
     else:
         mitigation_risks = []
         resolution_records = []
 
-    has_timeline = (run_dir / "timeline.jsonl").exists()
-    has_agents = (run_dir / "agents").exists()
+    has_timeline = journal_exists(run_dir / "timeline.jsonl", snapshot=snapshot)
+    has_agents = journal_exists(run_dir / "agents", snapshot=snapshot)
     if has_timeline or has_agents:
-        errors.extend(validate_jsonl(run_dir / "timeline.jsonl"))
-        errors.extend(validate_timeline_sequence(run_dir))
-        errors.extend(validate_agent_traces(run_dir))
+        errors.extend(validate_jsonl(run_dir / "timeline.jsonl", snapshot=snapshot))
+        errors.extend(validate_timeline_sequence(run_dir, snapshot=snapshot))
+        errors.extend(validate_agent_traces(run_dir, snapshot=snapshot))
         if not allow_pending:
-            errors.extend(validate_final_timeline_event(run_dir, require_timeline=True))
+            errors.extend(validate_final_timeline_event(run_dir, require_timeline=True, snapshot=snapshot))
 
     errors.extend(
         validate_lane_map(
@@ -6164,6 +6320,7 @@ def validate_compact_run(run_dir: Path, allow_no_check: bool, allow_pending: boo
             mitigation_risks,
             resolution_records,
             allow_pending=allow_pending,
+            snapshot=snapshot,
         )
     )
 
@@ -6177,36 +6334,39 @@ def validate_full_run(
     allow_pending: bool,
     *,
     session_source=None,
+    snapshot=None,
 ) -> list[str]:
+    snapshot = snapshot or JournalSnapshot.open(run_dir)
     errors: list[str] = []
-    if read_single_field(run_dir / "final.md", "Verdict") in POSITIVE_FINAL_VERDICTS:
+    if read_single_field(run_dir / "final.md", "Verdict", snapshot=snapshot) in POSITIVE_FINAL_VERDICTS:
         allow_pending = False
-    errors.extend(validate_mandatory_independent_qa_review_gate(run_dir, session_source=session_source))
+    errors.extend(validate_mandatory_independent_qa_review_gate(run_dir, session_source=session_source, snapshot=snapshot))
 
     for name in FULL_REQUIRED_FILES:
         path = run_dir / name
-        if not path.exists():
+        if not journal_exists(path, snapshot=snapshot):
             errors.append(f"missing file: {name}")
 
     for name in FULL_REQUIRED_DIRS:
         path = run_dir / name
-        if not path.is_dir():
+        if not journal_is_dir(path, snapshot=snapshot):
             errors.append(f"missing dir: {name}")
 
-    errors.extend(validate_artifacts_index(run_dir / "artifacts.json"))
+    errors.extend(validate_artifacts_index(run_dir / "artifacts.json", snapshot=snapshot))
 
-    errors.extend(validate_jsonl(run_dir / "timeline.jsonl"))
-    errors.extend(validate_timeline_sequence(run_dir))
-    errors.extend(validate_agent_traces(run_dir))
+    errors.extend(validate_jsonl(run_dir / "timeline.jsonl", snapshot=snapshot))
+    errors.extend(validate_timeline_sequence(run_dir, snapshot=snapshot))
+    errors.extend(validate_agent_traces(run_dir, snapshot=snapshot))
     if not allow_pending:
-        errors.extend(validate_final_timeline_event(run_dir, require_timeline=True))
-        final_verdict = read_single_field(run_dir / "final.md", "Verdict")
-        mitigation_risks, mitigation_errors = validate_risk_mitigations(run_dir, final_verdict)
+        errors.extend(validate_final_timeline_event(run_dir, require_timeline=True, snapshot=snapshot))
+        final_verdict = read_single_field(run_dir / "final.md", "Verdict", snapshot=snapshot)
+        mitigation_risks, mitigation_errors = validate_risk_mitigations(run_dir, final_verdict, snapshot=snapshot)
         errors.extend(mitigation_errors)
         resolution_records, resolution_errors = validate_risk_resolutions(
             run_dir,
             final_verdict,
             mitigation_risks,
+            snapshot=snapshot,
         )
         errors.extend(resolution_errors)
         if final_verdict == "pass-with-risks":
@@ -6214,12 +6374,14 @@ def validate_full_run(
                 validate_final_risk_mitigation_coverage(
                     run_dir / "final.md",
                     risk_mitigation_ids(mitigation_risks),
+                    snapshot=snapshot,
                 )
             )
             errors.extend(
                 validate_final_risk_resolution_coverage(
                     run_dir / "final.md",
                     risk_resolution_ids(resolution_records),
+                    snapshot=snapshot,
                 )
             )
         elif final_verdict in {"blocked", "fail"} and resolution_records:
@@ -6227,6 +6389,7 @@ def validate_full_run(
                 validate_final_risk_resolution_coverage(
                     run_dir / "final.md",
                     risk_resolution_ids(resolution_records),
+                    snapshot=snapshot,
                 )
             )
     else:
@@ -6239,52 +6402,56 @@ def validate_full_run(
             mitigation_risks,
             resolution_records,
             allow_pending=allow_pending,
+            snapshot=snapshot,
         )
     )
-    if not (run_dir / "lane-map.json").exists() and not allow_pending:
+    if not journal_exists(run_dir / "lane-map.json", snapshot=snapshot) and not allow_pending:
         learning_triggers = detect_harness_learning_triggers(
             run_dir,
-            final_verdict=read_single_field(run_dir / "final.md", "Verdict"),
+            final_verdict=read_single_field(run_dir / "final.md", "Verdict", snapshot=snapshot),
             architecture_contract_required=False,
             resolution_records=resolution_records,
             drifting_worker_lanes=[],
             verification_readiness_data=None,
+            snapshot=snapshot,
         )
         errors.extend(
             validate_harness_evaluation(
                 run_dir,
-                final_verdict=read_single_field(run_dir / "final.md", "Verdict"),
+                final_verdict=read_single_field(run_dir / "final.md", "Verdict", snapshot=snapshot),
                 learning_triggers=learning_triggers,
                 architecture_context_facets=[],
                 architecture_capabilities=[],
                 known_architecture_capability_ids=set(),
                 successful_reviewer_lanes=[],
                 require_reviewer_review=False,
+                snapshot=snapshot,
             )
         )
 
-    if require_handoff and not list((run_dir / "handoffs").glob("*.md")):
+    if require_handoff and not list(journal_glob(run_dir / "handoffs", "*.md", snapshot=snapshot)):
         errors.append("no handoff markdown files")
 
-    if not allow_no_check and not list((run_dir / "checks").glob("*.md")):
+    if not allow_no_check and not list(journal_glob(run_dir / "checks", "*.md", snapshot=snapshot)):
         errors.append("no check markdown files")
 
     if not allow_pending:
         for name in ["manifest.md", "final.md"]:
             path = run_dir / name
-            if not path.exists():
+            if not journal_exists(path, snapshot=snapshot):
                 continue
-            errors.extend(validate_verdict(path))
+            errors.extend(validate_verdict(path, snapshot=snapshot))
 
     return errors
 
 
 def validate_run(run_dir: Path, mode: str = "auto", *, require_handoff=False,
-                 allow_no_check=False, allow_pending=False, session_source=None) -> list[str]:
+                 allow_no_check=False, allow_pending=False, session_source=None, snapshot=None) -> list[str]:
     run_dir = Path(run_dir).resolve()
-    if detect_mode(run_dir, mode) == "compact":
-        return validate_compact_run(run_dir, allow_no_check, allow_pending, session_source=session_source)
-    return validate_full_run(run_dir, require_handoff, allow_no_check, allow_pending, session_source=session_source)
+    snapshot = snapshot or JournalSnapshot.open(run_dir)
+    if detect_mode(run_dir, mode, snapshot=snapshot) == "compact":
+        return validate_compact_run(run_dir, allow_no_check, allow_pending, session_source=session_source, snapshot=snapshot)
+    return validate_full_run(run_dir, require_handoff, allow_no_check, allow_pending, session_source=session_source, snapshot=snapshot)
 
 
 def main() -> int:
@@ -6301,16 +6468,17 @@ def main() -> int:
     if not run_dir.exists():
         raise SystemExit(f"run dir not found: {run_dir}")
 
-    mode = detect_mode(run_dir, args.mode)
+    snapshot = JournalSnapshot.open(run_dir)
+    mode = detect_mode(run_dir, args.mode, snapshot=snapshot)
     errors = validate_run(run_dir, mode, require_handoff=args.require_handoff,
-                          allow_no_check=args.allow_no_check, allow_pending=args.allow_pending)
+                          allow_no_check=args.allow_no_check, allow_pending=args.allow_pending, snapshot=snapshot)
 
     if errors:
         for error in errors:
             print(f"FAIL {error}")
         return 1
 
-    preliminary = args.allow_pending and read_single_field(run_dir / "final.md", "Verdict") not in FINAL_VERDICTS
+    preliminary = args.allow_pending and read_single_field(run_dir / "final.md", "Verdict", snapshot=snapshot) not in FINAL_VERDICTS
     print(f"{'PRELIMINARY (not final acceptance)' if preliminary else 'PASS'} {run_dir} ({mode})")
     return 0
 

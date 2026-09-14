@@ -14,6 +14,8 @@ tools: [Read, Write, Bash, Grep, Glob]
 
 ## Execution guidance
 
+Publish owned run artifacts from private capture files with `scripts/journal.py publish`; read published artifacts with `scripts/journal.py read`. Use the existing domain recorder for timeline, source completion, handoff state and boundary changes. Never edit published run files or exports directly. Technical retries use the saved operation ID; do not obtain a new model conclusion to recover a lost command response. See `references/traceable-runs.md` for the storage and legacy import contract.
+
 Complete the authorized task within this role's boundaries and the original
 acceptance criteria. Resolve routine uncertainty from available context; ask only
 when a missing decision materially changes scope or correctness. Distinguish
@@ -67,6 +69,7 @@ Return:
 - risks
 
 ## Hard Rules
+- For product changes, use the registered workspace: authors write only working_root; QA/reviewer inspect the same retained candidate_root and result_hash. Run writing checks on a disposable copy. Seal the complete tree before acceptance; delivery verifies the retained baseline and candidate. See references/traceable-runs.md.
 - Do not change environment assumptions silently.
 - Do not hide architecture drift or continue outside the approved architecture contract.
 - Do not add broad fallback paths.

@@ -4,14 +4,126 @@
 from __future__ import annotations
 
 import json
+import contextlib
+import importlib.util
+import io
+import os
 import subprocess
 import sys
 import tempfile
+import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
 CODEGRAPH = ROOT / "scripts" / "codegraph.py"
+
+
+class RepositoryTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location("codegraph_fixture", CODEGRAPH)
+        cls.codegraph = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = cls.codegraph
+        spec.loader.exec_module(cls.codegraph)
+
+    def test_no_git_does_not_create_or_change_storage(self):
+        with tempfile.TemporaryDirectory(prefix="codegraph-no-git-") as raw:
+            project = Path(raw)
+            nested = project / "src"
+            nested.mkdir()
+            for cwd in (project, nested):
+                for existing in (False, True):
+                    storage = cwd / ".agent-work/codegraph"
+                    if existing:
+                        storage.mkdir(parents=True)
+                        (storage / "config.json").write_bytes(b"existing config")
+                        (storage / "codegraph.sqlite").write_bytes(b"existing index")
+                    for command in ("index", "status", "doctor"):
+                        with self.subTest(cwd=cwd, existing=existing, command=command):
+                            result = run([sys.executable, "-B", str(CODEGRAPH), command], cwd=cwd, check=False)
+                            self.assertEqual(result.returncode, 1)
+                            self.assertEqual(result.stderr, "")
+                            self.assertFalse(json.loads(result.stdout)["ok"])
+                            if existing:
+                                self.assertEqual((storage / "config.json").read_bytes(), b"existing config")
+                                self.assertEqual((storage / "codegraph.sqlite").read_bytes(), b"existing index")
+                            else:
+                                self.assertFalse(storage.exists())
+
+    def test_missing_git_and_broken_repository_return_json(self):
+        with tempfile.TemporaryDirectory(prefix="codegraph-bad-git-") as raw:
+            project = Path(raw)
+            result = subprocess.run([sys.executable, "-B", str(CODEGRAPH), "index"], cwd=project,
+                                    env={**os.environ, "PATH": ""}, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 1)
+            self.assertFalse(json.loads(result.stdout)["ok"])
+            self.assertEqual(result.stderr, "")
+            for git_kind in ("directory", "file"):
+                if git_kind == "directory":
+                    (project / ".git").mkdir()
+                else:
+                    (project / ".git").rmdir()
+                    (project / ".git").write_text("gitdir: /does-not-exist/codegraph-fixture\n")
+                result = run([sys.executable, "-B", str(CODEGRAPH), "doctor"], cwd=project, check=False)
+                self.assertEqual(result.returncode, 1)
+                self.assertFalse(json.loads(result.stdout)["ok"])
+                self.assertEqual(result.stderr, "")
+                self.assertFalse((project / ".agent-work").exists())
+
+    def test_root_error_is_not_retried_in_exception_handler(self):
+        error = self.codegraph.CodeGraphError("fixture_root_error", "Cannot find root")
+        with patch.object(self.codegraph, "find_repo_root", side_effect=error) as resolve, \
+             contextlib.redirect_stdout(io.StringIO()) as output:
+            code = self.codegraph.main(["index"])
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(output.getvalue())["error"]["code"], "fixture_root_error")
+        resolve.assert_called_once()
+
+    def test_scan_reports_failure_of_either_git_command(self):
+        good = subprocess.CompletedProcess(["git"], 0, b"", b"")
+        bad = subprocess.CompletedProcess(["git"], 128, b"", b"fatal: index unreadable")
+        with tempfile.TemporaryDirectory(prefix="codegraph-scan-error-") as raw:
+            root = Path(raw)
+            (root / "src").mkdir()
+            (root / "src/example.py").write_text("def example(): return 1\n")
+            for results in ([bad], [good, bad]):
+                with self.subTest(command=len(results)), patch.object(self.codegraph, "run_git", side_effect=results):
+                    with self.assertRaises(self.codegraph.CodeGraphError) as raised:
+                        self.codegraph.scan_repo(root, self.codegraph.load_default_config())
+                self.assertIn("index unreadable", str(raised.exception.details))
+                self.assertFalse((root / ".agent-work").exists())
+
+    def test_doctor_error_preserves_check_details(self):
+        with tempfile.TemporaryDirectory(prefix="codegraph-doctor-error-") as raw:
+            root = Path(raw)
+            run(["git", "init"], cwd=root)
+            with patch.object(self.codegraph, "tree_sitter_parse", side_effect=RuntimeError("parser unavailable")):
+                args = self.codegraph.build_parser().parse_args(["doctor"])
+                code, payload = self.codegraph.handle(args, root)
+            self.assertEqual(code, 1)
+            self.assertFalse(payload["ok"])
+            checks = payload["error"]["details"]["checks"]
+            self.assertTrue(any(item.get("error") == "parser unavailable" for item in checks))
+
+    def test_worktree_and_subdirectory_use_project_index(self):
+        with tempfile.TemporaryDirectory(prefix="codegraph-worktree-") as raw:
+            repo = Path(raw) / "repo"
+            repo.mkdir()
+            build_fixture(repo)
+            worktree = Path(raw) / "worktree"
+            run(["git", "worktree", "add", "--detach", str(worktree), "HEAD"], cwd=repo)
+            self.assertTrue((worktree / ".git").is_file())
+            for project in (repo, worktree):
+                index = run_codegraph(project, "index")
+                status = run_codegraph(project / "src", "status")
+                context = run_codegraph(project / "src", "context", "--target", "web/math.ts")
+                self.assertEqual(index["meta"]["repo_root"], str(project.resolve()))
+                self.assertEqual(index["meta"]["index_path"], status["meta"]["index_path"])
+                self.assertEqual(index["data"]["files"], status["data"]["files"])
+                self.assertTrue(context["data"]["files_to_read"])
+                self.assertFalse((project / "src/.agent-work").exists())
 
 
 def run(
@@ -125,6 +237,9 @@ def assert_ok(payload: dict, command: str) -> None:
 
 
 def main() -> int:
+    result = unittest.TextTestRunner().run(unittest.defaultTestLoader.loadTestsFromTestCase(RepositoryTests))
+    if not result.wasSuccessful():
+        return 1
     with tempfile.TemporaryDirectory(prefix="agent-flow-codegraph-") as temp_dir:
         repo = Path(temp_dir) / "repo"
         repo.mkdir()

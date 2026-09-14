@@ -7,6 +7,8 @@ description: "Use only when the user explicitly invokes Agent Flow anywhere in t
 
 Document status: done
 
+Run-артефакты публикуются через `journal.py publish` и доменные recorder-команды, читаются через `journal.py read`. Файлы экспорта не являются источником журнала. Правила повторов, снимков и импорта: [Traceable Runs](references/traceable-runs.md#публикация-и-чтение-журнала).
+
 Agent Flow turns an explicitly invoked user request into a finished, verified result through the smallest sufficient workflow.
 
 ## No Preflight
@@ -63,6 +65,8 @@ Agent Flow-invoked work:
 ## Orchestrator Mandate
 
 Inside Agent Flow, the orchestrator owns the outcome:
+
+Для нового изменения сначала используйте `task-workspace.py prepare`, работайте в `working_root`, перед QA выполните `seal`, а после приёмки выдайте сохранённый `candidate_root` через `delivery`. Полные правила обхода и исторического повтора: `references/traceable-runs.md`.
 
 Для изменения файлов сначала выполните обязательную последовательность из
 `references/orchestrator.md`: штатный init и root UUID до делегирования,
@@ -288,6 +292,18 @@ Common internal flows:
 `initiative-flow` is the full-cycle path for a small idea that must become a complete result: discovery, PRD or scope, architecture, design if needed, plan, implementation, QA, review, docs, artifacts, final handoff.
 
 For implementation-plan authoring, read `references/implementation-plan-authoring.md`. The orchestrator must assess full scope, determine stack and affected technical areas, select and fully read the minimal relevant skills available to the main agent, apply those skills to impact/risk/check/stage analysis, justify the minimal stage count starting from one, keep tests inside implementation stages, avoid per-stage rollback, and finalize only after an independent Devil's Advocate review passes the current revision.
+
+Before development from new or materially revised requirements, acceptance
+criteria, or an implementation plan, assign `qa.requirements` to the existing
+`qa-verifier` using its Requirements Review Assignment. Pass the original request,
+approved constraints, full current source files and their revision, and the owners
+of product and technical decisions. Preserve the source text and specialist
+feedback without paraphrasing. Return material gaps to their owners and obtain QA
+readiness on the revised source before starting dependent implementation. Unchanged
+requirements with a valid readiness review need no duplicate assignment. This is a
+separate pre-development assignment, not a new role, public mode, or replacement
+for final independent QA and review. Use the existing handoff and review evidence;
+do not add a new artifact format or validator schema for this assignment.
 
 ## Trace Gate
 

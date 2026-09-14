@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from journal_io import JournalSnapshot, initialize_journal
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,6 +21,9 @@ def run(
     cwd: Path,
     check: bool = True,
 ) -> subprocess.CompletedProcess[str]:
+    if "--run-dir" in args:
+        run_dir = Path(args[args.index("--run-dir") + 1]).resolve()
+        initialize_journal(run_dir, {}, source_root=cwd.resolve(), result_contract_version=1)
     result = subprocess.run(
         args,
         cwd=cwd,
@@ -37,7 +41,7 @@ def run(
 
 def main() -> int:
     with tempfile.TemporaryDirectory(prefix="agent-flow-lane-boundary-") as temp_dir:
-        repo = Path(temp_dir) / "repo"
+        repo = Path(temp_dir).resolve() / "repo"
         repo.mkdir()
 
         run(["git", "init"], cwd=repo)
@@ -78,10 +82,10 @@ def main() -> int:
         artifact_path = run_dir / "checks/lane-boundary-worker-a.json"
         if str(artifact_path) not in result.stdout:
             raise AssertionError("recorder stdout must include output artifact path")
-        if not artifact_path.exists():
+        if not JournalSnapshot.open(run_dir).exists(artifact_path):
             raise AssertionError("recorder must write lane boundary artifact")
 
-        data = json.loads(artifact_path.read_text(encoding="utf-8"))
+        data = json.loads(JournalSnapshot.open(run_dir).read_text(artifact_path))
         expected_tracked = ["apps/api-service/src/routes/settings.ts"]
         expected_untracked = ["apps/shared/src/new.ts"]
         if data.get("version") != 1:
