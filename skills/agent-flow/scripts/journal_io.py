@@ -1,7 +1,8 @@
-"""Shared journal mechanics. No session trust or product verdict decisions."""
+"""Shared journal mechanics and source-checked completion writes."""
 from __future__ import annotations
 
 import json
+import base64
 import os
 import re
 import hashlib
@@ -14,7 +15,7 @@ import stat
 import fnmatch
 import fcntl
 from types import MappingProxyType
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -294,6 +295,8 @@ STORAGE_SCHEMA = {
 }
 
 
+ARCHIVE_SCHEMA = "CREATE TABLE archives (archive_id TEXT PRIMARY KEY, content BLOB NOT NULL, sha256 TEXT NOT NULL)"
+
 def storage_required(run_dir):
     marker = Path(run_dir) / ".journal/storage-required"
     require(not marker.is_symlink(), "storage-required marker must not be a symlink")
@@ -306,7 +309,7 @@ def storage_required(run_dir):
 
 def validate_storage_schema(connection):
     schema = dict(connection.execute("SELECT name, sql FROM sqlite_master WHERE type='table'"))
-    require(schema == STORAGE_SCHEMA, "journal schema unavailable or corrupt; flat fallback forbidden")
+    require(schema == STORAGE_SCHEMA or schema == {**STORAGE_SCHEMA, "archives": ARCHIVE_SCHEMA}, "journal schema unavailable or corrupt; flat fallback forbidden")
 
 
 def validate_bootstrap(connection):
@@ -431,13 +434,46 @@ class JournalSnapshot:
     identities: object
     durable: bool
     receipts: object = field(default_factory=lambda: MappingProxyType({}))
+    storage_version: int = 1
+    external_inputs: object = None
+    archives: object = field(default_factory=lambda: MappingProxyType({}))
+
+    @property
+    def generation(self):
+        return 1 + sum(event.get("stage") == "reopen" for event in self.timeline())
+
+    def timeline(self):
+        return [json.loads(line) for line in self.documents.get("timeline.jsonl", b"").splitlines() if line.strip()]
+
+    def current_events(self):
+        events = self.timeline()
+        start = max((i + 1 for i, e in enumerate(events) if e.get("stage") == "reopen"), default=0)
+        return events[start:]
+
+    @property
+    def closed(self):
+        return any(event.get("stage") == "final" for event in self.current_events())
+
+    def archive(self, archive_id):
+        require(archive_id in self.archives, "unknown archive: " + archive_id)
+        data = json.loads(self.archives[archive_id])
+        documents = {p: base64.b64decode(raw, validate=True) if raw is not None else None
+                     for p, raw in data["documents"].items()}
+        validate_document_tree(documents)
+        require(data.get("manifest") == {p: digest(raw) if raw is not None else None for p, raw in documents.items()},
+                "archive document manifest mismatch")
+        return JournalSnapshot(self.artifact_root, Path(data["source_root"]), Path(data["logical_root"]),
+                               data["run_uuid"], data["revision"], MappingProxyType(documents),
+                               MappingProxyType({k: tuple(v) for k, v in data["identities"].items()}), True,
+                               MappingProxyType({k: base64.b64decode(v, validate=True) for k, v in data["receipts"].items()}),
+                               data["storage_version"])
 
     @classmethod
     def from_connection(cls, run_dir, connection):
         row = connection.execute("SELECT version, run_uuid, revision, logical_root, source_root, identities FROM run_state WHERE id=1").fetchone()
         if row is None:
             return None
-        require(row[0] == 1, "unsupported journal storage version")
+        require(row[0] in {1, 2}, "unsupported journal storage version")
         require(connection.execute("SELECT revision FROM operations WHERE operation_id='initialize'").fetchone() == (1,),
                 "committed journal initialization receipt missing; flat fallback forbidden")
         require(isinstance(row[1], str) and bool(row[1]) and isinstance(row[2], int) and row[2] >= 1
@@ -458,9 +494,41 @@ class JournalSnapshot:
             for name, identity in identities.items()), "corrupt imported journal identities")
         receipts = {name: encode_json({"payload_sha256": payload, "revision": revision, "result": json.loads(result)}).encode()
                     for name, payload, revision, result in connection.execute("SELECT operation_id, payload_sha256, revision, result FROM operations")}
-        return cls(Path(run_dir), Path(row[4]), Path(row[3]), row[1], row[2],
+        archives = {}
+        if connection.execute("SELECT 1 FROM sqlite_master WHERE name='archives'").fetchone():
+            for key, content, sha in connection.execute("SELECT archive_id, content, sha256 FROM archives"):
+                require(isinstance(content, bytes) and digest(content) == sha, "corrupt journal archive: " + key)
+                archives[key] = content
+        snapshot = cls(Path(run_dir), Path(row[4]), Path(row[3]), row[1], row[2],
                    MappingProxyType(documents), MappingProxyType({k: tuple(v) for k, v in identities.items()}), True,
-                   MappingProxyType(receipts))
+                   MappingProxyType(receipts), row[0], archives=MappingProxyType(archives))
+        require(row[0] == 2 or not archives, "version 1 cannot contain lifecycle archives")
+        linked = set()
+        try:
+            events = snapshot.timeline()
+        except (json.JSONDecodeError, UnicodeError):
+            require(not archives, "archive timeline is unreadable")
+            events = []  # Ordinary malformed reports remain readable for the full validator's diagnostics.
+        for index, event in enumerate(events):
+            if not isinstance(event, dict):
+                require(not archives, "archive timeline event is malformed")
+                continue
+            if event.get("stage") not in {"reopen", "upgrade"}:
+                continue
+            key = event.get("archive_id")
+            require(key in archives and key not in linked, "lifecycle archive link missing or repeated")
+            linked.add(key)
+            archived = snapshot.archive(key)
+            require(archived.run_uuid == snapshot.run_uuid and archived.revision < snapshot.revision,
+                    "archive identity/revision mismatch")
+            prefix = archived.documents.get("timeline.jsonl", b"")
+            require(documents.get("timeline.jsonl", b"").startswith(prefix) and
+                    len(archived.timeline()) == index, "archive timeline prefix mismatch")
+            require(event.get("archive_sha256") == digest(archives[key]), "archive event hash mismatch")
+            require(event.get("generation") == archived.generation + (event["stage"] == "reopen"),
+                    "archive generation mismatch")
+        require(linked == set(archives), "unlinked journal archive")
+        return snapshot
 
     def operation_receipt(self, identifier):
         raw = self.receipts.get(identifier)
@@ -575,7 +643,7 @@ def validate_document_tree(documents):
 
 
 def initialize_journal(run_dir, documents, *, source_root, logical_root=None, run_uuid=None, identities=None, import_guard=None,
-                       result_contract_version=2):
+                       result_contract_version=2, storage_version=2):
     run_dir = Path(run_dir).absolute()
     durable_mkdir(run_dir / ".journal")
     database = run_dir / ".journal/state.sqlite3"
@@ -619,11 +687,19 @@ def initialize_journal(run_dir, documents, *, source_root, logical_root=None, ru
         existing = JournalSnapshot.from_connection(run_dir, connection)
         if existing is None:
             validate_bootstrap(connection)
+            if storage_version == 2:
+                raw_timeline = documents.get("timeline.jsonl", b"")
+                if isinstance(raw_timeline, str):
+                    raw_timeline = raw_timeline.encode()
+                require(not any(json.loads(line).get("stage") in {"final", "reopen", "upgrade"}
+                                for line in raw_timeline.splitlines() if line.strip()),
+                        "new journal must start open; final requires journal finalize")
             _put_documents(connection, documents)
             validate_document_tree({name: data if kind == "file" else None for name, kind, data in
                                     connection.execute("SELECT path, kind, content FROM documents")})
-            connection.execute("INSERT INTO run_state VALUES (1, 1, ?, 1, ?, ?, ?)",
-                               (run_uuid or str(uuid.uuid4()), str(logical_root or run_dir), str(source_root), encode_json(identities or {})))
+            require(storage_version in {1, 2}, "unsupported journal storage version")
+            connection.execute("INSERT INTO run_state VALUES (1, ?, ?, 1, ?, ?, ?)",
+                               (storage_version, run_uuid or str(uuid.uuid4()), str(logical_root or run_dir), str(source_root), encode_json(identities or {})))
             connection.execute("INSERT INTO operations VALUES ('initialize', ?, 1, ?)",
                                (digest(encode_json({k: digest(v) if v is not None else None for k, v in documents.items()}).encode()),
                                 encode_json({"revision": 1, "result_contract_version": result_contract_version})))
@@ -719,7 +795,7 @@ def import_legacy(run_dir, *, source_root=None):
         require(capture_external_references(Path(run_dir), current, origin) == documents,
                 "legacy source references changed before import commit")
     return initialize_journal(run_dir, documents, source_root=origin, logical_root=snapshot.logical_root,
-                              identities=identities, import_guard=import_guard, result_contract_version=1)
+                              identities=identities, import_guard=import_guard, result_contract_version=1, storage_version=1)
 
 
 def operation_id(run_dir, command, payload, *, identifier=None):
@@ -746,8 +822,112 @@ def operation_id(run_dir, command, payload, *, identifier=None):
 
 
 def transact(run_dir, identifier, payload, mutation, *, replay_guard=None, timeout=2.0):
+    return _transact(run_dir, identifier, payload, mutation, replay_guard=replay_guard, timeout=timeout)
+
+
+def _transact_completion(run_dir, identifier, payload, mutation, *, source, lane_id,
+                         external_inputs, replay_guard):
+    from verification_evidence import CapturedSource
+    require(isinstance(source, CapturedSource) and source.frozen,
+            "completion transaction requires captured and frozen source")
+    return _transact(run_dir, identifier, payload, mutation, replay_guard=replay_guard,
+                     completion=(lane_id, source, external_inputs))
+
+
+def _validate_completion_update(snapshot, documents, old_summary, next_summary, record, updated, context):
+    from verification_evidence import accepted_record, completion_follows
+    lane_id, source, inputs = context
+    require(record.get("lane_id") == lane_id and record.get("role") in {"qa-verifier", "reviewer", "reviewer.qa"},
+            "completion repair requires the current QA/reviewer assignment")
+    require(snapshot.storage_version == 2 and not snapshot.closed and not record.get("legacy"),
+            "completion repair requires an open native v2 assignment")
+    require(record.get("status") in {"pass", "pass-with-risks"}
+            and record.get("obligation", {}).get("state") == "current",
+            "completion repair requires a current successful spawned assignment")
+    completion_fields = {"completion_turn_id", "handoff", "handoff_sha256", "reviewed_result_hash",
+                         "evidence", "session_meta_event", "task_started_event", "task_complete_event",
+                         "qa_handoff_sha256", "root_thread_id"}
+    require(not any(record.get(k) for k in ("completion_turn_id", "handoff", "handoff_sha256", "task_complete_event", "evidence", "qa_handoff_sha256")),
+            "completed assignment is immutable")
+    require({k: v for k, v in record.items() if k not in completion_fields} ==
+            {k: v for k, v in updated.items() if k not in completion_fields},
+            "completion repair may only add completion fields")
+    for key in ("reviewed_result_hash", "root_thread_id", "session_meta_event"):
+        require(key not in record or record[key] == updated.get(key), "completion repair changed " + key)
+    expected_summary = json.loads(encode_json(old_summary))
+    expected_summary["subagents"][expected_summary["subagents"].index(record)] = updated
+    verification = expected_summary["verification"]
+    selected = "qa" if record["role"] == "qa-verifier" else "reviewer"
+    verification[selected] = lane_id
+    if selected == "qa":
+        verification["reviewer"] = None
+    require(next_summary == expected_summary, "completion repair changed unrelated summary fields or result")
+    require(updated.get("root_thread_id", verification.get("root_thread_id")) == verification.get("root_thread_id"),
+            "completion repair root identity mismatch")
+    trace = record.get("trace")
+    require(trace == f"agents/{safe_path_segment(record['role'])}/trace.jsonl", "completion repair trace identity mismatch")
+    require(any(e.get("lane_id") == lane_id and e.get("stage") == "spawned" for e in snapshot.current_events()),
+            "completion repair requires a spawn in the current generation")
+    histories, additions = [], []
+    for path in ("timeline.jsonl", trace):
+        old = snapshot.read_bytes(path)
+        new = documents.get(path, old)
+        require(new.startswith(old), "completion repair must preserve history")
+        history = [json.loads(line) for line in old.splitlines() if line.strip()
+                   and json.loads(line).get("lane_id") == lane_id]
+        require(history and sum(e.get("stage") == "spawned" for e in history) == 1,
+                "completion repair requires one observed spawn in both histories")
+        for event in history:
+            require(event.get("stage") not in {"handoff", "blocked", "fail", "completion"}
+                    and not any(event.get(k) for k in ("completion_turn_id", "handoff", "task_complete_event")),
+                    "completed assignment history is immutable")
+            require(all(event.get(k) == record.get(k) for k in ("lane_id", "role", "codex_thread_id"))
+                    and event.get("execution_mode") == "subagent", "completion repair history identity mismatch")
+            if event.get("stage") == "spawned":
+                require(event.get("status") == record["status"], "completion repair spawn status mismatch")
+        histories.append(history)
+        appended = [json.loads(line) for line in new[len(old):].splitlines() if line.strip()]
+        require(len(appended) == 1, "completion repair requires one handoff in both histories")
+        additions.append(appended[0])
+    require(histories[0] == histories[1] and additions[0] == additions[1], "completion repair histories disagree")
+    event = additions[0]
+    require(event.get("stage") == "handoff" and event.get("execution_mode") == "subagent",
+            "completion repair requires a subagent handoff")
+    for key in ("lane_id", "role", "codex_thread_id", "status", "completion_turn_id", "handoff", "handoff_sha256",
+                "reviewed_result_hash", "session_meta_event", "task_started_event", "task_complete_event"):
+        require(event.get(key) == updated.get(key), "completion repair event mismatch: " + key)
+    allowed = {"delegation-summary.json", "timeline.jsonl", trace, "artifacts.json", f"artifacts/agents/{safe_path_segment(record['role'])}"}
+    require(set(documents) <= allowed, "completion repair cannot publish other documents")
+    prepared = replace(snapshot, external_inputs=inputs)
+    qa = next((r for r in next_summary["subagents"] if r.get("lane_id") == verification.get("qa")), {})
+    role = "qa-verifier" if selected == "qa" else "reviewer"
+    completion = accepted_record(snapshot.artifact_root, updated, verification, role, source,
+                                 qa_handoff=qa.get("handoff") if selected == "reviewer" else None, snapshot=prepared)
+    for key in ("session_meta_event", "task_started_event", "task_complete_event"):
+        require(updated.get(key) == completion[key], "completion repair source pointer mismatch: " + key)
+    if selected == "reviewer":
+        qa_completion = accepted_record(snapshot.artifact_root, qa, verification, "qa-verifier", source, snapshot=prepared)
+        require(updated.get("qa_handoff_sha256") == qa.get("handoff_sha256") == completion["answer"].get("qa_handoff_sha256"),
+                "completion repair reviewer QA hash mismatch")
+        require(completion_follows(completion, qa_completion), "reviewer acceptance must follow QA completion")
+
+
+def capture_archive(snapshot):
+    data = {"run_uuid": snapshot.run_uuid, "revision": snapshot.revision,
+            "storage_version": snapshot.storage_version, "logical_root": str(snapshot.logical_root),
+            "manifest": {p: digest(raw) if raw is not None else None for p, raw in snapshot.documents.items()},
+            "source_root": str(snapshot.source_root), "identities": dict(snapshot.identities),
+            "documents": {p: base64.b64encode(raw).decode() if raw is not None else None
+                          for p, raw in snapshot.documents.items()},
+            "receipts": {k: base64.b64encode(v).decode() for k, v in snapshot.receipts.items()}}
+    return "revision-" + str(snapshot.revision), encode_json(data).encode()
+
+
+def _transact(run_dir, identifier, payload, mutation, *, replay_guard=None, timeout=2.0, lifecycle=None, completion=None):
     """Read, guard and mutate under one write lock. Callback performs no external work."""
-    require(JournalSnapshot.open(run_dir).durable, "legacy run requires init-run --reuse before writing")
+    initial_snapshot = JournalSnapshot.open(run_dir)
+    require(initial_snapshot.durable, "legacy run requires explicit import before writing")
+    from journal_recovery import canonical_identity
     payload_sha = digest(encode_json(payload).encode())
     connection = connect_database(run_dir, timeout=timeout)
     committed = False
@@ -761,7 +941,84 @@ def transact(run_dir, identifier, payload, mutation, *, replay_guard=None, timeo
                 replay_guard(snapshot)
             connection.rollback()
             return json.loads(receipt[1])
+        require(snapshot.storage_version == 2 or lifecycle in {"upgrade", "reopen-upgrade"}, "journal storage version 1 is read-only; explicit upgrade required")
+        require(not snapshot.closed or lifecycle in {"delivery", "reopen", "reopen-upgrade"}, "journal generation is closed")
         documents, result = mutation(snapshot)
+        if lifecycle in {"upgrade", "reopen", "reopen-upgrade"}:
+            archive_id, archive_bytes = capture_archive(snapshot)
+            if not connection.execute("SELECT 1 FROM sqlite_master WHERE name='archives'").fetchone():
+                connection.execute(ARCHIVE_SCHEMA)
+            connection.execute("INSERT INTO archives VALUES (?, ?, ?)", (archive_id, archive_bytes, digest(archive_bytes)))
+            connection.execute("UPDATE run_state SET version=2 WHERE id=1")
+        documents = {name: data.encode() if isinstance(data, str) else data for name, data in documents.items()}
+        for name, data in documents.items():
+            old = snapshot.documents.get(name)
+            if name == "timeline.jsonl" or name.startswith("agents/") and name.endswith("/trace.jsonl"):
+                old = old or b""
+                require(data is not None and data.startswith(old), "journal history must remain a byte prefix: " + name)
+                for line in data[len(old):].splitlines():
+                    if line.strip():
+                        validate_assignment_event(json.loads(line))
+                if name == "timeline.jsonl":
+                    terminal = {event.get("lane_id") for line in old.splitlines() if line.strip()
+                                for event in [json.loads(line)] if event.get("lane_id")
+                                and event.get("stage") in {"handoff", "blocked", "fail"}
+                                and event.get("status") in {"pass", "pass-with-risks", "blocked", "fail"}}
+                    for line in data[len(old):].splitlines():
+                        if line.strip():
+                            event = json.loads(line)
+                            require(event.get("lane_id") not in terminal,
+                                    "terminal assignment history is immutable; use a new lane")
+        if "artifacts/lifecycle/legacy-classification.json" in documents:
+            require(lifecycle == "classify" and not snapshot.exists("artifacts/lifecycle/legacy-classification.json"),
+                    "legacy classification is immutable and requires its domain command")
+        if snapshot.archives:
+            first = min((snapshot.archive(k) for k in snapshot.archives), key=lambda item: item.revision)
+            future = JournalSnapshot(snapshot.artifact_root, snapshot.source_root, snapshot.logical_root,
+                snapshot.run_uuid, snapshot.revision, {**snapshot.documents, **documents}, snapshot.identities,
+                True, snapshot.receipts, snapshot.storage_version)
+            require(canonical_identity(future) == canonical_identity(first), "recovered root/workspace/scope/result identity is immutable")
+        if snapshot.exists("delegation-summary.json"):
+            old_summary = json.loads(snapshot.read_bytes("delegation-summary.json"))
+            next_summary = json.loads(documents.get("delegation-summary.json", snapshot.read_bytes("delegation-summary.json")))
+            for kind in ("subagents", "role_lanes"):
+                after = {r.get("lane_id"): r for r in next_summary.get(kind, [])}
+                for record in old_summary.get(kind, []):
+                    require(record.get("lane_id") in after, "assignment history cannot be removed")
+                    old_legacy = record.get("legacy")
+                    new_legacy = after[record["lane_id"]].get("legacy")
+                    require(old_legacy == new_legacy or old_legacy is None and lifecycle == "classify",
+                            "legacy facts require immutable domain classification")
+                    obligation = record.get("obligation")
+                    if isinstance(obligation, dict):
+                        updated_obligation = after[record["lane_id"]].get("obligation", {})
+                        require(isinstance(updated_obligation, dict) and
+                                all(updated_obligation.get(key) == obligation.get(key) for key in ("id", "required")),
+                                "obligation identity and required flag are immutable")
+                    if old_legacy or record.get("status") in {"pass", "pass-with-risks", "fail", "blocked"}:
+                        updated = after[record["lane_id"]]
+                        if completion is not None and kind == "subagents" and record.get("lane_id") == completion[0] and updated != record:
+                            _validate_completion_update(snapshot, documents, old_summary, next_summary, record, updated, completion)
+                            continue
+                        require({k: v for k, v in updated.items() if k not in ({"obligation", "legacy"} if lifecycle == "classify" else {"obligation"})} ==
+                                {k: v for k, v in record.items() if k not in ({"obligation", "legacy"} if lifecycle == "classify" else {"obligation"})},
+                                "terminal assignment is immutable; use a new lane")
+                        handoff = (old_legacy.get("classification", {}).get("handoff", {}).get("path") if old_legacy else None) or record.get("handoff")
+                        if handoff in documents and snapshot.exists(handoff):
+                            require(documents[handoff] == snapshot.read_bytes(handoff), "terminal handoff is immutable")
+        if lifecycle is None and "timeline.jsonl" in documents:
+            timeline = documents["timeline.jsonl"]
+            if isinstance(timeline, str):
+                timeline = timeline.encode()
+            require(not any(json.loads(line).get("stage") in {"final", "reopen", "upgrade"}
+                            for line in timeline[len(snapshot.documents.get("timeline.jsonl", b"")):].splitlines() if line.strip()),
+                    "final requires journal finalize; reopen requires explicit lifecycle command")
+        if lifecycle == "delivery":
+            require(snapshot.closed, "delivery requires closed generation")
+            from task_workspace import registered_workspace
+            workspace = registered_workspace(snapshot, require_sealed=True)
+            expected = f"artifacts/workspaces/{workspace['workspace_id']}/delivery/{workspace['seal']['candidate_id']}.json"
+            require(set(documents) == {expected}, "delivery may only publish its own artifact")
         _put_documents(connection, documents)
         validate_document_tree({name: data if kind == "file" else None for name, kind, data in
                                 connection.execute("SELECT path, kind, content FROM documents")})
@@ -769,6 +1026,10 @@ def transact(run_dir, identifier, payload, mutation, *, replay_guard=None, timeo
         result = {**result, "revision": revision}
         connection.execute("UPDATE run_state SET revision=? WHERE id=1", (revision,))
         connection.execute("INSERT INTO operations VALUES (?, ?, ?, ?)", (identifier, payload_sha, revision, encode_json(result)))
+        committed_snapshot = JournalSnapshot.from_connection(run_dir, connection)
+        if snapshot.archives:
+            require(canonical_identity(committed_snapshot) == canonical_identity(first),
+                    "recovered root/workspace/scope/result identity is immutable")
         try:
             connection.commit()
             committed = True
@@ -980,15 +1241,27 @@ def validate_event(event):
         require(bool(event.get("codex_thread_id")), "spawned subagent requires codex_thread_id")
 
 
+def validate_assignment_event(event):
+    """Validate new assignment commands only; historical facts remain readable."""
+    allowed = {"spawned": {"active"}, "handoff": {"pass", "pass-with-risks"},
+               "blocked": {"blocked"}, "fail": {"fail"}}
+    statuses = allowed.get(event.get("stage"))
+    if event.get("lane_id") and statuses is not None:
+        require(event.get("status") in statuses,
+                f"stage {event['stage']} requires status: {', '.join(sorted(statuses))}")
+
+
 def validate_append(path, event, *, snapshot=None):
+    validate_assignment_event(event)
     validate_event(event)
     events = [json.loads(line) for line in journal_read_text(path, snapshot=snapshot).splitlines() if line.strip()] if journal_exists(path, snapshot=snapshot) else []
-    require(not any(e.get("stage") == "final" for e in events), "timeline already has final event")
+    require(not (snapshot.closed if snapshot is not None else any(e.get("stage") == "final" for e in events)), "timeline already has final event")
     if events:
         require(timestamp(event["timestamp"]) >= timestamp(events[-1].get("timestamp")), "timestamp must be non-decreasing")
 
 
 def append_event(path, event, *, identifier=None, assign_timestamp=False):
+    validate_assignment_event(event)
     run_dir = path.parent
     payload = {k: v for k, v in event.items() if not (assign_timestamp and k == "timestamp")}
     identifier = operation_id(run_dir, "append", payload, identifier=identifier)

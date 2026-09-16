@@ -38,9 +38,10 @@ MARKDOWN_HEADING_PATTERN = re.compile(r"^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$")
 MATRIX_FACET_PATTERN = re.compile(r"^\s*-\s+`([^`]+)`\s*:")
 
 
-def load_json_object(path: Path, display_name: str) -> tuple[dict[str, Any] | None, list[str]]:
+def load_json_object(path: Path, display_name: str, *, inputs=None) -> tuple[dict[str, Any] | None, list[str]]:
     try:
-        data = json.loads(path.read_text(encoding="utf-8") or "null")
+        from validation_inputs import read_input
+        data = json.loads(read_input(path, inputs).decode("utf-8") or "null")
     except FileNotFoundError:
         return None, [f"{display_name} not found: {path}"]
     except json.JSONDecodeError as exc:
@@ -50,14 +51,17 @@ def load_json_object(path: Path, display_name: str) -> tuple[dict[str, Any] | No
     return data, []
 
 
-def load_matrix_facets(path: Path = ARCHITECTURE_MATRIX_PATH) -> tuple[dict[str, set[str]], list[str]]:
+def load_matrix_facets(path: Path = ARCHITECTURE_MATRIX_PATH, *, inputs=None) -> tuple[dict[str, set[str]], list[str]]:
     facets = {axis: set() for axis in ARCHITECTURE_CONTEXT_AXES}
-    if not path.exists():
+    from validation_inputs import read_input
+    try:
+        text = read_input(path, inputs).decode("utf-8")
+    except FileNotFoundError:
         return facets, [f"Architecture Matrix not found: {path}"]
 
     heading_to_axis = {heading: axis for axis, heading in ARCHITECTURE_CONTEXT_AXES.items()}
     current_axis: str | None = None
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in text.splitlines():
         heading_match = MARKDOWN_HEADING_PATTERN.match(line)
         if heading_match:
             level = len(heading_match.group(1))
@@ -119,15 +123,16 @@ def validate_architecture_capability_registry(
     agent_skills_path: Path = AGENT_SKILLS_REGISTRY_PATH,
     validate_skills: bool = True,
     require_full_matrix_coverage: bool = True,
+    inputs=None,
 ) -> tuple[dict[str, dict[str, Any]], list[str]]:
-    registry, errors = load_json_object(registry_path, "architecture capability registry")
+    registry, errors = load_json_object(registry_path, "architecture capability registry", inputs=inputs)
     if registry is None:
         return {}, errors
 
     if registry.get("version") != CAPABILITY_REGISTRY_VERSION:
         errors.append(f"architecture capability registry version must be {CAPABILITY_REGISTRY_VERSION}")
 
-    matrix_by_axis, matrix_errors = load_matrix_facets(matrix_path)
+    matrix_by_axis, matrix_errors = load_matrix_facets(matrix_path, inputs=inputs)
     errors.extend(matrix_errors)
     known_matrix_facets = {facet for facets in matrix_by_axis.values() for facet in facets}
 

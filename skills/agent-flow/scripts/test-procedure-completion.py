@@ -12,7 +12,8 @@ from datetime import datetime
 from io import StringIO
 from pathlib import Path
 import uuid
-from journal_io import JournalSnapshot, transact, connect_database
+from journal_io import JournalError, JournalSnapshot, transact, connect_database
+from journal_lifecycle import finalize
 from unittest.mock import patch
 
 import verification_evidence as evidence
@@ -35,6 +36,16 @@ recorder = load("procedure_recorder", "record-agent-trace.py")
 
 def publish_fixture(run, name, content):
     transact(run, str(uuid.uuid4()), {}, lambda snapshot: ({name: content}, {}))
+
+
+def corrupt_fixture_document(run, name, content):
+    data = content.encode()
+    connection = connect_database(run)
+    try:
+        connection.execute("UPDATE documents SET content=?, sha256=? WHERE path=?",
+                           (data, evidence.sha256(data), name))
+    finally:
+        connection.close()
 
 
 class ProcedureTests(unittest.TestCase):
@@ -234,7 +245,7 @@ class ProcedureTests(unittest.TestCase):
         before = dict(JournalSnapshot.open(run).documents)
         self.assertNotEqual(self.init("--reuse", "--mode", "compact").returncode, 0)
         self.assertEqual(before, dict(JournalSnapshot.open(run).documents))
-        publish_fixture(run, "delegation-summary.json", "{broken")
+        corrupt_fixture_document(run, "delegation-summary.json", "{broken")
         self.assertNotEqual(self.init("--reuse").returncode, 0)
         self.assertEqual(JournalSnapshot.open(run).read_text("delegation-summary.json"), "{broken")
 
@@ -410,8 +421,12 @@ class ProcedureTests(unittest.TestCase):
                 qa_hash = answer["handoff_sha256"]
         summary = stored()
         publish_fixture(run, "final.md", "# Final\n\nVerdict: ship\n\n" + base.delegation_section(summary))
-        record("--role", "orchestrator", "--execution-mode", "role-lane", "--stage", "final", "--status", "pass")
+        no_writes("--role", "orchestrator", "--execution-mode", "role-lane", "--stage", "final", "--status", "pass")
         with patch.dict(os.environ, {"CODEX_HOME": str(self.root / "codex")}):
+            snapshot = JournalSnapshot.open(run)
+            finalize(run, expected_run_uuid=snapshot.run_uuid, expected_revision=snapshot.revision,
+                     expected_generation=snapshot.generation, identifier="procedure-finalize",
+                     final_bytes=snapshot.read_bytes("final.md"), verdict="ship", session_source=source)
             self.assertEqual(base.validator.validate_run(run, mode="auto", session_source=source), [])
             self.assertEqual(evidence.validate_verification(run, summary, {}, "ship", source), [])
             (self.root / "unrelated.txt").write_text("Parallel work")
@@ -488,6 +503,9 @@ class JournalCLITests(unittest.TestCase):
             repeat = []
             for role, thread, lane, second in (("qa-verifier", base.QA_ID, "qa", 10), ("reviewer", base.REVIEWER_ID, "reviewer", 20)):
                 args = ["--run-dir", str(run), "--role", role, "--lane-id", lane]
+                started = [e for e in base.session(thread, role, {}, second)
+                           if e['type'] in {'session_meta', 'turn_context'} or e.get('payload', {}).get('type') == 'task_started']
+                (sessions / f"synthetic-{thread}.jsonl").write_text("".join(json.dumps(e) + "\n" for e in started))
                 cli("record-agent-trace.py", *args, "--codex-thread-id", thread, "--stage", "spawned", "--status", "active", "--summary", "Assigned")
                 handoff = f"handoffs/{lane}.md"
                 publish_fixture(run, handoff, "Synthetic conclusion. checks.md " + evidence.sha256(JournalSnapshot.open(run).read_bytes("checks.md")) + "\n")
@@ -514,7 +532,18 @@ class JournalCLITests(unittest.TestCase):
             final = JournalSnapshot.open(run).read_bytes("final.md")
             cli("record-agent-trace.py", "--run-dir", str(run), "--render-final", wrapper=True)
             self.assertEqual(final, JournalSnapshot.open(run).read_bytes("final.md"))
-            cli("append-timeline.py", "--run-dir", str(run), "--role", "orchestrator", "--stage", "final", "--status", "pass", "--summary", "Complete", wrapper=True)
+            snapshot = JournalSnapshot.open(run)
+            cli("append-timeline.py", "--run-dir", str(run), "--role", "orchestrator", "--stage", "final", "--status", "pass", "--summary", "Complete", wrapper=True, ok=False)
+            self.assertEqual(snapshot.revision, JournalSnapshot.open(run).revision)
+            final_capture = root.parent / "final-capture.md"
+            final_capture.write_bytes(final)
+            finalize_args = ["--run-dir", str(run), "finalize", "--expected-run-uuid", snapshot.run_uuid,
+                             "--expected-revision", str(snapshot.revision), "--expected-generation", str(snapshot.generation),
+                             "--operation-id", "cli-finalize", "--final-file", str(final_capture), "--verdict", "ship"]
+            cli("journal.py", *finalize_args, wrapper=True)
+            finalized = JournalSnapshot.open(run)
+            cli("journal.py", *finalize_args)
+            self.assertEqual(finalized.revision, JournalSnapshot.open(run).revision)
             cli("validate-run.py", "--run-dir", str(run))
             cli("validate-run.py", "--run-dir", str(run), "--mode", "compact", wrapper=True)
             delivered = json.loads(cli("task-workspace.py", "--run-dir", str(run), "delivery").stdout)
@@ -526,7 +555,12 @@ class JournalCLITests(unittest.TestCase):
             stale = cli("validate-run.py", "--run-dir", str(run), ok=False)
             self.assertIn("candidate changed", stale.stdout + stale.stderr)
             (Path(sealed["candidate_root"]) / "result.txt").write_text("Synthetic product\n")
-            publish_fixture(run, "checks.md", "Changed QA evidence\n")
+            before = JournalSnapshot.open(run)
+            with self.assertRaisesRegex(JournalError, "closed"):
+                publish_fixture(run, "checks.md", "Changed QA evidence\n")
+            self.assertEqual(before.revision, JournalSnapshot.open(run).revision)
+            self.assertEqual(dict(before.documents), dict(JournalSnapshot.open(run).documents))
+            corrupt_fixture_document(run, "checks.md", "Changed QA evidence\n")
             stale = cli("validate-run.py", "--run-dir", str(run), ok=False)
             self.assertIn("sha256", stale.stdout + stale.stderr)
             self.assertEqual(source_before, {p: p.read_bytes() for p in sessions.iterdir()})

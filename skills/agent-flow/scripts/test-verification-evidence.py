@@ -135,7 +135,7 @@ def workspace_pack(case, files=None):
     """Explicitly upgrade tests exercising NEW conclusions to a sealed workspace."""
     from task_workspace import prepare, seal
     subprocess.run(["git", "init", "-q", str(case.root)], check=True)
-    import_legacy(case.run)
+    initialize_open_fixture(case.run)
     temporary = tempfile.TemporaryDirectory()
     case.addCleanup(temporary.cleanup)
     workspace = prepare(case.run, case.root, Path(temporary.name).resolve() / "bundle")
@@ -164,6 +164,16 @@ def workspace_pack(case, files=None):
     transact(case.run, "fixture-workspace-summary", {},
              lambda current: ({"delegation-summary.json": json.dumps(case.summary)}, {}))
     return workspace
+
+
+def initialize_open_fixture(run):
+    """Create a new synthetic v2 journal; this is not a legacy upgrade."""
+    from journal_io import initialize_journal
+    snapshot = JournalSnapshot.open(run)
+    if snapshot.durable:
+        return snapshot
+    return initialize_journal(run, dict(snapshot.documents), source_root=snapshot.source_root,
+                              identities=dict(snapshot.identities), result_contract_version=1)
 
 
 def delegation_section(summary):
@@ -636,12 +646,14 @@ class EvidenceRegressions(unittest.TestCase):
         recorder = module("record_agent_trace", "record-agent-trace.py")
         record = self.summary["subagents"][0]
         write_json(self.run / "artifacts.json", [])
+        timeline = self.run / "timeline.jsonl"
+        timeline.write_text("\n".join(timeline.read_text().splitlines()[:-1]) + "\n")
         before = (self.run / "timeline.jsonl").read_bytes()
         args = ["--run-dir", str(self.run), "--role", "qa-verifier", "--lane-id", record["lane_id"],
                 "--codex-thread-id", QA_ID, "--stage", "handoff", "--status", "pass", "--summary", "QA finished",
                 "--completion-turn-id", record["completion_turn_id"], "--artifact", record["handoff"], "--artifact", "checks.md"]
         with redirect_stdout(StringIO()):
-            import_legacy(self.run)
+            initialize_open_fixture(self.run)
             self.assertEqual(recorder.main(args, session_source=self.source), 0)
         self.assertTrue(JournalSnapshot.open(self.run).read_bytes("timeline.jsonl").startswith(before))
         state = dict(JournalSnapshot.open(self.run).documents)
@@ -766,11 +778,17 @@ class EvidenceRegressions(unittest.TestCase):
                 "--stage", "handoff", "--status", "pass", "--summary", "Fresh QA",
                 "--artifact", record["handoff"], "--artifact", "checks.md"]
         with redirect_stdout(StringIO()):
-            import_legacy(self.run)
+            initialize_open_fixture(self.run)
+            with self.assertRaisesRegex(SystemExit, "terminal assignment"):
+                recorder.main(args, session_source=self.source)
+            args[args.index("--lane-id") + 1] = "fresh-qa"
+            recorder.main(["--run-dir", str(self.run), "--role", "qa-verifier", "--lane-id", "fresh-qa",
+                           "--codex-thread-id", QA_ID, "--stage", "spawned", "--status", "active",
+                           "--summary", "Fresh QA assignment"], session_source=self.source)
             self.assertEqual(recorder.main(args, session_source=self.source), 0)
         self.summary = json.loads(JournalSnapshot.open(self.run).read_text("delegation-summary.json"))
         self.assertIsNone(self.summary["verification"]["reviewer"])
-        self.assertEqual(len(self.summary["subagents"]), 2)
+        self.assertEqual(len(self.summary["subagents"]), 3)
         self.assertTrue(JournalSnapshot.open(self.run).read_bytes("timeline.jsonl").startswith(before))
 
 

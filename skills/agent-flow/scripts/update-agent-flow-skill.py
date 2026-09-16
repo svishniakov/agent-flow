@@ -114,7 +114,17 @@ def describe_plan(repo: Path, remote_ref: str, dirty: str, relation: str, dry_ru
 
 
 def update_checkout(args: argparse.Namespace) -> int:
-    repo = discover_repo(args.target.expanduser().resolve())
+    target = args.target.expanduser().resolve()
+    # Distribution archives carry this marker; reject before even discovering Git.
+    for parent in (target, *target.parents):
+        if (parent / "agent-flow-build.json").is_file():
+            raise GitError(f"plugin installation cannot use Git updater: {parent}; update its source and reinstall with codex plugin add agent-flow@agent-flow")
+    repo = discover_repo(target)
+    for parent in (target, *target.parents):
+        if parent == repo:
+            break
+        if (parent / ".codex-plugin/plugin.json").is_file():
+            raise GitError(f"plugin installation cannot use Git updater: {parent}; use Codex plugin commands")
     branch = args.branch or current_branch(repo)
     remote_ref = f"{args.remote}/{branch}"
 

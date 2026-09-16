@@ -4,9 +4,12 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
 import re
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +18,7 @@ from agent_config import AgentConfigError, default_agents_dir, read_frontmatter,
 
 MANAGED_HEADER = "# Synced by Agent Flow. Edit agents/agent-identities.json or agents/*.md, then rerun sync.\n"
 NICKNAME_PATTERN = re.compile(r"^[A-Za-z0-9 _-]+$")
+BASELINE_NAME = ".agent-flow-baseline.json"
 
 
 def default_output_dir() -> Path:
@@ -119,41 +123,137 @@ def managed_extra_files(output_dir: Path, expected_files: set[str]) -> list[Path
         return []
     extras: list[Path] = []
     for path in sorted(output_dir.glob("*.toml")):
-        if path.name in expected_files:
+        if path.name in expected_files or path.is_symlink() or not path.is_file():
             continue
         try:
-            if path.read_text(encoding="utf-8").startswith(MANAGED_HEADER):
+            if path.read_bytes().startswith(MANAGED_HEADER.encode("utf-8")):
                 extras.append(path)
         except OSError:
             continue
     return extras
 
 
+def load_baseline(path: Path) -> dict[str, str] | None:
+    if path.is_symlink():
+        raise AgentConfigError(f"symlink baseline: {path}")
+    if not path.exists():
+        return None
+    if not path.is_file():
+        raise AgentConfigError(f"not a regular baseline file: {path}")
+
+    def unique_entries(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"duplicate key: {key}")
+            result[key] = value
+        return result
+
+    try:
+        baseline = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=unique_entries)
+        if not isinstance(baseline, dict) or any(
+            not re.fullmatch(r"[A-Za-z0-9_-]+\.toml", name)
+            or not isinstance(digest, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", digest)
+            for name, digest in baseline.items()
+        ):
+            raise ValueError("expected a map of role TOML filenames to SHA-256 hashes")
+    except (OSError, ValueError) as exc:
+        raise AgentConfigError(f"invalid baseline: {path}: {exc}") from exc
+    return baseline
+
+
+def replace_file(path: Path, content: bytes) -> None:
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=path.parent, prefix=f".{path.name}.", delete=False) as stream:
+            temporary = Path(stream.name)
+            stream.write(content)
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
 def write_files(output_dir: Path, files: dict[str, str], check: bool) -> int:
     failures: list[str] = []
     expected_files = set(files)
+    # Keep the output path unresolved so a symlink cannot silently become a write target.
+    for directory in (output_dir, *output_dir.parents):
+        if directory.is_symlink():
+            print(f"symlink output directory: {directory}", file=sys.stderr)
+            return 1
+        if directory.exists() and not directory.is_dir():
+            print(f"not an output directory: {directory}", file=sys.stderr)
+            return 1
+
+    baseline_path = output_dir / BASELINE_NAME
+    try:
+        baseline = load_baseline(baseline_path)
+    except AgentConfigError as exc:
+        failures.append(str(exc))
+        baseline = None
+    if check and baseline is None:
+        failures.append(f"missing valid sync baseline: {baseline_path}; rerun sync")
+
+    previous = baseline or {}
+    next_baseline: dict[str, str] = {}
+    updates: dict[Path, bytes] = {}
     for filename, content in files.items():
         path = output_dir / filename
-        if check:
-            try:
-                current = path.read_text(encoding="utf-8")
-            except OSError:
-                failures.append(f"missing synced file: {path}")
-                continue
-            if current != content:
-                failures.append(f"stale synced file: {path}")
+        expected = content.encode("utf-8")
+        next_baseline[filename] = hashlib.sha256(expected).hexdigest()
+        if path.is_symlink():
+            failures.append(f"symlink synced file: {path}")
+            continue
+        if path.exists() and not path.is_file():
+            failures.append(f"not a regular synced file: {path}")
+            continue
+        try:
+            current = path.read_bytes()
+        except FileNotFoundError:
+            current = None
+        except OSError as exc:
+            failures.append(f"cannot read synced file: {path}: {exc}")
             continue
 
-        output_dir.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding="utf-8")
+        if check:
+            if current is None:
+                failures.append(f"missing synced file: {path}")
+            elif current != expected:
+                failures.append(f"stale synced file: {path}")
+            if previous.get(filename) != next_baseline[filename]:
+                failures.append(f"stale sync baseline for: {path}")
+        elif current is not None:
+            if filename in previous:
+                if hashlib.sha256(current).hexdigest() != previous[filename]:
+                    failures.append(f"edited managed synced file: {path}")
+            elif current != expected:
+                failures.append(f"unowned synced file (no trusted baseline): {path}")
+        # Byte-identical legacy files may be adopted, but are never rewritten.
+        if current != expected:
+            updates[path] = expected
 
-    for path in managed_extra_files(output_dir, expected_files):
+    extras = set(managed_extra_files(output_dir, expected_files))
+    extras.update(output_dir / name for name in previous.keys() - expected_files)
+    for path in sorted(extras):
         failures.append(f"extra managed synced file: {path}")
 
     if failures:
         for failure in failures:
             print(failure, file=sys.stderr)
         return 1
+    if not check:
+        try:
+            output_dir.mkdir(parents=True, exist_ok=True)
+            for path, content in updates.items():
+                replace_file(path, content)
+            if baseline != next_baseline:
+                encoded = (json.dumps(next_baseline, indent=2, sort_keys=True) + "\n").encode("utf-8")
+                replace_file(baseline_path, encoded)
+        except OSError as exc:
+            print(f"sync write failed: {exc}; rerun --check before retrying", file=sys.stderr)
+            return 1
     return 0
 
 
@@ -170,7 +270,7 @@ def main() -> int:
         print(exc, file=sys.stderr)
         return 1
 
-    output_dir = args.output_dir.expanduser().resolve()
+    output_dir = args.output_dir.expanduser().absolute()
     result = write_files(output_dir, files, args.check)
     if result != 0:
         return result

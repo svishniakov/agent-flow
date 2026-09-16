@@ -138,6 +138,21 @@ class RepositoryChecks(unittest.TestCase):
                 self.assertEqual(content_code, 1)
                 self.assertIn("README.ru.md", content_err)
 
+    def test_content_guard_checks_active_markdown_and_preserves_backup(self):
+        directory = self.package / "docs"
+        directory.mkdir()
+        marker = "/Users/" + "ucnlejumper"
+        backup = directory / "historical.md.bak"
+        original = ("Historical instruction " + marker + "\n").encode()
+        backup.write_bytes(original)
+        code, _, _ = self.capture(self.checks.run_content_guard, "personal path fixture", marker, self.repo)
+        self.assertEqual(code, 0)
+        (directory / "active.md").write_bytes(original)
+        code, _, errors = self.capture(self.checks.run_content_guard, "personal path fixture", marker, self.repo)
+        self.assertEqual(code, 1)
+        self.assertIn("active.md", errors)
+        self.assertEqual(backup.read_bytes(), original)
+
     def test_main_continues_after_readme_failure(self):
         (self.repo / "README.md").unlink()
         names = ("run_step", "run_skills_cli_layout_guard", "run_skills_cli_discovery_guard",

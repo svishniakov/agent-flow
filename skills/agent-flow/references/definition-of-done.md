@@ -69,7 +69,7 @@ Unrelated active documents and historical runs stay unchanged.
 
 Before final handoff for any repo task, audit the current `.agent-work/tasks/todo.md` section:
 
-- для изменения файлов сначала подготовьте итоговые документы и выполните свежий `validate-run.py --run-dir ...` без `--allow-pending` и `--allow-no-check`; сохраните stdout/stderr и exit code в `checks/final-validation.txt`;
+- для изменения файлов сначала подготовьте итоговые документы, выполните `journal.py finalize`, затем свежий `validate-run.py --run-dir ...` без `--allow-pending` и `--allow-no-check`; сохраняйте stdout/stderr и exit code вне канонических документов журнала;
 - if every checklist item is checked, final validation exited 0, verification is recorded, no blocker remains, and any requested product commit succeeded, set `Status: done`; консультации без run завершаются после применимых прямых проверок;
 - if product commits were created, update task sections in every affected repository after commit with SHA and committed-document/check evidence before final handoff;
 - if every checklist item is checked but required verification, review, approval, or requested commit evidence is missing, do not call the task done; keep `Status: in_progress` or `Status: blocked` and record the missing evidence;
@@ -104,7 +104,7 @@ For full `release` trace:
 - timeline is valid JSONL;
 - timeline records the actual workflow order, with final successful verification/checks after the last orchestrator implementation/fix;
 - if the run creates a product commit, timeline has an orchestrator `stage=commit` event with the commit hash after successful checks and before the final event;
-- timeline has exactly one final orchestrator event;
+- the current lifecycle generation has exactly one final orchestrator event, written atomically by `journal.py finalize` after full validation; historical generations and their failed attempts remain unchanged;
 - initial and final worktree states are recorded when the run edits a git repo;
 - every delegated subagent has `agents/<role>/trace.jsonl` and matching run-level timeline events;
 - Delegation Trace Gate is covered: every positive traceable run includes `delegation-summary.json`, final `Delegation Trace`, `Subagents Used`, `Role Lanes Used`, `Subagent Trace Evidence`, and terminal handoff trace evidence for every successful spawned subagent;
@@ -219,6 +219,6 @@ For full `release` trace:
 
 ## Evidence Rule
 
-Do not say work is complete, fixed, passing, or ready without fresh verification evidence.
+Do not say work is complete, fixed, passing, or ready without evidence that covers the current result. Reuse prior checks only while code, inputs, dependencies, environment, and required external state remain applicable. Repeat affected checks after influencing changes, gaps, or failures. The mandatory fresh final `validate-run.py` for the current run remains required, including after changes to its evidence.
 
 Evidence Records do not replace verification. They make repeated decisions auditable and allow local practices to promote, demote, become inactive, or become anti-patterns based on observed outcomes and helpful/harmful reuse counters.

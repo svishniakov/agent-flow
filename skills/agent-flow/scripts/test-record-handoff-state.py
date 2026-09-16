@@ -8,7 +8,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from journal_io import JournalSnapshot, import_legacy
+from journal_io import JournalSnapshot, initialize_journal
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,8 +21,6 @@ def run(
     cwd: Path,
     check: bool = True,
 ) -> subprocess.CompletedProcess[str]:
-    if "--run-dir" in args:
-        import_legacy(Path(args[args.index("--run-dir") + 1]).resolve())
     result = subprocess.run(
         args,
         cwd=cwd,
@@ -66,6 +64,8 @@ def write_lane_map(run_dir: Path, lane_handoff: str = "handoffs/worker-a.md") ->
         + "\n",
         encoding="utf-8",
     )
+    initialize_journal(run_dir.resolve(), {"lane-map.json": (run_dir / "lane-map.json").read_bytes()},
+                       source_root=run_dir.parent.resolve())
 
 
 def read_lane_map(run_dir: Path) -> dict:
@@ -230,6 +230,22 @@ def main() -> int:
         )
         if result.returncode == 0 or "invalid choice" not in result.stderr:
             raise AssertionError("recorder must reject invalid modes")
+
+    with tempfile.TemporaryDirectory(dir='/private/tmp') as directory:
+        root = Path(directory).resolve()
+        for index, (stage, status) in enumerate([('verification-prepared', 'active'), ('verification-prepared', 'active'), ('verification-ready', 'pass')]):
+            current = root / str(index)
+            current.mkdir()
+            initialize_journal(current, {'run.md': b'Root metadata test'}, source_root=root)
+            def tree():
+                return {str(p.relative_to(current)): ('link', str(p.readlink())) if p.is_symlink()
+                        else ('dir', None) if p.is_dir() else ('file', p.read_bytes()) for p in current.rglob('*')}
+            before = tree()
+            result = run([sys.executable, '-B', str(ROOT / 'scripts/record-agent-trace.py'), '--run-dir', str(current),
+                          '--role', 'orchestrator', '--stage', stage, '--status', status, '--summary', 'Root metadata',
+                          '--verification-json', '{}'], cwd=root, check=False)
+            if result.returncode == 0 or 'explicit --execution-mode role-lane' not in result.stderr or tree() != before:
+                raise AssertionError('root metadata must reject before result contract, request, or trace writes')
 
     print("PASS record-handoff-state fixtures")
     return 0

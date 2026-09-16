@@ -1,0 +1,9 @@
+{
+  "description": "Synthetic lifecycle refusals; these outcomes must never become accepted obligations.",
+  "current_statuses": ["blocked", "fail", "active", "done"],
+  "replacement_controls": [
+    ["missing", "missing obligation replacement"],
+    ["evidence-qa", "cyclic obligation replacement"],
+    ["evidence-reviewer", "different obligation"]
+  ]
+}

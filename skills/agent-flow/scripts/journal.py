@@ -18,11 +18,65 @@ def main(argv=None):
     publish.add_argument("--operation-id", help="Saved machine request ID for a technical retry.")
     read = commands.add_parser("read")
     read.add_argument("path")
-    commands.add_parser("export")
+    read.add_argument("--archive")
+    export = commands.add_parser("export")
+    export.add_argument("--archive")
+    commands.add_parser("diagnose-recovery")
+    legacy = commands.add_parser("import-legacy")
+    legacy.add_argument("--source-root", required=True)
+    for command in ("upgrade", "reopen"):
+        recovery = commands.add_parser(command)
+        for name in ("expected-run-uuid", "operation-id", "reason", "identity-file"):
+            recovery.add_argument("--" + name, required=True)
+        for name in ("expected-revision", "expected-generation"):
+            recovery.add_argument("--" + name, required=True, type=int)
+        if command == "reopen":
+            recovery.add_argument("--upgrade", action="store_true")
+            recovery.add_argument("--final-index", type=int, required=True)
+            recovery.add_argument("--final-sha256", required=True)
+            recovery.add_argument("--failed-validation-path")
+    classification = commands.add_parser("classify-legacy")
+    classification.add_argument("--classification-file", required=True)
+    classification.add_argument("--expected-revision", type=int, required=True)
+    classification.add_argument("--operation-id", required=True)
+    finalize_parser = commands.add_parser("finalize", help="Validate and atomically close an open generation.")
+    finalize_parser.add_argument("--expected-run-uuid", required=True)
+    finalize_parser.add_argument("--expected-revision", type=int, required=True)
+    finalize_parser.add_argument("--expected-generation", type=int, required=True)
+    finalize_parser.add_argument("--operation-id", required=True)
+    finalize_parser.add_argument("--final-file", required=True)
+    finalize_parser.add_argument("--verdict", required=True, choices=("ship", "blocked", "fail", "pass-with-risks"))
+    resolution_parser = commands.add_parser("resolve-obligation", help="Record evidence that another assignment covers the same responsibility.")
+    resolution_parser.add_argument("--lane-id", required=True)
+    resolution_parser.add_argument("--replacement", required=True)
+    resolution_parser.add_argument("--reason", required=True)
+    resolution_parser.add_argument("--expected-revision", type=int, required=True)
+    resolution_parser.add_argument("--operation-id", required=True)
     args = parser.parse_args(argv)
     run_dir = Path(args.run_dir).expanduser().absolute()
     try:
-        if args.command == "publish":
+        if args.command == "diagnose-recovery":
+            from journal_recovery import diagnose_recovery
+            print(json.dumps(diagnose_recovery(run_dir), ensure_ascii=False, indent=2))
+        elif args.command == "import-legacy":
+            from journal_io import import_legacy
+            snapshot = import_legacy(run_dir, source_root=Path(args.source_root))
+            print(json.dumps({"revision": snapshot.revision, "storage_version": snapshot.storage_version}))
+        elif args.command in {"upgrade", "reopen"}:
+            from journal_recovery import recover
+            receipt = recover(run_dir, upgrade=args.command == "upgrade" or args.upgrade,
+                reopen=args.command == "reopen", expected_run_uuid=args.expected_run_uuid,
+                expected_revision=args.expected_revision, expected_generation=args.expected_generation,
+                identifier=args.operation_id, reason=args.reason,
+                identity=json.loads(capture_file(Path(args.identity_file))),
+                final_index=getattr(args, "final_index", None), final_sha256=getattr(args, "final_sha256", None),
+                failed_validation_path=getattr(args, "failed_validation_path", None))
+            print(json.dumps({"operation_id": args.operation_id, **receipt}))
+        elif args.command == "classify-legacy":
+            from journal_recovery import classify_legacy
+            print(json.dumps({"operation_id": args.operation_id, **classify_legacy(run_dir, json.loads(capture_file(Path(args.classification_file))),
+                expected_revision=args.expected_revision, identifier=args.operation_id)}))
+        elif args.command == "publish":
             documents = {}
             for name, capture in args.file:
                 logical_path(name)
@@ -46,10 +100,25 @@ def main(argv=None):
                 return published, {}
             receipt = transact(run_dir, identifier, payload, publish_documents)
             print(json.dumps({"operation_id": identifier, **receipt}))
+        elif args.command == "resolve-obligation":
+            from journal_lifecycle import resolve_obligation
+            receipt = resolve_obligation(run_dir, lane_id=args.lane_id, replacement=args.replacement,
+                                         reason=args.reason, expected_revision=args.expected_revision,
+                                         identifier=args.operation_id)
+            print(json.dumps({"operation_id": args.operation_id, **receipt}))
+        elif args.command == "finalize":
+            from journal_lifecycle import finalize
+            receipt = finalize(run_dir, expected_run_uuid=args.expected_run_uuid,
+                               expected_revision=args.expected_revision, expected_generation=args.expected_generation,
+                               identifier=args.operation_id, final_bytes=capture_file(Path(args.final_file)),
+                               verdict=args.verdict)
+            print(json.dumps({"operation_id": args.operation_id, **receipt}))
         elif args.command == "read":
-            sys.stdout.buffer.write(JournalSnapshot.open(run_dir).read_bytes(args.path))
+            snapshot = JournalSnapshot.open(run_dir)
+            sys.stdout.buffer.write((snapshot.archive(args.archive) if args.archive else snapshot).read_bytes(args.path))
         else:
-            print(export_snapshot(JournalSnapshot.open(run_dir)))
+            snapshot = JournalSnapshot.open(run_dir)
+            print(export_snapshot(snapshot.archive(args.archive) if args.archive else snapshot))
     except (JournalError, OSError, ValueError) as exc:
         parser.exit(1, f"journal: {exc}\n")
     return 0

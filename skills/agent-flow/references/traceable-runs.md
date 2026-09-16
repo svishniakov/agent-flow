@@ -31,6 +31,38 @@ python3 "$AF_PACKAGE/scripts/journal.py" --run-dir "$AF_RUN" export
 и связанные изменения выполняются одной транзакцией. Не заменяйте доменные
 команды ручным изменением таблиц или универсальной публикацией их результатов.
 
+Новые журналы используют формат хранилища version 2 и явное поколение приёмки.
+Формат compact/full выбирает состав документов, а не версию SQLite-хранилища.
+Старый version 1 доступен новым инструментам для чтения без скрытой миграции;
+запись требует явного обновления. Старые инструменты не должны писать version 2.
+Успешный `journal.py finalize` закрывает поколение для всех обычных writers:
+publish, trace, handoff, boundary, workspace и прямого API транзакций.
+Имя операции или повтор старой метки не обходят эту проверку. После закрытия
+допустимы чтение, export, точный технический повтор и штатная свежая delivery
+того же принятого результата.
+
+Для новых событий назначения с `lane_id` допустимы пары `spawned/active`,
+`handoff/pass`, `handoff/pass-with-risks`, `blocked/blocked` и `fail/fail`.
+Регистратор отклоняет другую пару до подготовительных записей и сообщает
+допустимый статус. Прочие служебные стадии сохраняют свои правила.
+Исторические записи остаются читаемыми, даже если содержат прежнюю ошибку.
+
+Если в открытом журнале v2 у текущего QA или reviewer остался ошибочный
+`spawned/pass` либо `spawned/pass-with-risks`, зарегистрируйте существующее
+завершение штатной командой `record-agent-trace.py` с `--stage handoff`,
+прежним успешным `--status`, `--lane-id`, `--completion-turn-id` и точными
+`--artifact` для отчёта и доказательств. При использовании `--resolve-session`
+сохраните исходный `--agent-path`. Отдельного флага восстановления нет.
+
+Регистратор проверяет собственную сессию агента, результат, хеши, обе истории
+и, для reviewer, принятое QA и порядок завершений. Дополнение разрешено только
+при отсутствии прежнего завершения, legacy-классификации и разрешённой обязанности.
+Под блокировкой он повторяет проверки и одной транзакцией добавляет `handoff`
+в обе истории, сводку и квитанцию. Прежний статус, назначение и байты истории
+сохраняются. Указатель начала работы относится к принимаемому завершённому turn.
+Обычный `publish` такого права не получает. Следующий шаг выполняйте только
+после успешной квитанции; потерянный ответ повторяйте с сохранённым ID операции.
+
 Каждая новая операция получает отдельный идентификатор и сохраняет запрос
 в `.journal/requests/` до транзакции. Команда печатает `operation_id` и ревизию.
 Если ответ потерян, агент берёт идентификатор сохранённого запроса и повторяет
@@ -46,10 +78,11 @@ python3 "$AF_PACKAGE/scripts/journal.py" --run-dir "$AF_RUN" export
 инструментам исходный логический путь запуска.
 
 Старый файловый run доступен для диагностики без автоматического импорта.
-Для продолжения остановите его писателей и вызовите прежний `init-run.py` с
-`--reuse`. Импорт проверяет неизменность исходных байтов и публикует их одной
-транзакцией. Для действительно перенесённого старого run разрешён только при
-импорте `--source-root <original-project>`; позднее происхождение не меняется.
+Для продолжения остановите его писателей и явно вызовите `journal.py import-legacy`
+с `--source-root <original-project>`. Импорт проверяет неизменность исходных байтов
+и публикует их одной транзакцией. Исходный проект задаётся при импорте; позднее
+происхождение не меняется. Полученный version 1 требует отдельного явного upgrade
+или атомарного `reopen --upgrade`, если поколение уже закрыто.
 Допустимые исторические файловые ссылки внутри исходного проекта сохраняют
 байты и идентичность цели; QA и reviewer не могут сослаться на один handoff
 через разные имена. Повреждённая опубликованная база не переключается на старые
@@ -70,6 +103,12 @@ missing/обнулённая/чужая база при marker отклоняе�
 проверки завершения процесса не доказывают сохранность при физическом отключении
 питания. Сетевые и иные неподдержанные хранилища не входят в этот контракт.
 
+
+## Адресное чтение журнала
+
+Сначала выберите нужный run, документ, session/lane/event и поля. Читайте опубликованный документ через `journal.py read`; большой ответ сохраняйте в новый capture и фильтруйте существующими средствами до вывода в контекст. Не придумывайте CLI-флаги: при необходимости проверьте `read --help`.
+
+Сохраняйте найденные пути в текущем контексте. При продолжении читайте добавленные записи или изменённые разделы; прежние данные перечитывайте при изменении источника, утрате контекста или конкретной проверке. Усечённый вывод не доказывает полноту. Для проверки хешей, подлинности и принятия по-прежнему нужны полные необходимые исходные bytes и один согласованный snapshot. Адресная навигация не отменяет свежий финальный validator и не разрешает переписывать старые журналы.
 
 ## Полная рабочая копия и выдача результата
 
@@ -240,8 +279,8 @@ When a traceable run creates a product commit, use this order:
 4. update related `.agent-work/tasks/todo.md` sections in each repository with commit/check evidence, keeping the current task `Status: in_progress` until final validation;
 5. append a run-local `stage=commit` orchestrator event with the commit hash;
 6. write or update `final.md` with the commit hash, evidence and risks;
-7. append the single final orchestrator timeline event;
-8. run `scripts/validate-run.py --run-dir <run-dir>` and save stdout/stderr plus exit code as shown below;
+7. use `journal.py finalize` to validate the prospective final and atomically close the current generation;
+8. run `scripts/validate-run.py --run-dir <run-dir>` and save stdout/stderr plus exit code outside the journal, as shown below;
 9. only after exit 0 and completion of all task criteria, set `Status: done` and send the final answer.
 
 No commit is required when the user did not request it. A finished document uses
@@ -672,10 +711,11 @@ Reader принимает ISO-время с часовым поясом и це�
 Agent Flow пишет собственное время в UTC с шестью знаками долей секунды и `Z`.
 Технический повтор прежнего пригодного заключения повторно проверяет источник
 и хеши, сохраняет все служебные файлы и принятие reviewer без нового хода модели.
-Диагностическое чтение старого журнала не мигрирует его. `--reuse` автоматически
-импортирует точные исторические bytes, не синтезирует отсутствующие поля или
-полноту результата и не пересчитывает пригодное принятие. Полный scanner delta,
-включая `run_changed_files`, используется только для новой workspace-приёмки.
+Диагностическое чтение старого журнала и `--reuse` не выполняют скрытую миграцию.
+Явные import и upgrade сохраняют доступные исторические байты; отсутствующие поля
+или доказательства не становятся подтверждёнными. После восстановления требуется
+свежая независимая приёмка. Полный scanner delta, включая `run_changed_files`,
+используется только для новой workspace-приёмки.
 
 Reader реализует наблюдённую локальную структуру событий Desktop. Поддержка той
 же структуры из CLI требует свежего V9-прогона; неподдерживаемый формат блокирует
@@ -735,35 +775,217 @@ Validator сравнит хеши, исходные байты и время п�
 сессии до followup. Зашифрованный аргумент `send_message` и пересказ получателя этого
 не доказывают; недоступный output оставляет критерий незакрытым.
 
+### Текущие обязанности и прежние отказы
+
+Recorder сохраняет у назначения `obligation`: идентификатор обязанности `id`,
+обязательность `required` и состояние `state`. При создании `id` по умолчанию равен
+`lane-id`; если назначение заменяет прежнее, передайте ему тот же
+`--obligation-id`. Это не меняет UUID, роль или выводы исходного назначения.
+
+После принятия замены явно разрешите прежнюю обязанность:
+
+```sh
+python3 "$AF_PACKAGE/scripts/journal.py" --run-dir "$AF_RUN" resolve-obligation \
+  --lane-id "$AF_OLD_LANE" --replacement "$AF_NEW_LANE" \
+  --reason "$AF_RESOLUTION_REASON" --expected-revision "$AF_REVISION" \
+  --operation-id "$AF_RESOLUTION_OPERATION"
+```
+
+Команда связывает прежний отказ с конкретным handoff замены и его хешем.
+Старые status, trace, handoff, UUID и timestamps сохраняются. Полная проверка
+требует принятия всех текущих обязательных назначений, а не только выбранной пары
+QA/reviewer. Активная работа, отсутствующая или непринятая замена, цикл ссылок,
+непокрытая обязанность и изменённые доказательства блокируют положительный итог.
+Сообщение `done` не означает принятия. Произвольная пометка `historical` не снимает
+обязанность; необязательность консультации требует подтверждённого основания.
+
+### Восстановление прежнего журнала
+
+Восстановление продолжает ту же задачу и тот же сохранённый результат. Оно не
+исправляет исходники, не переносит приёмку на другой C5 и не удаляет историю.
+Сначала сохраните доступный канонический снимок, проверьте его хеши и отработайте
+процедуру на отдельной копии. Остановите писателей исходного журнала.
+
+```sh
+python3 "$AF_PACKAGE/scripts/journal.py" --run-dir "$AF_RUN" diagnose-recovery \
+  > "$AF_RECOVERY_DIAGNOSIS"
+```
+
+Диагностика ничего не меняет. Сохраните значение `identity` из её JSON в отдельный
+файл `AF_RECOVERY_IDENTITY`. Он содержит ожидаемые UUID, исходные пути, корневую
+задачу, контракт поведенческих проверок, workspace и хеш результата. Команда
+сверяет эти значения с журналом и сохранённым workspace; файл не задаёт новую
+идентичность. Редакцию, поколение и ссылку на final тоже берите из диагностики.
+
+Для открытого version 1:
+
+```sh
+python3 "$AF_PACKAGE/scripts/journal.py" --run-dir "$AF_RUN" upgrade \
+  --expected-run-uuid "$AF_RUN_UUID" --expected-revision "$AF_REVISION" \
+  --expected-generation "$AF_GENERATION" --operation-id "$AF_UPGRADE_OPERATION" \
+  --identity-file "$AF_RECOVERY_IDENTITY" --reason "$AF_RECOVERY_REASON"
+```
+
+Для закрытого version 1 разрешена только единая операция `reopen --upgrade`.
+Отдельный upgrade не должен скрывать прежнее закрытие. `final.index` — номер
+события с единицы; `final.sha256` — хеш текущего `final.md`.
+
+```sh
+python3 "$AF_PACKAGE/scripts/journal.py" --run-dir "$AF_RUN" reopen --upgrade \
+  --expected-run-uuid "$AF_RUN_UUID" --expected-revision "$AF_REVISION" \
+  --expected-generation "$AF_GENERATION" --operation-id "$AF_REOPEN_OPERATION" \
+  --identity-file "$AF_RECOVERY_IDENTITY" --reason "$AF_RECOVERY_REASON" \
+  --final-index "$AF_FINAL_INDEX" --final-sha256 "$AF_FINAL_SHA256"
+```
+
+Для отрицательного закрытия version 2 используйте ту же команду без `--upgrade`.
+Узкое исключение для version 1 допускает прежнее положительное событие только
+при текущем отрицательном final и сохранённом отказе полной проверки именно этой
+попытки. Передайте логический путь этого доказательства через
+`--failed-validation-path`; произвольный JSON с ненулевым exit code не подходит.
+Положительное закрытие version 2 и успешная delivery запрещают reopen.
+Противоречивые сведения о delivery требуют диагностики до любых изменений.
+
+Операция архивирует доступные байты документов и квитанций, их происхождение и
+идентичность. Она не восстанавливает выдуманный старый снимок. Прежний timeline
+остаётся точным префиксом; новые события идут после него. Архив не содержит
+рекурсивных копий других архивов. ID и хеш архива возвращаются в квитанции.
+
+```sh
+python3 "$AF_PACKAGE/scripts/journal.py" --run-dir "$AF_RUN" read timeline.jsonl \
+  --archive "$AF_ARCHIVE_ID"
+python3 "$AF_PACKAGE/scripts/journal.py" --run-dir "$AF_RUN" export \
+  --archive "$AF_ARCHIVE_ID"
+```
+
+После upgrade явно разберите все прежние назначения через `classify-legacy`.
+Подготовьте JSON с `archive_id` из квитанции и массивом `assignments`, который
+охватывает весь исходный inventory. В обычной записи укажите `lane_id`,
+`obligation_id`, `reason` и `scope`: объект с `path`, `sha256` и точной `quote`
+из исходного архива. `obligation_id` обозначает конкретную обязанность; одинаковый
+ID допустим только у назначений, которые действительно выполняют ту же работу.
+
+| Поле записи | Что оно подтверждает |
+| --- | --- |
+| `outcome` | Прежний исход: `unresolved`, `pass`, `pass-with-risks`, `blocked` или `fail`. При отсутствии подтверждения используйте `unresolved`. |
+| `handoff` | Исходный отчёт в архиве: `path`, `sha256`, точная `quote`. Отчёт должен быть связан с этим назначением. |
+| `source` | Собственное завершение субагента: настоящие `thread_id`, `turn_id` и совпадающая `quote`. Оно требуется для подтверждённого исхода субагента. |
+| `optional` | Необязательная консультация, подтверждённая первоначальным поручением. Это не способ исключить нужную работу. |
+| `planned: true` | Исходное запланированное, но ещё не запущенное назначение. Оно остаётся обязательным до штатного выполнения. |
+| `correction` | Отдельная запись ошибочной регистрации: `lane_id`, `reason`, `correction` с `path`, `sha256`, `quote` исходного исправления. Настоящее назначение так исключить нельзя. |
+
+```sh
+python3 "$AF_PACKAGE/scripts/journal.py" --run-dir "$AF_RUN" classify-legacy \
+  --classification-file "$AF_CLASSIFICATION" --expected-revision "$AF_REVISION" \
+  --operation-id "$AF_CLASSIFICATION_OPERATION"
+```
+
+Перед вызовом заново прочитайте редакцию. Подтверждённую классификацию нельзя
+переписать другой командой. Отсутствующий статус и `done` не означают pass. Классификация требует исходного
+поручения, handoff и подтверждённого источника заключения; консультация может
+стать необязательной только по своему первоначальному назначению. Неясные
+обязанности остаются открытыми до нового принятого назначения. Архив хранит
+прежние значения без изменений. Затем получите свежие QA и reviewer из исходной
+корневой задачи на том же сохранённом результате, сохранив все выбранные поведенческие критерии и
+`strict_inputs`. Полный validate, finalize и delivery обязательны: reopen сам
+по себе не означает приёмку или завершение задачи.
+
+### Ошибочный режим служебной записи
+
+Для служебных записей root всегда указывайте `--execution-mode role-lane`.
+По умолчанию recorder выбирает `subagent`; такой вызов требует подтверждённой
+идентичности субагента. Пропущенный UUID не означает работу root и не должен
+автоматически превращаться в `role-lane`.
+
+Если прежний recorder уже записал служебное событие root с ошибочным режимом,
+используйте отдельную ветку только для доказанной поправки этого поля:
+
+```sh
+python3 "$AF_PACKAGE/scripts/record-agent-trace.py" \
+  --run-dir "$AF_RUN" --correction-file "$AF_MODE_CORRECTION" \
+  --operation-id "$AF_CORRECTION_OPERATION"
+```
+
+Файл поправки связывает UUID журнала и root, текущее поколение и редакцию,
+причину и operation ID. Для timeline и trace задаются путь, размер исходного
+префикса в байтах и SHA-256. Каждый target содержит два индекса строк с единицы,
+SHA-256 исходной строки с завершающим LF, старый и новый `execution_mode`,
+сохранённый исходный request и ссылки на реальные вызовы root и их ответы.
+Для source-ссылок также нужны точные индексы и SHA-256 строк с LF. Команда
+проверяет всю связь с канонической квитанцией; копия команды в тексте отчёта
+не доказывает её выполнение.
+
+Допускаются только служебные `verification-prepared` и `verification-ready`
+события root без признаков назначения: UUID субагента, lane, handoff или
+артефактов. Единственная поправка — `subagent` в `role-lane`. Неподдерживаемый
+формат команды, отсутствующий источник или неоднозначная связь оставляют
+отказ. Нельзя исправлять таким способом реальный отказ субагента или добавлять
+фиктивный spawn для прохождения проверки.
+
+Операция добавляет запись аудита и доказательство; прежние строки, timestamps,
+статусы и индексы остаются неизменными. Новый запрос к закрытому журналу и
+повторная поправка того же target запрещены. Технический повтор с прежними
+operation ID и содержимым возвращает сохранённую квитанцию без нового события.
+После поправки выполните полную проверку и штатное завершение. Повторный запуск
+модели ради оформления не нужен, если результат и доказательства прежней
+независимой приёмки остаются пригодными.
+
 ### Финальная команда и завершение задачи
 
-Подготовьте `final.md` с допустимым `Verdict`, остальные документы и единственное
-финальное событие timeline. Пока команда не прошла, отчёт остаётся кандидатом,
-текущая задача имеет `Status: in_progress`.
+Подготовьте полный окончательный текст `final.md`, остальные документы и актуальные
+независимые заключения. `--render-final` только готовит текст. Финальное событие
+создаёт `journal.py finalize`: полный validator проверяет предполагаемый снимок
+до атомарного закрытия текущего поколения. При отказе событие не добавляется,
+журнал остаётся открытым, задача — `Status: in_progress`.
+
+Сохраните отчёт в отдельный capture-файл. Возьмите UUID, редакцию и поколение
+из текущего снимка журнала; operation ID сохраните до вызова. Не угадывайте эти
+значения и не создавайте новый ID для технического повтора той же операции.
+
+```sh
+python3 "$AF_PACKAGE/scripts/journal.py" --run-dir "$AF_RUN" finalize \
+  --expected-run-uuid "$AF_RUN_UUID" \
+  --expected-revision "$AF_REVISION" \
+  --expected-generation "$AF_GENERATION" \
+  --operation-id "$AF_FINALIZE_OPERATION" \
+  --final-file "$AF_FINAL_CAPTURE" --verdict ship
+```
+
+Не используйте `append-timeline.py --stage final` или запись final через publish
+для закрытия. Успех finalize фиксирует final, событие, проверенные входы и квитанцию
+одной транзакцией. Та же операция с теми же байтами возвращает прежнюю квитанцию;
+другое содержимое с тем же ID отклоняется. Квитанция не подтверждает, что внешние
+сессии или файлы остались неизменными после проверки.
+
+Перед выдачей результата выполните свежую проверку. `AF_VALIDATION_LOG` должен
+указывать на файл вне канонических документов журнала и проверяемого результата.
 
 ```sh
 python3 "$AF_PACKAGE/scripts/validate-run.py" --run-dir "$AF_RUN" \
-  > "$AF_RUN/checks/final-validation.txt" 2>&1
+  > "$AF_VALIDATION_LOG" 2>&1
 AF_VALIDATION_EXIT=$?
-printf '\nexit_code: %s\n' "$AF_VALIDATION_EXIT" >> "$AF_RUN/checks/final-validation.txt"
-cat "$AF_RUN/checks/final-validation.txt"
+printf '\nexit_code: %s\n' "$AF_VALIDATION_EXIT" >> "$AF_VALIDATION_LOG"
+cat "$AF_VALIDATION_LOG"
 test "$AF_VALIDATION_EXIT" -eq 0
 ```
 
-Запускайте этот пример в shell без `errexit`, чтобы сохранить код отказа.
-Не используйте `--allow-pending` или `--allow-no-check`. Лог финальной команды
-не включается в проверяемый result hash или собственные QA/reviewer evidence,
-иначе его запись изменит входы той же проверки. Это отчёт, не кэш разрешения.
-Каждое последующее завершение требует свежего вызова валидатора.
+Запускайте пример в shell без `errexit`, чтобы сохранить код отказа. Не используйте
+`--allow-pending` или `--allow-no-check`. Закрытый журнал не принимает изменения
+документов, trace, summary или workspace; штатная delivery отдельно проверяет
+тот же сохранённый результат. Чтение, export и точные технические повторы разрешены.
+Диагностический лог не служит разрешением на следующее завершение.
 
-При exit 1 исправьте доступную ошибку и повторите команду. При недоступном
-обязательном доказательстве запишите `verification.blocker`, отрицательный
-`Verdict` и незакрытый критерий. Только при exit 0 и выполненных критериях
-установите `Status: done`, затем отправьте положительный final пользователю.
-Не редактируйте после этого результат, handoffs, summary или итоговый отчёт без
-затронутого повторного принятия и свежей валидации. Обновление статуса в памяти
-не меняет продуктовый результат. Число tests и текстовое одобрение reviewer
-не заменяют финальную команду; Python не перехватывает произвольный ответ Codex.
+При отказе до закрытия исправьте доступную ошибку и повторите finalize на свежих
+входах. Недоступное обязательное доказательство оставляет конкретный
+`verification.blocker` и отрицательный итог. Исторический отказ сохраняйте; его
+обязанность закрывает явная ссылка на принятое актуальное назначение с подходящими
+доказательствами. Пометки `historical` или `done` сами по себе не означают принятия.
+
+После закрытия не исправляйте историю вручную. Для допустимого закрытого отказа
+используйте штатное восстановление; для нового продуктового результата нужен
+отдельный run. Только успешная свежая проверка вместе с выполненными критериями
+и требуемой delivery разрешает `Status: done` и положительный ответ пользователю.
+Успешная проверка отчёта `blocked` или `fail` не означает выполнения задачи.
 
 ### Последующая приёмка V9
 
@@ -1094,8 +1316,8 @@ For final handoff, `validate-run.py` also requires:
 
 - exactly one `Verdict:` field in `final.md`;
 - exactly one valid final verdict value: `ship`, `pass-with-risks`, `blocked`, or `fail`;
-- exactly one run-level `timeline.jsonl` final event when a timeline exists or any agent trace exists;
-- the last timeline event must be `stage=final` and `role=orchestrator`.
+- exactly one `timeline.jsonl` final event in the current lifecycle generation when a timeline exists or any agent trace exists; earlier generations remain unchanged;
+- the current generation closes with `stage=final` and `role=orchestrator`, created only by `journal.py finalize` after full prospective validation;
 - timeline timestamps must be non-decreasing in file order;
 - if the timeline contains orchestrator `implementation` or `fix` events, the
   final successful orchestrator `verification` or `checks` event must come after
@@ -1138,9 +1360,13 @@ checks are rerun after a fix, append a new verification/checks event after the
 fix. The final timeline should make the actual sequence readable without
 opening chat history.
 
-Exactly one final orchestrator event is mandatory before final handoff:
+One final orchestrator event per lifecycle generation is required before final
+handoff. `journal.py finalize` creates it after full prospective validation;
+call the command described in «Финальная команда и завершение задачи» above.
+Do not append this event manually. Archived generations retain their original
+final events and verdicts.
 
-If a product commit was created, append the commit event first:
+If a product commit was created, append its event before finalization:
 
 ```bash
 python3 scripts/append-timeline.py \
@@ -1152,21 +1378,7 @@ python3 scripts/append-timeline.py \
   --status pass \
   --summary "Committed product changes as <hash>." \
   --commit-hash <hash> \
-  --next-step "write final.md and validate run"
-```
-
-```bash
-python3 scripts/append-timeline.py \
-  --run-dir <run-dir> \
-  --stage final \
-  --role orchestrator \
-  --stable-agent-name orchestrator \
-  --stable-agent-slug orchestrator \
-  --status pass \
-  --summary "Final checks passed and final.md recorded the verdict." \
-  --next-step "handoff to user" \
-  --artifact final.md \
-  --artifact checks.md
+  --next-step "prepare final report and finalize"
 ```
 
 ## Per-Agent Trace Events

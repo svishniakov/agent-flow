@@ -1,6 +1,6 @@
 ---
 name: agent-flow
-description: "Use only when the user explicitly invokes Agent Flow anywhere in the request, for example `Agent Flow`, `AgentFlow`, `$agent-flow`, or `agent-flow`. Route that request to a verified result with the smallest useful budget. Light budget stays solo; standard and release budgets may use subagents when the orchestrator decides they add real verification or parallelism value."
+description: "Use only when the user explicitly asks to perform the task through Agent Flow anywhere in the request, for example `Agent Flow`, `AgentFlow`, `$agent-flow`, or `agent-flow`. Route that request to a verified result with the smallest useful budget. Light budget stays solo; standard and release budgets may use subagents when the orchestrator decides they add real verification or parallelism value."
 ---
 
 # Agent Flow
@@ -13,9 +13,9 @@ Agent Flow turns an explicitly invoked user request into a finished, verified re
 
 ## No Preflight
 
-Do not load, use, or mention Agent Flow for requests that do not contain an explicit Agent Flow invocation marker.
+Do not start the Agent Flow process without an explicit instruction to perform the task through it. A request to explain or audit Agent Flow permits reading its files as the subject of analysis without starting the process.
 
-Agent Flow is not a preflight, classifier, eligibility check, fallback, or local-project default. If this skill file is reached without a user-visible invocation marker, stop using it immediately and continue outside Agent Flow without announcing that Agent Flow was skipped.
+Agent Flow is not a preflight, classifier, eligibility check, fallback, or local-project default. If no explicit invocation has started the current task, do not start this process merely because its file was loaded. An already active task continues without a repeated marker, including after context recovery, until the user cancels or replaces it.
 
 ## Invocation Model
 
@@ -28,19 +28,54 @@ Agent Flow has one public invocation:
 
 Text forms without `$` are case-insensitive.
 
-Use this skill when the invocation marker appears anywhere in the latest user request. The marker may be at the beginning, middle, or end of the message.
+An explicit user selection of the Agent Flow plugin through Codex Desktop `@`
+also invokes this skill when the client supplies that selected plugin in the
+current request. A plugin name in a quote, file, recommendation, or available
+plugin list is not a selection and does not start Agent Flow.
 
-Requests without an Agent Flow invocation marker are outside this skill. They run solo in the main agent, without Agent Flow artifacts and without subagents.
+Use this skill when the user explicitly instructs you to perform the task through Agent Flow. The invocation marker may appear anywhere in the latest user request: at the beginning, middle, or end. A name in a quote, link, file, task title, or question about the skill is not an invocation. Explicit `$agent-flow` use for the task is an invocation. Text forms include `агент-флоу`. A follow-up within an active task preserves its workflow and prior authorization unless the user cancels or replaces the task.
 
-Project or local `AGENTS.md` files may not force Agent Flow when the latest user request has no invocation marker. They can define local commands and context, but Agent Flow still requires a user-visible marker.
+New tasks without an explicit Agent Flow invocation run outside this skill, solo in the main agent without Agent Flow artifacts or subagents. A markerless follow-up to an active Agent Flow task keeps that task's workflow and authorization.
+
+Project or local `AGENTS.md` files may not initiate Agent Flow on their own. They can define local commands and context; the initial launch requires the user's explicit invocation. Continuing an active task requires no repeated marker.
 
 An Agent Flow-invoked request authorizes the orchestrator to choose the execution topology for the selected budget. `light` budget stays solo for implementation ownership, but it does not mean file-changing implementation can skip independent QA review. `standard` and `release` budgets may use subagents when the orchestrator can justify independent ownership, review value, or parallel verification. The Action Authorization contract below still applies.
 
 Never expose extra modes such as `/solo`, `/lite`, `orchestrated`, autopilot, parallel-review, or review-mode as public user-facing modes. Treat detailed workflow choice as internal routing inside Agent Flow.
 
+## Installed Source And Setup
+
+Use this loaded SKILL.md's directory as `AF_PACKAGE`. Keep all scripts, role
+instructions, references and registries relative to that exact directory; do not
+substitute a global skill path for a selected plugin. Record the resolved package
+root when reporting an installation or compatibility check.
+
+Before the first delegation in a new task, run from the target project root:
+
+```sh
+python3 "$AF_PACKAGE/scripts/check-installed-package.py" --dependencies
+```
+
+For project-scoped role setup, pass `--roles-dir "$PWD/.codex/agents"`. If the
+check reports stale or missing roles, run its displayed sync command from the
+selected package after preserving and resolving any reported conflicts. Start a
+new Codex task after role setup or plugin updates. Never substitute another role
+or model. Review the dependency report for the selected task: missing required
+skills need the concrete install action shown there; package installation does
+not install extra skills or connect services.
+
+When both distributions are installed, select one active source using the client
+controls described in [installation instructions](docs/en/installation.md).
+Conflicting project role overrides must be resolved before delegation. Plugin
+updates use Codex plugin commands; the Git updater must not alter plugin caches.
+Do not apply additional CLI role overrides after the readiness check. Recheck
+the selected package when its role configuration changes.
+Local checks do not attest cloud-managed role overrides. If those apply, verify
+the effective roles in the client before delegation.
+
 ## Boundary
 
-Default solo work, without the Agent Flow invocation marker:
+Default solo work, when no explicit invocation has started the current task:
 
 - Do not use this skill.
 - Do not spawn subagents.
@@ -117,8 +152,8 @@ Read `references/project-memory-and-env.md` before planning, delegation, product
 Before implementation or subagent launch, the main agent must follow global project memory rules from the current user's Codex instructions, usually `~/.codex/AGENTS.md`:
 
 - detect the project repo;
-- create `.agent-work/tasks/`, `todo.md`, and `lessons.md` for repo tasks when missing;
-- read `lessons.md` and `todo.md` before repo work;
+- create persistent task memory when sustained work, handoff, or durable findings require it; create `lessons.md` only for an actual lesson;
+- read relevant sections of existing task memory; reuse unchanged context and inspect updates when needed;
 - read `implementation-notes.md` when global criteria make it relevant;
 - update `todo.md`, `implementation-notes.md`, and `lessons.md` through the orchestrator rules;
 - keep the current `todo.md` task status synchronized with checklist, verification, and commit state;
@@ -259,8 +294,8 @@ Apply Action Authorization. For change, build, or fix requests, the main agent m
 
 ## Core Decision Tree
 
-1. If the task contains `Agent Flow`, `AgentFlow`, `$agent-flow`, or `agent-flow`, strip that marker and use this skill.
-2. If the task does not contain an Agent Flow invocation marker, do not use this skill.
+1. If the user explicitly asks to perform the task through `Agent Flow`, `AgentFlow`, `$agent-flow`, `agent-flow`, or `агент-флоу`, use this skill under Invocation Model. A quoted or discussed name does not start it.
+2. Continue an already active Agent Flow task without asking for another invocation marker. If the user starts a new task without invoking Agent Flow, work outside this skill.
 3. Inside Agent Flow, do not call `brainstorming`; classify the request and choose the smallest internal flow directly.
 4. If the task is trivial, answer or run the command directly within Agent Flow.
 5. Read primary project memory, named task sources, and environment context.
@@ -333,7 +368,10 @@ Timeline events must be appended in real workflow order. Do not record successfu
 
 If a traceable run creates a product commit, create the product commit first, then append a run-local `stage=commit` orchestrator timeline event with the commit hash before writing the final event. AgentFlow trace artifacts under `.agent-work/` remain local audit memory and must not be included in the product commit unless the user explicitly requests that.
 
-Record exactly one final orchestrator timeline event per run.
+Use `journal.py finalize` to validate and atomically record one final orchestrator
+event per lifecycle generation. A failed finalization leaves the journal open.
+Preserve historical failures and finals; resolve an outstanding obligation through
+an explicit accepted replacement, never by changing its old event.
 
 ## Delegation Gate
 
@@ -386,7 +424,7 @@ For code review and release readiness work that touches architecture, public con
 
 Read `references/definition-of-done.md` before final response on traceable work.
 
-No completion claim without fresh evidence. Verification can be tests, build, lint, browser screenshots, visual diff, QA notes, docs review, or a checklist tied to acceptance criteria.
+No completion claim without evidence applicable to the current result. Reuse unchanged checks when their coverage and inputs remain valid; mandatory fresh final validation below still applies. Verification can be tests, build, lint, browser screenshots, visual diff, QA notes, docs review, or a checklist tied to acceptance criteria.
 
 Before final response for any repo task, run the Task Status Completion Gate:
 
@@ -396,7 +434,7 @@ Before final response for any repo task, run the Task Status Completion Gate:
 - when commit is authorized, compare staged diff with the accepted delivery list, verify document statuses in the index, create scoped commits and inspect each repository's committed documents with `git show`. A finished document commit contains `Document status: done`; an explicitly requested intermediate snapshot retains truthful WIP status. No commit is required when none was requested;
 - record commit evidence in each affected repository's task memory and the timeline after commit, never put a future commit's own SHA inside its document. Commit failure keeps delivery incomplete; validator failure after commit preserves the SHA and unresolved criteria, not a false done claim;
 
-- для изменения файлов сначала выполните свежий `validate-run.py --run-dir ...` без `--allow-pending` и `--allow-no-check`; stdout/stderr и exit code сохраните в `checks/final-validation.txt` по примеру в `references/traceable-runs.md`;
+- для изменения файлов завершите журнал через `journal.py finalize`, затем выполните свежий `validate-run.py --run-dir ...` без `--allow-pending` и `--allow-no-check`; сохраняйте диагностику вне канонических документов журнала по примеру в `references/traceable-runs.md`;
 - if the current task checklist is complete, final validation exited 0, verification is recorded, no blocker remains, and any requested product commit succeeded, set the current `.agent-work/tasks/todo.md` section to `Status: done`; для консультаций без run достаточно применимых прямых проверок;
 - if a product commit was created for the task, update the current task section after the commit with the commit/check evidence before final handoff;
 - if any checklist item, verification, approval, or commit step is missing, keep `Status: in_progress` or `Status: blocked` and record the exact missing item. Изменение результата или доказательств после проверки требует повторного принятия по затронутой части и нового вызова валидатора. Число tests и текстовое одобрение не заменяют эту команду.

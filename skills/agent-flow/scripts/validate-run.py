@@ -524,13 +524,15 @@ def validate_final_timeline_event(run_dir: Path, require_timeline: bool, *, snap
         return ["timeline.jsonl: no events"]
 
     errors: list[str] = []
+    if snapshot is not None:
+        timeline_events = snapshot.current_events()
     final_events = [event for event in timeline_events if event.get("stage") == "final"]
     if not final_events:
         errors.append("timeline.jsonl: missing final event")
     elif len(final_events) > 1:
         errors.append("timeline.jsonl: multiple final events")
 
-    last_event = timeline_events[-1]
+    last_event = timeline_events[-1] if timeline_events else {}
     if last_event.get("stage") != "final":
         errors.append("timeline.jsonl: last event must be stage=final")
     if last_event.get("role") != "orchestrator":
@@ -557,6 +559,9 @@ def validate_timeline_sequence(run_dir: Path, *, snapshot=None) -> list[str]:
         if previous_timestamp is not None and timestamp < previous_timestamp:
             errors.append(f"timeline.jsonl:{index}: timestamp must be non-decreasing")
         previous_timestamp = timestamp
+
+    if snapshot is not None:
+        timeline_events = snapshot.current_events()
 
     last_implementation_index = max(
         (
@@ -632,13 +637,22 @@ def validate_timeline_sequence(run_dir: Path, *, snapshot=None) -> list[str]:
     return errors
 
 
-def validate_agent_traces(run_dir: Path, *, snapshot=None) -> list[str]:
+def validate_agent_traces(run_dir: Path, *, snapshot=None, session_source=None) -> list[str]:
     errors: list[str] = []
+    from verification_evidence import effective_trace_modes, CodexSessionSource, EvidenceError
+    source = session_source or CodexSessionSource()
+    snapshot = snapshot or JournalSnapshot.open(run_dir)
     agents_dir = run_dir / "agents"
     if not journal_exists(agents_dir, snapshot=snapshot):
         return errors
     if not journal_is_dir(agents_dir, snapshot=snapshot):
         return ["agents exists but is not a directory"]
+
+    try:
+        corrected_modes = effective_trace_modes(snapshot, source)
+    except (EvidenceError, ValueError, KeyError, TypeError, IndexError) as exc:
+        errors.append('trace mode correction: ' + str(exc))
+        corrected_modes = {}
 
     timeline_events, timeline_load_errors = load_jsonl_events(run_dir / "timeline.jsonl", snapshot=snapshot)
     timeline_event_keys = set()
@@ -661,8 +675,8 @@ def validate_agent_traces(run_dir: Path, *, snapshot=None) -> list[str]:
             continue
 
         execution_modes = {
-            normalize_execution_mode(event.get("execution_mode"))
-            for event in trace_events
+            normalize_execution_mode(corrected_modes.get((display_name, index), event.get("execution_mode")))
+            for index, event in enumerate(trace_events, 1)
             if event.get("execution_mode") is not None
         }
         invalid_modes = sorted(mode for mode in execution_modes if mode not in AGENT_EXECUTION_MODES)
@@ -683,6 +697,20 @@ def validate_agent_traces(run_dir: Path, *, snapshot=None) -> list[str]:
         if timeline_load_errors:
             continue
         for index, event in enumerate(trace_events, start=1):
+            mode = corrected_modes.get((display_name, index), event.get('execution_mode'))
+            if mode == 'subagent' and snapshot.storage_version == 2:
+                identity = event.get('codex_thread_id')
+                if not identity and event.get('lane_id') and snapshot.exists('delegation-summary.json'):
+                    summary = json.loads(snapshot.read_text('delegation-summary.json'))
+                    records = [r for r in summary.get('subagents', []) if r.get('lane_id') == event['lane_id']
+                               and r.get('role') == event.get('role')]
+                    if len(records) == 1:
+                        identity = records[0].get('codex_thread_id')
+                matches = [spawn for spawn in trace_events if spawn.get('stage') == 'spawned'
+                           and identity and spawn.get('codex_thread_id') == identity
+                           and (not event.get('lane_id') or spawn.get('lane_id') == event['lane_id'])]
+                if not matches:
+                    errors.append(f'{display_name}:{index}: subagent event missing its own spawned identity')
             if event_key(event) not in timeline_event_keys:
                 errors.append(f"{display_name}:{index}: event missing from timeline.jsonl")
     return errors
@@ -2120,6 +2148,15 @@ def validate_delegation_summary(
     if not isinstance(notes, str) or not notes.strip():
         errors.append(f"{DELEGATION_SUMMARY_PATH}: notes must be a non-empty string")
 
+    resolved = set()
+    if snapshot is not None and snapshot.storage_version == 2 and final_verdict in POSITIVE_FINAL_VERDICTS:
+        from verification_evidence import evaluate_obligations
+        resolved, obligation_errors = evaluate_obligations(snapshot, data)
+        errors.extend(obligation_errors)
+        for lane_id in lane_by_id:
+            if lane_id not in all_ids:
+                errors.append(f"{DELEGATION_SUMMARY_PATH}: uncovered lane obligation: {lane_id}")
+
     if subagents_used is False and subagent_ids:
         errors.append(f"{DELEGATION_SUMMARY_PATH}: subagents_used=false forbids subagents")
     if subagents_used is True and not subagent_ids:
@@ -2142,11 +2179,11 @@ def validate_delegation_summary(
         and normalize_lane_status(lane.get("status")) not in {"planned", "timed-out", "replaced"}
     )
     has_lane_map = journal_exists(run_dir / "lane-map.json", snapshot=snapshot)
-    if has_lane_map and sorted(subagent_ids) != expected_subagent_ids:
+    if has_lane_map and sorted(set(subagent_ids) - resolved) != expected_subagent_ids:
         errors.append(
             f"{DELEGATION_SUMMARY_PATH}: subagents must cover execution_mode=subagent lanes"
         )
-    if has_lane_map and sorted(role_lane_ids) != expected_role_lane_ids:
+    if has_lane_map and sorted(set(role_lane_ids) - resolved) != expected_role_lane_ids:
         errors.append(
             f"{DELEGATION_SUMMARY_PATH}: role_lanes must cover execution_mode=role-lane lanes"
         )
@@ -2165,7 +2202,7 @@ def validate_delegation_summary(
             if lane_id is None:
                 continue
             lane = lane_by_id.get(lane_id)
-            if lane is None and has_lane_map:
+            if lane is None and has_lane_map and lane_id not in resolved:
                 errors.append(f"{DELEGATION_SUMMARY_PATH}: unknown lane id: {lane_id}")
                 continue
             lane = lane or {"execution_mode": "subagent", "role": role}
@@ -2173,7 +2210,7 @@ def validate_delegation_summary(
                 errors.append(f"{DELEGATION_SUMMARY_PATH}: lane {lane_id} is not execution_mode=subagent")
             if role is not None and lane.get("role") != role:
                 errors.append(f"{record_label}.role must match lane role: {lane.get('role')}")
-            validate_delegation_summary_record_paths(run_dir, record, lane, record_label, errors, complete=final_verdict in POSITIVE_FINAL_VERDICTS, snapshot=snapshot)
+            validate_delegation_summary_record_paths(run_dir, record, lane, record_label, errors, complete=final_verdict in POSITIVE_FINAL_VERDICTS and lane_id not in resolved and not record.get("legacy"), snapshot=snapshot)
             if role is not None and codex_thread_id is not None:
                 events, event_errors = load_lane_trace_events(run_dir, role, lane_id, snapshot=snapshot)
                 errors.extend(event_errors)
@@ -2184,7 +2221,7 @@ def validate_delegation_summary(
                 if not has_lane_map:
                     errors.extend(validate_subagent_lane_trace(
                         run_dir, lane_id, role,
-                        lane_status="pass" if final_verdict in POSITIVE_FINAL_VERDICTS else "planned",
+                        lane_status="pass" if final_verdict in POSITIVE_FINAL_VERDICTS and lane_id not in resolved and not record.get("legacy") else "planned",
                         handoff=record.get("handoff"),
                         snapshot=snapshot,
                     ))
@@ -2200,7 +2237,7 @@ def validate_delegation_summary(
             if lane_id is None:
                 continue
             lane = lane_by_id.get(lane_id)
-            if lane is None and has_lane_map:
+            if lane is None and has_lane_map and lane_id not in resolved:
                 errors.append(f"{DELEGATION_SUMMARY_PATH}: unknown lane id: {lane_id}")
                 continue
             lane = lane or {"execution_mode": "role-lane", "role": role}
@@ -3662,16 +3699,19 @@ def validate_harness_evaluation(
     return errors
 
 
-def load_architecture_matrix_facets() -> tuple[dict[str, set[str]], list[str]]:
+def load_architecture_matrix_facets(*, inputs=None) -> tuple[dict[str, set[str]], list[str]]:
     facets = {axis: set() for axis in ARCHITECTURE_CONTEXT_AXES}
-    if not ARCHITECTURE_MATRIX_PATH.exists():
+    from validation_inputs import read_input
+    try:
+        matrix_text = read_input(ARCHITECTURE_MATRIX_PATH, inputs).decode("utf-8")
+    except FileNotFoundError:
         return facets, [f"Architecture Matrix not found: {ARCHITECTURE_MATRIX_PATH}"]
 
     heading_to_axis = {
         heading: axis for axis, heading in ARCHITECTURE_CONTEXT_AXES.items()
     }
     current_axis: str | None = None
-    for line in ARCHITECTURE_MATRIX_PATH.read_text(encoding="utf-8").splitlines():
+    for line in matrix_text.splitlines():
         heading_match = MARKDOWN_HEADING_PATTERN.match(line)
         if heading_match:
             level = len(heading_match.group(1))
@@ -4441,7 +4481,7 @@ def validate_lane_boundary_artifact(
     workspace = registered_workspace(snapshot) if snapshot is not None else None
     if workspace is not None:
         try:
-            sealed = verify_candidate(workspace)
+            sealed = verify_candidate(workspace, inputs=snapshot.external_inputs)
             expected = {"workspace_id": workspace["workspace_id"], "candidate_id": sealed["candidate_id"],
                         "baseline_digest": workspace["baseline_digest"], "candidate_digest": sealed["candidate_digest"],
                         "changed_paths": sealed["changed_paths"], "tracked_changed_paths": [], "untracked_paths": []}
@@ -5028,7 +5068,7 @@ def validate_lane_map(
     known_matrix_facets: set[str] = set()
     known_architecture_capability_ids: set[str] = set()
     if architecture_contract_required or "architecture_context" in data:
-        matrix_facets, matrix_errors = load_architecture_matrix_facets()
+        matrix_facets, matrix_errors = load_architecture_matrix_facets(inputs=snapshot.external_inputs if snapshot else None)
         errors.extend(matrix_errors)
         known_matrix_facets = {
             facet for facets in matrix_facets.values() for facet in facets
@@ -5049,6 +5089,7 @@ def validate_lane_map(
             ARCHITECTURE_CAPABILITY_REGISTRY_PATH,
             validate_skills=False,
             require_full_matrix_coverage=False,
+            inputs=snapshot.external_inputs if snapshot else None,
         )
         known_architecture_capability_ids = set(capabilities_by_id)
         errors.extend(capability_registry_errors)
@@ -6310,7 +6351,7 @@ def validate_compact_run(run_dir: Path, allow_no_check: bool, allow_pending: boo
     if has_timeline or has_agents:
         errors.extend(validate_jsonl(run_dir / "timeline.jsonl", snapshot=snapshot))
         errors.extend(validate_timeline_sequence(run_dir, snapshot=snapshot))
-        errors.extend(validate_agent_traces(run_dir, snapshot=snapshot))
+        errors.extend(validate_agent_traces(run_dir, snapshot=snapshot, session_source=session_source))
         if not allow_pending:
             errors.extend(validate_final_timeline_event(run_dir, require_timeline=True, snapshot=snapshot))
 
@@ -6356,7 +6397,7 @@ def validate_full_run(
 
     errors.extend(validate_jsonl(run_dir / "timeline.jsonl", snapshot=snapshot))
     errors.extend(validate_timeline_sequence(run_dir, snapshot=snapshot))
-    errors.extend(validate_agent_traces(run_dir, snapshot=snapshot))
+    errors.extend(validate_agent_traces(run_dir, snapshot=snapshot, session_source=session_source))
     if not allow_pending:
         errors.extend(validate_final_timeline_event(run_dir, require_timeline=True, snapshot=snapshot))
         final_verdict = read_single_field(run_dir / "final.md", "Verdict", snapshot=snapshot)
@@ -6447,7 +6488,7 @@ def validate_full_run(
 
 def validate_run(run_dir: Path, mode: str = "auto", *, require_handoff=False,
                  allow_no_check=False, allow_pending=False, session_source=None, snapshot=None) -> list[str]:
-    run_dir = Path(run_dir).resolve()
+    run_dir = snapshot.artifact_root if snapshot is not None else Path(run_dir).resolve()
     snapshot = snapshot or JournalSnapshot.open(run_dir)
     if detect_mode(run_dir, mode, snapshot=snapshot) == "compact":
         return validate_compact_run(run_dir, allow_no_check, allow_pending, session_source=session_source, snapshot=snapshot)

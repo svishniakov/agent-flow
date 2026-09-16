@@ -100,13 +100,19 @@ def resolve_role_path(agents_dir: Path, role: str) -> Path:
     return agents_dir / f"{role}.md"
 
 
-def read_frontmatter(path: Path) -> dict[str, str]:
+def read_frontmatter(path: Path, *, inputs=None) -> dict[str, str]:
+    if inputs is not None:
+        return parse_frontmatter(inputs.file(path).decode("utf-8"), path)
     if not path.exists():
         raise AgentConfigError(f"missing role file: {path}")
     if not path.is_file():
         raise AgentConfigError(f"role path is not a file: {path}")
 
-    lines = path.read_text(encoding="utf-8").splitlines()
+    return parse_frontmatter(path.read_text(encoding="utf-8"), path)
+
+
+def parse_frontmatter(text, path):
+    lines = text.splitlines()
     if not lines or lines[0].strip() != "---":
         raise AgentConfigError(f"{path}: missing opening frontmatter marker")
 

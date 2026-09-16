@@ -25,6 +25,9 @@ Describe the result you need and any constraints. Include the relevant plan or f
 
 ## Installation
 
+The standalone skill and Codex plugin share one source package.
+See [archive installation, role setup, and updates](skills/agent-flow/docs/en/installation.md).
+
 Install globally for Codex:
 
 ```bash

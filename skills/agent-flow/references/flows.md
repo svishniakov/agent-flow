@@ -1,8 +1,8 @@
 # Agent Flow Internal Flows
 
-Use internal flows only after the user explicitly invokes Agent Flow anywhere in the latest request. They are not public modes.
+Use internal flows after the user explicitly starts a task through Agent Flow, and while continuing that active task. The initial instruction may appear anywhere in the latest request. Apply the Invocation Model in `SKILL.md`; quotations, links, and questions about the name do not start a new flow. These flows are not public modes.
 
-Do not use this file as preflight for requests with no invocation marker. Agent Flow starts only from a user-visible marker in the latest request.
+Do not use this file as preflight to initiate an unrequested workflow. A new Agent Flow task requires a user-visible invocation; an active task continues without a repeated marker until the user cancels or replaces it, including after context recovery.
 
 Agent Flow does not use the separate `brainstorming` skill. If scope is unclear, handle that through intake, route, and the selected internal flow.
 

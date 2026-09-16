@@ -20,6 +20,16 @@ import journal_io as journal
 SCRIPTS = Path(__file__).resolve().parent
 
 
+def external_corruption(run, documents):
+    """Unsupported direct SQL writes test pinned readers, not lifecycle permissions."""
+    import hashlib
+    with sqlite3.connect(Path(run) / ".journal/state.sqlite3") as connection:
+        for name, data in documents.items():
+            connection.execute("INSERT OR REPLACE INTO documents VALUES (?, 'file', ?, ?)",
+                               (name, data, hashlib.sha256(data).hexdigest()))
+        connection.execute("UPDATE run_state SET revision=revision+1")
+
+
 def child(code, *args):
     return subprocess.run([sys.executable, "-B", "-c", code, *map(str, args)],
                           env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONPATH": str(SCRIPTS)},
@@ -118,7 +128,8 @@ os.kill(os.getpid(), signal.SIGKILL)
         self.assertTrue(all(lane["handoff_state"]["status"] == "queued" for lane in json.loads(snapshot.read_text("lane-map.json"))["lanes"]))
         final = [sys.executable, "-B", str(SCRIPTS / "append-timeline.py"), "--run-dir", str(self.run), "--role", "orchestrator", "--stage", "final", "--status", "pass", "--summary", "Done"]
         result = subprocess.run(final, capture_output=True, text=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("finalize", result.stderr)
         before = dict(journal.JournalSnapshot.open(self.run).documents)
         late = subprocess.run([*final[:-3], "pass", "--summary", "Late"], capture_output=True, text=True)
         self.assertNotEqual(late.returncode, 0)
@@ -594,7 +605,7 @@ class ConsumerTests(unittest.TestCase):
                         text = original(current, path, encoding)
                         if not fired:
                             fired.append(True)
-                            code = "from pathlib import Path; import sys, journal_io as j; j.transact(Path(sys.argv[1]), 'interleave', {}, lambda s: ({'checks.md': b'new', 'final.md': b'Verdict: blocked\\n', 'timeline.jsonl': b'invalid JSON\\n'}, {}))"
+                            code = "from pathlib import Path; import sys, runpy; m=runpy.run_path(str(Path(__import__('journal_io').__file__).with_name('test-journal-storage.py'))); m['external_corruption'](Path(sys.argv[1]), {'checks.md': b'new', 'final.md': b'Verdict: blocked\\n', 'timeline.jsonl': b'invalid JSON\\n'})"
                             result = child(code, run)
                             self.assertEqual(result.returncode, 0, result.stderr)
                         return text
@@ -615,18 +626,18 @@ class ConsumerTests(unittest.TestCase):
             text = original_read(current, path, encoding)
             if not fired:
                 fired.append(True)
-                journal.transact(self.run, "main-interleave", {}, lambda s: ({"final.md": b"Verdict: blocked\n"}, {}))
+                external_corruption(self.run, {"final.md": b"Verdict: blocked\n"})
             return text
         with patch.object(journal.JournalSnapshot, "read_text", interleaved), patch.object(verification_evidence, "CodexSessionSource", return_value=self.source), patch.object(sys, "argv", ["validate-run.py", "--run-dir", str(self.run)]), redirect_stdout(StringIO()) as output:
             self.assertEqual(validator.main(), 0)
         self.assertEqual(fired, [True])
         self.assertTrue(output.getvalue().startswith("PASS "))
-        journal.transact(self.run, "restore", {}, lambda s: ({"final.md": snapshot.read_bytes("final.md"), "harness-evaluation.json": b'{"findings": [], "notes": "old"}'}, {}))
+        external_corruption(self.run, {"final.md": snapshot.read_bytes("final.md"), "harness-evaluation.json": b'{"findings": [], "notes": "old"}'})
         observed = []
         def validate(run, *, snapshot):
             errors = validator.validate_run(run, session_source=self.source, snapshot=snapshot)
             self.assertEqual(errors, [])
-            journal.transact(run, "harness-interleave", {}, lambda s: ({"harness-evaluation.json": b'{"findings": [], "notes": "new"}'}, {}))
+            external_corruption(run, {"harness-evaluation.json": b'{"findings": [], "notes": "new"}'})
             return "synthetic pinned validator", "PASS"
         original_load = harness_promotion.load_harness_evaluation
         def read(run, *, snapshot):

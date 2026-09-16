@@ -17,7 +17,8 @@ from pathlib import Path
 
 from agent_config import AgentConfigError
 from journal_io import (load_artifact_index, upsert_artifacts, validate_directory, JournalSnapshot,
-                        transact, operation_id, digest, capture_file, capture_external_references)
+                        transact, operation_id, digest, capture_file, capture_external_references,
+                        validate_assignment_event, _transact_completion)
 from journal_io import (now_iso, encode_json, validate_append,
                         render_final, safe_path_segment, display_path, unique_paths)
 
@@ -93,6 +94,17 @@ def prepare_summary(run_dir: Path, args, artifact_paths: list[str], source, *, s
             raise EvidenceError("assignment identity changed; use a new lane_id")
         record.update(lane_id=args.lane_id, role=args.role, codex_thread_id=thread_id,
                       trace=f"agents/{safe_path_segment(args.role)}/trace.jsonl")
+        if snapshot.storage_version == 2:
+            obligation_id = getattr(args, "obligation_id", None) or args.lane_id
+            record.setdefault("obligation", {"id": obligation_id, "required": True, "state": "current"})
+            require(not getattr(args, "obligation_id", None) or record["obligation"]["id"] == obligation_id,
+                    "obligation identity changed; use a new lane")
+            if existing and existing.get("status") in {"pass", "pass-with-risks", "fail", "blocked"}:
+                require(existing["status"] == args.status, "terminal outcome is immutable; use a new lane")
+            record["status"] = args.status
+            if args.stage == "handoff" and args.status in {"pass", "pass-with-risks"}:
+                require(bool(artifact_paths), "accepted handoff requires artifact")
+                require(bool(snapshot.read_bytes(artifact_paths[0]).strip()), "accepted handoff artifact missing or empty")
         if args.role == "qa-verifier" and args.stage == "spawned":
             verification["qa"] = verification["reviewer"] = None
         elif args.role in {"reviewer", "reviewer.qa"} and args.stage == "spawned":
@@ -163,6 +175,26 @@ def prepare_summary(run_dir: Path, args, artifact_paths: list[str], source, *, s
         data["subagents_used"] = True
         if args.completion_turn_id:
             require_workspace_or_historical(snapshot, data)
+    elif args.execution_mode == "role-lane" and args.lane_id and snapshot.storage_version == 2:
+        existing = next((r for r in data["role_lanes"] if r.get("lane_id") == args.lane_id), None)
+        record = dict(existing or {})
+        require(existing is None or existing.get("role") == args.role, "assignment identity changed; use a new lane_id")
+        obligation_id = getattr(args, "obligation_id", None) or args.lane_id
+        record.setdefault("obligation", {"id": obligation_id, "required": True, "state": "current"})
+        require(not getattr(args, "obligation_id", None) or record["obligation"]["id"] == obligation_id,
+                "obligation identity changed; use a new lane")
+        record.update(lane_id=args.lane_id, role=args.role, status=args.status,
+                      trace=f"agents/{safe_path_segment(args.role)}/trace.jsonl")
+        record.setdefault("reason", args.summary)
+        if args.stage == "handoff":
+            require(bool(artifact_paths), "accepted handoff requires artifact")
+            require(bool(snapshot.read_bytes(artifact_paths[0]).strip()), "handoff artifact missing or empty")
+            record["handoff"] = artifact_paths[0]
+        if existing:
+            data["role_lanes"][data["role_lanes"].index(existing)] = record
+        else:
+            data["role_lanes"].append(record)
+        data["role_lanes_used"] = True
     elif args.completion_turn_id:
         raise EvidenceError("--completion-turn-id requires subagent and --lane-id")
     errors = validate_verification(run_dir, data, lane_map, "pending", source, snapshot=snapshot)
@@ -206,6 +238,79 @@ def prepare_conclusion(run_dir, args, artifacts, source, *, snapshot=None):
     return answer
 
 
+
+def require_subagent_identity(snapshot, args, source):
+    if args.execution_mode != 'subagent':
+        return
+    from verification_evidence import session_metadata
+    data = json.loads(snapshot.read_text('delegation-summary.json')) if snapshot.exists('delegation-summary.json') else {}
+    verification = data.get('verification', {})
+    root = verification.get('root_thread_id')
+    thread = args.codex_thread_id
+    if args.resolve_session:
+        thread = source.resolve_session(args.agent_path, root, args.role, thread_id=thread)['codex_thread_id']
+    if not thread and args.lane_id:
+        candidates = [r for r in data.get('subagents', []) if r.get('lane_id') == args.lane_id and r.get('role') == args.role]
+        require(len(candidates) == 1, 'subagent lane identity missing or ambiguous; root metadata requires explicit --execution-mode role-lane')
+        thread = candidates[0].get('codex_thread_id')
+    require(thread and thread != root, 'subagent identity required; root metadata requires explicit --execution-mode role-lane')
+    session_metadata(source.read(thread), thread, root, 'reviewer' if args.role == 'reviewer.qa' else args.role, source=source)
+    if args.stage != 'spawned':
+        trace = f'agents/{safe_path_segment(args.role)}/trace.jsonl'
+        events = [json.loads(line) for line in snapshot.read_text(trace).splitlines()] if snapshot.exists(trace) else []
+        require(any(e.get('stage') == 'spawned' and e.get('codex_thread_id') == thread
+                    and (not args.lane_id or e.get('lane_id') == args.lane_id) for e in events),
+                'subagent event requires its own registered spawn')
+    args.codex_thread_id = thread
+
+
+def record_mode_correction(run_dir, correction, *, identifier, session_source=None, barrier=None):
+    from journal_lifecycle import capture_validation, freeze_validation
+    from verification_evidence import verify_trace_mode_correction, effective_trace_modes
+    snapshot = JournalSnapshot.open(run_dir)
+    require(snapshot.durable, 'flat legacy requires explicit import before trace mode correction')
+    require(isinstance(correction, dict) and identifier == correction.get('operation_id'), 'mode correction operation ID mismatch')
+    payload = {'command': 'trace-mode-correction', 'correction': correction}
+    # Persist the exact request before any transaction; receipt replay precedes mutable guards.
+    identifier = operation_id(run_dir, 'trace-mode-correction', payload, identifier=identifier)
+    prior = snapshot.operation_receipt(identifier)
+    if prior is not None:
+        require(prior['payload_sha256'] == digest(encode_json(payload).encode()), 'operation ID payload conflict')
+        return prior['result']
+    require(not snapshot.closed, 'journal generation is closed')
+    require(snapshot.storage_version == 2, 'trace mode correction requires storage version 2')
+    snapshot, source = capture_validation(snapshot, session_source=session_source)
+    def verify(current):
+        require((current.run_uuid, current.generation, current.revision) ==
+                (correction['run_uuid'], correction['generation'], correction['revision']), 'mode correction preconditions changed')
+        addresses = verify_trace_mode_correction(current, correction, source)
+        previous = effective_trace_modes(current, source)
+        require(not any(('agents/orchestrator/trace.jsonl', i) in previous for i in addresses), 'target already has a mode correction')
+        for key in ('timeline', 'trace'):
+            require(len(current.read_bytes(correction[key]['path'])) == correction[key]['size'], 'mode correction prefix is not current')
+    verify(snapshot)
+    freeze_validation(snapshot, source)
+    if barrier:
+        barrier('captured')
+    event = {'timestamp': now_iso(), 'stage': 'trace-mode-corrected', 'role': 'orchestrator',
+             'stable_agent_name': 'orchestrator', 'stable_agent_slug': 'orchestrator', 'status': 'done',
+             'summary': correction['reason'], 'artifacts': [], 'next_step': '', 'execution_mode': 'role-lane',
+             'generation': snapshot.generation, 'mode_correction': correction,
+             'agent_trace': 'agents/orchestrator/trace.jsonl'}
+    raw = (encode_json(event)+'\n').encode()
+    def mutation(current):
+        current = replace(current, external_inputs=snapshot.external_inputs)
+        verify(current)
+        validate_append(run_dir / 'timeline.jsonl', event, snapshot=current)
+        if barrier:
+            barrier('locked')
+        return {path: current.read_bytes(path)+raw for path in ('timeline.jsonl', 'agents/orchestrator/trace.jsonl')}, {'corrected': len(correction['targets']), 'generation': current.generation}
+    result = transact(run_dir, identifier, payload, mutation)
+    if barrier:
+        barrier('after-commit')
+    return result
+
+
 def main(argv=None, *, session_source=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-dir", required=True)
@@ -217,6 +322,7 @@ def main(argv=None, *, session_source=None) -> int:
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--prepare-conclusion", action="store_true")
     modes.add_argument("--render-final", action="store_true")
+    modes.add_argument("--correction-file", help="Captured root trace mode correction JSON.")
     parser.add_argument("--next-step", default="")
     parser.add_argument("--stable-agent-name")
     parser.add_argument("--stable-agent-slug")
@@ -227,11 +333,24 @@ def main(argv=None, *, session_source=None) -> int:
     parser.add_argument("--agent-path", help="Exact canonical task path returned by the spawn tool.")
     parser.add_argument("--runtime-nickname")
     parser.add_argument("--lane-id")
+    parser.add_argument("--obligation-id", help="Stable responsibility shared by an assignment and its replacement.")
     parser.add_argument("--wave", type=int)
     parser.add_argument("--critical", action="store_true")
     parser.add_argument("--completion-turn-id")
     parser.add_argument("--verification-json", help="Verification object as JSON or a local file path.")
     args = parser.parse_args(argv)
+    if args.correction_file:
+        supplied = {arg.split('=', 1)[0] for arg in (argv if argv is not None else sys.argv[1:]) if arg.startswith('--')}
+        if supplied - {'--run-dir', '--operation-id', '--correction-file'} or not args.operation_id:
+            parser.error('correction-file requires only run-dir and saved operation-id')
+        try:
+            run_dir = Path(args.run_dir).expanduser().resolve()
+            correction = json.loads(capture_file(Path(args.correction_file).expanduser()).decode())
+            print('receipt: ' + encode_json({'operation_id': args.operation_id, **record_mode_correction(
+                run_dir, correction, identifier=args.operation_id, session_source=session_source)}))
+        except (EvidenceError, OSError, ValueError, KeyError, TypeError) as exc:
+            raise SystemExit(str(exc)) from exc
+        return 0
     if args.prepare_conclusion or args.render_final:
         allowed = {"--run-dir", "--render-final", "--operation-id"} if args.render_final else {"--run-dir", "--prepare-conclusion", "--role", "--lane-id", "--status", "--artifact"}
         supplied = {arg.split("=", 1)[0] for arg in (argv if argv is not None else sys.argv[1:]) if arg.startswith("--")}
@@ -251,15 +370,19 @@ def main(argv=None, *, session_source=None) -> int:
             else:
                 payload = {"command": "render-final"}
                 identifier = operation_id(run_dir, "render-final", payload, identifier=args.operation_id)
-                captured = CapturedSource(session_source or CodexSessionSource())
+                from journal_lifecycle import capture_validation, freeze_validation
+                snapshot, captured = capture_validation(snapshot, session_source=session_source)
+                inputs = snapshot.external_inputs
                 def check_acceptance(current):
+                    current = replace(current, external_inputs=inputs)
                     summary = json.loads(current.read_text("delegation-summary.json"))
                     lanes = json.loads(current.read_text("lane-map.json")) if current.exists("lane-map.json") else {}
                     errors = validate_verification(run_dir, summary, lanes, "ship", captured, snapshot=current)
                     require(not errors, "; ".join(errors))
                 check_acceptance(snapshot)
-                captured.frozen = True
+                freeze_validation(snapshot, captured)
                 def render(snapshot):
+                    snapshot = replace(snapshot, external_inputs=inputs)
                     check_acceptance(snapshot)
                     data = json.loads(snapshot.read_text("delegation-summary.json"))
                     validate_summary_shape(data)
@@ -291,11 +414,34 @@ def main(argv=None, *, session_source=None) -> int:
         raise SystemExit(f"run dir not found: {run_dir}")
 
     try:
+        validate_assignment_event(vars(args))
+        snapshot = JournalSnapshot.open(run_dir)
+        require(snapshot.durable, 'flat legacy requires explicit import before trace registration')
+        if args.operation_id and snapshot.operation_receipt(args.operation_id) is not None and (
+            args.execution_mode == 'subagent' and not args.codex_thread_id and not args.lane_id
+            and not args.resolve_session and args.role == 'orchestrator'
+            and args.stage in {'verification-prepared', 'verification-ready'}
+        ):
+            request = json.loads(capture_file(run_dir / '.journal/requests' / args.operation_id))
+            supplied = {k: v for k, v in vars(args).items() if k not in {'run_dir', 'operation_id', 'correction_file'}}
+            if args.verification_json and not args.verification_json.lstrip().startswith('{'):
+                supplied['verification_json'] = capture_file(Path(args.verification_json).expanduser()).decode()
+            supplied['artifact'] = sorted(unique_paths([display_path(path, run_dir) for path in args.artifact]))
+            require(supplied == {k: v for k, v in request['payload'].items() if k != 'captured_references'},
+                    'operation ID payload conflict')
+            operation_id(run_dir, 'record-agent-trace', request['payload'], identifier=args.operation_id)
+            prior = snapshot.operation_receipt(args.operation_id)
+            require(prior['payload_sha256'] == digest(encode_json(request['payload']).encode()), 'operation ID payload conflict')
+            print('receipt: ' + encode_json({'operation_id': args.operation_id, **prior['result']}))
+            return 0
+        require_subagent_identity(snapshot, args, session_source or CodexSessionSource())
         snapshot = ensure_result_contract(run_dir, session_source)
     except (EvidenceError, OSError, ValueError) as exc:
         raise SystemExit(str(exc)) from exc
     artifact_paths = unique_paths([display_path(path, run_dir) for path in args.artifact])
-    source = CapturedSource(session_source or CodexSessionSource())
+    from journal_lifecycle import capture_validation, freeze_validation
+    snapshot, source = capture_validation(snapshot, session_source=session_source)
+    inputs = snapshot.external_inputs
     try:
         if args.verification_json and not args.verification_json.lstrip().startswith("{"):
             args.verification_json = capture_file(Path(args.verification_json).expanduser()).decode()
@@ -313,11 +459,12 @@ def main(argv=None, *, session_source=None) -> int:
                 index = json.loads(current.documents.get(index_path, b"{}"))
                 index.update(json.loads(captured[index_path]))
                 documents[index_path] = encode_json(index).encode()
-            return replace(current, documents=MappingProxyType(documents))
+            return replace(current, documents=MappingProxyType(documents), external_inputs=inputs)
         snapshot = with_captures(snapshot)
+        require_subagent_identity(snapshot, args, source)
         preflight_summary, preflight_fields = prepare_summary(run_dir, args, artifact_paths, source, snapshot=snapshot)
-        source.frozen = True
-        payload = {key: value for key, value in vars(args).items() if key not in {"run_dir", "operation_id"}}
+        freeze_validation(snapshot, source)
+        payload = {key: value for key, value in vars(args).items() if key not in {"run_dir", "operation_id", "correction_file"}}
         payload["artifact"] = sorted(artifact_paths)
         if args.completion_turn_id:
             assignment = next(record for record in preflight_summary["subagents"] if record["lane_id"] == args.lane_id)
@@ -342,8 +489,12 @@ def main(argv=None, *, session_source=None) -> int:
             additions = {name: prepared.documents[name] for name in captured}
             return ({**additions, **documents} if documents else {}), result
         def replay_guard(current):
-            prepare_summary(run_dir, args, artifact_paths, source, snapshot=current)
-        receipt = transact(run_dir, identifier, payload, mutation, replay_guard=replay_guard)
+            prepare_summary(run_dir, args, artifact_paths, source, snapshot=with_captures(current))
+        if args.completion_turn_id:
+            receipt = _transact_completion(run_dir, identifier, payload, mutation, replay_guard=replay_guard,
+                                           source=source, lane_id=args.lane_id, external_inputs=inputs)
+        else:
+            receipt = transact(run_dir, identifier, payload, mutation, replay_guard=replay_guard)
     except (EvidenceError, AgentConfigError, OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise SystemExit(str(exc)) from exc
     if receipt.get("unchanged") or preflight_fields.get("unchanged"):
@@ -361,6 +512,8 @@ def main(argv=None, *, session_source=None) -> int:
 
 
 def record_event(run_dir, args, artifact_paths, source, snapshot):
+    validate_assignment_event(vars(args))
+    require_subagent_identity(snapshot, args, source)
     role_segment = safe_path_segment(args.role)
     stable_agent_name = args.stable_agent_name or args.role
     stable_agent_slug = args.stable_agent_slug or role_segment

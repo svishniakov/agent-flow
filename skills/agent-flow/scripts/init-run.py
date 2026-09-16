@@ -883,10 +883,10 @@ def main(argv=None) -> int:
         default=[],
         help="Worker lane in lane-id:type:role form. Type must be implementation or integration.",
     )
-    parser.add_argument("--source-root", help="Original project root, only for first import of a relocated legacy run.")
+    parser.add_argument("--source-root", help="Expected original project root for read-only --reuse provenance checks.")
     args = parser.parse_args(argv)
     if args.source_root and not args.reuse:
-        parser.error("--source-root is limited to legacy --reuse migration")
+        parser.error("--source-root is limited to read-only --reuse; use journal.py import-legacy for explicit import")
 
     if args.mode == "compact" and any((args.with_lanes, args.architecture_gate, args.budget,
                                        args.architecture_context_json, args.architecture_capabilities, args.worker_lane)):
@@ -934,8 +934,10 @@ def main(argv=None) -> int:
         except (EvidenceError, OSError, UnicodeError, json.JSONDecodeError) as exc:
             parser.error(f"delegation-summary.json is malformed; correct it before --reuse: {exc}")
 
-        snapshot = import_legacy(run_dir, source_root=Path(args.source_root).expanduser().resolve() if args.source_root else None)
-        snapshot = ensure_result_contract(run_dir)
+        if not snapshot.durable:
+            parser.error("flat legacy run requires explicit journal.py import-legacy --source-root before --reuse")
+
+        # Reuse is a read-only view; migration is an explicit lifecycle operation.
         print(run_dir)
         print(f"view: {export_snapshot(snapshot)}", file=sys.stderr)
         return 0

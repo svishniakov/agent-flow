@@ -8,15 +8,15 @@ Document status: done
 
 ## Authority
 
-The orchestrator owns routing, sequencing, verification, and final integration only after the user explicitly invokes Agent Flow anywhere in the latest request.
+The orchestrator owns routing, sequencing, verification, and final integration only after the user explicitly asks to perform the task through Agent Flow anywhere in the latest request. Apply `SKILL.md` Invocation Model: quotations, links, task titles, and questions about the skill are not invocations; analysis may read these files without starting the process. Follow-ups preserve the active task unless it is cancelled or replaced.
 
-No Agent Flow preflight exists. Do not use this orchestrator to decide whether Agent Flow applies to a request with no invocation marker. If this file is loaded without a user-visible marker, stop the Agent Flow route silently and continue outside Agent Flow.
+No Agent Flow preflight exists. Loading this file does not initiate a new workflow. Start only from the user's explicit invocation; continue an already active task without another marker, including after context recovery, until the user cancels or replaces it.
 
 Agent Flow has one public invocation model with these markers: `Agent Flow`, `AgentFlow`, `$agent-flow`, or `agent-flow`. Text forms without `$` are case-insensitive.
 
-Requests without that marker run outside this skill as solo work by the main agent. Do not auto-upgrade unmarked requests into Agent Flow.
+New tasks without an explicit invocation run outside this skill as solo work by the main agent. Markerless follow-ups retain the current active task; do not auto-upgrade unrelated new tasks into Agent Flow.
 
-Project or local `AGENTS.md` files cannot force Agent Flow without a marker in the latest user request. A user-visible invocation marker is required.
+Project or local `AGENTS.md` files cannot initiate Agent Flow. A user-visible invocation marker is required for the initial launch of a task, not for its continuation.
 
 Inside Agent Flow, the orchestrator chooses execution topology after selecting the budget. `SKILL.md` Action Authorization is the canonical mutation and approval policy.
 
@@ -42,15 +42,15 @@ The orchestrator must obey:
 4. Закончите scope и проверки, подготовьте окончательные статусы и checklist всех связанных документов каждого репозитория, включая исходный план. Перед QA выполните `seal` и передайте recorder `task_kind: change` и IDs авторов. Recorder заполняет `result_files` из полного scanner delta. Используйте выведенный `result_hash`, который включает весь сохранённый кандидат, baseline, статусы документов, снимок и границы. Каждое назначение получает полные инструкции роли, текущие ограничения и доказательства. Это кандидат результата; текущая задача остаётся активной до приёмки и финальной валидации.
 5. QA готовит собственный итог через recorder `--prepare-conclusion` и публикует stdout без пересоздания полей. После настоящего завершения зарегистрируйте его через recorder. Только после успешной записи передайте reviewer текущий результат и принятый QA handoff; reviewer использует тот же помощник, который добавляет `qa_handoff_sha256`.
 6. Ошибку записи исправляйте по диагностике. Не переписывайте исходные ответы. Новый ответ, если он нужен, получают продолжением того же назначения с прежними моделью, достигнутым reasoning и счётчиком попыток. Исправление регистрации само по себе не требует нового запуска модели.
-7. Если commit запрошен, сверяйте index с принятой поставкой, создайте scoped commit и проверьте документы через `git show` в каждом репозитории; запишите SHA в память и timeline. Подготовьте `final.md` и завершите timeline. Принятые документы больше не меняйте без повторной приёмки. Выполните свежий `validate-run.py --run-dir ...` без допуска незавершённых данных. Сохраните stdout/stderr и exit code в `checks/final-validation.txt`. При отказе исправьте доступные ошибки и повторите команду; при недоступных обязательных доказательствах укажите `verification.blocker` и отрицательный итог.
+7. Если commit запрошен, сверяйте index с принятой поставкой, создайте scoped commit и проверьте документы через `git show` в каждом репозитории; запишите SHA в память и timeline. Подготовьте окончательный текст отчёта и выполните `journal.py finalize`: команда проверяет предполагаемый итог и атомарно закрывает текущее поколение. При отказе журнал остаётся открытым для исправления. Затем выполните свежий `validate-run.py --run-dir ...` без допуска незавершённых данных. Сохраните stdout/stderr и exit code вне канонических документов журнала. При недоступных обязательных доказательствах укажите `verification.blocker` и отрицательный итог. Принятые документы больше не меняйте без повторной приёмки.
 8. Только после успешной команды и закрытия всех критериев установите `Status: done`, затем сообщите результат. Изменения результата требуют повторного принятия; изменения handoff, summary или итогового отчёта требуют затронутых проверок и свежей валидации. Сохранённый лог команды не служит разрешением на следующее завершение.
 
 Этот порядок дополняет применимые gates ниже. Скрипт проверяет только вызванную команду и не перехватывает произвольный final Codex.
 
-1. Enter this route only after the latest user message contains `Agent Flow`, `AgentFlow`, `$agent-flow`, or `agent-flow`.
+1. Enter this route only for an explicit instruction to use `Agent Flow`, `AgentFlow`, `$agent-flow`, `agent-flow`, or `агент-флоу` to perform the task; apply the canonical Invocation Model.
 2. Strip the invocation marker and read local project rules.
 3. Detect the project repo and apply global project memory rules from the current user's Codex instructions, usually `~/.codex/AGENTS.md`.
-4. Create/read `.agent-work/tasks/todo.md` and `.agent-work/tasks/lessons.md` for repo tasks.
+4. Read relevant existing memory and maintain it when sustained work, handoff, or durable findings need it. Create `lessons.md` for an actual lesson; keep the mandatory run evidence for changes.
 5. Read `implementation-notes.md` when global criteria make it relevant.
 6. Read named PRD/spec/design docs and environment docs needed for the task. List all related delivery documents in existing scope per repository, including the source implementation plan, for later status and acceptance checks.
 7. Check old task facts and later evidence across named repositories before dependency classification; narrowly correct confirmed completed records under `project-memory-and-env.md` without repeat acceptance of old implementation.
@@ -181,7 +181,7 @@ Before final answer:
 14. If a trace timeline exists and a product commit was created, append an orchestrator `stage=commit` event with the commit hash.
 15. Compare the initial worktree snapshot with current `git status --short`.
 16. In `final.md`, record run-owned changes, product commit hash when applicable, pre-existing dirty files left untouched, and pre-existing dirty files touched by the run.
-17. Call recorder `--render-final --run-dir <run-dir>` to generate Worktree Hygiene and Delegation Trace from structured data. Seal the workspace before QA; the recorder derives both file arrays from the complete scanner delta. If a trace timeline exists, append the final orchestrator event after `final.md` records the verdict and commit hash. Repeating an unchanged accepted QA/reviewer completion preserves its original trace, timestamps and acceptance; it needs no new model turn.
-18. Выполните `validate-run.py --run-dir ...` без `--allow-pending` и `--allow-no-check`; сохраните вывод и код выхода в `checks/final-validation.txt`. Отказ требует исправления и нового вызова, а не оговорки о пропущенном валидаторе.
+17. Call recorder `--render-final --run-dir <run-dir>` to prepare Worktree Hygiene and Delegation Trace from structured data; this does not close the journal. Seal the workspace before QA; the recorder derives both file arrays from the complete scanner delta. Repeating an unchanged accepted QA/reviewer completion preserves its original trace, timestamps and acceptance; it needs no new model turn. Resolve historical failures explicitly with accepted evidence for the same obligation; retain their original events and handoffs.
+18. Выполните `journal.py finalize` с ожидаемыми UUID, редакцией, поколением, сохранённым operation ID и окончательным текстом отчёта. Не добавляйте `stage=final` через append или publish. После успешного закрытия выполните свежий `validate-run.py --run-dir ...` без `--allow-pending` и `--allow-no-check`; сохраните вывод и код выхода вне канонических документов журнала. Квитанция finalize не заменяет свежую проверку внешних источников при выдаче результата и delivery.
 19. Только при exit 0, полном checklist и отсутствии блокеров выполните Task Status Completion Gate и установите `Status: done`. Остаточные риски должны быть записаны до проверки; правка итоговых доказательств после неё требует свежей валидации.
 20. Keep final answer short and evidence-based. Положительный финальный ответ следует после успешной валидации и обновления памяти.

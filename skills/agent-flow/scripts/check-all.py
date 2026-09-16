@@ -1363,6 +1363,7 @@ def main() -> int:
         return 1
     python_files = sorted(str(path.relative_to(ROOT)) for path in SCRIPTS.glob("*.py"))
     command_steps = [
+        ("distribution archive fixtures", [sys.executable, str(repo_root / "scripts/test-build-distributions.py")]),
         ("py_compile scripts", [sys.executable, "-m", "py_compile", *python_files]),
         ("repository check fixtures", [sys.executable, "scripts/test-check-all.py"]),
         ("task facts fixtures", [sys.executable, "scripts/test-task-facts.py"]),
@@ -1401,6 +1402,8 @@ def main() -> int:
         ("QA/reviewer evidence fixtures", [sys.executable, "scripts/test-verification-evidence.py"]),
         ("journal IO fixtures", [sys.executable, "scripts/test-journal-io.py"]),
         ("journal storage failures", [sys.executable, "scripts/test-journal-storage.py"]),
+        ("journal recovery", [sys.executable, "-B", "scripts/test-journal-recovery.py"]),
+        ("journal lifecycle", [sys.executable, "-B", "scripts/test-journal-lifecycle.py"]),
         ("task workspace full coverage", [sys.executable, "scripts/test-task-workspace.py"]),
         ("procedure completion fixtures", [sys.executable, "scripts/test-procedure-completion.py"]),
         ("golden trace runs", [sys.executable, "scripts/test-golden-traces.py"]),

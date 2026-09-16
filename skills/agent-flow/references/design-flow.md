@@ -17,14 +17,14 @@ Use for UI, UX, visual systems, Pencil, Figma, screenshots, frontend implementat
 2. Use design references when domain or quality bar requires it.
 3. Define visual concept and UX flow.
 4. Draft or update design doc.
-5. Get approval when direction changes.
+5. Resolve approval only for a material direction or product choice that remains unapproved. Reuse an approved source and prior authorization; do not ask again after merely saving the same design.
 6. Produce Pencil/Figma/Stitch artifact when required.
 7. Implement frontend only after approved source for non-trivial UI.
 8. Verify in browser against design source.
 
 ## Web Implementation Preflight
 
-For HTML, CSS, client JS, layout, browser APIs, forms, media, motion, performance, or accessibility, check current modern web guidance when available.
+Check current web guidance when unknown APIs, browser support, or substantial implementation choices need external evidence. An obvious local HTML/CSS/JS edit does not trigger a search on technology alone. Honor explicit search requests and platform requirements for current facts.
 
 ## Visual QA
 

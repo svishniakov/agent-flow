@@ -87,6 +87,29 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="agent-flow-updater-test-") as raw_dir:
         _, source, installed = prepare_remote(Path(raw_dir))
 
+        plugin = installed / "plugin with spaces"
+        (plugin / "skills/agent-flow").mkdir(parents=True)
+        (plugin / "agent-flow-build.json").write_text('{"format":"plugin"}\n')
+        blocked = run_updater(plugin / "skills/agent-flow", "--dry-run", check=False)
+        if blocked.returncode == 0 or "plugin installation cannot use Git updater" not in blocked.stderr or "fetching" in blocked.stdout:
+            raise AssertionError("plugin updater must refuse before fetch: " + blocked.stdout + blocked.stderr)
+        (plugin / "agent-flow-build.json").unlink()
+        (plugin / ".codex-plugin").mkdir()
+        (plugin / ".codex-plugin/plugin.json").write_text('{"name":"agent-flow"}\n')
+        blocked = run_updater(plugin / "skills/agent-flow", "--dry-run", check=False)
+        if blocked.returncode == 0 or "fetching" in blocked.stdout:
+            raise AssertionError("nested plugin must not update consumer Git repository")
+        import shutil
+        shutil.rmtree(plugin)
+
+        # Source checkout may itself be the plugin source, without being an installation.
+        (installed / ".codex-plugin").mkdir()
+        (installed / ".codex-plugin/plugin.json").write_text('{"name":"agent-flow"}\n')
+        source_check = run_updater(installed, "--dry-run")
+        if "fetching" not in source_check.stdout:
+            raise AssertionError("standalone Git source updater was disabled")
+        shutil.rmtree(installed / ".codex-plugin")
+
         first = run_updater(installed, "--dry-run")
         if "no update needed" not in first.stdout:
             raise AssertionError(first.stdout)

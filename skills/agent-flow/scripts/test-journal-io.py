@@ -28,7 +28,9 @@ import journal_io
 
 
 class JournalRegressions(unittest.TestCase):
-    setUp = base.EvidenceRegressions.setUp
+    def setUp(self):
+        base.EvidenceRegressions.setUp(self)
+        self.open_timeline()
 
     def snapshot(self):
         if (self.run / ".journal/state.sqlite3").exists():
@@ -38,7 +40,7 @@ class JournalRegressions(unittest.TestCase):
     def record(self, *args):
         if "--prepare-conclusion" not in args:
             try:
-                journal_io.import_legacy(self.run)
+                base.initialize_open_fixture(self.run)
             except (journal_io.JournalError, OSError) as exc:
                 raise SystemExit(str(exc)) from exc
         with redirect_stdout(StringIO()) as output, redirect_stderr(StringIO()):
@@ -53,7 +55,53 @@ class JournalRegressions(unittest.TestCase):
 
     def open_timeline(self):
         path = self.run / "timeline.jsonl"
-        path.write_text("\n".join(path.read_text().splitlines()[:-1]) + "\n")
+        lines = path.read_text().splitlines()
+        if lines and json.loads(lines[-1]).get("stage") == "final":
+            path.write_text("\n".join(lines[:-1]) + "\n")
+
+    def test_assignment_stage_status_commands(self):
+        allowed = {"spawned": {"active"}, "handoff": {"pass", "pass-with-risks"},
+                   "blocked": {"blocked"}, "fail": {"fail"}}
+        base.initialize_open_fixture(self.run)
+        for mode in ("subagent", "role-lane"):
+            for stage, statuses in allowed.items():
+                for status in ("active", "pass", "pass-with-risks", "blocked", "fail", "done"):
+                    with self.subTest(mode=mode, stage=stage, status=status):
+                        lane = f"{mode}-{stage}-{status}"
+                        args = ["--role", "qa-verifier", "--execution-mode", mode, "--lane-id", lane,
+                                "--stage", stage, "--status", status, "--summary", "State matrix",
+                                "--artifact", "checks.md"]
+                        if mode == "subagent":
+                            args += ["--codex-thread-id", base.QA_ID]
+                        before = journal_io.JournalSnapshot.open(self.run)
+                        requests = {p.name: p.read_bytes() for p in (self.run / '.journal/requests').glob('*')}
+                        if status in statuses:
+                            if mode == "subagent" and stage != "spawned":
+                                self.record("--role", "qa-verifier", "--lane-id", lane, "--codex-thread-id", base.QA_ID,
+                                            "--stage", "spawned", "--status", "active", "--summary", "Own spawn")
+                            self.record(*args)
+                        else:
+                            with patch.object(recorder, "ensure_result_contract", side_effect=AssertionError("too late")), self.assertRaisesRegex(SystemExit, "requires status"):
+                                self.record(*args)
+                            after = journal_io.JournalSnapshot.open(self.run)
+                            self.assertEqual((before.revision, before.documents, before.receipts),
+                                             (after.revision, after.documents, after.receipts))
+                            self.assertEqual(requests, {p.name: p.read_bytes() for p in (self.run / '.journal/requests').glob('*')})
+
+    def test_new_event_guard_covers_append_and_publish_histories(self):
+        base.initialize_open_fixture(self.run)
+        before = journal_io.JournalSnapshot.open(self.run)
+        bad = {**base.trace_event(self.summary['subagents'][0], 'spawned'), 'status': 'pass', 'lane_id': 'bad'}
+        journal_io.validate_event(bad)  # Historical facts retain their original validation contract.
+        for path in ('timeline.jsonl', 'agents/qa-verifier/trace.jsonl', 'agents/new/trace.jsonl'):
+            with self.subTest(path=path), self.assertRaisesRegex(journal_io.JournalError, 'requires status'):
+                journal_io.transact(self.run, 'bad-' + path, {}, lambda current: (
+                    {path: current.documents.get(path, b'') + (json.dumps(bad) + '\n').encode()}, {}))
+        with self.assertRaisesRegex(journal_io.JournalError, 'requires status'):
+            journal_io.append_event(self.run / 'timeline.jsonl', bad, identifier='bad-append')
+        after = journal_io.JournalSnapshot.open(self.run)
+        self.assertEqual((before.revision, before.documents, before.receipts), (after.revision, after.documents, after.receipts))
+        self.assertFalse((self.run / '.journal/requests/bad-append').exists())
 
     def test_repeat_reviewer_and_reordered_evidence(self):
         before = self.snapshot()
@@ -93,6 +141,7 @@ class JournalRegressions(unittest.TestCase):
         for mutation, message in (("source", "unfinished"), ("evidence", "sha256"), ("handoff", "sha256"), ("result", "current result")):
             with self.subTest(mutation=mutation):
                 summary, source = base.acceptance_pack(self.run)
+                self.open_timeline()
                 self.summary, self.source = summary, source
                 if mutation == "source":
                     self.source.sessions[base.QA_ID].append({"type": "event_msg", "payload": {"type": "task_started", "turn_id": "new"}})
@@ -116,6 +165,12 @@ class JournalRegressions(unittest.TestCase):
                 event["payload"]["turn_id"] = "new-qa-turn"
         args = self.repeat_args()
         args[args.index("--completion-turn-id") + 1] = "new-qa-turn"
+        with self.assertRaisesRegex(SystemExit, "terminal assignment"):
+            self.record(*args)
+        args[args.index("--lane-id") + 1] = "fresh-qa"
+        args.extend(["--codex-thread-id", base.QA_ID])
+        self.record("--role", "qa-verifier", "--lane-id", "fresh-qa", "--codex-thread-id", base.QA_ID,
+                    "--stage", "spawned", "--status", "active", "--summary", "Fresh QA assignment")
         self.record(*args)
         stored = json.loads(journal_io.JournalSnapshot.open(self.run).read_text("delegation-summary.json"))
         self.assertIsNone(stored["verification"]["reviewer"])
@@ -275,6 +330,17 @@ class JournalRegressions(unittest.TestCase):
         from task_workspace import delivery
         workspace = base.workspace_pack(self)
         self.record("--render-final")
+        snapshot = journal_io.JournalSnapshot.open(self.run)
+        summary = json.loads(snapshot.read_text("delegation-summary.json"))
+        for record in summary["subagents"]:
+            record["status"] = "pass"
+            record["obligation"] = {"id": record["role"], "required": True, "state": "current"}
+        journal_io.transact(self.run, "obligations", {}, lambda s: ({"delegation-summary.json": json.dumps(summary)}, {}))
+        from journal_lifecycle import finalize
+        snapshot = journal_io.JournalSnapshot.open(self.run)
+        finalize(self.run, expected_run_uuid=snapshot.run_uuid, expected_revision=snapshot.revision,
+                 expected_generation=1, identifier="fixture-finalize", final_bytes=snapshot.read_bytes("final.md"),
+                 verdict="ship", session_source=self.source)
         delivered = delivery(self.run, session_source=self.source)
         before = self.snapshot()
         self.assertEqual(delivered, delivery(self.run, session_source=self.source))
@@ -289,7 +355,7 @@ class JournalRegressions(unittest.TestCase):
         self.assertEqual(before, self.snapshot())
 
     def test_invalid_stages_and_final_order_do_not_write(self):
-        for role, stage in (("orchestrator", "final"), ("orchestrator", "checks"), ("qa-verifier", "final"), ("qa-verifier", "spawn")):
+        for role, stage in (("orchestrator", "final"), ("qa-verifier", "final"), ("qa-verifier", "spawn")):
             before = self.snapshot()
             with self.subTest(stage=stage), self.assertRaises(SystemExit):
                 self.record("--role", role, "--stage", stage, "--status", "pass", "--summary", "Invalid")
@@ -310,7 +376,7 @@ class JournalRegressions(unittest.TestCase):
         target.parent.mkdir(parents=True)
         target.write_text('{"existing": "trace bytes"}\n')
         before = self.snapshot()
-        journal_io.import_legacy(self.run)
+        base.initialize_open_fixture(self.run)
         with patch.object(journal_io, "_put_documents", side_effect=PermissionError("synthetic target open failure")), self.assertRaisesRegex(SystemExit, "synthetic target open failure"):
             self.record("--role", "orchestrator", "--execution-mode", "role-lane", "--stage", "checks", "--status", "active", "--summary", "Pending", "--artifact", "checks.md")
         self.assertEqual(before, self.snapshot())
@@ -469,7 +535,7 @@ class JournalRegressions(unittest.TestCase):
         self.assertEqual(first, evidence.changed_paths(self.run, {"run_changed_files": ["result.txt"]}))
 
     def test_repeat_qa_preserves_acceptance_and_bytes(self):
-        journal_io.import_legacy(self.run)
+        base.initialize_open_fixture(self.run)
         before = self.snapshot()
         with redirect_stdout(StringIO()):
             recorder.main(["--run-dir", str(self.run), "--role", "qa-verifier", "--lane-id", "evidence-qa",

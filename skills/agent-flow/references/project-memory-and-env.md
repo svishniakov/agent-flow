@@ -10,8 +10,8 @@ Before planning, delegation, product edits, infra commands, DB/storage work, bro
 
 - local project instructions such as `AGENTS.md`;
 - primary local project memory in `.agent-work/tasks/`, following the current user's Codex instructions, usually `~/.codex/AGENTS.md`:
-  - create `.agent-work/tasks/`, `todo.md`, and `lessons.md` for repo tasks when missing;
-  - read `lessons.md` and `todo.md` before repo work;
+  - create task memory when sustained work, handoff, or durable findings need it; create `lessons.md` when there is an actual lesson;
+  - read the relevant sections of existing memory and reuse unchanged context;
   - read `implementation-notes.md` when global criteria make it relevant;
   - treat `## Evidence Records` in `implementation-notes.md` as structured success, failure, regression, rejected, architecture, and orchestration evidence;
   - update `todo.md` as the current task checklist;
@@ -24,7 +24,11 @@ Before planning, delegation, product edits, infra commands, DB/storage work, bro
 
 If a named PRD/spec is the task source, read it before route/plan. Do not infer scope from file name only.
 
-If `.agent-work/tasks/lessons.md` is missing during a repo task, create the file according to global project memory rules. Do not invent lesson content. Add lesson entries only after a user correction, repeated process failure, or explicit request to record a lesson.
+If `lessons.md` is missing, create it when an actual lesson needs recording. Do not create an empty lesson file or invent lesson content. Add lesson entries only after a user correction, repeated process failure, or explicit request to record a lesson.
+
+## Reading Memory and Journals
+
+Locate the current task, run, session, lane, or event before reading large history. Keep discovered paths in context. On continuation, inspect new entries and changed sections; reread earlier content only when its source changed, required context was lost, or a specific check needs it. Use the existing journal reader and filter captures before displaying them. Selection is for navigation: integrity and acceptance checks still read every required evidence byte. Do not rewrite historical journals.
 
 ## Dependency Gate
 

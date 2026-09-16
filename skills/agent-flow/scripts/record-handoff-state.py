@@ -60,10 +60,13 @@ def record_handoff_state(
     def mutation(snapshot):
         if snapshot.exists("timeline.jsonl"):
             events = [json.loads(line) for line in snapshot.read_text("timeline.jsonl").splitlines() if line.strip()]
-            if any(event.get("stage") == "final" for event in events):
+            if snapshot.closed:
                 raise JournalError("timeline already has final event")
         data = load_lane_map(lane_map_path, snapshot=snapshot)
         lane = find_lane(data["lanes"], lane_id)
+        expected = {"pass": "completed", "pass-with-risks": "completed", "fail": "failed", "blocked": "blocked"}.get(lane.get("status"))
+        if expected is not None and status != expected:
+            raise JournalError(f"terminal lane status {lane['status']} requires handoff state {expected}")
         lane["handoff_state"] = update_handoff_state(lane=lane, **payload)
         return {"lane-map.json": encode_json(data, pretty=True) + "\n"}, {}
     transact(run_dir, identifier, payload, mutation)
