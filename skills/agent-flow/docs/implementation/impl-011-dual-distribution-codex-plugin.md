@@ -438,3 +438,6 @@ Git позволяет пропустить локальный hook, поэто�
 - [Событие push в GitHub Actions](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#push): проверяемая редакция и условия события.
 - [Artifacts GitHub Actions](https://docs.github.com/en/actions/tutorials/store-and-share-data): хранение файлов результата запуска.
 - [Явный пропуск workflow](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/skip-workflow-runs): встроенные исключения для сообщений коммитов.
+
+Проверка этапа 3 на GitHub начата в согласованной тестовой ветке. Этот push
+меняет только документацию и проверяет независимость последовательных запусков.
