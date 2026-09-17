@@ -157,8 +157,9 @@ class RepositoryChecks(unittest.TestCase):
         (self.repo / "README.md").unlink()
         names = ("run_step", "run_skills_cli_layout_guard", "run_skills_cli_discovery_guard",
                  "run_skills_cli_install_guard", "run_codegraph_dependency_preflight",
-                 "run_golden_trace_artifacts_guard", "run_content_guard")
+                 "run_golden_trace_artifacts_guard", "run_content_guard", "run_test_inventory_guard")
         with contextlib.ExitStack() as stack:
+            stack.enter_context(patch.object(self.checks, "check_environment", return_value={}))
             for name in names:
                 stack.enter_context(patch.object(self.checks, name, return_value=0))
             later = stack.enter_context(patch.object(self.checks, "run_required_runtime_text_guard", return_value=0))
@@ -167,6 +168,63 @@ class RepositoryChecks(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("FAILED 1 check(s)", err)
         later.assert_called_once()
+
+    def test_missing_environment_stops_before_running_any_check(self):
+        with patch.object(self.checks, "check_environment", side_effect=self.checks.EnvironmentError("codex missing")), \
+             patch.object(self.checks, "run_step") as run:
+            code, _, errors = self.capture(self.checks.main)
+        self.assertEqual(code, 1)
+        self.assertIn("codex missing", errors)
+        run.assert_not_called()
+
+    def test_successful_exit_does_not_hide_skipped_checks(self):
+        for output in ("SKIP sandbox: no codex\n", "OK (skipped=1)\n", "Skipped browser\n"):
+            with self.subTest(output=output), patch.object(self.checks.subprocess, "run", return_value=
+                    subprocess.CompletedProcess([], 0, output, "")):
+                code, _, errors = self.capture(self.checks.run_step, "fixture", ["fixture"])
+                self.assertEqual(code, 1)
+                self.assertIn("skipped", errors)
+
+    def test_no_skips_and_command_failures(self):
+        with patch.object(self.checks.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "OK (skipped=0)", "")):
+            self.assertEqual(self.capture(self.checks.run_step, "fixture", ["fixture"])[0], 0)
+        with patch.object(self.checks.subprocess, "run", side_effect=FileNotFoundError("missing tool")):
+            self.assertEqual(self.capture(self.checks.run_step, "fixture", ["fixture"])[0], 1)
+
+    def test_inventory_requires_every_test_once_and_packaged(self):
+        test = self.package / "scripts/test-example.py"
+        test.write_text("print('test')\n")
+        manifest = self.package / "package-files.txt"
+        manifest.write_text("scripts/test-example.py\n")
+        steps = [("fixture", [sys.executable, "scripts/test-example.py"]),
+                 ("compile", [sys.executable, "-m", "py_compile", "scripts/test-example.py"])]
+        self.assertEqual(self.capture(self.checks.run_test_inventory_guard, self.repo, steps)[0], 0)
+        missing = self.package / "scripts/test-unlisted.py"
+        missing.touch()
+        code, _, errors = self.capture(self.checks.run_test_inventory_guard, self.repo, steps)
+        self.assertEqual(code, 1)
+        self.assertIn("test missing from full suite", errors)
+        missing.unlink()
+        manifest.write_text("")
+        self.assertEqual(self.capture(self.checks.run_test_inventory_guard, self.repo, steps)[0], 1)
+        manifest.write_text("scripts/test-example.py\n")
+        self.assertEqual(self.capture(self.checks.run_test_inventory_guard, self.repo, steps + [steps[0]])[0], 1)
+        test.unlink()
+        code, _, errors = self.capture(self.checks.run_test_inventory_guard, self.repo, steps)
+        self.assertEqual(code, 1)
+        self.assertIn("required test missing from checkout", errors)
+
+    def test_changed_compatibility_wrapper_requires_own_test_entry(self):
+        canonical = self.package / "scripts/test-example.py"
+        canonical.touch()
+        (self.package / "package-files.txt").write_text("scripts/test-example.py\n")
+        wrapper = self.repo / "scripts/test-example.py"
+        source = SCRIPT.parents[3] / "scripts/prepare-check-environment.py"
+        shutil.copyfile(source, wrapper)
+        steps = [("fixture", [sys.executable, "scripts/test-example.py"])]
+        self.assertEqual(self.capture(self.checks.run_test_inventory_guard, self.repo, steps)[0], 0)
+        wrapper.write_text(wrapper.read_text() + "# additional behavior\n")
+        self.assertEqual(self.capture(self.checks.run_test_inventory_guard, self.repo, steps)[0], 1)
 
     def test_artifacts_must_be_tracked_and_git_errors_stay_errors(self):
         traces = self.package / "testdata/golden-traces"

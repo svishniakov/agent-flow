@@ -203,8 +203,9 @@ class LifecycleTests(unittest.TestCase):
                   "trace": "agents/" + role + "/trace.jsonl", "handoff": "handoffs/required-negative.md",
                   "obligation": {"id": "required-negative", "required": True, "state": "current"}}
         self.summary["subagents"].append(record)
+        stage = status if status in {"fail", "blocked"} else "checks"
         events = [fixtures.trace_event(record, "spawned"),
-                  {**fixtures.trace_event(record, "handoff"), "status": status}]
+                  {**fixtures.trace_event(record, "handoff"), "stage": stage, "status": status}]
         trace = "".join(json.dumps(e) + "\n" for e in events).encode()
         transact(self.run, "required-negative", {}, lambda s: ({
             "delegation-summary.json": json.dumps(self.summary).encode(),
@@ -464,7 +465,8 @@ class LifecycleTests(unittest.TestCase):
             old["obligation"]["state"] = "current"
         self.summary["subagents"].append(old)
         before = JournalSnapshot.open(self.run)
-        events = [fixtures.trace_event(old, "spawned"), {**fixtures.trace_event(old, "handoff"), "status": "blocked"}]
+        events = [fixtures.trace_event(old, "spawned"),
+                  {**fixtures.trace_event(old, "handoff"), "stage": "blocked", "status": "blocked"}]
         appended = "".join(json.dumps(e) + "\n" for e in events).encode()
         self.final = self.final.split(b"## Delegation Trace")[0] + fixtures.delegation_section(self.summary).encode()
         transact(self.run, "history", {}, lambda s: ({

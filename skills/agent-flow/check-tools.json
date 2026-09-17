@@ -1,0 +1,6 @@
+{
+  "python": {"minimum": "3.11.0", "tested": "3.12.6"},
+  "node": {"minimum": "22.20.0", "tested": "26.8.2"},
+  "cli": {"skills": "1.5.26", "codex": "0.144.1", "pnpm": "10.23.0"},
+  "browser": "149.0.7827.55"
+}

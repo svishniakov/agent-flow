@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
-PACKAGE_FILES = ("SKILL.md", "LICENSE", "requirements-codegraph.txt", "package-files.txt")
+PACKAGE_FILES = ("SKILL.md", "LICENSE", "requirements-codegraph.txt", "check-tools.json", "package-files.txt")
 PACKAGE_DIRS = ("agents", "references", "registries", "scripts", "testdata", "docs/en", "docs/ru", "docs/assets")
 OMIT = {"__pycache__", ".DS_Store", ".git", ".agent-work", ".codex", ".env", "node_modules"}
 RECORD = "agent-flow-package.json"

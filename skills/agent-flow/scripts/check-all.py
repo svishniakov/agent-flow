@@ -12,6 +12,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+from check_environment import EnvironmentError, check_environment
+
 
 class CheckError(RuntimeError):
     pass
@@ -1057,7 +1059,11 @@ REQUIRED_RUNTIME_TEXT = {
 
 def run_step(name: str, command: list[str]) -> int:
     print(f"==> {name}")
-    result = subprocess.run(command, cwd=ROOT, text=True, capture_output=True, check=False)
+    try:
+        result = subprocess.run(command, cwd=ROOT, text=True, capture_output=True, check=False)
+    except OSError as exc:
+        print(f"FAIL {name}: {exc}", file=sys.stderr)
+        return 1
     if result.stdout:
         print(result.stdout, end="")
     if result.stderr:
@@ -1065,7 +1071,57 @@ def run_step(name: str, command: list[str]) -> int:
     if result.returncode:
         print(f"FAIL {name}: exit {result.returncode}", file=sys.stderr)
         return result.returncode
+    output = result.stdout + "\n" + result.stderr
+    if re.search(r"(?im)^\s*skip(?:ped)?\b|\bskipped=[1-9]\d*\b", output):
+        print(f"FAIL {name}: an obligatory check was skipped", file=sys.stderr)
+        return 1
     print(f"PASS {name}")
+    return 0
+
+
+def run_test_inventory_guard(repo_root: Path, command_steps: list[tuple[str, list[str]]]) -> int:
+    """Every test is planned once; removed required tests and changed wrappers fail."""
+    discovered = {path.resolve() for path in SCRIPTS.glob("test-*.py")}
+    wrapper = '''#!/usr/bin/env python3
+"""Run the canonical Agent Flow script from skills/agent-flow/scripts."""
+
+from __future__ import annotations
+
+import runpy
+import sys
+from pathlib import Path
+
+TARGET = Path(__file__).resolve().parents[1] / "skills" / "agent-flow" / "scripts" / Path(__file__).name
+sys.path.insert(0, str(TARGET.parent))
+runpy.run_path(str(TARGET), run_name="__main__")
+'''.encode()
+    for path in (repo_root / "scripts").glob("test-*.py"):
+        if (SCRIPTS / path.name).is_file() and path.read_bytes() == wrapper:
+            continue
+        discovered.add(path.resolve())
+    planned = []
+    for _, command in command_steps:
+        if "-m" in command:
+            continue
+        for argument in command:
+            path = Path(argument)
+            if path.name.startswith("test-") and path.suffix == ".py":
+                planned.append((ROOT / path).resolve())
+    failures = []
+    for path in sorted(discovered - set(planned)):
+        failures.append(f"test missing from full suite: {path}")
+    for path in sorted(set(planned) - discovered):
+        failures.append(f"required test missing from checkout: {path}")
+    if len(planned) != len(set(planned)):
+        failures.append("test scheduled more than once")
+    manifest = set((ROOT / "package-files.txt").read_text(encoding="utf-8").splitlines())
+    for path in sorted(SCRIPTS.glob("test-*.py")):
+        if path.relative_to(ROOT).as_posix() not in manifest:
+            failures.append(f"test missing from package manifest: {path.name}")
+    if failures:
+        print("FAIL test inventory:\n" + "\n".join(failures), file=sys.stderr)
+        return 1
+    print(f"PASS test inventory: {len(planned)} required test scripts")
     return 0
 
 
@@ -1177,8 +1233,9 @@ def run_skills_cli_layout_guard(repo_root: Path) -> int:
 def run_skills_cli_discovery_guard(repo_root: Path) -> int:
     print("==> Skills CLI discovery guard")
     result = subprocess.run(
-        ["npx", "-y", "skills", "add", str(repo_root), "--list"],
+        ["skills", "add", str(repo_root), "--list"],
         cwd=repo_root,
+        env={**os.environ, "DISABLE_TELEMETRY": "1", "DO_NOT_TRACK": "1"},
         text=True,
         capture_output=True,
         check=False,
@@ -1199,10 +1256,9 @@ def run_skills_cli_install_guard(repo_root: Path) -> int:
     with tempfile.TemporaryDirectory(prefix="agent-flow-skills-home-") as raw_home:
         env = os.environ.copy()
         env["HOME"] = raw_home
+        env.update(DISABLE_TELEMETRY="1", DO_NOT_TRACK="1")
         result = subprocess.run(
             [
-                "npx",
-                "-y",
                 "skills",
                 "add",
                 str(repo_root),
@@ -1361,11 +1417,19 @@ def main() -> int:
               "For an installed skill, check dependencies with: "
               f"python3 {SCRIPTS / 'check-agent-deps.py'} --scope core", file=sys.stderr)
         return 1
+    try:
+        versions = check_environment()
+    except EnvironmentError as exc:
+        print(f"FAIL required environment: {exc}", file=sys.stderr)
+        return 1
+    print("Required environment: " + json.dumps(versions, sort_keys=True))
     python_files = sorted(str(path.relative_to(ROOT)) for path in SCRIPTS.glob("*.py"))
     command_steps = [
         ("distribution archive fixtures", [sys.executable, str(repo_root / "scripts/test-build-distributions.py")]),
+        ("Git index and hook fixtures", [sys.executable, str(repo_root / "scripts/test-check-index.py")]),
         ("py_compile scripts", [sys.executable, "-m", "py_compile", *python_files]),
         ("repository check fixtures", [sys.executable, "scripts/test-check-all.py"]),
+        ("check environment fixtures", [sys.executable, "scripts/test-check-environment.py"]),
         ("task facts fixtures", [sys.executable, "scripts/test-task-facts.py"]),
         ("model eval manifest fixtures", [sys.executable, "scripts/test-model-eval-manifest.py"]),
         ("model eval workspace fixtures", [sys.executable, "scripts/test-model-eval-workspace.py"]),
@@ -1440,8 +1504,12 @@ def main() -> int:
     ]
 
     failures = 0
-    golden_trace_artifacts_failed: bool | None = None
-    codegraph_dependency_failed: bool | None = None
+    if run_test_inventory_guard(repo_root, command_steps):
+        return 1
+    if run_golden_trace_artifacts_guard():
+        failures += 1
+    if run_codegraph_dependency_preflight(repo_root):
+        failures += 1
     if run_skills_cli_layout_guard(repo_root):
         failures += 1
     if run_skills_cli_discovery_guard(repo_root):
@@ -1449,22 +1517,6 @@ def main() -> int:
     if run_skills_cli_install_guard(repo_root):
         failures += 1
     for name, command in command_steps:
-        if name in {"harness evaluation promotion fixtures", "golden trace runs"}:
-            if golden_trace_artifacts_failed is None:
-                golden_trace_artifacts_failed = bool(run_golden_trace_artifacts_guard())
-                if golden_trace_artifacts_failed:
-                    failures += 1
-            if golden_trace_artifacts_failed:
-                print(f"SKIP {name}: golden trace artifacts packaging guard failed")
-                continue
-        if name == "codegraph fixtures":
-            if codegraph_dependency_failed is None:
-                codegraph_dependency_failed = bool(run_codegraph_dependency_preflight(repo_root))
-                if codegraph_dependency_failed:
-                    failures += 1
-            if codegraph_dependency_failed:
-                print(f"SKIP {name}: CodeGraph parser dependency preflight failed")
-                continue
         if run_step(name, command):
             failures += 1
     for name, needle in content_steps:

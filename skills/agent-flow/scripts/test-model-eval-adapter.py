@@ -1352,7 +1352,7 @@ def test_reroute_is_substituted_and_retry_cannot_hide_it(root: Path) -> None:
 
 def test_real_prompt_context_isolation(root: Path) -> None:
     if shutil.which("codex") is None:
-        return
+        raise AssertionError("Required Codex CLI is missing; prompt-context isolation cannot be skipped")
     for model in ("gpt-5.6-luna", "gpt-5.6-terra"):
         config = replace(
             create_config(root / f"context-probe-{model.rsplit('-', 1)[-1]}"),

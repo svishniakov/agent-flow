@@ -3,11 +3,13 @@
 
 from __future__ import annotations
 
-import shutil
+import os
 import socket
 import subprocess
 import tempfile
 from pathlib import Path
+
+from check_environment import TOOLS, require_browser, require_tool
 
 from model_eval_sandbox import (
     permission_profile_args,
@@ -77,9 +79,12 @@ def _sandbox_environment(scratch: Path) -> dict[str, str]:
 
 
 def _run_probe(command: list[str], scratch: Path) -> subprocess.CompletedProcess[str]:
+    environment = _sandbox_environment(scratch)
+    environment["PATH"] = str(Path(require_tool("node")).resolve().parent) + os.pathsep + environment["PATH"]
+    command = [require_tool("codex"), *command[1:]]
     return subprocess.run(
         command,
-        env=_sandbox_environment(scratch),
+        env=environment,
         text=True,
         capture_output=True,
         timeout=20,
@@ -88,8 +93,10 @@ def _run_probe(command: list[str], scratch: Path) -> subprocess.CompletedProcess
 
 
 def test_real_sandbox(root: Path) -> None:
-    if shutil.which("codex") is None:
-        return
+    require_tool("codex")
+    pnpm = Path(require_tool("pnpm")).resolve()
+    node = Path(require_tool("node")).resolve()
+    browser = require_browser()
 
     workspace = root / "workspace"
     workspace.mkdir()
@@ -200,50 +207,29 @@ def test_real_sandbox(root: Path) -> None:
     if (writable_output / "result.txt").read_text(encoding="utf-8") != "result\n":
         raise AssertionError("declared evaluator output directory was not writable")
 
-    if shutil.which("pnpm") is not None:
-        (workspace / "package.json").write_text(
-            '{"packageManager":"pnpm@9.7.1"}\n',
-            encoding="utf-8",
-        )
-        pnpm_scratch = root / "pnpm-scratch"
-        pnpm_command = sandbox_command(
-            ["pnpm", "--version"],
-            workspace,
-            pnpm_scratch,
-            (workspace,),
-            allow_localhost=False,
-        )
-        pnpm_result = _run_probe(pnpm_command, pnpm_scratch)
-        if pnpm_result.returncode or pnpm_result.stdout.strip() != "9.7.1":
-            raise AssertionError(pnpm_result.stderr or pnpm_result.stdout)
-
-    browsers = sorted(
-        (Path.home() / "Library" / "Caches" / "ms-playwright").glob(
-            "chromium_headless_shell-*/chrome-headless-shell-mac-arm64/chrome-headless-shell"
-        )
+    (workspace / "package.json").write_text(
+        '{"packageManager":"pnpm@' + TOOLS["cli"]["pnpm"] + '"}\n', encoding="utf-8",
     )
-    if browsers:
-        browser_scratch = root / "browser-scratch"
-        browser_command = sandbox_command(
-            [
-                str(browsers[-1]),
-                "--headless",
-                "--no-sandbox",
-                "--disable-gpu",
-                "--single-process",
-                "--no-zygote",
-                "--dump-dom",
-                "data:text/html,ok",
-            ],
-            workspace,
-            browser_scratch,
-            (workspace,),
-            allow_localhost=True,
-            include_browser=True,
-        )
-        browser_result = _run_probe(browser_command, browser_scratch)
-        if browser_result.returncode or "<body>ok</body>" not in browser_result.stdout:
-            raise AssertionError(browser_result.stderr or browser_result.stdout)
+    (workspace / ".npmrc").write_text("manage-package-manager-versions=false\noffline=true\n", encoding="utf-8")
+    pnpm_scratch = root / "pnpm-scratch"
+    pnpm_command = sandbox_command(
+        [str(node), str(pnpm), "--version"], workspace, pnpm_scratch, (workspace,),
+        allow_localhost=False, protected_paths=(pnpm.parent.parent, node.parent.parent),
+    )
+    pnpm_result = _run_probe(pnpm_command, pnpm_scratch)
+    if pnpm_result.returncode or pnpm_result.stdout.strip() != TOOLS["cli"]["pnpm"]:
+        raise AssertionError(pnpm_result.stderr or pnpm_result.stdout)
+
+    browser_scratch = root / "browser-scratch"
+    browser_command = sandbox_command(
+        [str(browser), "--headless", "--no-sandbox", "--disable-gpu", "--single-process",
+         "--no-zygote", "--dump-dom", "data:text/html,ok"],
+        workspace, browser_scratch, (workspace,), allow_localhost=True,
+        protected_paths=(browser.parent,),
+    )
+    browser_result = _run_probe(browser_command, browser_scratch)
+    if browser_result.returncode or "<body>ok</body>" not in browser_result.stdout:
+        raise AssertionError(browser_result.stderr or browser_result.stdout)
 
     listener = socket.socket()
     listener.bind(("127.0.0.1", 0))

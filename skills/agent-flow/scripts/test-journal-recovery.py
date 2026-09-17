@@ -619,7 +619,7 @@ class RecoveryTests(unittest.TestCase):
         if continued:
             event = {**self.event, 'lane_id': 'old-preparation', 'role': 'python-worker',
                      'execution_mode': 'role-lane', 'timestamp': now_iso(),
-                     'stage': 'handoff', 'status': 'done', 'artifacts': ['handoffs/old.md']}
+                     'stage': 'blocked', 'status': 'blocked', 'artifacts': ['handoffs/old.md']}
             append_event(self.run / 'timeline.jsonl', event, identifier='continued-terminal')
         snapshot = JournalSnapshot.open(self.run)
         classify_legacy(self.run, request, expected_revision=snapshot.revision, identifier='classify')
@@ -724,7 +724,13 @@ class RecoveryTests(unittest.TestCase):
                 if newer:
                     event = {**old['legacy']['terminal']['event'], 'timestamp': now_iso(),
                              'stage': 'checks', 'status': 'active'}
-                    append_event(self.run / 'timeline.jsonl', event, identifier='newer-work')
+                    with self.assertRaisesRegex(JournalError, 'terminal assignment history is immutable'):
+                        append_event(self.run / 'timeline.jsonl', event, identifier='newer-work')
+                    # Seed invalid historical bytes that current writers correctly reject.
+                    raw = snapshot.read_bytes('timeline.jsonl') + (encode_json(event) + '\n').encode()
+                    with sqlite3.connect(self.run / '.journal/state.sqlite3') as db:
+                        db.execute('UPDATE documents SET content=?, sha256=? WHERE path=?',
+                                   (raw, digest(raw), 'timeline.jsonl'))
                     args['expected_revision'] = JournalSnapshot.open(self.run).revision
                     before = self.raw_state()
                     with self.assertRaisesRegex(JournalError, 'newer unresolved work'):

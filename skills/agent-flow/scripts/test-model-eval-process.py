@@ -155,13 +155,14 @@ def test_text_input_and_output_are_captured() -> None:
 
 
 def main() -> int:
-    if os.name == "posix":
-        test_timeout_kills_children()
-        test_normal_parent_exit_kills_detached_work()
-        test_normal_parent_exit_force_kills_term_ignoring_child()
-        test_timeout_does_not_wait_for_detached_pipe_holder()
-        test_interrupt_kills_process_group()
-        test_text_input_and_output_are_captured()
+    if os.name != "posix":
+        raise AssertionError("Required process-group checks need a POSIX platform; they cannot be skipped")
+    test_timeout_kills_children()
+    test_normal_parent_exit_kills_detached_work()
+    test_normal_parent_exit_force_kills_term_ignoring_child()
+    test_timeout_does_not_wait_for_detached_pipe_holder()
+    test_interrupt_kills_process_group()
+    test_text_input_and_output_are_captured()
     print("PASS model eval process-group tests")
     return 0
 

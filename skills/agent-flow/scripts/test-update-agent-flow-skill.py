@@ -54,7 +54,7 @@ def prepare_remote(root: Path) -> tuple[Path, Path, Path]:
     source = root / "source"
     installed = root / "installed"
 
-    run(["git", "init", "--bare", str(remote)])
+    run(["git", "init", "--bare", "--initial-branch=main", str(remote)])
     run(["git", "init", "--initial-branch=main", str(source)])
     git(source, "config", "user.email", "agent-flow-test@example.com")
     git(source, "config", "user.name", "Agent Flow Test")

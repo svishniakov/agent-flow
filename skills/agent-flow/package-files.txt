@@ -29,6 +29,7 @@ agents/ui-reference-researcher.md
 agents/ui-ux-design-director.md
 agents/ui-ux-designer.md
 agents/visual-qa.md
+check-tools.json
 docs/assets/readme/agentflow-agents.svg
 docs/assets/readme/agentflow-hero-en.svg
 docs/assets/readme/agentflow-hero-ru.svg
@@ -38,6 +39,7 @@ docs/en/agents.md
 docs/en/installation.md
 docs/ru/agent-flow.md
 docs/ru/agents.md
+docs/ru/development.md
 docs/ru/installation.md
 package-files.txt
 references/ai-slop-gate.md
@@ -70,6 +72,7 @@ scripts/build-agent-skill-registry.py
 scripts/check-agent-deps.py
 scripts/check-all.py
 scripts/check-installed-package.py
+scripts/check_environment.py
 scripts/codegraph.py
 scripts/evidence_records.py
 scripts/harness_promotion.py
@@ -89,6 +92,7 @@ scripts/model_eval_sandbox.py
 scripts/model_eval_score.py
 scripts/model_eval_workspace.py
 scripts/package_distribution.py
+scripts/prepare-check-environment.py
 scripts/promote-harness-evaluation.py
 scripts/record-agent-trace.py
 scripts/record-handoff-state.py
@@ -101,6 +105,7 @@ scripts/task_workspace.py
 scripts/test-agent-config.py
 scripts/test-analyze-evidence-records.py
 scripts/test-check-all.py
+scripts/test-check-environment.py
 scripts/test-codegraph.py
 scripts/test-golden-traces.py
 scripts/test-init-run.py
