@@ -1,0 +1,125 @@
+name: Push checks and distributions
+
+on:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  check-and-build:
+    if: ${{ !github.event.deleted }}
+    runs-on: macos-15
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out the pushed commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Verify checkout and read tool versions
+        id: versions
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(uname -m)" = arm64
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          tools = json.loads(Path("skills/agent-flow/check-tools.json").read_text())
+          versions = {
+              "python": tools["python"]["tested"],
+              "node": tools["node"]["tested"],
+              "codex": tools["cli"]["codex"],
+              "browser": tools["browser"],
+          }
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              for name, version in versions.items():
+                  print(f"{name}={version}", file=output)
+          PY
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: ${{ steps.versions.outputs.python }}
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ steps.versions.outputs.node }}
+
+      - name: Install Codex CLI and browser
+        env:
+          CODEX_VERSION: ${{ steps.versions.outputs.codex }}
+          BROWSER_VERSION: ${{ steps.versions.outputs.browser }}
+        run: |
+          npm install --prefix "$RUNNER_TEMP/codex-cli" --ignore-scripts \
+            --no-audit --no-fund --save-exact "@openai/codex@$CODEX_VERSION"
+          echo "$RUNNER_TEMP/codex-cli/node_modules/.bin" >> "$GITHUB_PATH"
+          curl --fail --location --silent --show-error \
+            "https://storage.googleapis.com/chrome-for-testing-public/$BROWSER_VERSION/mac-arm64/chrome-headless-shell-mac-arm64.zip" \
+            --output "$RUNNER_TEMP/browser.zip"
+          echo "302f82603be06683947594ecd60f849e362a8fe3dd82a89bd4408477c97e75a6  $RUNNER_TEMP/browser.zip" | shasum -a 256 -c -
+          unzip -q "$RUNNER_TEMP/browser.zip" -d "$RUNNER_TEMP/browser"
+          echo "AGENT_FLOW_TEST_BROWSER=$RUNNER_TEMP/browser/chrome-headless-shell-mac-arm64/chrome-headless-shell" >> "$GITHUB_ENV"
+
+      - name: Prepare all pinned check dependencies
+        run: |
+          python3 scripts/prepare-check-environment.py \
+            --prefix "$RUNNER_TEMP/agent-flow-checks" \
+            --browser "$AGENT_FLOW_TEST_BROWSER"
+          echo "$RUNNER_TEMP/agent-flow-checks/bin" >> "$GITHUB_PATH"
+
+      - name: Run the complete pre-commit test suite
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 scripts/check-all.py
+
+      - name: Build and verify both distributions
+        id: build
+        run: |
+          python3 scripts/build-distributions.py \
+            --output "$RUNNER_TEMP/agent-flow-dist" \
+            --commit-sha "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            > "$RUNNER_TEMP/build-result.json"
+          python3 scripts/verify-distributions.py \
+            --source "$GITHUB_WORKSPACE" --directory "$RUNNER_TEMP/agent-flow-dist" \
+            --commit-sha "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          result = json.loads((Path(os.environ["RUNNER_TEMP"]) / "build-result.json").read_text())
+          archives = result["archives"]
+          outputs = {
+              "version": result["version"],
+              "skill": next(path for path in archives if path.endswith("-skill.zip")),
+              "plugin": next(path for path in archives if path.endswith("-codex-plugin.zip")),
+              "checksums": result["checksums"],
+              "metadata": result["metadata"],
+          }
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              for name, value in outputs.items():
+                  print(f"{name}={value}", file=output)
+          PY
+
+      - name: Save verified installable archives
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: agent-flow-${{ steps.build.outputs.version }}-${{ github.sha }}-run${{ github.run_id }}-attempt${{ github.run_attempt }}
+          path: |
+            ${{ steps.build.outputs.skill }}
+            ${{ steps.build.outputs.plugin }}
+            ${{ steps.build.outputs.checksums }}
+            ${{ steps.build.outputs.metadata }}
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0

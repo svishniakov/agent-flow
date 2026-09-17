@@ -17,11 +17,15 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "skills/agent-flow/scripts"))
-from package_distribution import PackageError, check_package, inventory, marketplace, validate_manifest, validate_marketplace
+from package_distribution import (PackageError, check_package, digest, inventory, json_bytes,
+                                  marketplace, validate_manifest, validate_marketplace)
 
 spec = importlib.util.spec_from_file_location("build_distributions", ROOT / "scripts/build-distributions.py")
 builder = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(builder)
+spec = importlib.util.spec_from_file_location("verify_distributions", ROOT / "scripts/verify-distributions.py")
+verifier = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(verifier)
 
 
 class Distributions(unittest.TestCase):
@@ -227,6 +231,183 @@ class Distributions(unittest.TestCase):
         result = subprocess.run(check, capture_output=True, text=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(str(role), result.stderr)
+
+
+class CIDistributions(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.temp = tempfile.TemporaryDirectory(prefix="agent-flow-ci-distribution-tests-")
+        cls.base = Path(cls.temp.name).resolve()
+        cls.source = cls.base / "source"
+        shutil.copytree(ROOT / "skills/agent-flow", cls.source / "skills/agent-flow",
+                        ignore=shutil.ignore_patterns("__pycache__", "*.bak"))
+        shutil.copytree(ROOT / ".codex-plugin", cls.source / ".codex-plugin")
+        for name in ("README.md", "README.ru.md", "LICENSE"):
+            shutil.copyfile(ROOT / name, cls.source / name)
+        for args in (["init", "-q"], ["add", "."],
+                     ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                      "-c", "commit.gpgsign=false", "commit", "-qm", "Fixture"]):
+            subprocess.run(["git", "-C", str(cls.source), *args], check=True, capture_output=True)
+        cls.sha = subprocess.check_output(["git", "-C", str(cls.source), "rev-parse", "HEAD"], text=True).strip()
+        cls.output = cls.base / "distribution"
+        cls.result = builder.build(cls.source, cls.output, cls.sha, "123", "1")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.temp.cleanup()
+
+    def verify(self, directory=None, sha=None, run="123", attempt="1"):
+        return verifier.verify(self.source, directory or self.output, sha or self.sha, run, attempt)
+
+    def copy_distribution(self):
+        directory = self.base / self.id().split(".")[-1]
+        shutil.copytree(self.output, directory)
+        return directory
+
+    def refresh_sums(self, directory):
+        metadata_path = directory / Path(self.result["metadata"]).name
+        metadata = json.loads(metadata_path.read_bytes())
+        metadata["archives"] = {p.name: digest(p.read_bytes()) for p in directory.glob("*.zip")}
+        metadata_path.write_bytes(json_bytes(metadata))
+        sums = {**metadata["archives"], metadata_path.name: digest(metadata_path.read_bytes())}
+        (directory / Path(self.result["checksums"]).name).write_text(
+            "".join(f"{sha}  {name}\n" for name, sha in sorted(sums.items())))
+
+    def mutate_archive(self, directory, change):
+        path = next(directory.glob("*-skill.zip"))
+        with zipfile.ZipFile(path) as archive:
+            files = {name: archive.read(name) for name in archive.namelist()}
+        change(files)
+        path.write_bytes(builder.archive_bytes(files))
+        self.refresh_sums(directory)
+
+    def test_cli_build_and_verify_clean_install(self):
+        output = self.base / "cli"
+        identity = ["--commit-sha", self.sha, "--run-id", "123", "--run-attempt", "1"]
+        for script, args in (("build-distributions.py", ["--output", str(output)]),
+                             ("verify-distributions.py", ["--directory", str(output)])):
+            result = subprocess.run([sys.executable, "-B", str(ROOT / "scripts" / script),
+                                     "--source", str(self.source), *args, *identity],
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(json.loads(result.stdout)["version"], self.result["version"])
+        self.assertEqual(len(list(output.iterdir())), 4)
+
+    def test_reproducible_next_build_and_no_overwrite(self):
+        output = self.base / "reproducible"
+        builder.build(self.source, output, self.sha, "123", "1")
+        self.assertEqual({p.name: p.read_bytes() for p in output.iterdir()},
+                         {p.name: p.read_bytes() for p in self.output.iterdir()})
+        for run, attempt in (("124", "1"), ("123", "2")):
+            result = builder.build(self.source, output, self.sha, run, attempt)
+            self.assertNotEqual(result["version"], self.result["version"])
+            self.assertTrue({Path(p).name for p in result["archives"]}.isdisjoint(
+                Path(p).name for p in self.result["archives"]))
+        target = next(output.glob("*-dev.123.1-skill.zip"))
+        target.write_bytes(b"do not overwrite")
+        with self.assertRaisesRegex(PackageError, "different bytes"):
+            builder.build(self.source, output, self.sha, "123", "1")
+        self.assertEqual(target.read_bytes(), b"do not overwrite")
+
+    def test_invalid_identity_fails_before_output(self):
+        values = [(self.sha, None, "1"), (None, "1", "1"), ("bad", "1", "1"),
+                  (self.sha, "0", "1"), (self.sha, "01", "1"), (self.sha, "1", "-1"),
+                  (self.sha, "1", "1.0"), (self.sha, "1", " 1"), ("0" * 40, "1", "1")]
+        for index, identity in enumerate(values):
+            with self.subTest(identity=identity):
+                output = self.base / f"invalid-{index}"
+                with self.assertRaises(PackageError):
+                    builder.build(self.source, output, *identity)
+                self.assertFalse(output.exists())
+        with self.assertRaisesRegex(PackageError, "Git HEAD"):
+            self.verify(sha="0" * 40)
+        with self.assertRaises(PackageError):
+            self.verify(run="124")
+
+    def test_dirty_tracked_source_fails(self):
+        path = self.source / "README.md"
+        original = path.read_bytes()
+        try:
+            path.write_bytes(original + b"\nChanged tracked source\n")
+            with self.assertRaisesRegex(PackageError, "tracked source"):
+                builder.build(self.source, self.base / "dirty", self.sha, "123", "1")
+        finally:
+            path.write_bytes(original)
+
+    def test_extra_output_and_bad_checksum_fail(self):
+        directory = self.copy_distribution()
+        extra = directory / "old.zip"
+        extra.write_bytes(b"old build")
+        with self.assertRaisesRegex(PackageError, "exactly"):
+            self.verify(directory)
+        extra.unlink()
+        (directory / Path(self.result["checksums"]).name).write_text("wrong\n")
+        with self.assertRaisesRegex(PackageError, "SHA256SUMS"):
+            self.verify(directory)
+
+    def test_unsafe_archive_fails_even_with_valid_checksums(self):
+        directory = self.copy_distribution()
+        self.mutate_archive(directory, lambda files: files.update({"../escape": b"escape"}))
+        with self.assertRaisesRegex(PackageError, "unsafe"):
+            self.verify(directory)
+        self.assertFalse((self.base / "escape").exists())
+
+    def test_extra_archive_member_fails(self):
+        directory = self.copy_distribution()
+        self.mutate_archive(directory, lambda files: files.update({"agent-flow/extra": b"extra"}))
+        with self.assertRaisesRegex(PackageError, "inventory mismatch"):
+            self.verify(directory)
+
+    def test_wrong_record_version_and_common_bytes_fail(self):
+        for index, mutation in enumerate(("version", "commit_sha", "common")):
+            directory = self.base / f"record-mutation-{index}"
+            shutil.copytree(self.output, directory)
+            def change(files):
+                if mutation == "common":
+                    files["agent-flow/SKILL.md"] += b"\nchanged"
+                else:
+                    name = "agent-flow/agent-flow-package.json"
+                    record = json.loads(files[name])
+                    record[mutation] = "0.0.0" if mutation == "version" else "f" * 40
+                    files[name] = json_bytes(record)
+            self.mutate_archive(directory, change)
+            with self.assertRaisesRegex(PackageError, "bytes or metadata mismatch"):
+                self.verify(directory)
+
+    def test_partial_installed_ci_record_fails(self):
+        installed = self.base / "partial-record"
+        with zipfile.ZipFile(next(self.output.glob("*-skill.zip"))) as archive:
+            archive.extractall(installed)
+        path = installed / "agent-flow/agent-flow-package.json"
+        record = json.loads(path.read_bytes())
+        del record["run_id"]
+        path.write_bytes(json_bytes(record))
+        with self.assertRaisesRegex(PackageError, "together"):
+            check_package(path.parent)
+
+    def test_unsupported_base_version_fails(self):
+        source = self.base / "unsupported-version"
+        shutil.copytree(self.source, source)
+        path = source / ".codex-plugin/plugin.json"
+        manifest = json.loads(path.read_bytes())
+        manifest["version"] += "-rc.1"
+        path.write_bytes(json_bytes(manifest))
+        subprocess.run(["git", "-C", str(source), "add", "."], check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(source), "-c", "user.name=Fixture",
+                        "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false",
+                        "commit", "-qm", "Prerelease fixture"], check=True, capture_output=True)
+        sha = subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip()
+        with self.assertRaisesRegex(PackageError, "base version"):
+            builder.build(source, self.base / "unsupported-output", sha, "123", "1")
+
+    def test_partial_cli_identity_fails_without_output(self):
+        output = self.base / "partial-cli"
+        result = subprocess.run([sys.executable, "-B", str(ROOT / "scripts/build-distributions.py"),
+                                 "--source", str(self.source), "--output", str(output),
+                                 "--commit-sha", self.sha], capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("together", result.stderr)
+        self.assertFalse(output.exists())
 
 
 if __name__ == "__main__":

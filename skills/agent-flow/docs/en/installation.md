@@ -1,7 +1,35 @@
 # Installing Agent Flow
 
+Document status: done
+
 Both distributions contain the same skill bytes. Python 3.11+ is required for
 setup scripts. The standalone installer also needs Node.js and Skills CLI.
+
+## Builds after push
+
+Open [GitHub Actions](https://github.com/svishniakov/agent-flow/actions/workflows/push-build.yml),
+select a successful `Push checks and distributions` run, and confirm its commit SHA.
+Download `agent-flow-<version>-<full SHA>-run<RUN>-attempt<ATTEMPT>` from Artifacts.
+Retention is 14 days, subject to repository policy. Failed checks do not publish
+installable archives.
+
+Extract the downloaded artifact into an empty directory. It contains two ZIPs,
+build metadata JSON, and a file ending in `-SHA256SUMS.txt`. Verify them there:
+
+```sh
+shasum -a 256 -c *-SHA256SUMS.txt
+```
+
+Stop on a checksum mismatch. Confirm the metadata commit SHA and
+`X.Y.Z-dev.RUN.ATTEMPT` version against the selected run, then extract the chosen
+ZIP into a new permanent directory and follow the installation instructions below.
+Both archives contain the same shared package.
+
+These are prerelease builds, lower than stable `X.Y.Z` under SemVer. Installing one
+over a stable version requires explicit reinstallation from the chosen archive;
+automatic stable-to-prerelease updates are not promised. For each subsequent build,
+follow the update procedure: replace the plugin marketplace source, synchronize
+roles, verify the installed package, and start a new Codex task.
 
 ## Standalone skill
 
@@ -120,8 +148,9 @@ user additions.
 
 Extract the new archive into a new permanent location, run
 `codex plugin marketplace remove agent-flow`, then repeat the add and setup
-commands above with the new location. The builder adds a deterministic
-`+codex.<snapshot hash>` version suffix so Codex selects a new cache entry.
+commands above with the new location. Local builds use a deterministic
+`+codex.<snapshot hash>` suffix; GitHub builds use `X.Y.Z-dev.RUN.ATTEMPT`.
+A new version selects a new Codex cache entry.
 Create a new task after setup. Keep the previous archive and backup until
 verification passes in that task. Compare local additions before transferring
 them, without overwriting files from the new package.
@@ -148,5 +177,5 @@ python3 "$AF_PACKAGE/scripts/check-installed-package.py" --package-only
 ```
 
 The complete repository suite requires its source Git checkout. Archive checks
-do not prove real QA/reviewer sessions or Desktop invocation. Stage 1 requires
-all A1–A6; hooks, GitHub Actions, and publication are outside this stage.
+do not prove real QA/reviewer sessions or Desktop invocation. For GitHub Actions
+builds, follow the download instructions at the start of this page.
