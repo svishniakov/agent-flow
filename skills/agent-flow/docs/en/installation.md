@@ -51,7 +51,7 @@ npx skills add "/permanent/directory/agent-flow" --skill agent-flow --agent code
 AF_PACKAGE="$PWD/.agents/skills/agent-flow" &&
 python3 "$AF_PACKAGE/scripts/check-agent-deps.py" --post-install &&
 python3 "$AF_PACKAGE/scripts/sync-codex-agent-config.py" --output-dir "$PWD/.codex/agents" &&
-python3 "$AF_PACKAGE/scripts/check-installed-package.py" --dependencies
+python3 "$AF_PACKAGE/scripts/check-installed-package.py" --roles-dir "$PWD/.codex/agents" --dependencies
 ```
 
 The chain stops before the next step if a command fails. Existing installations

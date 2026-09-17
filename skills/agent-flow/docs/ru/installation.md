@@ -56,7 +56,7 @@ npx skills add "/постоянный/каталог/agent-flow" --skill agent-f
 AF_PACKAGE="$PWD/.agents/skills/agent-flow" &&
 python3 "$AF_PACKAGE/scripts/check-agent-deps.py" --post-install &&
 python3 "$AF_PACKAGE/scripts/sync-codex-agent-config.py" --output-dir "$PWD/.codex/agents" &&
-python3 "$AF_PACKAGE/scripts/check-installed-package.py" --dependencies
+python3 "$AF_PACKAGE/scripts/check-installed-package.py" --roles-dir "$PWD/.codex/agents" --dependencies
 ```
 
 При ошибке цепочка останавливается до следующего шага.
