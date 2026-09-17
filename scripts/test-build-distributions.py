@@ -29,6 +29,9 @@ spec.loader.exec_module(verifier)
 
 
 class Distributions(unittest.TestCase):
+    def test_stage3_intentional_failure(self):
+        self.fail("C2 intentional failing test: installable artifacts must not be uploaded")
+
     @classmethod
     def setUpClass(cls):
         cls.temp = tempfile.TemporaryDirectory(prefix="agent-flow-distribution-tests-")
