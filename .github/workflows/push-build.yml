@@ -146,13 +146,6 @@ jobs:
             --commit-sha "$GITHUB_SHA" \
             --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" \
             > "$RUNNER_TEMP/build-result.json"
-          python3 - <<'PY'
-          import os
-          from pathlib import Path
-
-          archive = next((Path(os.environ["RUNNER_TEMP"]) / "agent-flow-dist").glob("*-skill.zip"))
-          archive.write_bytes(archive.read_bytes() + b"intentional C2 package verification failure")
-          PY
           python3 scripts/verify-distributions.py \
             --source "$GITHUB_WORKSPACE" --directory "$RUNNER_TEMP/agent-flow-dist" \
             --commit-sha "$GITHUB_SHA" \
