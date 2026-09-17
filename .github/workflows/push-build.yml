@@ -77,6 +77,7 @@ jobs:
           import os
           from pathlib import Path
           import shutil
+          import sys
 
           config = Path("/opt/homebrew/opt/agent-flow-node/openssl.cnf").read_text()
           if any(line.strip().startswith((".include", "module", "dynamic_path")) for line in config.splitlines()):
@@ -86,21 +87,24 @@ jobs:
               launcher.unlink()
           launcher.write_text('#!/bin/sh\nexec /opt/homebrew/opt/agent-flow-node/bin/node --openssl-config=/opt/homebrew/opt/agent-flow-node/openssl.cnf "$@"\n')
           launcher.chmod(0o755)
-          shutil.copytree(os.environ["pythonLocation"], "/opt/homebrew/opt/agent-flow-python", symlinks=False)
           shutil.copytree(Path(shutil.which("go")).resolve().parents[1], "/opt/homebrew/opt/agent-flow-go", symlinks=False)
           shutil.copy2(shutil.which("bun"), "/opt/homebrew/bin/bun")
           for name, target in {
-              "python3": "/opt/homebrew/opt/agent-flow-python/bin/python3",
               "go": "/opt/homebrew/opt/agent-flow-go/bin/go",
           }.items():
               link = Path("/opt/homebrew/bin") / name
               if link.is_symlink() or link.exists():
                   link.unlink()
               link.symlink_to(target)
+          python = Path(sys.executable).resolve()
+          if not python.is_relative_to("/Library/Frameworks/Python.framework/Versions"):
+              raise SystemExit(f"Python is outside the supported sandbox framework root: {python}")
+          with open(os.environ["GITHUB_ENV"], "a") as output:
+              print(f"AGENT_FLOW_PYTHON_BIN={python.parent}", file=output)
           PY
           echo /opt/homebrew/bin >> "$GITHUB_PATH"
           /opt/homebrew/bin/node --version
-          /opt/homebrew/bin/python3 --version
+          python3 --version
           /opt/homebrew/bin/go version
           /opt/homebrew/bin/bun --version
 
@@ -121,25 +125,18 @@ jobs:
 
       - name: Prepare all pinned check dependencies
         run: |
-          /opt/homebrew/opt/agent-flow-python/bin/python3 scripts/prepare-check-environment.py \
+          "$AGENT_FLOW_PYTHON_BIN/python3" scripts/prepare-check-environment.py \
             --prefix /opt/homebrew/opt/agent-flow-checks \
             --browser "$AGENT_FLOW_TEST_BROWSER"
           ln -s /opt/homebrew/opt/agent-flow-checks/bin/pnpm /opt/homebrew/bin/pnpm
-          /opt/homebrew/opt/agent-flow-python/bin/python3 - <<'PY'
-          from pathlib import Path
-
-          launcher = Path("/opt/homebrew/bin/python3")
-          launcher.unlink()
-          launcher.write_text('#!/bin/sh\nexec /opt/homebrew/opt/agent-flow-checks/bin/python3 "$@"\n')
-          launcher.chmod(0o755)
-          PY
           echo /opt/homebrew/opt/agent-flow-checks/bin >> "$GITHUB_PATH"
           echo /opt/homebrew/bin >> "$GITHUB_PATH"
+          echo "$AGENT_FLOW_PYTHON_BIN" >> "$GITHUB_PATH"
 
       - name: Run the complete pre-commit test suite
         run: |
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          python3 scripts/check-all.py
+          /opt/homebrew/opt/agent-flow-checks/bin/python3 scripts/check-all.py
 
       - name: Build and verify both distributions
         id: build
