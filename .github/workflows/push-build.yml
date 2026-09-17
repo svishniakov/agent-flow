@@ -125,7 +125,14 @@ jobs:
             --prefix /opt/homebrew/opt/agent-flow-checks \
             --browser "$AGENT_FLOW_TEST_BROWSER"
           ln -s /opt/homebrew/opt/agent-flow-checks/bin/pnpm /opt/homebrew/bin/pnpm
-          ln -sf /opt/homebrew/opt/agent-flow-checks/bin/python3 /opt/homebrew/bin/python3
+          /opt/homebrew/opt/agent-flow-python/bin/python3 - <<'PY'
+          from pathlib import Path
+
+          launcher = Path("/opt/homebrew/bin/python3")
+          launcher.unlink()
+          launcher.write_text('#!/bin/sh\nexec /opt/homebrew/opt/agent-flow-checks/bin/python3 "$@"\n')
+          launcher.chmod(0o755)
+          PY
           echo /opt/homebrew/opt/agent-flow-checks/bin >> "$GITHUB_PATH"
           echo /opt/homebrew/bin >> "$GITHUB_PATH"
 
