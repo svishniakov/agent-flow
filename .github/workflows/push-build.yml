@@ -171,7 +171,7 @@ jobs:
                   print(f"{name}={value}", file=output)
           PY
 
-      - name: Build and verify numbered skill release
+      - name: Build and verify numbered plugin release
         if: ${{ github.ref_type == 'tag' && startsWith(github.ref_name, 'v') }}
         id: release
         env:
@@ -185,9 +185,9 @@ jobs:
           python3 scripts/verify-distributions.py \
             --directory "$RUNNER_TEMP/agent-flow-release" \
             --release-tag "$RELEASE_TAG" --commit-sha "$GITHUB_SHA"
-          echo "artifact=skill-release-$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+          echo "artifact=plugin-release-$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
 
-      - name: Save verified numbered skill bundle
+      - name: Save verified numbered plugin bundle
         if: ${{ steps.release.outputs.artifact != '' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -211,6 +211,7 @@ jobs:
           compression-level: 0
 
   publish-skill-release:
+    name: Publish Codex plugin
     needs: check-and-build
     if: ${{ github.ref_type == 'tag' && startsWith(github.ref_name, 'v') && !github.event.deleted }}
     runs-on: ubuntu-24.04
@@ -243,13 +244,13 @@ jobs:
           tar -xzf "$RUNNER_TEMP/gh.tar.gz" -C "$RUNNER_TEMP"
           echo "$RUNNER_TEMP/gh_2.101.0_linux_amd64/bin" >> "$GITHUB_PATH"
 
-      - name: Download the verified skill bundle from this run
+      - name: Download the verified plugin bundle from this run
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: ${{ needs.check-and-build.outputs.release-artifact }}
           path: ${{ runner.temp }}/agent-flow-release
 
-      - name: Verify assets and publish the numbered release
+      - name: Verify bundle and publish only the plugin ZIP
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}

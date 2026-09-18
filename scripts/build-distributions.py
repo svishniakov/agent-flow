@@ -84,13 +84,13 @@ def build(source, output, commit_sha=None, run_id=None, run_attempt=None, releas
     common, plugin, build_info = distribution_files(source, commit_sha, run_id, run_attempt, release_tag)
     # Both archives already share the exact captured bytes before any output is written.
     stem = f"agent-flow-{build_info['version']}"
-    results = {f"{stem}-skill.zip": archive_bytes(common)}
+    results = {f"{stem}-codex-plugin.zip": archive_bytes(plugin)}
     if release_tag is None:
-        results[f"{stem}-codex-plugin.zip"] = archive_bytes(plugin)
+        results[f"{stem}-skill.zip"] = archive_bytes(common)
     sums = {name: digest(data) for name, data in results.items()}
     metadata_name = f"{stem}-build.json"
     if commit_sha is not None:
-        results[metadata_name] = json_bytes({**build_info, "format": "skill" if release_tag is not None else "dual", "archives": sums.copy()})
+        results[metadata_name] = json_bytes({**build_info, "format": "plugin" if release_tag is not None else "dual", "archives": sums.copy()})
         sums[metadata_name] = digest(results[metadata_name])
     results[f"{stem}-SHA256SUMS.txt"] = "".join(f"{sha}  {name}\n" for name, sha in sorted(sums.items())).encode()
     for name, data in results.items():

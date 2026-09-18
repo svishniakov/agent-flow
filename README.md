@@ -25,12 +25,9 @@ Describe the result you need and any constraints. Include the relevant plan or f
 
 ## Installation
 
-Download `agent-flow-X.Y.Z-skill.zip` from [Releases](https://github.com/svishniakov/agent-flow/releases/latest)
-and follow the [ZIP installation instructions](skills/agent-flow/docs/en/installation.md#ready-to-install-zip-from-releases)
-for checksums, role setup, and updates. Releases remains empty until the first
-numbered version is published.
+Choose one of two options.
 
-Or install the skill with a command for Codex:
+**Skill via npx:**
 
 ```bash
 npx skills add https://github.com/svishniakov/agent-flow -a codex -g
@@ -40,6 +37,8 @@ python3 ~/.agents/skills/agent-flow/scripts/sync-codex-agent-config.py --output-
 
 The second command reports missing skills and guides dependency setup. The third creates the specialist configurations for Codex. Run it again after updating the skill's role files.
 
-The Codex plugin is currently available through Actions builds; see [archive installation](skills/agent-flow/docs/en/installation.md#codex-plugin).
+**Codex plugin:** download `agent-flow-X.Y.Z-codex-plugin.zip` from
+[Releases](https://github.com/svishniakov/agent-flow/releases/latest) and follow the
+[plugin installation instructions](skills/agent-flow/docs/en/installation.md#codex-plugin).
 
 [Skill instructions](skills/agent-flow/SKILL.md) · [License](LICENSE)

@@ -44,9 +44,9 @@ def verify(source, directory, commit_sha, run_id=None, run_attempt=None, release
     common, plugin, info = builder.distribution_files(source, commit_sha, run_id, run_attempt, release_tag)
     require(commit_sha is not None, "CI identity is required")
     stem = f"agent-flow-{info['version']}"
-    archives = {f"{stem}-skill.zip": common}
+    archives = {f"{stem}-codex-plugin.zip": plugin}
     if release_tag is None:
-        archives[f"{stem}-codex-plugin.zip"] = plugin
+        archives[f"{stem}-skill.zip"] = common
     metadata_name, sums_name = f"{stem}-build.json", f"{stem}-SHA256SUMS.txt"
     expected_names = set(archives) | {metadata_name, sums_name}
     require(directory.is_dir() and {p.name for p in directory.iterdir()} == expected_names,
@@ -56,7 +56,7 @@ def verify(source, directory, commit_sha, run_id=None, run_attempt=None, release
         require(path.is_file() and not path.is_symlink(), f"unsupported distribution file: {name}")
     archive_hashes = {name: digest((directory / name).read_bytes()) for name in archives}
     require((directory / metadata_name).read_bytes() == json_bytes(
-        {**info, "format": "skill" if release_tag is not None else "dual", "archives": archive_hashes}), "download metadata mismatch")
+        {**info, "format": "plugin" if release_tag is not None else "dual", "archives": archive_hashes}), "download metadata mismatch")
     hashes = {**archive_hashes, metadata_name: digest((directory / metadata_name).read_bytes())}
     expected_sums = "".join(f"{sha}  {name}\n" for name, sha in sorted(hashes.items())).encode()
     require((directory / sums_name).read_bytes() == expected_sums, "SHA256SUMS mismatch")

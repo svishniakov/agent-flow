@@ -25,14 +25,9 @@ Agent Flow Реализуй согласованный план и провер�
 
 ## Установка
 
-Скачайте `agent-flow-X.Y.Z-skill.zip` из [Releases](https://github.com/svishniakov/agent-flow/releases/latest)
-и установите по [инструкции для ZIP](skills/agent-flow/docs/ru/installation.md#готовый-zip-из-releases).
-Там же описаны проверка контрольных сумм, настройка ролей и обновление.
-До первого пронумерованного выпуска список Releases будет пуст.
+Выберите один из двух способов.
 
-[Подготовка окружения разработки и проверки перед коммитом](skills/agent-flow/docs/ru/development.md).
-
-Или установите скилл командой для Codex:
+**Скилл через npx:**
 
 ```bash
 npx skills add https://github.com/svishniakov/agent-flow -a codex -g
@@ -44,6 +39,10 @@ python3 ~/.agents/skills/agent-flow/scripts/sync-codex-agent-config.py --output-
 специалистов и сохраняет эталон для безопасного обновления. При конфликте она
 сохраняет пользовательские файлы и выводит их пути. Повторите её после обновления ролей.
 
-Плагин Codex пока доступен в сборках Actions; [установка из архива](skills/agent-flow/docs/ru/installation.md#плагин-codex).
+**Плагин Codex:** скачайте `agent-flow-X.Y.Z-codex-plugin.zip` из
+[Releases](https://github.com/svishniakov/agent-flow/releases/latest) и следуйте
+[инструкции установки плагина](skills/agent-flow/docs/ru/installation.md#плагин-codex).
+
+[Подготовка окружения разработки и проверки перед коммитом](skills/agent-flow/docs/ru/development.md).
 
 [Инструкции скилла](skills/agent-flow/SKILL.md) · [Лицензия](LICENSE)

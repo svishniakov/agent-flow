@@ -274,7 +274,7 @@ class CIDistributions(unittest.TestCase):
             "".join(f"{sha}  {name}\n" for name, sha in sorted(sums.items())))
 
     def mutate_archive(self, directory, change):
-        path = next(directory.glob("*-skill.zip"))
+        path = next(directory.glob("*-skill.zip"), None) or next(directory.glob("*-codex-plugin.zip"))
         with zipfile.ZipFile(path) as archive:
             files = {name: archive.read(name) for name in archive.namelist()}
         change(files)
@@ -438,7 +438,7 @@ class ReleaseDistributions(unittest.TestCase):
             data = json.loads(result.stdout)
             self.assertEqual(data["version"], self.tag[1:])
         self.assertEqual(data["unpacked_package_checks"], "passed")
-        print("release-tag-match-ok release-skill-bundle-verified release-unpacked-skill-check-passed")
+        print("release-tag-match-ok release-plugin-bundle-verified release-unpacked-plugin-check-passed")
 
     def test_release_rebuild_has_exact_three_identical_files(self):
         output = self.base / "release-rebuilt"
@@ -447,10 +447,10 @@ class ReleaseDistributions(unittest.TestCase):
                          {p.name: p.read_bytes() for p in self.output.iterdir()})
         self.assertEqual(len(list(output.iterdir())), 3)
         metadata = json.loads(Path(self.result["metadata"]).read_bytes())
-        self.assertEqual(metadata["format"], "skill")
+        self.assertEqual(metadata["format"], "plugin")
         self.assertEqual(metadata["release_tag"], self.tag)
         self.assertEqual(metadata["commit_sha"], self.sha)
-        self.assertEqual(set(metadata["archives"]), {f"agent-flow-{self.tag[1:]}-skill.zip"})
+        self.assertEqual(set(metadata["archives"]), {f"agent-flow-{self.tag[1:]}-codex-plugin.zip"})
         self.assertNotIn("run_id", metadata)
         self.assertNotIn("run_attempt", metadata)
         print("release-rebuild-identical")
@@ -482,7 +482,7 @@ class ReleaseDistributions(unittest.TestCase):
         installed = self.base / "release-installed"
         with zipfile.ZipFile(next(self.output.glob("*.zip"))) as archive:
             archive.extractall(installed)
-        path = installed / "agent-flow/agent-flow-package.json"
+        path = installed / "agent-flow/skills/agent-flow/agent-flow-package.json"
         original = json.loads(path.read_bytes())
         for change in ({"run_id": None}, {"run_attempt": "1"}, {"version": "999.0.0"},
                        {"commit_sha": None}, {"release_tag": None}):
@@ -496,7 +496,7 @@ class ReleaseDistributions(unittest.TestCase):
             directory = self.base / f"corrupt-release-{index}"
             shutil.copytree(self.output, directory)
             if mutation == "zip":
-                self.mutate_archive(directory, lambda files: files.update({"agent-flow/SKILL.md": b"corrupt"}))
+                self.mutate_archive(directory, lambda files: files.update({"agent-flow/skills/agent-flow/SKILL.md": b"corrupt"}))
             elif mutation == "metadata":
                 path = directory / Path(self.result["metadata"]).name
                 data = json.loads(path.read_bytes())
