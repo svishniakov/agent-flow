@@ -55,7 +55,23 @@ def ci_metadata(commit_sha=None, run_id=None, run_attempt=None):
     return dict(zip(CI_FIELDS, values))
 
 
+def release_metadata(commit_sha, release_tag, run_id=None, run_attempt=None):
+    require(isinstance(release_tag, str) and re.fullmatch(
+        r"v(0|[1-9][0-9]*)[.](0|[1-9][0-9]*)[.](0|[1-9][0-9]*)", release_tag),
+        "release-tag must be vX.Y.Z without leading zeros or suffixes")
+    require(isinstance(commit_sha, str) and re.fullmatch(r"[0-9a-f]{40}", commit_sha),
+            "release commit-sha must be a full lowercase Git SHA")
+    require(run_id is None and run_attempt is None, "release identity forbids run-id and run-attempt")
+    return {"commit_sha": commit_sha, "release_tag": release_tag}
+
+
 def check_ci_record(record):
+    if "release_tag" in record:
+        require(not any(field in record for field in CI_FIELDS[1:]), "mixed release and CI metadata")
+        metadata = release_metadata(record.get("commit_sha"), record["release_tag"])
+        require(record.get("version") == metadata["release_tag"][1:],
+                "release record version does not match release tag")
+        return metadata
     metadata = ci_metadata(*(record.get(field) for field in CI_FIELDS))
     if metadata:
         require(isinstance(record.get("version"), str) and re.fullmatch(

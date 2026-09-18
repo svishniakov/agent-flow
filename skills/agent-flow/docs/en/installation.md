@@ -3,7 +3,45 @@
 Document status: done
 
 Both distributions contain the same skill bytes. Python 3.11+ is required for
-setup scripts. The standalone installer also needs Node.js and Skills CLI.
+setup scripts. Node.js and Skills CLI are needed only for `npx skills add`.
+
+## Ready-to-install ZIP from Releases
+
+Open the [latest release](https://github.com/svishniakov/agent-flow/releases/latest).
+Under Assets, download `agent-flow-X.Y.Z-skill.zip`, the matching `-build.json`,
+and `-SHA256SUMS.txt` into a separate directory. The ZIP contains the skill;
+you do not need the source repository. Releases remains empty until the first
+numbered version is published.
+
+From the download directory, run:
+
+```sh
+shasum -a 256 -c agent-flow-*-SHA256SUMS.txt
+```
+
+Both checksums must match. Confirm `version`, `release_tag`, and `commit_sha` in
+the JSON against the selected release and its commit. Extract the ZIP and move
+the `agent-flow` folder into `~/.agents/skills/`, placing the skill file at
+`~/.agents/skills/agent-flow/SKILL.md`. If an `agent-flow` file, directory, or
+symlink already exists there, preserve the entire previous installation outside
+the skills directory first. Never extract over it or copy custom changes without
+comparing them with the new files.
+
+Then run:
+
+```sh
+AF_PACKAGE="$HOME/.agents/skills/agent-flow" &&
+python3 "$AF_PACKAGE/scripts/check-agent-deps.py" --post-install &&
+python3 "$AF_PACKAGE/scripts/sync-codex-agent-config.py" --output-dir "$HOME/.codex/agents" &&
+python3 "$AF_PACKAGE/scripts/check-installed-package.py" --dependencies
+```
+
+Resolve reported role conflicts and missing dependencies using the scripts'
+instructions. Start a new Codex task and invoke `Agent Flow`. To update, download
+the next release and repeat these steps after backing up the previous installation.
+The Git updater does not update ZIP installations.
+
+Numbered releases are separate publications. Ordinary pushes save builds in Actions.
 
 ## Builds after push
 

@@ -4,7 +4,45 @@ Document status: done
 
 Обе поставки используют один пакет. Плагин содержит дополнительный манифест и
 каталог установки Codex. Python 3.11 или новее нужен для скриптов настройки.
-Для установки отдельного скилла нужны Node.js и Skills CLI.
+Node.js и Skills CLI нужны только для установки командой `npx skills add`.
+
+## Готовый ZIP из Releases
+
+Откройте [последний выпуск](https://github.com/svishniakov/agent-flow/releases/latest).
+В разделе Assets выберите `agent-flow-X.Y.Z-skill.zip`, JSON с окончанием
+`-build.json` и файл `-SHA256SUMS.txt` той же версии. Скачайте все три файла
+в отдельную папку. ZIP содержит готовый скилл; исходный репозиторий не нужен.
+До первого пронумерованного выпуска список Releases будет пуст.
+
+В папке со скачанными файлами выполните:
+
+```sh
+shasum -a 256 -c agent-flow-*-SHA256SUMS.txt
+```
+
+Обе суммы должны совпасть. В JSON проверьте `version`, `release_tag` и
+`commit_sha`: они должны соответствовать выбранному выпуску и его коммиту.
+Распакуйте ZIP. Перенесите папку `agent-flow` в `~/.agents/skills/`, чтобы файл
+оказался по пути `~/.agents/skills/agent-flow/SKILL.md`.
+Если там уже есть файл, папка или символическая ссылка `agent-flow`, сначала
+сохраните прежнюю установку целиком вне каталога скиллов. Не распаковывайте
+новую версию поверх старой и не переносите пользовательские правки без сравнения.
+
+Затем выполните:
+
+```sh
+AF_PACKAGE="$HOME/.agents/skills/agent-flow" &&
+python3 "$AF_PACKAGE/scripts/check-agent-deps.py" --post-install &&
+python3 "$AF_PACKAGE/scripts/sync-codex-agent-config.py" --output-dir "$HOME/.codex/agents" &&
+python3 "$AF_PACKAGE/scripts/check-installed-package.py" --dependencies
+```
+
+Разберите показанные конфликты ролей и недостающие зависимости по инструкциям
+скриптов. Начните новую задачу Codex и вызовите `Agent Flow`. Для обновления
+скачайте следующий выпуск и повторите эти шаги с резервной копией старой установки.
+Git-updater не обновляет установку из ZIP.
+
+Пронумерованные выпуски создаются отдельно. Обычный push сохраняет сборки в Actions.
 
 ## Сборки после push
 

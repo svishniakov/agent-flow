@@ -39,26 +39,32 @@ def read_archive(path, expected):
     return files
 
 
-def verify(source, directory, commit_sha, run_id, run_attempt):
+def verify(source, directory, commit_sha, run_id=None, run_attempt=None, release_tag=None):
     source, directory = source.resolve(), directory.resolve()
-    common, plugin, info = builder.distribution_files(source, commit_sha, run_id, run_attempt)
+    common, plugin, info = builder.distribution_files(source, commit_sha, run_id, run_attempt, release_tag)
     require(commit_sha is not None, "CI identity is required")
     stem = f"agent-flow-{info['version']}"
-    archives = {f"{stem}-skill.zip": common, f"{stem}-codex-plugin.zip": plugin}
+    archives = {f"{stem}-skill.zip": common}
+    if release_tag is None:
+        archives[f"{stem}-codex-plugin.zip"] = plugin
     metadata_name, sums_name = f"{stem}-build.json", f"{stem}-SHA256SUMS.txt"
     expected_names = set(archives) | {metadata_name, sums_name}
     require(directory.is_dir() and {p.name for p in directory.iterdir()} == expected_names,
-            "distribution directory must contain exactly the two archives, metadata and SHA256SUMS")
+            "distribution directory must contain exactly the expected archives, metadata and SHA256SUMS")
     for name in expected_names:
         path = directory / name
         require(path.is_file() and not path.is_symlink(), f"unsupported distribution file: {name}")
     archive_hashes = {name: digest((directory / name).read_bytes()) for name in archives}
     require((directory / metadata_name).read_bytes() == json_bytes(
-        {**info, "format": "dual", "archives": archive_hashes}), "download metadata mismatch")
+        {**info, "format": "skill" if release_tag is not None else "dual", "archives": archive_hashes}), "download metadata mismatch")
     hashes = {**archive_hashes, metadata_name: digest((directory / metadata_name).read_bytes())}
     expected_sums = "".join(f"{sha}  {name}\n" for name, sha in sorted(hashes.items())).encode()
     require((directory / sums_name).read_bytes() == expected_sums, "SHA256SUMS mismatch")
     contents = {name: read_archive(directory / name, files) for name, files in archives.items()}
+    if release_tag is not None:
+        for name, files in archives.items():
+            require((directory / name).read_bytes() == builder.archive_bytes(files),
+                    f"release archive bytes are not reproducible: {name}")
     # Only previously validated regular files are materialized; ZIP extraction is never delegated.
     with tempfile.TemporaryDirectory(prefix="agent-flow-verify-") as temporary:
         base = Path(temporary).resolve()
@@ -88,8 +94,10 @@ def verify(source, directory, commit_sha, run_id, run_attempt):
                                         env=environment, capture_output=True, text=True)
                 require(result.returncode == 0, "installed package command failed: " +
                         " ".join(command) + "\n" + result.stdout + result.stderr)
-    return {"version": info["version"], "commit_sha": commit_sha, "run_id": run_id,
-            "run_attempt": run_attempt, "package_sha256": info["package_sha256"],
+    identity = ({"release_tag": release_tag} if release_tag is not None else
+                {"run_id": run_id, "run_attempt": run_attempt})
+    return {"version": info["version"], "commit_sha": commit_sha, **identity,
+            "package_sha256": info["package_sha256"],
             "archives": archive_hashes, "unpacked_package_checks": "passed"}
 
 
@@ -98,12 +106,13 @@ def main():
     parser.add_argument("--source", type=Path, default=SOURCE)
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--commit-sha", required=True)
-    parser.add_argument("--run-id", required=True)
-    parser.add_argument("--run-attempt", required=True)
+    parser.add_argument("--run-id")
+    parser.add_argument("--run-attempt")
+    parser.add_argument("--release-tag")
     args = parser.parse_args()
     try:
         print(json.dumps(verify(args.source, args.directory, args.commit_sha,
-                                args.run_id, args.run_attempt), indent=2))
+                                args.run_id, args.run_attempt, args.release_tag), indent=2))
     except (PackageError, OSError, ValueError, zipfile.BadZipFile) as exc:
         parser.exit(1, f"verify: {exc}\n")
 

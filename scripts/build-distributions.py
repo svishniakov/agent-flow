@@ -16,7 +16,7 @@ import zipfile
 SOURCE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SOURCE / "skills/agent-flow/scripts"))
 from package_distribution import (BUILD_RECORD, RECORD, PackageError, digest, inventory,
-                                  ci_metadata, json_bytes, marketplace, read_json, require, validate_manifest)
+                                  ci_metadata, release_metadata, json_bytes, marketplace, read_json, require, validate_manifest)
 
 
 def archive_bytes(files):
@@ -41,8 +41,9 @@ def check_checkout(source, commit_sha):
     require(not git("status", "--porcelain", "--untracked-files=no"), "tracked source files have changes")
 
 
-def distribution_files(source, commit_sha=None, run_id=None, run_attempt=None):
-    metadata = ci_metadata(commit_sha, run_id, run_attempt)
+def distribution_files(source, commit_sha=None, run_id=None, run_attempt=None, release_tag=None):
+    metadata = (release_metadata(commit_sha, release_tag, run_id, run_attempt)
+                if release_tag is not None else ci_metadata(commit_sha, run_id, run_attempt))
     if metadata:
         check_checkout(source, commit_sha)
     manifest = read_json(source / ".codex-plugin/plugin.json")
@@ -56,7 +57,9 @@ def distribution_files(source, commit_sha=None, run_id=None, run_attempt=None):
         require(path.is_file() and not path.is_symlink(), f"missing plugin resource: {path}")
         outer[name] = path.read_bytes()
     snapshot_hash = digest(json_bytes({"package": hashes, "manifest": manifest, "outer": {name: digest(data) for name, data in outer.items()}}))
-    if metadata:
+    if release_tag is not None:
+        require(manifest["version"] == release_tag[1:], "release tag does not match manifest version")
+    elif metadata:
         require(re.fullmatch(r"(0|[1-9][0-9]*)[.](0|[1-9][0-9]*)[.](0|[1-9][0-9]*)", manifest["version"]), "CI base version must be X.Y.Z")
         manifest["version"] += f"-dev.{run_id}.{run_attempt}"
     else:
@@ -75,17 +78,19 @@ def distribution_files(source, commit_sha=None, run_id=None, run_attempt=None):
     return common, plugin, build_info
 
 
-def build(source, output, commit_sha=None, run_id=None, run_attempt=None):
+def build(source, output, commit_sha=None, run_id=None, run_attempt=None, release_tag=None):
     source, output = source.resolve(), output.resolve()
     require(not output.is_relative_to(source), "output must be outside source tree and skill discovery")
-    common, plugin, build_info = distribution_files(source, commit_sha, run_id, run_attempt)
+    common, plugin, build_info = distribution_files(source, commit_sha, run_id, run_attempt, release_tag)
     # Both archives already share the exact captured bytes before any output is written.
     stem = f"agent-flow-{build_info['version']}"
-    results = {f"{stem}-skill.zip": archive_bytes(common), f"{stem}-codex-plugin.zip": archive_bytes(plugin)}
+    results = {f"{stem}-skill.zip": archive_bytes(common)}
+    if release_tag is None:
+        results[f"{stem}-codex-plugin.zip"] = archive_bytes(plugin)
     sums = {name: digest(data) for name, data in results.items()}
     metadata_name = f"{stem}-build.json"
     if commit_sha is not None:
-        results[metadata_name] = json_bytes({**build_info, "format": "dual", "archives": sums.copy()})
+        results[metadata_name] = json_bytes({**build_info, "format": "skill" if release_tag is not None else "dual", "archives": sums.copy()})
         sums[metadata_name] = digest(results[metadata_name])
     results[f"{stem}-SHA256SUMS.txt"] = "".join(f"{sha}  {name}\n" for name, sha in sorted(sums.items())).encode()
     for name, data in results.items():
@@ -118,9 +123,10 @@ def main():
     parser.add_argument("--commit-sha")
     parser.add_argument("--run-id")
     parser.add_argument("--run-attempt")
+    parser.add_argument("--release-tag")
     args = parser.parse_args()
     try:
-        print(json.dumps(build(args.source, args.output, args.commit_sha, args.run_id, args.run_attempt), indent=2))
+        print(json.dumps(build(args.source, args.output, args.commit_sha, args.run_id, args.run_attempt, args.release_tag), indent=2))
     except (PackageError, OSError, ValueError) as exc:
         parser.exit(1, f"build: {exc}\n")
 

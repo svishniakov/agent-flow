@@ -1426,6 +1426,7 @@ def main() -> int:
     python_files = sorted(str(path.relative_to(ROOT)) for path in SCRIPTS.glob("*.py"))
     command_steps = [
         ("distribution archive fixtures", [sys.executable, str(repo_root / "scripts/test-build-distributions.py")]),
+        ("numbered skill release fixtures", [sys.executable, str(repo_root / "scripts/test-skill-release.py")]),
         ("Git index and hook fixtures", [sys.executable, str(repo_root / "scripts/test-check-index.py")]),
         ("py_compile scripts", [sys.executable, "-m", "py_compile", *python_files]),
         ("repository check fixtures", [sys.executable, "scripts/test-check-all.py"]),

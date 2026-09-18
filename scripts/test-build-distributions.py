@@ -410,5 +410,127 @@ class CIDistributions(unittest.TestCase):
         self.assertFalse(output.exists())
 
 
+class ReleaseDistributions(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        CIDistributions.setUpClass.__func__(cls)
+        cls.tag = "v" + json.loads((cls.source / ".codex-plugin/plugin.json").read_bytes())["version"]
+        cls.output = cls.base / "release"
+        cls.result = builder.build(cls.source, cls.output, cls.sha, release_tag=cls.tag)
+
+    tearDownClass = classmethod(CIDistributions.tearDownClass.__func__)
+    copy_distribution = CIDistributions.copy_distribution
+    refresh_sums = CIDistributions.refresh_sums
+    mutate_archive = CIDistributions.mutate_archive
+
+    def verify(self, directory=None):
+        return verifier.verify(self.source, directory or self.output, self.sha, release_tag=self.tag)
+
+    def test_release_cli_and_installed_package(self):
+        output = self.base / "release-cli"
+        for script, flag in (("build-distributions.py", "--output"),
+                             ("verify-distributions.py", "--directory")):
+            result = subprocess.run([sys.executable, "-B", str(ROOT / "scripts" / script),
+                                     "--source", str(self.source), flag, str(output),
+                                     "--commit-sha", self.sha, "--release-tag", self.tag],
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            data = json.loads(result.stdout)
+            self.assertEqual(data["version"], self.tag[1:])
+        self.assertEqual(data["unpacked_package_checks"], "passed")
+        print("release-tag-match-ok release-skill-bundle-verified release-unpacked-skill-check-passed")
+
+    def test_release_rebuild_has_exact_three_identical_files(self):
+        output = self.base / "release-rebuilt"
+        builder.build(self.source, output, self.sha, release_tag=self.tag)
+        self.assertEqual({p.name: p.read_bytes() for p in output.iterdir()},
+                         {p.name: p.read_bytes() for p in self.output.iterdir()})
+        self.assertEqual(len(list(output.iterdir())), 3)
+        metadata = json.loads(Path(self.result["metadata"]).read_bytes())
+        self.assertEqual(metadata["format"], "skill")
+        self.assertEqual(metadata["release_tag"], self.tag)
+        self.assertEqual(metadata["commit_sha"], self.sha)
+        self.assertEqual(set(metadata["archives"]), {f"agent-flow-{self.tag[1:]}-skill.zip"})
+        self.assertNotIn("run_id", metadata)
+        self.assertNotIn("run_attempt", metadata)
+        print("release-rebuild-identical")
+
+    def test_release_invalid_cli_identity_fails_before_output(self):
+        cases = [(self.tag, None, "release commit-sha"),
+                 ("v01.0.0", self.sha, "release-tag"),
+                 ("v1.0.0-rc.1", self.sha, "release-tag"),
+                 ("v1.0.0+build", self.sha, "release-tag"),
+                 ("vbad", self.sha, "release-tag"),
+                 ("v999.0.0", self.sha, "manifest version"),
+                 (self.tag, "0" * 40, "Git HEAD")]
+        for index, (tag, sha, error) in enumerate(cases):
+            output = self.base / f"invalid-release-{index}"
+            args = ["--commit-sha", sha] if sha is not None else []
+            result = subprocess.run([sys.executable, "-B", str(ROOT / "scripts/build-distributions.py"),
+                                     "--source", str(self.source), "--output", str(output),
+                                     "--release-tag", tag, *args], capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(error, result.stderr)
+            self.assertFalse(output.exists())
+        print("release-tag-invalid-rejected release-tag-mismatch-rejected release-source-sha-rejected")
+
+    def test_release_mixed_identity_rejected(self):
+        for run, attempt in (("1", None), (None, "1"), ("1", "1")):
+            with self.assertRaisesRegex(PackageError, "forbids"):
+                builder.build(self.source, self.base / "mixed-release", self.sha,
+                              run, attempt, self.tag)
+        installed = self.base / "release-installed"
+        with zipfile.ZipFile(next(self.output.glob("*.zip"))) as archive:
+            archive.extractall(installed)
+        path = installed / "agent-flow/agent-flow-package.json"
+        original = json.loads(path.read_bytes())
+        for change in ({"run_id": None}, {"run_attempt": "1"}, {"version": "999.0.0"},
+                       {"commit_sha": None}, {"release_tag": None}):
+            path.write_bytes(json_bytes({**original, **change}))
+            with self.assertRaises(PackageError):
+                check_package(path.parent)
+        print("release-mixed-identity-rejected")
+
+    def test_release_corruption_rejected_with_updated_checksums(self):
+        for index, mutation in enumerate(("zip", "metadata", "extra", "zip-container", "checksum")):
+            directory = self.base / f"corrupt-release-{index}"
+            shutil.copytree(self.output, directory)
+            if mutation == "zip":
+                self.mutate_archive(directory, lambda files: files.update({"agent-flow/SKILL.md": b"corrupt"}))
+            elif mutation == "metadata":
+                path = directory / Path(self.result["metadata"]).name
+                data = json.loads(path.read_bytes())
+                data["release_tag"] = "v999.0.0"
+                path.write_bytes(json_bytes(data))
+                self.refresh_sums(directory)
+            elif mutation == "zip-container":
+                path = next(directory.glob("*.zip"))
+                path.write_bytes(path.read_bytes() + b"trailing bytes")
+                self.refresh_sums(directory)
+            elif mutation == "checksum":
+                (directory / Path(self.result["checksums"]).name).write_text("wrong checksum")
+            else:
+                (directory / "extra.zip").write_bytes(b"unexpected")
+            with self.assertRaises(PackageError):
+                self.verify(directory)
+        print("release-bundle-corruption-rejected")
+
+    def test_release_dirty_source_and_overwrite_rejected(self):
+        path = self.source / "README.md"
+        original = path.read_bytes()
+        try:
+            path.write_bytes(original + b"changed")
+            with self.assertRaisesRegex(PackageError, "tracked source"):
+                builder.build(self.source, self.base / "release-dirty", self.sha, release_tag=self.tag)
+        finally:
+            path.write_bytes(original)
+        directory = self.copy_distribution()
+        archive = next(directory.glob("*.zip"))
+        archive.write_bytes(b"keep existing")
+        with self.assertRaisesRegex(PackageError, "different bytes"):
+            builder.build(self.source, directory, self.sha, release_tag=self.tag)
+        self.assertEqual(archive.read_bytes(), b"keep existing")
+
+
 if __name__ == "__main__":
     unittest.main()
