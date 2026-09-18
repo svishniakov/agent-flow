@@ -33,8 +33,13 @@ if a[0]=='api':
  endpoint=a[1]
  if '/releases/tags/' in endpoint:
   if s.get('auth_failure'): fail('gh: Bad credentials (HTTP 401)')
-  if s['release'] is None: fail('gh: Not Found (HTTP 404)')
+  if s['release'] is None or s['release']['draft']: fail('gh: Not Found (HTTP 404)')
   answer(s['release'])
+ if endpoint.endswith('/releases'):
+  assert '--paginate' in a and '--slurp' in a
+  if s.get('list_failure'): fail('gh: Forbidden (HTTP 403)')
+  matches=[] if s['release'] is None else [s['release']]
+  answer([[{'id':99,'tag_name':'v9.0.0'}],matches + (matches if s.get('duplicate_release') else [])])
  if endpoint.endswith('/assets'):
   answer([[{'id':v['id'],'name':k} for k,v in s['assets'].items()]] + ([[{'id':1,'name':next(iter(s['assets']))}]] if s.get('duplicate') else []))
  if '/releases/assets/' in endpoint:
@@ -158,6 +163,16 @@ class Publication(unittest.TestCase):
         self.assertIsNone(self.state['release'])
         self.assertFalse(any(a[0]=='release' for a in self.state['calls']))
         print('release-auth-failure-no-create')
+
+    def test_draft_listing_failure_or_ambiguity_never_writes(self):
+        self.state['list_failure'] = True; self.save(); self.invoke(False)
+        self.assertFalse(any(a[0] == 'release' for a in self.state['calls']))
+        self.state.pop('list_failure'); self.save(); self.invoke()
+        self.state['release']['draft'] = True
+        self.state['duplicate_release'] = True
+        self.state['calls'] = []; self.save(); self.invoke(False)
+        self.assertFalse(any(a[0] == 'release' for a in self.state['calls']))
+        print('release-draft-list-failure-no-create release-duplicate-draft-no-mutation')
 
     def test_conflicting_release_and_assets(self):
         self.invoke()

@@ -52,7 +52,11 @@ class GitHub:
         if result.returncode:
             # Only the explicit HTTP status permits creation; auth/network failures stop here.
             require(b"(HTTP 404)" in result.stderr, "cannot read release: " + result.stderr.decode(errors="replace"))
-            return None
+            # The tag endpoint omits drafts; authenticated release listings include them.
+            pages = json.loads(command(["gh", "api", f"{self.base}/releases", "--paginate", "--slurp"]))
+            matches = [release for page in pages for release in page if release.get("tag_name") == tag]
+            require(len(matches) <= 1, "multiple releases match the requested tag")
+            return matches[0] if matches else None
         return json.loads(result.stdout)
 
     def assets(self, release):
