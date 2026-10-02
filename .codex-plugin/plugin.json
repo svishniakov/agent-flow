@@ -1,6 +1,6 @@
 {
   "name": "agent-flow",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Explicitly invoked development workflows with independent QA and review.",
   "author": {"name": "Sergey Vishniakov"},
   "repository": "https://github.com/svishniakov/agent-flow",
