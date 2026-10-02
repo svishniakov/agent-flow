@@ -89,6 +89,11 @@ class Publication(unittest.TestCase):
         shutil.copytree(ROOT / "skills/agent-flow", cls.source / "skills/agent-flow",
                         ignore=shutil.ignore_patterns("__pycache__", "*.bak"))
         shutil.copytree(ROOT / ".codex-plugin", cls.source / ".codex-plugin")
+        # Keep the fixture manifest aligned with its fixed release tag.
+        manifest_path = cls.source / ".codex-plugin/plugin.json"
+        manifest = json.loads(manifest_path.read_text())
+        manifest["version"] = "0.1.0"
+        manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
         for name in ("README.md", "README.ru.md", "LICENSE"):
             shutil.copyfile(ROOT / name, cls.source / name)
         cls.git("init", "-b", "main")
