@@ -34,6 +34,15 @@ The orchestrator must obey:
 
 ## Start Of Request
 
+До планирования и зависимой работы выполните
+[сборку актуального контекста](project-memory-and-env.md#required-intake).
+Начинайте с текущего запроса и обязательных источников, включая готовый план;
+останавливайте чтение при достаточности. Перед каждым новым или содержательно
+пересматриваемым PRD, ADR и планом проверяйте рабочие редакции источников.
+При изменении запроса пересоберите пакет, сразу отразите решение в подходящем
+документе и обновите зависимые задания до их продолжения. После потери контекста
+восстановите пакет из источников. Отдельного approval пакета нет.
+
 ### Обязательная последовательность для изменения файлов
 
 1. До первого делегирования создайте журнал через `init-run.py --mode compact|full`. Заполните исходный снимок и границы, затем через recorder сохраните частичный verification с реальным `root_thread_id`. Порядок и команды: `traceable-runs.md`, раздел «Запись и собственный итог проверяющего».
@@ -53,7 +62,7 @@ The orchestrator must obey:
 4. Read relevant existing memory and maintain it when sustained work, handoff, or durable findings need it. Create `lessons.md` for an actual lesson; keep the mandatory run evidence for changes.
 5. Read `implementation-notes.md` when global criteria make it relevant.
 6. Read named PRD/spec/design docs and environment docs needed for the task. List all related delivery documents in existing scope per repository, including the source implementation plan, for later status and acceptance checks.
-7. Check old task facts and later evidence across named repositories before dependency classification; narrowly correct confirmed completed records under `project-memory-and-env.md` without repeat acceptance of old implementation.
+7. Check old task facts and later evidence across named repositories before dependency classification; narrowly correct confirmed completed records under `project-memory-and-env.md` without repeat acceptance of old implementation. Read another chat only from a link explicitly supplied by the user as a source, never merely from a file or memory link.
 8. Run the dependency gate for new feature work, product edits, cross-file implementation, or delegation.
 9. If this is a traceable implementation run inside a git repo, capture `git status --short` before edits and record the initial worktree snapshot.
 10. Classify request type.

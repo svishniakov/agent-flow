@@ -67,7 +67,10 @@ role using sanitized findings.
 
 Carry dependency facts in the existing packet: old task/plan ID, scope overlap
 or confirmed independence, later completion sources, blocker removal and linked
-session state when available. A stale status is not an instruction to stop.
+session state only when the user explicitly supplied that session's link as a
+context source. A file or memory link does not authorize reading a chat; do not
+search chat history. Read user-supplied sources without asking permission again.
+Unavailable sources remain unread gaps. A stale status is not an instruction to stop.
 Apply `project-memory-and-env.md` before delegating the dependent part; authorized
 independent work can continue. Historical record correction does not require a
 new assignment for old implementation.
@@ -310,6 +313,14 @@ Use disjoint write sets when multiple workers run in parallel. Tell every worker
 
 ## Delegation Packet
 
+Применяйте [общую процедуру контекста](project-memory-and-env.md#required-intake).
+Пакет ограничен частью исполнителя: цель, действующие решения и их область,
+нужные сведения, ограничения, критерии результата, обязательные источники и
+существенные пробелы. Выжимка не заменяет чтение обязательных документов.
+Исполнитель читает их и добирает лишь недостающее для задания. При изменении
+запроса основной агент пересобирает общий пакет и обновляет зависимые задания
+до продолжения работы; отменённые требования и их история в пакет не входят.
+
 Every packet includes:
 
 The packet is the source of truth for task-specific instructions. Role files do
@@ -431,6 +442,8 @@ Subagent handoff must include:
 - role and stable identity;
 - what was completed;
 - files read and changed;
+- использованные источники решений, их область и существенные пробелы; недоступные
+  и непрочитанные источники отмечаются явно;
 - commands run and important outputs;
 - what is not done;
 - decisions made;
@@ -494,3 +507,8 @@ but they are not sidecars and not subagent execution.
 ## Integration
 
 The orchestrator must verify subagent work independently. Agent reports are not evidence by themselves.
+
+Основной агент объединяет нужные проектные документы независимо от авторства
+и необходимые отчёты исполнителей, проверяет источники и разрешает противоречия
+по общей процедуре. Если актуальных документов достаточно, новый отчёт или
+повторное исследование не требуются.

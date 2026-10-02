@@ -14,7 +14,7 @@ Light, Standard, and Release remain future execution budgets. They do not get se
 
 ## Required Authoring Sequence
 
-1. Collect context from the latest user request, approved product and architecture documents, current code, project memory, local instructions, and explicit constraints.
+1. Collect and check current context using [Required Intake](project-memory-and-env.md#required-intake): latest request, required sources, current working files (including uncommitted changes), relevant memory and instructions. Reuse verified unchanged information only for an unchanged request; rebuild for a changed request. A ready plan does not waive initial intake or require recreating PRD/ADR. Preserve the project's applicable document chain.
 2. Identify the project stack and affected technical areas before deciding stage count.
 3. From the skills available to the main agent in the current environment, select the minimal relevant specialist skills for that stack and affected areas.
 4. Read every selected skill completely before applying it.

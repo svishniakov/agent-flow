@@ -149,6 +149,14 @@ Use `standard` only when durable evidence helps review or continuation. In `stan
 
 Read `references/project-memory-and-env.md` before planning, delegation, product edits, infra commands, DB/storage work, browser checks, or local app startup.
 
+В активном Agent Flow выполняйте [процедуру сборки контекста](references/project-memory-and-env.md#required-intake)
+в начале каждой задачи, включая первый запуск и готовый план, и проверяйте пакет
+перед созданием или содержательным пересмотром PRD, ADR и Implementation Plan.
+Собирайте только необходимое до достаточности для следующего действия.
+При изменении запроса пересобирайте пакет и обновляйте зависимые задания;
+после потери контекста восстанавливайте его из источников. Опечатки в ведущейся
+задаче не требуют пересборки. Процедура не запускает Agent Flow сама.
+
 Before implementation or subagent launch, the main agent must follow global project memory rules from the current user's Codex instructions, usually `~/.codex/AGENTS.md`:
 
 - detect the project repo;
@@ -166,7 +174,7 @@ Before implementation or subagent launch, the main agent must follow global proj
 
 Before planning a new feature, product edit, cross-file implementation, or delegated run, read any named PRD/spec/design source needed to understand the request, then inspect active project memory for existing `Status: in_progress` or `Status: blocked` tasks. Ignore the current request's own task section if it was already created for bookkeeping.
 
-`in_progress` and `blocked` are lookup cues, not evidence of a live session or a dependency. Before classification, check the old task's scope, remaining requirements and blocker; look up later completion and checks by the same task/plan ID in memory and linked documents in every named repository. Verify supplied SHA with Git and compare the actual result with the requirements: a commit alone does not prove completion. Read a linked session's actual state when tools allow it; a finished/interrupted session does not prove implementation completion, and unavailable session listing alone does not block work.
+`in_progress` and `blocked` are lookup cues, not evidence of a live session or a dependency. Before classification, check the old task's scope, remaining requirements and blocker; look up later completion and checks by the same task/plan ID in memory and linked documents in every named repository. Verify supplied SHA with Git and compare the actual result with the requirements: a commit alone does not prove completion. Read a linked session's actual state only when the user explicitly supplied its link as a context source, without asking for permission again. A link found in a file or project memory does not authorize reading that chat; do not search chat history. A finished/interrupted session does not prove implementation completion, and unavailable session listing alone does not block work. Project memory remains a source without opening its original chat.
 
 Correct a confirmed completed record narrowly, including stale unchecked items supported by later evidence. For `blocked`, also verify that its stated cause is removed. Record task ID, completed scope, verification sources, repository/SHA when delivery required a commit, date and correction reason. Preserve unresolved or transferred requirements and their continuation. Historical record correction needs source verification, not a new run or repeat QA/reviewer of the old implementation. Do not rewrite old runs or handoffs; repeated intake must not duplicate closure. Current implementation still requires the existing independent acceptance gates. Details: `references/project-memory-and-env.md`.
 

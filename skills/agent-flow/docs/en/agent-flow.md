@@ -50,7 +50,10 @@ If the marker is absent, the request stays outside Agent Flow. Codex then works 
 
 Dependency Gate protects separate feature sessions from stepping on each other. At the start of new feature work, the orchestrator reads project memory and checks active tasks marked `in_progress` or `blocked`.
 
-Before blocking, compare old scope, remaining requirements and blocker with the new request. Look up later evidence by task/plan ID across linked repositories, verify commits and checks, and inspect linked session state when available. A SHA or finished session alone does not prove completion; unavailable session listing alone does not block work.
+Before blocking, compare old scope, remaining requirements and blocker with the new request. Look up later evidence by task/plan ID across linked repositories and verify commits and checks. Read another session only from a link the user explicitly supplied as a context source, without asking permission again. A file or memory link does not authorize reading that chat; do not search chat history. Project memory remains a source without opening its original chat. A SHA or finished session alone does not prove completion; unavailable session listing alone does not block work.
+
+Source selection, rebuilding after a changed request, and saving decisions follow
+the [current-context procedure](../../references/project-memory-and-env.md#required-intake).
 
 Correct a confirmed completed record narrowly, even if old boxes are unchecked; for `blocked`, also confirm removal of its cause. Record sources, date and reason without a new run or repeat acceptance of old implementation. Repeat intake must not duplicate closure. Unproven old work keeps its truthful status while independent new work proceeds.
 
