@@ -455,6 +455,334 @@ class ProcedureTests(unittest.TestCase):
         self.assertEqual(evidence.completed_turn(self.source, base.QA_ID, "new-turn", base.ROOT_ID, "qa-verifier")["answer"], answer)
 
 
+class AnalysisCompletionTests(unittest.TestCase):
+    """Fresh v2 analysis registration, with real CLI and source completion bytes."""
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name).resolve() / "source"
+        self.root.mkdir()
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True)
+        self.source = base.SyntheticSource()
+        self.sessions = self.root.parent / "sessions"
+        self.sessions.mkdir()
+        bootstrap = self.root.parent / "bootstrap"
+        bootstrap.mkdir()
+        (bootstrap / "sitecustomize.py").write_text(
+            "from pathlib import Path\nimport sys\n"
+            f"sys.path.insert(0, {str(SCRIPTS)!r})\n"
+            "from verification_evidence import CodexSessionSource\n"
+            f"CodexSessionSource.session_dir = lambda self: Path({str(self.sessions)!r})\n")
+        self.env = {**os.environ, "PYTHONPATH": str(bootstrap), "PYTHONDONTWRITEBYTECODE": "1"}
+        self.run = Path(self.cli("init-run.py", "--repo", str(self.root), "--slug", "analysis",
+                                 "--mode", "compact", wrapper=True).stdout.strip())
+        snapshot = JournalSnapshot.open(self.run)
+        self.assertEqual(snapshot.storage_version, 2)
+        self.assertEqual(evidence.result_contract(snapshot)["result_contract_version"], 2)
+        publish_fixture(self.run, "scope.md", "Exclude only the source AgentFlow runtime namespace.\n")
+        publish_fixture(self.run, "checks.md", "Scope boundaries checked.\n")
+        publish_fixture(self.run, "other.md", "Independent scope evidence.\n")
+        self.verification = {**evidence.empty_verification(), "task_kind": "analysis",
+                             "root_thread_id": base.ROOT_ID, "author_thread_ids": [],
+                             "result_hash": evidence.sha256(JournalSnapshot.open(self.run).read_bytes("scope.md"))}
+        self.register()
+
+    def cli(self, name, *args, wrapper=False, ok=True):
+        script = SCRIPTS.parents[2] / "scripts" / name if wrapper else SCRIPTS / name
+        result = subprocess.run([sys.executable, "-B", str(script), *args], env=self.env,
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode == 0, ok, result.stdout + result.stderr)
+        return result
+
+    def register(self, ok=True):
+        return self.cli("record-agent-trace.py", "--run-dir", str(self.run), "--role", "orchestrator",
+                        "--execution-mode", "role-lane", "--stage", "verification", "--status", "active",
+                        "--summary", "Scope registered", "--verification-json", json.dumps(self.verification), ok=ok)
+
+    def stored(self):
+        return json.loads(JournalSnapshot.open(self.run).read_text("delegation-summary.json"))
+
+    def write_session(self, thread, events):
+        self.source.sessions[thread] = events
+        (self.sessions / f"synthetic-{thread}.jsonl").write_text("".join(json.dumps(e) + "\n" for e in events))
+
+    def assignment(self, role="qa-verifier", thread=base.QA_ID, lane="scope-qa", second=10):
+        args = ["--run-dir", str(self.run), "--role", role, "--lane-id", lane]
+        events = base.session(thread, role, {}, second)
+        self.write_session(thread, events[:3])
+        self.cli("record-agent-trace.py", *args, "--codex-thread-id", thread, "--stage", "spawned",
+                 "--status", "active", "--summary", "Assigned")
+        handoff = f"handoffs/{lane}.md"
+        publish_fixture(self.run, handoff, "Scope accepted.\n" + "\n".join(
+            path + " " + evidence.sha256(JournalSnapshot.open(self.run).read_bytes(path))
+            for path in ("checks.md", "other.md")))
+        artifacts = ["--artifact", handoff, "--artifact", "checks.md", "--artifact", "other.md"]
+        before = JournalSnapshot.open(self.run)
+        answer = json.loads(self.cli("record-agent-trace.py", *args, "--prepare-conclusion", "--status", "pass", *artifacts).stdout)
+        self.assertEqual(before.revision, JournalSnapshot.open(self.run).revision)
+        self.assertEqual(dict(before.documents), dict(JournalSnapshot.open(self.run).documents))
+        self.assertEqual(dict(before.receipts), dict(JournalSnapshot.open(self.run).receipts))
+        self.assertEqual(self.source.sessions[thread], events[:3])
+        self.write_session(thread, base.session(thread, role, answer, second))
+        complete = [*args, "--completion-turn-id", thread + "-turn", "--stage", "handoff", "--status", "pass",
+                    "--summary", "Accepted", *artifacts]
+        return thread, answer, complete
+
+    def test_first_analysis_registration_without_workspace(self):
+        for role, thread, lane, second in (("qa-verifier", base.QA_ID, "scope-qa", 10),
+                                          ("reviewer", base.REVIEWER_ID, "scope-reviewer", 20)):
+            _, answer, args = self.assignment(role, thread, lane, second)
+            self.cli("record-agent-trace.py", *args, wrapper=True)
+            stored = self.stored()
+            key = "qa" if role == "qa-verifier" else "reviewer"
+            self.assertEqual(stored["verification"][key], lane)
+            self.assertEqual(stored["verification"]["author_thread_ids"], [])
+            record = next(r for r in stored["subagents"] if r["lane_id"] == lane)
+            self.assertEqual(record["codex_thread_id"], thread)
+            self.assertEqual(record["completion_turn_id"], thread + "-turn")
+            self.assertEqual(record["reviewed_result_hash"], self.verification["result_hash"])
+            self.assertEqual(record["handoff"], answer["handoff"])
+            self.assertEqual(record["handoff_sha256"], evidence.sha256(
+                JournalSnapshot.open(self.run).read_bytes(answer["handoff"])))
+            self.assertEqual(record["evidence"], [{"path": path, "sha256": evidence.sha256(
+                JournalSnapshot.open(self.run).read_bytes(path))} for path in ("checks.md", "other.md")])
+            if role == "reviewer":
+                qa = next(r for r in stored["subagents"] if r["lane_id"] == "scope-qa")
+                self.assertEqual(record["qa_handoff_sha256"], qa["handoff_sha256"])
+        self.assertIsNone(workspace.registered_workspace(JournalSnapshot.open(self.run)))
+
+    def unchanged_failure(self, args, contains=None):
+        before = JournalSnapshot.open(self.run)
+        result = self.cli("record-agent-trace.py", *args, ok=False)
+        after = JournalSnapshot.open(self.run)
+        self.assertEqual((before.revision, before.generation), (after.revision, after.generation))
+        self.assertEqual(dict(before.documents), dict(after.documents))
+        self.assertEqual(dict(before.receipts), dict(after.receipts))
+        self.assertEqual(before.read_bytes("timeline.jsonl"), after.read_bytes("timeline.jsonl"))
+        for path in before.documents:
+            if path.startswith("agents/") and path.endswith("/trace.jsonl"):
+                self.assertEqual(before.read_bytes(path), after.read_bytes(path))
+        if contains:
+            self.assertIn(contains, result.stdout + result.stderr)
+        return result
+
+    def test_analysis_reviewer_resolver_and_semantic_replay(self):
+        qa, answer, args = self.assignment()
+        self.cli("record-agent-trace.py", *args)
+        reviewer, _, review_args = self.assignment("reviewer", base.REVIEWER_ID, "scope-reviewer", 20)
+        events = self.source.sessions[reviewer]
+        events[0]["payload"]["agent_path"] = "/root/scope_reviewer"
+        events[0]["payload"]["source"]["subagent"]["thread_spawn"]["agent_path"] = "/root/scope_reviewer"
+        self.write_session(reviewer, events)
+        resolved = list(review_args)
+        index = resolved.index("--completion-turn-id")
+        del resolved[index:index + 2]
+        resolved += ["--resolve-session", "--agent-path", "/root/scope_reviewer"]
+        self.cli("record-agent-trace.py", *resolved, wrapper=True)
+        before = JournalSnapshot.open(self.run)
+        for replay in (args, review_args):
+            replay = list(replay)
+            replay[replay.index("Accepted")] = "Different display summary"
+            replay[-4:] = ["--artifact", "other.md", "--artifact", "checks.md"]
+            self.assertIn("unchanged", self.cli("record-agent-trace.py", *replay).stdout)
+        self.assertEqual(before.revision, JournalSnapshot.open(self.run).revision)
+        self.assertEqual(dict(before.documents), dict(JournalSnapshot.open(self.run).documents))
+        self.assertEqual(dict(before.receipts), dict(JournalSnapshot.open(self.run).receipts))
+        self.assertEqual(self.stored()["verification"]["reviewer"], "scope-reviewer")
+
+    def test_source_digest_shape_and_current_digest_mismatch(self):
+        from copy import deepcopy
+        thread, answer, args = self.assignment()
+        for value in (None, "", "z" * 64, "a" * 63, "a" * 65, 123, "a" * 64, "missing"):
+            with self.subTest(source=value):
+                altered = deepcopy(answer)
+                if value == "missing":
+                    del altered["reviewed_result_hash"]
+                else:
+                    altered["reviewed_result_hash"] = value
+                self.write_session(thread, base.session(thread, "qa-verifier", altered, 10))
+                self.unchanged_failure(args, "does not match current result" if value == "a" * 64 else
+                                       "source reviewed_result_hash must be SHA-256")
+        self.write_session(thread, base.session(thread, "qa-verifier", answer, 10))
+        for value in (None, "", "g" * 64, "b" * 63, "b" * 65, "b" * 64, "missing"):
+            with self.subTest(current=value):
+                verification = deepcopy(self.verification)
+                if value == "missing":
+                    del verification["result_hash"]
+                else:
+                    verification["result_hash"] = value
+                self.unchanged_failure([*args, "--verification-json", json.dumps(verification)],
+                                       "does not match current result")
+        # Equal invalid hashes must fail the source shape check before equality.
+        for value in (None, "missing", "", "g" * 64, "b" * 63, "b" * 65):
+            verification, altered = deepcopy(self.verification), deepcopy(answer)
+            if value == "missing":
+                del verification["result_hash"]
+                del altered["reviewed_result_hash"]
+            else:
+                verification["result_hash"] = altered["reviewed_result_hash"] = value
+            self.write_session(thread, base.session(thread, "qa-verifier", altered, 10))
+            self.unchanged_failure([*args, "--verification-json", json.dumps(verification)],
+                                   "source reviewed_result_hash must be SHA-256")
+
+    def test_no_exemption_for_other_task_kinds_or_unsealed_change(self):
+        from copy import deepcopy
+        _, _, args = self.assignment()
+        for kind in (None, "missing", "unknown", "change"):
+            verification = deepcopy(self.verification)
+            if kind == "missing":
+                del verification["task_kind"]
+            else:
+                verification["task_kind"] = kind
+            self.unchanged_failure([*args, "--verification-json", json.dumps(verification)])
+        self.cli("task-workspace.py", "--run-dir", str(self.run), "prepare", "--source", str(self.root),
+                 "--destination", str(self.root.parent / "workspace"))
+        verification = {**self.verification, "task_kind": "change"}
+        self.unchanged_failure([*args, "--verification-json", json.dumps(verification)], "sealed")
+
+    def test_analysis_rejects_product_paths_and_worker_lanes(self):
+        _, _, args = self.assignment()
+        (self.root / "product.txt").write_text("Product")
+        for field in ("result_files", "run_changed_files"):
+            verification = {**self.verification, field: ["product.txt"]}
+            self.unchanged_failure([*args, "--verification-json", json.dumps(verification)])
+        publish_fixture(self.run, "lane-map.json", json.dumps({"lanes": [
+            {"id": "worker", "type": "implementation", "role": "python-worker"}]}))
+        self.unchanged_failure(args, "analysis contradicts product changes or worker lanes")
+
+    def test_identity_and_completion_defects_preserve_spawn(self):
+        from copy import deepcopy
+        thread, _, args = self.assignment()
+        original = deepcopy(self.source.sessions[thread])
+        for defect in ("parent", "role", "model", "session", "missing", "unfinished", "author"):
+            with self.subTest(defect=defect):
+                events = deepcopy(original)
+                extra = []
+                meta = events[0]["payload"]
+                if defect == "parent":
+                    meta["parent_thread_id"] = base.REVIEWER_ID
+                    meta["source"]["subagent"]["thread_spawn"]["parent_thread_id"] = base.REVIEWER_ID
+                elif defect == "role":
+                    meta["agent_role"] = "reviewer"
+                    meta["source"]["subagent"]["thread_spawn"]["agent_role"] = "reviewer"
+                elif defect == "model":
+                    events[2]["payload"]["model"] = "wrong-model"
+                elif defect == "session":
+                    meta["session_id"] = base.REVIEWER_ID
+                elif defect == "missing":
+                    events.pop()
+                elif defect == "unfinished":
+                    events.append({"type": "event_msg", "payload": {"type": "task_started", "turn_id": "next"}})
+                else:
+                    extra = ["--verification-json", json.dumps({**self.verification, "author_thread_ids": [thread]})]
+                self.write_session(thread, events)
+                self.unchanged_failure([*args, *extra])
+                self.assertEqual(self.stored()["subagents"][0]["status"], "active")
+
+    def test_tampered_handoff_evidence_and_reviewer_order(self):
+        from copy import deepcopy
+        thread, answer, args = self.assignment()
+        handoff = answer["handoff"]
+        original = JournalSnapshot.open(self.run).read_text(handoff)
+        publish_fixture(self.run, handoff, original + "Tampered")
+        self.unchanged_failure(args, "handoff_sha256 mismatch")
+        publish_fixture(self.run, handoff, original)
+        publish_fixture(self.run, "checks.md", "Tampered evidence")
+        self.unchanged_failure(args, "evidence reference and sha256")
+        publish_fixture(self.run, "checks.md", "Scope boundaries checked.\n")
+        self.cli("record-agent-trace.py", *args)
+        thread, review, review_args = self.assignment("reviewer", base.REVIEWER_ID, "scope-reviewer", 20)
+        altered = deepcopy(review)
+        altered["qa_handoff_sha256"] = "f" * 64
+        self.write_session(thread, base.session(thread, "reviewer", altered, 20))
+        self.unchanged_failure(review_args, "qa_handoff_sha256 mismatch")
+        self.write_session(thread, base.session(thread, "reviewer", review, 5))
+        self.unchanged_failure(review_args, "must follow QA completion")
+        self.write_session(thread, base.session(thread, "reviewer", review, 20))
+        self.cli("record-agent-trace.py", *review_args)
+        accepted_evidence = JournalSnapshot.open(self.run).read_text("checks.md")
+        publish_fixture(self.run, "checks.md", accepted_evidence + "Changed after acceptance")
+        self.unchanged_failure(args)
+        self.unchanged_failure(review_args)
+        publish_fixture(self.run, "checks.md", accepted_evidence)
+        self.write_session(thread, base.session(thread, "reviewer", altered, 20))
+        self.unchanged_failure(review_args)
+        events = base.session(thread, "reviewer", review, 20)
+        events.append({"type": "event_msg", "payload": {"type": "task_started", "turn_id": "later"}})
+        self.write_session(thread, events)
+        self.unchanged_failure(review_args)
+
+    def test_open_analysis_scope_to_sealed_product_delivery(self):
+        scope_sessions = {}
+        old_args = []
+        for role, thread, lane, second in (("qa-verifier", base.QA_ID, "scope-qa", 10),
+                                          ("reviewer", base.REVIEWER_ID, "scope-reviewer", 20)):
+            _, _, args = self.assignment(role, thread, lane, second)
+            self.cli("record-agent-trace.py", *args)
+            record = next(r for r in self.stored()["subagents"] if r["lane_id"] == lane)
+            proof = {"thread_id": record["codex_thread_id"], "completion_turn_id": record["completion_turn_id"],
+                     "completion": evidence.completed_turn(self.source, record["codex_thread_id"],
+                                                           record["completion_turn_id"], base.ROOT_ID, role)}
+            publish_fixture(self.run, f"proofs/{lane}.json", json.dumps(proof, default=str))
+            scope_sessions[thread] = (self.sessions / f"synthetic-{thread}.jsonl").read_bytes()
+            old_args.append(args)
+        self.assertFalse(JournalSnapshot.open(self.run).closed)
+        proof_bytes = {path: JournalSnapshot.open(self.run).read_bytes(path)
+                       for path in ("proofs/scope-qa.json", "proofs/scope-reviewer.json")}
+        (self.root / ".agent-work/runtime.txt").write_text("Runtime metadata")
+        (self.root / "product/.agent-work").mkdir(parents=True)
+        (self.root / "product/.agent-work/owned.txt").write_text("Product content")
+        metadata_args = ["--metadata-namespace", "agent-flow-runtime", "--metadata-authorized-source", str(self.root)]
+        for flag, path in (("scope", "scope.md"), ("qa-proof", "proofs/scope-qa.json"),
+                           ("review-proof", "proofs/scope-reviewer.json")):
+            metadata_args += ["--metadata-" + flag + "-ref", path,
+                              evidence.sha256(JournalSnapshot.open(self.run).read_bytes(path))]
+        prepared = json.loads(self.cli("task-workspace.py", "--run-dir", str(self.run), "prepare",
+                                       "--source", str(self.root), "--destination", str(self.root.parent / "workspace"),
+                                       *metadata_args).stdout)
+        working = Path(prepared["working_root"])
+        baseline = Path(prepared["baseline_root"])
+        self.assertFalse((baseline / ".agent-work").exists())
+        self.assertEqual((baseline / "product/.agent-work/owned.txt").read_text(), "Product content")
+        (working / "product.txt").write_text("Accepted product\n")
+        sealed = json.loads(self.cli("task-workspace.py", "--run-dir", str(self.run), "seal").stdout)
+        publish_fixture(self.run, "context.md", "# Context\n\n## Initial Worktree Snapshot\n\nRetained baseline.\n")
+        publish_fixture(self.run, "run.md", "# Run\n\n## Task Scope\n\nAdd product.txt.\n")
+        self.verification = {**self.stored()["verification"], "task_kind": "change",
+                             "author_thread_ids": [base.ROOT_ID],
+                             "initial_snapshot": {"path": "context.md", "section": "Initial Worktree Snapshot"},
+                             "task_scope": {"path": "run.md", "section": "Task Scope"}}
+        scope_hash = self.verification["result_hash"]
+        self.register()
+        registered = self.stored()["verification"]
+        self.assertNotEqual(scope_hash, registered["result_hash"])
+        self.assertEqual(registered["result_files"], ["product.txt"])
+        self.assertEqual((registered["qa"], registered["reviewer"]), (None, None))
+        for args in old_args:
+            self.unchanged_failure(args, "does not match current result")
+        for role, thread, lane, second in (
+                ("qa-verifier", "00000000-0000-4000-8000-000000000004", "product-qa", 30),
+                ("reviewer", "00000000-0000-4000-8000-000000000005", "product-reviewer", 40)):
+            _, _, args = self.assignment(role, thread, lane, second)
+            self.cli("record-agent-trace.py", *args, wrapper=True)
+        publish_fixture(self.run, "final.md", "# Итог\n\nVerdict: ship\n\nДобавлен product.txt.\n")
+        self.cli("record-agent-trace.py", "--run-dir", str(self.run), "--render-final")
+        snapshot = JournalSnapshot.open(self.run)
+        final_capture = self.root.parent / "final.md"
+        final_capture.write_bytes(snapshot.read_bytes("final.md"))
+        self.cli("journal.py", "--run-dir", str(self.run), "finalize", "--expected-run-uuid", snapshot.run_uuid,
+                 "--expected-revision", str(snapshot.revision), "--expected-generation", str(snapshot.generation),
+                 "--operation-id", "analysis-to-product-finalize", "--final-file", str(final_capture),
+                 "--verdict", "ship", wrapper=True)
+        self.cli("validate-run.py", "--run-dir", str(self.run), wrapper=True)
+        delivered = json.loads(self.cli("task-workspace.py", "--run-dir", str(self.run), "delivery").stdout)
+        self.assertEqual(delivered["candidate_root"], sealed["candidate_root"])
+        self.assertEqual(delivered["result_hash"], registered["result_hash"])
+        self.assertEqual(proof_bytes, {path: JournalSnapshot.open(self.run).read_bytes(path) for path in proof_bytes})
+        for thread, content in scope_sessions.items():
+            self.assertEqual(content, (self.sessions / f"synthetic-{thread}.jsonl").read_bytes())
+
+
 class JournalCLITests(unittest.TestCase):
     """Real entrypoints; controlled source files via the internal reader seam."""
     def test_complete_cli_procedure_and_stale_negatives(self):

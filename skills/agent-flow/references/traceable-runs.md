@@ -160,6 +160,25 @@ python3 "$AF_PACKAGE/scripts/task-workspace.py" --run-dir "$AF_RUN" seal
 Первоначальный смысл назначения подтверждает orchestrator; код не толкует прозу.
 Произвольного пути исключения нет. Повтор не может изменить эту привязку.
 
+До `prepare` зарегистрируйте `task_kind: analysis` и SHA-256 файла scope в
+`verification.result_hash`, оставив продуктовые пути и worker lanes пустыми.
+QA получает JSON через `--prepare-conclusion` и возвращает его как итог своего
+хода. После фактического завершения сессии orchestrator регистрирует handoff
+с completion этого хода. Reviewer возвращает свой итог после принятого QA;
+orchestrator регистрирует его handoff после завершения сессии reviewer.
+Такой scope принимается без workspace.
+По зарегистрированным `codex_thread_id` и `completion_turn_id` получите
+`completed_turn` каждого проверяющего. Опубликуйте отдельные proof JSON с полями
+`thread_id`, `completion_turn_id` и `completion` (факты `completed_turn`,
+сериализованные с `default=str`). Handoff содержит заключение и ссылки на
+evidence; proof содержит исходные факты завершения сессии. Передайте scope и
+оба proof со своими SHA-256 через пять metadata flags выше, сохранив run открытым.
+
+После продуктовой правки выполните `seal` и зарегистрируйте `task_kind: change`.
+Recorder рассчитает новый продуктовый хеш и сбросит выбранные scope QA/reviewer.
+Продукт требует новых lanes, отдельных сессий QA/reviewer и приёмки нового хеша.
+Старые scope conclusions и proof остаются подтверждением исключения metadata.
+
 После `seal` recorder сам заполняет `verification.result_files` и
 `verification.run_changed_files` полным
 перечнем. Хеш версии 2 связывает исходный manifest, весь candidate manifest,

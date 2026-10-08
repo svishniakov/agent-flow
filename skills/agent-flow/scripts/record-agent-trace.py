@@ -28,7 +28,7 @@ from verification_evidence import (
     resolve_completion, completion_follows, validate_summary_shape,
     changed_paths, require, accepted_record, require_own_reviewer_handoff,
     CapturedSource, ensure_result_contract, require_workspace_or_historical,
-    historical_result_hash,
+    historical_result_hash, SHA256,
 )
 from task_workspace import registered_workspace
 
@@ -125,7 +125,10 @@ def prepare_summary(run_dir: Path, args, artifact_paths: list[str], source, *, s
             handoff = answer.get("handoff")
             if handoff not in artifact_paths:
                 raise EvidenceError("source handoff must be included in --artifact; pass its exact path relative to the run directory")
-            if answer.get("reviewed_result_hash") != verification.get("result_hash"):
+            source_hash = answer.get("reviewed_result_hash")
+            require(isinstance(source_hash, str) and SHA256.fullmatch(source_hash),
+                    "source reviewed_result_hash must be SHA-256")
+            if source_hash != verification.get("result_hash"):
                 raise EvidenceError("source reviewed_result_hash does not match current result; recompute with --verification-json and obtain acceptance of that current hash")
             if sha256(reference_bytes(run_dir, {"path": handoff}, snapshot=snapshot)) != answer.get("handoff_sha256"):
                 raise EvidenceError("source handoff_sha256 mismatch")
@@ -173,7 +176,7 @@ def prepare_summary(run_dir: Path, args, artifact_paths: list[str], source, *, s
         else:
             data["subagents"].append(record)
         data["subagents_used"] = True
-        if args.completion_turn_id:
+        if args.completion_turn_id and verification.get("task_kind") != "analysis":
             require_workspace_or_historical(snapshot, data)
     elif args.execution_mode == "role-lane" and args.lane_id and snapshot.storage_version == 2:
         existing = next((r for r in data["role_lanes"] if r.get("lane_id") == args.lane_id), None)
