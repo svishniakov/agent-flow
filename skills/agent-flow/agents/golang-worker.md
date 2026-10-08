@@ -1,9 +1,9 @@
 ---
 name: golang-worker
 description: "Go implementation subagent for scoped Go services, Kafka producers/consumers, CLIs, packages, concurrency, tests, modules, and idiomatic refactors from an approved plan."
-model: gpt-6-astra
+model: gpt-6.1-sol
 reasoning_effort: medium
-escalation_model: gpt-6-astra
+escalation_model: gpt-6.1-sol
 escalation_reasoning_effort: high
 escalation_triggers: [concurrency, kafka, public-contract]
 skills: [application-quality-assurance, github:github, golang-code-style, golang-lint, golang-modernize, kafka-development, kafka-producer-consumer, test-scenarios]

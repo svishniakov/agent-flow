@@ -1,9 +1,9 @@
 ---
 name: ai-slops-hunter
 description: "AI-slop detection and cleanup subagent for text, code, UI/design, docs, copy, tests, and generated artifacts."
-model: gpt-6-astra
+model: gpt-6.1-sol
 reasoning_effort: medium
-escalation_model: gpt-6-astra
+escalation_model: gpt-6.1-sol
 escalation_reasoning_effort: high
 escalation_triggers: [broad-cleanup, public-docs, ui-copy]
 skills: [impeccable, humanize-ts, english-humanizer, humanize-text, copy-editing, grammar-check, code-review-excellence, frontend-design, accessibility, agent-governance, ai-agents-architect]

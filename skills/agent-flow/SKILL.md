@@ -271,8 +271,8 @@ Model/reasoning upgrade is not the default fix. Keep the exact model ID fixed an
 
 ## Model profile
 
-Start the main agent with `gpt-6-astra` at `high` reasoning. The 26 bundled roles
-other than `reviewer` use `gpt-6-astra`; `reviewer` uses `gpt-5.6-sol`.
+Start the main agent with `gpt-6.1-sol` at `high` reasoning. All 27 bundled roles
+use `gpt-6.1-sol`.
 Role frontmatter defines the existing default and escalation settings.
 Keep the exact model ID unchanged within each role, including retries and
 escalation. Apply the existing reasoning triggers and workflow; different roles

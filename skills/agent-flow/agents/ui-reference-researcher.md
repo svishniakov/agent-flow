@@ -1,9 +1,9 @@
 ---
 name: ui-reference-researcher
 description: "UI reference research subagent for landing pages, dashboards, back-office tools, bots, mobile screens, SaaS, game UI, and design systems."
-model: gpt-6-astra
+model: gpt-6.1-sol
 reasoning_effort: medium
-escalation_model: gpt-6-astra
+escalation_model: gpt-6.1-sol
 escalation_reasoning_effort: high
 escalation_triggers: [external-facts, niche-ui, brand-critical]
 skills: [find-skills, browser-use, browser-debugging, competitor-analysis, frontend-design, extract-design-system, lazyweb, ai-seo, accessibility, brand-guidelines]

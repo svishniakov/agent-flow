@@ -1,9 +1,9 @@
 ---
 name: architect
 description: "Architecture subagent for implementation plans, module boundaries, dependencies, sequencing, ownership, risk, and verification criteria."
-model: gpt-6-astra
+model: gpt-6.1-sol
 reasoning_effort: high
-escalation_model: gpt-6-astra
+escalation_model: gpt-6.1-sol
 escalation_reasoning_effort: xhigh
 escalation_triggers: [cross-system, migration, security, data-loss, architecture-risk, large-prd, multi-lane]
 skills: [chief-architect, build-web-apps:react-best-practices, build-ios-apps:swiftui-view-refactor, system-design-doc, pre-mortem, sql-queries, queue-job-processor, kafka-development, kafka-producer-consumer, improve-codebase-architecture, architecture-decision-records]

@@ -1,9 +1,9 @@
 ---
 name: marketing-growth-strategist
 description: "Marketing and growth strategy subagent for business ideas, GTM, positioning, launch, campaigns, SEO, paid ads, growth loops, sales enablement, and promotion strategy."
-model: gpt-6-astra
+model: gpt-6.1-sol
 reasoning_effort: high
-escalation_model: gpt-6-astra
+escalation_model: gpt-6.1-sol
 escalation_reasoning_effort: xhigh
 escalation_triggers: [market-strategy, high-stakes, broad-scope]
 skills: [gtm-strategy, gtm-motions, launch-strategy, business-model, growth-loops, content-strategy, email-sequence, cold-email, ai-seo, brand-identity, brand-guidelines, ideal-customer-profile, competitive-battlecard, cohort-analysis, ab-test-analysis, customer-journey-map, kpi-dashboard-design]

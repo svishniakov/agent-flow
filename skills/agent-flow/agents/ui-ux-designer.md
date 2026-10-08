@@ -1,9 +1,9 @@
 ---
 name: ui-ux-designer
 description: "Neural UI/UX design subagent for turning prompts, PRDs, and product constraints into generated screens, flows, prototypes, design specs, and implementation handoff."
-model: gpt-6-astra
+model: gpt-6.1-sol
 reasoning_effort: medium
-escalation_model: gpt-6-astra
+escalation_model: gpt-6.1-sol
 escalation_reasoning_effort: high
 escalation_triggers: [complex-ux, brand-critical, design-system]
 skills: [enhance-prompt, design-md, stitch::generate-design, stitch::manage-design-system, stitch::upload-to-stitch, stitch::code-to-design, stitch::extract-design-md, accessibility, extract-design-system, web-design-guidelines, frontend-design, figma:figma-generate-design, brand-guidelines]

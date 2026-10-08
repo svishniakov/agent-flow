@@ -1,9 +1,9 @@
 ---
 name: qa-verifier
 description: "QA verification subagent for requirements review before development, tests, logs, reproduction, browser or simulator checks, and readiness evidence."
-model: gpt-6-astra
+model: gpt-6.1-sol
 reasoning_effort: high
-escalation_model: gpt-6-astra
+escalation_model: gpt-6.1-sol
 escalation_reasoning_effort: xhigh
 escalation_triggers: [release, flaky-tests, cross-platform, regression-risk, qa-critical, browser-smoke, pii-risk]
 skills: [qa-requirement-reviewer, application-quality-assurance, playwright-e2e-testing, browser-debugging, build-ios-apps:ios-debugger-agent, game-studio:game-playtest, test-scenarios, webapp-testing, e2e-testing-patterns]

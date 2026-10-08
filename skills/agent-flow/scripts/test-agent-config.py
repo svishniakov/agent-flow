@@ -180,7 +180,7 @@ def test_active_replacement_models() -> None:
     assert len(role_paths) == 27
     for path in role_paths:
         metadata = read_frontmatter(path)
-        model = "gpt-5.6-sol" if path.stem == "reviewer" else "gpt-6-astra"
+        model = "gpt-6.1-sol"
         effort = "xhigh" if path.stem == "supervising-architect" else (
             "high" if path.stem in HIGH_REASONING_ROLES else "medium"
         )

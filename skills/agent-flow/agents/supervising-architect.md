@@ -1,9 +1,9 @@
 ---
 name: supervising-architect
 description: "Independent supervising architecture subagent for second blocked resolution recovery, architect reasoning review, root-cause classification, and final retry instruction."
-model: gpt-6-astra
+model: gpt-6.1-sol
 reasoning_effort: xhigh
-escalation_model: gpt-6-astra
+escalation_model: gpt-6.1-sol
 escalation_reasoning_effort: xhigh
 escalation_triggers: [blocked-replan, architecture-risk, cross-system, release, security, data-loss, multi-lane]
 skills: [chief-architect, ai-agents-architect, improve-codebase-architecture, architecture-decision-records]

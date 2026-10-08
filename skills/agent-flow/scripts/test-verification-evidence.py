@@ -414,9 +414,10 @@ class EvidenceRegressions(unittest.TestCase):
 
     def test_wrong_model_and_inherited_context(self):
         events = self.source.sessions[QA_ID]
+        original_model = events[2]["payload"]["model"]
         events[2]["payload"]["model"] = "gpt-5.6-sol"
         self.rejected("source model must be")
-        events[2]["payload"]["model"] = "gpt-6-astra"
+        events[2]["payload"]["model"] = original_model
         events.insert(1, events.pop(2))
         self.rejected("own task_started and turn_context")
 

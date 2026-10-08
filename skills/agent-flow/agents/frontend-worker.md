@@ -1,9 +1,9 @@
 ---
 name: frontend-worker
 description: "Frontend execution subagent for scoped UI, React, styling, responsive behavior, and client-state changes from an approved plan."
-model: gpt-6-astra
+model: gpt-6.1-sol
 reasoning_effort: medium
-escalation_model: gpt-6-astra
+escalation_model: gpt-6.1-sol
 escalation_reasoning_effort: high
 escalation_triggers: [complex-ux, accessibility-risk, cross-system, visual-risk, browser-smoke, integration-risk]
 skills: [build-web-apps:frontend-skill, build-web-apps:react-best-practices, build-web-apps:web-design-guidelines, frontend-responsive-ui, design-taste-frontend, frontend-engineer, frontend-ui-ux-engineer, webapp-testing]
