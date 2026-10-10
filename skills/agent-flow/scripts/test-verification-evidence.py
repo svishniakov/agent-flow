@@ -620,6 +620,25 @@ class EvidenceRegressions(unittest.TestCase):
         self.behavioral_fixture()
         self.assertEqual(self.validate(), [])
 
+    def test_behavioral_own_first_metadata_excludes_inherited_turn(self):
+        from copy import deepcopy
+        check, events = self.behavioral_fixture()
+        events[0]["payload"].update(parent_thread_id=ROOT_ID, agent_role="qa-verifier",
+                                    source={"subagent": {"thread_spawn": {
+                                        "parent_thread_id": ROOT_ID, "agent_role": "qa-verifier"}}})
+        parent = [{"type": "session_meta", "payload": {"id": ROOT_ID}},
+                  {"type": "event_msg", "payload": {"type": "task_started", "turn_id": "parent-turn"}},
+                  deepcopy(events[2]),
+                  {"type": "event_msg", "payload": {"type": "task_complete", "turn_id": "parent-turn"}}]
+        self.source.sessions[ROOT_ID] = parent
+        events[1:1] = deepcopy(parent)
+        for ref in [*check["inputs"], *check["outputs"]]:
+            ref["source_event"] += len(parent)
+        check["required_order"] = [[8, 9]]
+        self.assertEqual(self.validate(), [])
+        check["inputs"][0]["source_event"] = 4
+        self.rejected("must belong to own session turn")
+
     def test_behavioral_late_copy_and_changed_copy(self):
         check, events = self.behavioral_fixture()
         events[2]["timestamp"] = "2026-09-10T08:59:00+00:00"

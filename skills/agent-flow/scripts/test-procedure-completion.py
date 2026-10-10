@@ -167,10 +167,10 @@ class ProcedureTests(unittest.TestCase):
         meta["source"]["subagent"]["thread_spawn"].update(agent_path=path, parent_thread_id=parent)
         return events
 
-    def write_session(self, events):
+    def write_session(self, events, thread_id=None):
         directory = self.root / "codex/sessions/2026/09/10"
         directory.mkdir(parents=True, exist_ok=True)
-        thread_id = events[0]["payload"]["id"]
+        thread_id = thread_id or events[0]["payload"]["id"]
         (directory / f"rollout-{thread_id}.jsonl").write_text("".join(json.dumps(e) + "\n" for e in events))
 
     def resolve(self, **kwargs):
@@ -204,6 +204,99 @@ class ProcedureTests(unittest.TestCase):
         self.write_session(events)
         with self.assertRaisesRegex(evidence.EvidenceError, "conflict"):
             self.resolve()
+
+    def inherited_session(self, own_first=True):
+        from copy import deepcopy
+        parent = base.session(base.ROOT_ID, "qa-verifier", {"verdict": "inherited"}, 5)
+        parent[0] = {"type": "session_meta", "payload": {"id": base.ROOT_ID, "session_id": base.ROOT_ID}}
+        own = self.metadata()
+        events = ([own[0], *deepcopy(parent), *own[1:]] if own_first
+                  else [*deepcopy(parent), *own])
+        self.source.sessions = {base.ROOT_ID: parent, base.QA_ID: events}
+        return events, parent
+
+    def test_inherited_metadata_orders_resolve_and_complete_with_original_indexes(self):
+        for own_first in (True, False):
+            with self.subTest(own_first=own_first):
+                events, parent = self.inherited_session(own_first)
+                self.write_session(parent)
+                self.write_session(events, base.QA_ID)
+                resolved = self.resolve()
+                expected_meta = 1 if own_first else len(parent) + 1
+                self.assertEqual(resolved["session_meta_event"], expected_meta)
+                self.assertEqual(resolved["task_started_event"], len(parent) + 2)
+                with patch.dict(os.environ, {"CODEX_HOME": str(self.root / "codex")}):
+                    result = evidence.completed_turn(evidence.CodexSessionSource(), base.QA_ID,
+                                                     self.turn, base.ROOT_ID, "qa-verifier")
+                self.assertEqual(result["answer"], {"verdict": "passed"})
+                self.assertEqual(result["session_meta_event"], expected_meta)
+                self.assertEqual(result["task_complete_event"], len(events))
+
+    def test_inherited_complete_turn_after_own_metadata_is_not_child_completion(self):
+        events, parent = self.inherited_session()
+        self.source.sessions[base.QA_ID] = events[:len(parent) + 1]
+        with self.assertRaisesRegex(evidence.EvidenceError, "own completed turn missing"):
+            evidence.completed_turn(self.source, base.QA_ID, base.ROOT_ID + "-turn", base.ROOT_ID, "qa-verifier")
+        self.write_session(parent)
+        self.write_session(self.source.sessions[base.QA_ID], base.QA_ID)
+        with self.assertRaisesRegex(evidence.EvidenceError, "own task_started missing"):
+            self.resolve()
+
+    def test_inherited_copy_in_descendant_is_not_another_resolution_candidate(self):
+        events, parent = self.inherited_session()
+        descendant = self.metadata(base.REVIEWER_ID, parent=base.QA_ID, role="reviewer", path="/root/qa/review")
+        self.write_session(parent)
+        self.write_session(events, base.QA_ID)
+        self.write_session([descendant[0], *events, *descendant[1:]], base.REVIEWER_ID)
+        self.assertEqual(self.resolve()["codex_thread_id"], base.QA_ID)
+
+    def test_resolver_stops_at_unrelated_own_header_but_rejects_duplicate_candidate(self):
+        events = self.metadata()
+        self.write_session(events)
+        unrelated = self.metadata(base.REVIEWER_ID, parent=base.REVIEWER_ID)
+        self.write_session(unrelated)
+        path = next((self.root / "codex/sessions").glob("**/*" + base.REVIEWER_ID + ".jsonl"))
+        path.write_text(json.dumps(unrelated[0]) + "\nunfinished unrelated event\n")
+        self.assertEqual(self.resolve()["codex_thread_id"], base.QA_ID)
+        self.write_session([*events, events[0]])
+        with self.assertRaisesRegex(evidence.EvidenceError, "conflicting session metadata"):
+            self.resolve()
+
+    def test_metadata_selector_rejects_missing_duplicate_and_malformed_identity(self):
+        from copy import deepcopy
+        own = self.metadata()[0]
+        for events in ([], [own, deepcopy(own)], [{"type": "session_meta", "payload": []}],
+                       [{"type": "session_meta", "payload": {"id": "invalid"}}],
+                       [{"type": "session_meta", "payload": {}}],
+                       [{"type": "session_meta", "payload": {"id": base.REVIEWER_ID}}]):
+            with self.subTest(events=events), self.assertRaises(evidence.EvidenceError):
+                evidence.own_metadata(events, base.QA_ID)
+
+    def test_inherited_metadata_requires_matching_available_ancestor(self):
+        for defect in ("missing", "foreign", "cycle", "ancestor-cycle", "role", "parent", "copied-role", "copied-parent", "copied-spawn"):
+            with self.subTest(defect=defect):
+                events, parent = self.inherited_session()
+                if defect == "missing":
+                    del self.source.sessions[base.ROOT_ID]
+                elif defect == "foreign":
+                    events[1]["payload"]["id"] = base.REVIEWER_ID
+                elif defect == "cycle":
+                    events[0]["payload"]["parent_thread_id"] = base.QA_ID
+                    events[0]["payload"]["source"]["subagent"]["thread_spawn"]["parent_thread_id"] = base.QA_ID
+                elif defect == "ancestor-cycle":
+                    fields = {"parent_thread_id": base.QA_ID, "agent_role": "qa-verifier"}
+                    parent[0]["payload"].update(fields, source={"subagent": {"thread_spawn": fields}})
+                    events[1]["payload"].update(parent[0]["payload"])
+                elif defect == "copied-spawn":
+                    events[1]["payload"]["source"] = {"subagent": {"thread_spawn": {"agent_role": "reviewer"}}}
+                elif defect in ("role", "parent"):
+                    field = "agent_role" if defect == "role" else "parent_thread_id"
+                    events[0]["payload"][field] = "reviewer" if defect == "role" else base.REVIEWER_ID
+                else:
+                    field = "agent_role" if defect == "copied-role" else "parent_thread_id"
+                    events[1]["payload"][field] = "reviewer" if defect == "copied-role" else base.REVIEWER_ID
+                with self.assertRaises(evidence.EvidenceError):
+                    self.complete()
 
     def init(self, *extra):
         return subprocess.run([sys.executable, str(SCRIPTS / "init-run.py"), "--repo", str(self.root),

@@ -415,6 +415,7 @@ class CodexSessionSource:
         matches = []
         try:
             for path in self.session_dir().glob("**/*.jsonl"):
+                file_id = path.stem[-36:]
                 with path.open(encoding="utf-8") as handle:
                     for line in handle:
                         event = json.loads(line)
@@ -423,8 +424,9 @@ class CodexSessionSource:
                             continue
                         meta = event.get("payload", {})
                         require(isinstance(meta, dict), "source metadata payload must be an object")
-                        spawn = child_spawn(meta)
-                        records = (meta, spawn)
+                        if not UUID.fullmatch(file_id) or meta.get("id") != file_id:
+                            continue
+                        records = (meta, child_spawn(meta))
                         if (any(r.get("agent_path") == agent_path for r in records)
                                 and any(r.get("parent_thread_id") == root_id for r in records)):
                             require(all(r.get("agent_path") == agent_path for r in records),
@@ -433,7 +435,7 @@ class CodexSessionSource:
                                     "conflicting source parent_thread_id metadata")
                             require(all(r.get("agent_role") == role for r in records),
                                     "conflicting source agent_role metadata")
-                            matches.append(meta.get("id"))
+                            matches.append(file_id)
                         break
         except (OSError, UnicodeError, json.JSONDecodeError) as exc:
             raise EvidenceError("execution unconfirmed: unreadable session metadata during resolution") from exc
@@ -443,7 +445,7 @@ class CodexSessionSource:
         require(thread_id is None or thread_id == resolved, "explicit Codex UUID conflicts with resolved source session")
         events = self.read(resolved)
         index, _ = session_metadata(events, resolved, root_id, role, source=self)
-        started = next(((i, e) for i, e in enumerate(events[index + 1:], index + 2)
+        started = next(((i, e) for i, e in _own_session_events(self, events, resolved)
                         if e.get("type") == "event_msg" and e.get("payload", {}).get("type") == "task_started"), None)
         require(started is not None, "execution unconfirmed: own task_started missing")
         observed, _ = event_time(started[1], "started_at")
@@ -527,12 +529,72 @@ def child_spawn(meta: dict) -> dict:
 
 def own_metadata(events, thread_id: str):
     require(isinstance(events, list), "unsupported source events")
-    metadata = [e.get("payload", {}) for e in events if e.get("type") == "session_meta"]
-    require(len(metadata) == 1, "execution unconfirmed: missing or conflicting session metadata")
-    meta = metadata[0]
-    require(isinstance(meta, dict), "source session metadata must be an object")
-    require(meta.get("id") == thread_id, "source session id mismatch")
-    return next(i for i, event in enumerate(events) if event.get("type") == "session_meta"), meta
+    matches = []
+    for index, event in enumerate(events):
+        require(isinstance(event, dict), "source event must be an object")
+        if event.get("type") != "session_meta":
+            continue
+        meta = event.get("payload", {})
+        require(isinstance(meta, dict), "source session metadata must be an object")
+        require(isinstance(meta.get("id"), str) and UUID.fullmatch(meta["id"]), "invalid source session id metadata")
+        if meta["id"] == thread_id:
+            matches.append((index, meta))
+    require(len(matches) == 1, "execution unconfirmed: missing or conflicting session metadata")
+    return matches[0]
+
+
+def _own_session_events(source, events, thread_id):
+    """Keep original positions while excluding turns proven to belong to ancestors."""
+    meta_index, meta = own_metadata(events, thread_id)
+    inherited = [event["payload"] for event in events if event.get("type") == "session_meta"
+                 and event["payload"]["id"] != thread_id]
+    pending = {record["id"] for record in inherited}
+    ancestor_turns = set()
+    seen = {thread_id}
+    while pending:
+        parent = meta.get("parent_thread_id")
+        spawn = child_spawn(meta)
+        require(isinstance(parent, str) and UUID.fullmatch(parent), "inherited metadata is not a source ancestor")
+        require(parent not in seen, "conflicting source ancestry cycle")
+        require(spawn.get("parent_thread_id") == parent, "conflicting parent_thread_id in source ancestry")
+        require(isinstance(meta.get("agent_role"), str) and spawn.get("agent_role") == meta["agent_role"],
+                "conflicting agent_role in source ancestry")
+        seen.add(parent)
+        ancestor_events = source.read(parent)
+        _, meta = own_metadata(ancestor_events, parent)
+        for copied in inherited:
+            if copied["id"] == parent:
+                for field in ("id", "session_id", "parent_thread_id", "agent_role", "agent_path"):
+                    require(copied.get(field) == meta.get(field), "conflicting inherited " + field + " metadata")
+                for field in ("parent_thread_id", "agent_role", "agent_path"):
+                    require(child_spawn(copied).get(field) == child_spawn(meta).get(field),
+                            "conflicting inherited thread_spawn " + field + " metadata")
+        if meta.get("parent_thread_id") is None:
+            require(not child_spawn(meta), "conflicting source root ancestry metadata")
+        else:
+            require(isinstance(meta["parent_thread_id"], str) and UUID.fullmatch(meta["parent_thread_id"]),
+                    "invalid parent_thread_id in source ancestry")
+            require(meta["parent_thread_id"] not in seen, "conflicting source ancestry cycle")
+            for field in ("parent_thread_id", "agent_role"):
+                require(isinstance(meta.get(field), str) and child_spawn(meta).get(field) == meta[field],
+                        "conflicting " + field + " in source ancestry")
+        pending.discard(parent)
+        for event in ancestor_events:
+            payload = event.get("payload", {})
+            if (event.get("type") == "turn_context" or event.get("type") == "event_msg"
+                    and payload.get("type") in {"task_started", "task_complete"}):
+                if isinstance(payload.get("turn_id"), str):
+                    ancestor_turns.add(payload["turn_id"])
+    inherited_active = False
+    for index, event in enumerate(events[meta_index + 1:], meta_index + 2):
+        payload = event.get("payload", {})
+        kind = event.get("type")
+        if kind == "event_msg" and payload.get("type") == "task_started":
+            inherited_active = payload.get("turn_id") in ancestor_turns
+        if not inherited_active and payload.get("turn_id") not in ancestor_turns:
+            yield index, event
+        if kind == "event_msg" and payload.get("type") == "task_complete":
+            inherited_active = False
 
 
 def verify_conversation_ancestry(source, thread_id: str, root_id: str, conversation_id: str) -> None:
@@ -584,7 +646,7 @@ def completed_turn(source, thread_id: str, turn_id: str, root_id: str, role: str
     last_started = None
     started_event = None
     started_at = None
-    for event_index, event in enumerate(events[meta_index + 1:], meta_index + 2):
+    for event_index, event in _own_session_events(source, events, thread_id):
         payload = event.get("payload", {})
         kind = event.get("type")
         if kind == "event_msg" and payload.get("type") == "task_started":
@@ -625,7 +687,7 @@ def resolve_completion(source, thread_id: str, root_id: str, role: str, digest: 
     events = source.read(thread_id)
     meta_index, _ = session_metadata(events, thread_id, root_id, role, source=source)
     candidates = []
-    for event in events[meta_index + 1:]:
+    for _, event in _own_session_events(source, events, thread_id):
         payload = event.get("payload", {})
         if event.get("type") != "event_msg" or payload.get("type") != "task_complete":
             continue
@@ -668,11 +730,10 @@ def validate_behavioral_checks(run_dir: Path, checks: list, source, reviewer_id:
                 "behavioral checks require inputs and outputs")
         require(all(isinstance(ref, dict) for ref in [*inputs, *outputs]), "behavioral references must be objects")
         events = source.read(check.get("session_thread_id"), event_indices=[ref.get("source_event") for ref in [*inputs, *outputs]])
-        metadata = [e.get("payload", {}) for e in events if e.get("type") == "session_meta"]
-        require(len(metadata) == 1 and metadata[0].get("id") == check.get("session_thread_id"), "behavioral source session id mismatch")
+        _, metadata = own_metadata(events, check.get("session_thread_id"))
         own_events = set()
         active = False
-        for index, event in enumerate(events, 1):
+        for index, event in _own_session_events(source, events, check.get("session_thread_id")):
             payload = event.get("payload", {})
             if event.get("type") == "session_meta":
                 active = False
@@ -697,7 +758,7 @@ def validate_behavioral_checks(run_dir: Path, checks: list, source, reviewer_id:
             observed = "".join(c["text"] for c in content)
             if ref in inputs:
                 if payload.get("type") == "agent_message":
-                    meta = metadata[0]
+                    meta = metadata
                     parent_id = meta.get("parent_thread_id")
                     session_metadata(events, check["session_thread_id"], parent_id, meta.get("agent_role"), source=source)
                     recipient = meta.get("agent_path")
