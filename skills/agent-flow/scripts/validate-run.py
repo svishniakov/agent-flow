@@ -10,7 +10,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-from verification_evidence import validate_verification
+from verification_evidence import validate_verification, external_followup, verify_author_declaration, retained_accepted_boundary_v1
 from task_workspace import registered_workspace, verify_candidate
 from journal_io import timestamp as journal_timestamp, validate_event, JournalError, JournalSnapshot
 from journal_io import (journal_read_text, journal_read_bytes, journal_exists, journal_is_file,
@@ -21,6 +21,18 @@ from architecture_capabilities import (
     validate_architecture_capabilities_shape,
     validate_architecture_capability_registry,
 )
+
+
+def scoped_followup(snapshot, field):
+    # Invalid scope never grants a waiver; validate_verification reports the error.
+    try:
+        return external_followup(snapshot, field)
+    except (JournalError, ValueError, TypeError, KeyError):
+        return []
+
+
+def external_gate(snapshot, gate):
+    return {"axis": gate.get("axis"), "facet": gate.get("facet")} in scoped_followup(snapshot, "gate_refs")
 
 
 FULL_REQUIRED_FILES = [
@@ -1404,7 +1416,7 @@ def validate_resolution_attempts(
     resolution: dict,
     label: str,
     final_verdict: str | None,
- *, snapshot=None) -> list[str]:
+ *, snapshot=None, presentation_required=True) -> list[str]:
     attempts = resolution.get("attempts")
     if attempts is None:
         return []
@@ -1446,6 +1458,8 @@ def validate_resolution_attempts(
             )
 
         for field in ["owner_lane", "resolution", "verification", "verified_by", "reviewed_by"]:
+            if not presentation_required and status in {"unresolved", "blocked"} and field in {"verified_by", "reviewed_by"} and attempt.get(field) is None:
+                continue
             errors.extend(validate_risk_resolution_text_field(attempt, field, attempt_label))
 
         errors.extend(validate_risk_resolution_evidence(run_dir, attempt.get("evidence"), attempt_label, snapshot=snapshot))
@@ -1461,20 +1475,22 @@ def validate_resolution_attempts(
                     f"(expected one of: {allowed})"
                 )
             errors.extend(validate_risk_resolution_rollback(run_dir, attempt.get("rollback"), attempt_label, final_verdict, snapshot=snapshot))
-            errors.extend(validate_blocked_lesson(attempt.get("blocked_lesson"), attempt_label))
+            if presentation_required:
+                errors.extend(validate_blocked_lesson(attempt.get("blocked_lesson"), attempt_label))
 
     if attempt_numbers != list(range(1, len(attempt_numbers) + 1)):
         errors.append(f"{RISK_RESOLUTIONS_PATH} {label}.attempts must be contiguous from 1")
 
-    if final_verdict == "pass-with-risks" and attempts:
+    external_risk = resolution.get("risk_id") in scoped_followup(snapshot, "risk_ids")
+    if (final_verdict == "pass-with-risks" or not presentation_required and final_verdict in POSITIVE_FINAL_VERDICTS) and attempts and not external_risk:
         last_attempt = attempts[-1]
         if isinstance(last_attempt, dict) and last_attempt.get("status") not in RISK_RESOLUTION_PASS_STATUSES:
             errors.append(
                 f"{RISK_RESOLUTIONS_PATH} {label}.attempts last attempt must be fixed, mitigated, or contained "
-                "for Verdict: pass-with-risks"
+                f"for Verdict: {final_verdict}"
             )
 
-    if blocked_attempt_numbers:
+    if blocked_attempt_numbers and presentation_required:
         recovery = resolution.get("blocked_recovery")
         if not isinstance(recovery, dict):
             errors.append(f"{RISK_RESOLUTIONS_PATH} {label} missing blocked_recovery")
@@ -1510,7 +1526,7 @@ def validate_resolution_attempts(
                     snapshot=snapshot,
                 )
             )
-        if 3 in blocked_attempt_numbers and final_verdict not in {"blocked", "fail"}:
+        if 3 in blocked_attempt_numbers and final_verdict not in {"blocked", "fail"} and not external_risk:
             errors.append(
                 f"{RISK_RESOLUTIONS_PATH} {label}.attempts third blocked attempt requires "
                 "Verdict: blocked or fail"
@@ -1523,12 +1539,15 @@ def validate_risk_resolutions(
     run_dir: Path,
     final_verdict: str | None,
     mitigation_risks: list[dict],
- *, snapshot=None) -> tuple[list[dict], list[str]]:
+ *, snapshot=None, presentation_required=True) -> tuple[list[dict], list[str]]:
     path = run_dir / RISK_RESOLUTIONS_PATH
-    required = final_verdict == "pass-with-risks"
+    external_risks = scoped_followup(snapshot, "risk_ids")
+    required = final_verdict == "pass-with-risks" and (not external_risks or any(risk.get("id") not in external_risks for risk in mitigation_risks))
+    if not presentation_required:
+        required = final_verdict in POSITIVE_FINAL_VERDICTS and any(risk.get("id") not in external_risks for risk in mitigation_risks)
     if not journal_exists(path, snapshot=snapshot):
         if required:
-            return [], [f"{RISK_RESOLUTIONS_PATH} is required for Verdict: pass-with-risks"]
+            return [], [f"{RISK_RESOLUTIONS_PATH} is required for Verdict: {final_verdict}"]
         return [], []
 
     data, load_errors = load_json(path, RISK_RESOLUTIONS_PATH, snapshot=snapshot)
@@ -1578,12 +1597,12 @@ def validate_risk_resolutions(
                 f"{RISK_RESOLUTIONS_PATH} {label}.status invalid "
                 f"(expected one of: {allowed})"
             )
-        elif final_verdict == "pass-with-risks" and status not in RISK_RESOLUTION_PASS_STATUSES:
+        elif final_verdict == "pass-with-risks" and status not in RISK_RESOLUTION_PASS_STATUSES and current_id not in scoped_followup(snapshot, "risk_ids"):
             errors.append(
                 f"{RISK_RESOLUTIONS_PATH} {label}.status {status} is not allowed "
                 "for Verdict: pass-with-risks"
             )
-        elif status == "unresolved" and final_verdict not in {"blocked", "fail"}:
+        elif status == "unresolved" and final_verdict not in {"blocked", "fail"} and current_id not in scoped_followup(snapshot, "risk_ids"):
             errors.append(
                 f"{RISK_RESOLUTIONS_PATH} {label}.status unresolved is allowed only "
                 "for Verdict: blocked or fail"
@@ -1598,15 +1617,18 @@ def validate_risk_resolutions(
             )
 
         for field in ["owner_lane", "resolution", "verification", "verified_by", "reviewed_by"]:
+            if not presentation_required and status == "unresolved" and field in {"verified_by", "reviewed_by"} and resolution.get(field) is None:
+                continue
             errors.extend(validate_risk_resolution_text_field(resolution, field, label))
 
         errors.extend(validate_risk_resolution_evidence(run_dir, resolution.get("evidence"), label, snapshot=snapshot))
-        errors.extend(validate_resolution_attempts(run_dir, resolution, label, final_verdict, snapshot=snapshot))
+        errors.extend(validate_resolution_attempts(run_dir, resolution, label, final_verdict,
+            snapshot=snapshot, presentation_required=presentation_required))
         parsed_resolutions.append(resolution)
 
-    if final_verdict == "pass-with-risks":
+    if final_verdict == "pass-with-risks" or not presentation_required and final_verdict in POSITIVE_FINAL_VERDICTS:
         for mitigation_id in risk_mitigation_ids(mitigation_risks):
-            if mitigation_id not in seen_ids:
+            if mitigation_id not in seen_ids and mitigation_id not in scoped_followup(snapshot, "risk_ids"):
                 errors.append(f"{RISK_RESOLUTIONS_PATH} missing resolution for risk id: {mitigation_id}")
 
     return parsed_resolutions, errors
@@ -1840,7 +1862,7 @@ def validate_blocked_resolution_recovery_lanes(
     resolutions: list[dict],
     lane_by_id: dict[str, dict],
     normalized_status_by_id: dict[str, str],
- *, snapshot=None) -> list[str]:
+ *, snapshot=None, pending_latest_recovery=False) -> list[str]:
     errors: list[str] = []
     for index, resolution in enumerate(resolutions):
         risk_id_value = risk_id(resolution.get("risk_id"))
@@ -1854,6 +1876,8 @@ def validate_blocked_resolution_recovery_lanes(
             for attempt in attempts
             if isinstance(attempt, dict) and attempt.get("status") == "blocked"
         }
+        if pending_latest_recovery and isinstance(attempts[-1], dict) and attempts[-1].get("status") == "blocked":
+            blocked_numbers.discard(attempts[-1].get("attempt"))
         if not blocked_numbers:
             continue
         recovery = resolution.get("blocked_recovery")
@@ -2149,12 +2173,12 @@ def validate_delegation_summary(
         errors.append(f"{DELEGATION_SUMMARY_PATH}: notes must be a non-empty string")
 
     resolved = set()
-    if snapshot is not None and snapshot.storage_version == 2 and final_verdict in POSITIVE_FINAL_VERDICTS:
+    if snapshot is not None and snapshot.storage_version == 2:
         from verification_evidence import evaluate_obligations
-        resolved, obligation_errors = evaluate_obligations(snapshot, data)
+        resolved, obligation_errors = evaluate_obligations(snapshot, data, require_current=final_verdict in POSITIVE_FINAL_VERDICTS)
         errors.extend(obligation_errors)
         for lane_id in lane_by_id:
-            if lane_id not in all_ids:
+            if lane_id not in all_ids and (final_verdict in POSITIVE_FINAL_VERDICTS or normalize_lane_status(lane_by_id[lane_id].get("status")) not in {"planned", "timed-out"}):
                 errors.append(f"{DELEGATION_SUMMARY_PATH}: uncovered lane obligation: {lane_id}")
 
     if subagents_used is False and subagent_ids:
@@ -2170,13 +2194,15 @@ def validate_delegation_summary(
         lane["id"]
         for lane in lanes
         if isinstance(lane.get("id"), str) and normalize_execution_mode(lane.get("execution_mode")) == "subagent"
-        and normalize_lane_status(lane.get("status")) not in {"planned", "timed-out", "replaced"}
+        and lane["id"] not in resolved
+        and normalize_lane_status(lane.get("status")) not in {"planned", "timed-out"}
     )
     expected_role_lane_ids = sorted(
         lane["id"]
         for lane in lanes
         if isinstance(lane.get("id"), str) and normalize_execution_mode(lane.get("execution_mode")) == "role-lane"
-        and normalize_lane_status(lane.get("status")) not in {"planned", "timed-out", "replaced"}
+        and lane["id"] not in resolved
+        and normalize_lane_status(lane.get("status")) not in {"planned", "timed-out"}
     )
     has_lane_map = journal_exists(run_dir / "lane-map.json", snapshot=snapshot)
     if has_lane_map and sorted(set(subagent_ids) - resolved) != expected_subagent_ids:
@@ -2368,6 +2394,36 @@ def validate_mandatory_independent_qa_review_gate(run_dir: Path, *, session_sour
     )
     if summary is not None:
         errors.extend(validate_verification(run_dir, summary, {**lane_map, "lanes": lanes}, verdict, session_source, snapshot=snapshot))
+        if summary.get("verification", {}).get("delivery_scope") is not None:
+            if not lane_map:
+                by_id = {r["lane_id"]: {**r, "type": "review" if r.get("role") in {"reviewer", "reviewer.qa"} else "qa"}
+                         for kind in ("subagents", "role_lanes") for r in summary.get(kind, [])}
+                errors.extend(validate_acceptance_traceability_records(run_dir, required_acceptance_ids=[], required=False, final_verdict=verdict, snapshot=snapshot))
+                errors.extend(validate_claim_evidence_records(run_dir, required_claim_ids=[], required=False, final_verdict=verdict,
+                    lane_by_id=by_id, normalized_status_by_id={key: value.get("status") for key, value in by_id.items()}, snapshot=snapshot))
+                if snapshot.exists("verification-readiness.json"):
+                    readiness = json.loads(snapshot.read_text("verification-readiness.json"))
+                    ids = list(dict.fromkeys(attempt.get("lane") for attempt in readiness.get("attempts", []) if isinstance(attempt, dict)))
+                    _, readiness_errors = validate_verification_readiness(run_dir,
+                        {"verification_readiness": {"artifact": "verification-readiness.json", "lanes": ids}}, required=True,
+                        architecture_context_by_axis={}, lane_by_id=by_id,
+                        normalized_status_by_id={key: value.get("status") for key, value in by_id.items()}, final_verdict=verdict, snapshot=snapshot)
+                    errors.extend(readiness_errors)
+            if verdict in POSITIVE_FINAL_VERDICTS:
+                final = journal_read_text(run_dir / "final.md", snapshot=snapshot)
+                section = markdown_section_text(final, "Local Delivery Scope")
+                if "local-deliverable" not in section:
+                    errors.append("final.md must declare accepted local-deliverable and open external follow-up")
+                source = summary["verification"].get("task_scope", {})
+                if source.get("path", "missing source") not in section or source.get("sha256", "missing hash") not in section:
+                    errors.append("final.md Local Delivery Scope must preserve original task_scope reference")
+                for field in ("acceptance_ids", "claim_ids", "lane_ids", "risk_ids"):
+                    for identifier in scoped_followup(snapshot, field):
+                        if identifier not in section:
+                            errors.append("final.md missing external follow-up: " + identifier)
+                for gate in scoped_followup(snapshot, "gate_refs"):
+                    if gate["axis"] not in section or gate["facet"] not in section:
+                        errors.append("final.md missing external gate follow-up: " + gate["facet"])
     return errors
 
 
@@ -2821,10 +2877,11 @@ def validate_acceptance_traceability_records(
                 seen_ids.add(acceptance_id)
 
         status = record.get("status")
+        gap = status == "gap" and (final_verdict not in POSITIVE_FINAL_VERDICTS or acceptance_id in scoped_followup(snapshot, "acceptance_ids"))
         if status not in ACCEPTANCE_TRACEABILITY_STATUSES:
             allowed = ", ".join(sorted(ACCEPTANCE_TRACEABILITY_STATUSES))
             errors.append(f"{ACCEPTANCE_TRACEABILITY_PATH} {label}.status must be one of: {allowed}")
-        elif final_verdict in POSITIVE_FINAL_VERDICTS and status != "supported":
+        elif final_verdict in POSITIVE_FINAL_VERDICTS and status != "supported" and not gap:
             errors.append(
                 f"{ACCEPTANCE_TRACEABILITY_PATH} {label}.status must be supported for "
                 "positive final Verdict"
@@ -2867,9 +2924,9 @@ def validate_acceptance_traceability_records(
 
         evidence_coverage, evidence_errors = validate_acceptance_marker_evidence_records(
             run_dir,
-            record.get("evidence"),
+            record.get("evidence", [] if gap else None),
             label=f"{ACCEPTANCE_TRACEABILITY_PATH} {label}.evidence",
-            required=True,
+            required=not gap,
             expectations=surface_expectations,
             negative_fixture=False,
             snapshot=snapshot,
@@ -2884,9 +2941,9 @@ def validate_acceptance_traceability_records(
         if requires_negative_fixture:
             fixture_coverage, fixture_errors = validate_acceptance_marker_evidence_records(
                 run_dir,
-                record.get("negative_fixture_evidence"),
+                record.get("negative_fixture_evidence", [] if gap else None),
                 label=f"{ACCEPTANCE_TRACEABILITY_PATH} {label}.negative_fixture_evidence",
-                required=True,
+                required=not gap,
                 expectations=surface_expectations,
                 negative_fixture=True,
                 snapshot=snapshot,
@@ -2907,14 +2964,14 @@ def validate_acceptance_traceability_records(
             errors.extend(fixture_errors)
 
         for surface, polarity in sorted(surface_expectations):
-            if (surface, polarity) not in covered_expectations:
+            if not gap and (surface, polarity) not in covered_expectations:
                 errors.append(
                     f"{ACCEPTANCE_TRACEABILITY_PATH} {label} expectation "
                     f"{surface}/{polarity} not covered by matching evidence"
                 )
 
     for required_acceptance_id in required_acceptance_ids:
-        if required_acceptance_id not in seen_ids:
+        if final_verdict in POSITIVE_FINAL_VERDICTS and required_acceptance_id not in seen_ids:
             errors.append(
                 f"{ACCEPTANCE_TRACEABILITY_PATH} missing required acceptance id: "
                 f"{required_acceptance_id}"
@@ -2932,6 +2989,7 @@ def validate_claim_evidence_records(
     lane_by_id: dict[str, dict],
     normalized_status_by_id: dict[str, str],
     snapshot=None,
+    presentation_required=True,
 ) -> list[str]:
     path = run_dir / CLAIM_EVIDENCE_PATH
     if not journal_exists(path, snapshot=snapshot):
@@ -2960,6 +3018,7 @@ def validate_claim_evidence_records(
         if not isinstance(claim_record, dict):
             errors.append(f"{CLAIM_EVIDENCE_PATH} {label} must be an object")
             continue
+        gap = claim_record.get("status") == "gap" and (final_verdict not in POSITIVE_FINAL_VERDICTS or claim_record.get("id") in scoped_followup(snapshot, "claim_ids"))
 
         claim_id_value = validate_string(claim_record.get("id"), f"{CLAIM_EVIDENCE_PATH} {label}.id", errors)
         if claim_id_value:
@@ -2970,17 +3029,17 @@ def validate_claim_evidence_records(
             else:
                 seen_claim_ids.add(claim_id_value)
 
-        owner_lane_id = validate_string(
+        owner_lane_id = None if gap and claim_record.get("owner_lane") is None else validate_string(
             claim_record.get("owner_lane"),
             f"{CLAIM_EVIDENCE_PATH} {label}.owner_lane",
             errors,
         )
-        reviewed_by_id = validate_string(
+        reviewed_by_id = None if gap and claim_record.get("reviewed_by") is None else validate_string(
             claim_record.get("reviewed_by"),
             f"{CLAIM_EVIDENCE_PATH} {label}.reviewed_by",
             errors,
         )
-        section = validate_string(
+        section = None if gap and claim_record.get("section") is None else validate_string(
             claim_record.get("section"),
             f"{CLAIM_EVIDENCE_PATH} {label}.section",
             errors,
@@ -2993,7 +3052,7 @@ def validate_claim_evidence_records(
             owner_status = normalized_status_by_id.get(owner_lane_id)
             if (
                 owner_lane.get("type") not in CLAIM_EVIDENCE_OWNER_TYPES
-                or owner_status not in SUCCESSFUL_LANE_STATUSES
+                or not gap and owner_status not in SUCCESSFUL_LANE_STATUSES
             ):
                 errors.append(
                     f"{CLAIM_EVIDENCE_PATH} {label}.owner_lane must reference "
@@ -3005,13 +3064,13 @@ def validate_claim_evidence_records(
             errors.append(f"{CLAIM_EVIDENCE_PATH} {label}.reviewed_by not found: {reviewed_by_id}")
         elif reviewed_by_id and reviewer_lane is not None:
             reviewer_status = normalized_status_by_id.get(reviewed_by_id)
-            if reviewer_lane.get("type") != "review" or reviewer_status not in SUCCESSFUL_LANE_STATUSES:
+            if reviewer_lane.get("type") != "review" or not gap and reviewer_status not in SUCCESSFUL_LANE_STATUSES:
                 errors.append(
                     f"{CLAIM_EVIDENCE_PATH} {label}.reviewed_by must reference "
                     "successful review lane"
                 )
 
-        if owner_lane is not None and section and claim_id_value:
+        if presentation_required and not gap and owner_lane is not None and section and claim_id_value:
             handoff = owner_lane.get("handoff")
             if not isinstance(handoff, str) or not handoff:
                 errors.append(f"{CLAIM_EVIDENCE_PATH} {label}.owner_lane has no handoff")
@@ -3039,7 +3098,7 @@ def validate_claim_evidence_records(
         if status not in CLAIM_EVIDENCE_STATUSES:
             allowed = ", ".join(sorted(CLAIM_EVIDENCE_STATUSES))
             errors.append(f"{CLAIM_EVIDENCE_PATH} {label}.status must be one of: {allowed}")
-        elif final_verdict in POSITIVE_FINAL_VERDICTS and status != "supported":
+        elif final_verdict in POSITIVE_FINAL_VERDICTS and status != "supported" and not gap:
             errors.append(
                 f"{CLAIM_EVIDENCE_PATH} {label}.status must be supported for "
                 "positive final Verdict"
@@ -3048,8 +3107,8 @@ def validate_claim_evidence_records(
         validate_string(claim_record.get("claim"), f"{CLAIM_EVIDENCE_PATH} {label}.claim", errors)
         validate_string_list(claim_record.get("subjects"), f"{CLAIM_EVIDENCE_PATH} {label}.subjects", errors)
 
-        evidence_records = claim_record.get("evidence")
-        if not isinstance(evidence_records, list) or not evidence_records:
+        evidence_records = claim_record.get("evidence", [] if gap else None)
+        if not isinstance(evidence_records, list) or not evidence_records and not gap:
             errors.append(f"{CLAIM_EVIDENCE_PATH} {label}.evidence must be a non-empty array")
             continue
         for evidence_index, evidence_record in enumerate(evidence_records):
@@ -3077,7 +3136,7 @@ def validate_claim_evidence_records(
                 f"{CLAIM_EVIDENCE_PATH} {evidence_label}.markers",
                 errors,
             )
-            if evidence_text:
+            if evidence_path_value:
                 for marker_index, marker in enumerate(markers):
                     if marker not in evidence_text:
                         errors.append(
@@ -3086,7 +3145,7 @@ def validate_claim_evidence_records(
                         )
 
     for required_claim_id in required_claim_ids:
-        if required_claim_id not in seen_claim_ids:
+        if final_verdict in POSITIVE_FINAL_VERDICTS and required_claim_id not in seen_claim_ids:
             errors.append(f"{CLAIM_EVIDENCE_PATH} missing required claim id: {required_claim_id}")
 
     return errors
@@ -3101,6 +3160,7 @@ def validate_continuation_summary(
     successful_worker_lanes: list[tuple[str, int, str | None]],
     verification_readiness_data: dict | None,
     snapshot=None,
+    presentation_required=True,
 ) -> list[str]:
     timeline_events, timeline_errors = read_timeline_events(run_dir, snapshot=snapshot)
     if timeline_errors:
@@ -3214,14 +3274,14 @@ def validate_continuation_summary(
             for attempt in (verification_readiness_data or {}).get("attempts", [])
             if isinstance(attempt, dict) and attempt.get("status") == "ready"
         }
-        if readiness_lane not in ready_attempt_lanes:
+        if final_verdict in POSITIVE_FINAL_VERDICTS and readiness_lane not in ready_attempt_lanes:
             errors.append(
                 f"{CONTINUATION_SUMMARY_PATH} readiness_lane must reference a ready Verification Readiness Gate lane"
             )
         readiness_index = first_successful_lane_event_index(timeline_events, readiness_lane)
-        if readiness_index is None:
+        if readiness_index is None and final_verdict in POSITIVE_FINAL_VERDICTS:
             errors.append(f"lane-map.json: continuation timeline for lane {readiness_lane} missing event")
-        elif checkpoint_index is not None and readiness_index <= checkpoint_index:
+        elif readiness_index is not None and checkpoint_index is not None and readiness_index <= checkpoint_index:
             errors.append(
                 f"{CONTINUATION_SUMMARY_PATH} readiness_lane must run after previous checkpoint"
             )
@@ -3280,12 +3340,12 @@ def validate_continuation_summary(
             elif event_index > readiness_index and lane_id not in new_worker_lanes:
                 errors.append(f"{CONTINUATION_SUMMARY_PATH} missing new worker lane: {lane_id}")
 
-    qa_recheck_lane = validate_string(
+    qa_recheck_lane = None if final_verdict not in POSITIVE_FINAL_VERDICTS and data.get("qa_recheck_lane") is None else validate_string(
         data.get("qa_recheck_lane"),
         f"{CONTINUATION_SUMMARY_PATH} qa_recheck_lane",
         errors,
     )
-    reviewer_recheck_lane = validate_string(
+    reviewer_recheck_lane = None if final_verdict not in POSITIVE_FINAL_VERDICTS and data.get("reviewer_recheck_lane") is None else validate_string(
         data.get("reviewer_recheck_lane"),
         f"{CONTINUATION_SUMMARY_PATH} reviewer_recheck_lane",
         errors,
@@ -3315,6 +3375,8 @@ def validate_continuation_summary(
             errors.append(f"lane-map.json: lane {lane_id} requires handoff for Continuation Gate")
             continue
         handoff_path = resolve_run_path(run_dir, handoff)
+        if not presentation_required:
+            continue
         validate_markdown_section_coverage(
             handoff_path,
             section,
@@ -3325,7 +3387,7 @@ def validate_continuation_summary(
             snapshot=snapshot,
         )
 
-    if final_verdict in POSITIVE_FINAL_VERDICTS:
+    if presentation_required and final_verdict in POSITIVE_FINAL_VERDICTS:
         final_path = run_dir / "final.md"
         validate_markdown_section_coverage(
             final_path,
@@ -3547,6 +3609,7 @@ def validate_harness_evaluation(
     successful_reviewer_lanes: list[tuple[str, int, str | None]],
     require_reviewer_review: bool,
     snapshot=None,
+    presentation_required=True,
 ) -> list[str]:
     path = run_dir / HARNESS_EVALUATION_PATH
     if not journal_exists(path, snapshot=snapshot):
@@ -3658,7 +3721,7 @@ def validate_harness_evaluation(
             proposal_ids.append(proposal_id)
 
     required_ids = [*finding_ids, *proposal_ids]
-    if required_ids:
+    if required_ids and presentation_required:
         validate_markdown_section_coverage(
             run_dir / "final.md",
             HARNESS_EVALUATION_SECTION,
@@ -3676,7 +3739,7 @@ def validate_harness_evaluation(
     ):
         if not successful_reviewer_lanes:
             errors.append("lane-map.json: positive Harness Evaluation requires successful reviewer lane")
-        for lane_id, _wave, handoff in successful_reviewer_lanes:
+        for lane_id, _wave, handoff in successful_reviewer_lanes if presentation_required else []:
             if not isinstance(handoff, str) or not handoff:
                 errors.append(f"lane-map.json: lane {lane_id} requires handoff for Harness Evaluation Review")
                 continue
@@ -3826,6 +3889,7 @@ def validate_verification_gate_records(
     status_field: str,
     allowed_statuses: set[str],
     snapshot=None,
+    presentation_required=True,
 ) -> tuple[set[tuple[str, str]], list[str]]:
     errors: list[str] = []
     seen: set[tuple[str, str]] = set()
@@ -3860,7 +3924,8 @@ def validate_verification_gate_records(
         if status not in allowed_statuses:
             allowed = ", ".join(sorted(allowed_statuses))
             errors.append(f"{gate_label}.{status_field} invalid (expected one of: {allowed})")
-        validate_string(gate.get("notes"), f"{gate_label}.notes", errors)
+        if presentation_required:
+            validate_string(gate.get("notes"), f"{gate_label}.notes", errors)
         if status_field == "readiness":
             validate_string(gate.get("check"), f"{gate_label}.check", errors)
         validate_existing_path_list(run_dir, gate.get("evidence"), f"{gate_label}.evidence", errors, snapshot=snapshot)
@@ -4017,6 +4082,11 @@ def validate_verification_readiness(
         if request_id and execution_status == "succeeded" and evidence:
             successful_execution_request_ids.add(request_id)
 
+    external_facets = {ref["facet"] for ref in scoped_followup(snapshot, "gate_refs")}
+    external_blockers = external_facets | set(scoped_followup(snapshot, "lane_ids")) | set(scoped_followup(snapshot, "risk_ids"))
+    def external_request(request_id):
+        affected = request_by_id.get(request_id, {}).get("affected_gates", [])
+        return bool(affected) and set(affected) <= external_facets
     latest_attempt_status: str | None = None
     ready_lane_ids: list[str] = []
     blocked_ids: set[str] = set()
@@ -4064,12 +4134,12 @@ def validate_verification_readiness(
             elif request_id not in request_by_id:
                 errors.append(f"{label}.approval_requests unknown approval request: {request_id}")
         if attempt_status == "ready":
-            if blockers:
+            if set(blockers) - external_blockers:
                 errors.append(f"{label}.blockers must be empty when status=ready")
-            if request_ids:
+            if any(not external_request(request_id) for request_id in request_ids):
                 errors.append(f"{label}.approval_requests must be empty when status=ready")
             for gate in attempt.get("gates", []) if isinstance(attempt.get("gates"), list) else []:
-                if isinstance(gate, dict) and gate.get("readiness") != "ready":
+                if isinstance(gate, dict) and not external_gate(snapshot, gate) and gate.get("readiness") != "ready":
                     errors.append(f"{label}.gates must all be ready when status=ready")
                     break
         elif attempt_status == "needs-approval":
@@ -4087,7 +4157,7 @@ def validate_verification_readiness(
     if status == "ready":
         if latest_attempt_status != "ready" or not ready_lane_ids:
             errors.append(f"{artifact} status ready requires a latest ready attempt")
-        if any(request.get("status") == "pending" for request in request_by_id.values()):
+        if any(request.get("status") == "pending" and not external_request(request_id) for request_id, request in request_by_id.items()):
             errors.append(f"{artifact} status ready cannot have pending approval requests")
     elif status == "needs-approval":
         if not any(request.get("status") == "pending" for request in request_by_id.values()):
@@ -4122,6 +4192,7 @@ def validate_qa_verification_results_shape(
     *,
     selected_pairs: list[tuple[str, str]],
     snapshot=None,
+    presentation_required=True,
 ) -> tuple[dict | None, list[str]]:
     results = lane.get("verification_results")
     if not isinstance(results, dict):
@@ -4138,11 +4209,12 @@ def validate_qa_verification_results_shape(
         status_field="status",
         allowed_statuses=VERIFICATION_RESULT_STATUSES,
         snapshot=snapshot,
+        presentation_required=presentation_required,
     )
     errors.extend(gate_errors)
     if status == "pass":
         for gate in results.get("gates", []) if isinstance(results.get("gates"), list) else []:
-            if isinstance(gate, dict) and gate.get("status") != "pass":
+            if isinstance(gate, dict) and not external_gate(snapshot, gate) and gate.get("status") != "pass":
                 errors.append(f"lane-map.json: lane {label} verification_results pass requires all gates pass")
                 break
     elif status == "blocked":
@@ -4450,7 +4522,7 @@ def validate_lane_boundary_artifact(
     artifact_path: Path,
     artifact_name: str,
     lane_id: str,
- *, snapshot=None) -> tuple[list[str], list[str]]:
+ *, snapshot=None, presentation_required=True) -> tuple[list[str], list[str]]:
     data, load_errors = load_json(artifact_path, artifact_name, snapshot=snapshot)
     errors = list(load_errors)
     if load_errors:
@@ -4460,7 +4532,7 @@ def validate_lane_boundary_artifact(
     if not isinstance(data, dict):
         return [], [f"lane-map.json: {artifact_name} must be a JSON object"]
 
-    if data.get("version") != LANE_BOUNDARY_ARTIFACT_VERSION:
+    if data.get("version") not in {LANE_BOUNDARY_ARTIFACT_VERSION, 2}:
         errors.append(
             f"lane-map.json: {artifact_name} version must be {LANE_BOUNDARY_ARTIFACT_VERSION}"
         )
@@ -4472,7 +4544,7 @@ def validate_lane_boundary_artifact(
         errors.append(
             f"lane-map.json: {artifact_name} status must be {LANE_BOUNDARY_ARTIFACT_STATUS}"
         )
-    for field in ["base_ref", "head_ref", "command", "notes"]:
+    for field in ["base_ref", "head_ref", "command", "notes"] if presentation_required else []:
         if not isinstance(data.get(field), str) or not data.get(field):
             errors.append(
                 f"lane-map.json: {artifact_name} {field} must be a non-empty string"
@@ -4488,8 +4560,17 @@ def validate_lane_boundary_artifact(
             for key, value in expected.items():
                 if data.get(key) != value:
                     errors.append(f"lane-map.json: {artifact_name} {key} must match the full registered workspace delta")
+            if data.get("version") == 2:
+                declaration = {key: data.get(key) for key in ("lane_id", "authored_paths", "handoff", "edit_evidence", "coauthors")}
+                assignment = verify_author_declaration(snapshot, declaration, lane_id=lane_id,
+                    presentation_required=presentation_required)
+                if data.get("assignment") != assignment:
+                    errors.append(f"lane-map.json: {artifact_name} author assignment mismatch")
+                if not set(declaration["authored_paths"]) <= set(sealed["changed_paths"]):
+                    errors.append(f"lane-map.json: {artifact_name} authored_paths outside workspace delta")
+                return declaration["authored_paths"], errors
             return sealed["changed_paths"], errors
-        except (JournalError, OSError) as exc:
+        except (JournalError, OSError, TypeError, ValueError, KeyError) as exc:
             return [], [*errors, f"lane-map.json: {artifact_name}: {exc}"]
 
     changed_paths, changed_errors = validate_repo_path_array(
@@ -4530,6 +4611,7 @@ def validate_lane_boundary(
     required: bool,
     allow_pending: bool,
     snapshot=None,
+    presentation_required=True,
 ) -> tuple[str | None, list[str]]:
     raw_boundary = lane.get(LANE_BOUNDARY_FIELD)
     if raw_boundary is None:
@@ -4590,6 +4672,7 @@ def validate_lane_boundary(
                 changed_paths_artifact,
                 label,
                 snapshot=snapshot,
+                presentation_required=presentation_required,
             )
             errors.extend(artifact_errors)
             for changed_path in changed_paths:
@@ -4611,12 +4694,44 @@ def validate_lane_boundary(
                     )
 
     notes = raw_boundary.get("notes")
-    if strict_required and (not isinstance(notes, str) or not notes.strip()):
+    if presentation_required and strict_required and (not isinstance(notes, str) or not notes.strip()):
         errors.append(
             f"lane-map.json: lane {label} boundary.notes must be a non-empty string"
         )
 
     return artifact_name, errors
+
+
+def validate_author_coverage(snapshot, boundary_artifact_by_lane):
+    """Check complete authorship independently of handoff presentation."""
+    errors = []
+    try:
+        sealed = verify_candidate(registered_workspace(snapshot), inputs=snapshot.external_inputs)
+        contributors = {}
+        declarations = {}
+        for lane_id, name in boundary_artifact_by_lane.items():
+            boundary = json.loads(snapshot.read_text(name)) if name and snapshot.exists(name) else {}
+            if boundary.get("version") == 1 and retained_accepted_boundary_v1(snapshot):
+                for path in boundary.get("changed_paths", []):
+                    contributors.setdefault(path, set()).add(lane_id)
+                continue
+            if boundary.get("version") != 2:
+                errors.append("new registered author acceptance requires boundary version 2: " + lane_id)
+                continue
+            declarations[lane_id] = boundary
+            for path in boundary.get("authored_paths", []):
+                contributors.setdefault(path, set()).add(lane_id)
+        if set(contributors) != set(sealed["changed_paths"]):
+            errors.append("author declarations union must equal full workspace delta")
+        for path, authors in contributors.items():
+            for author in authors:
+                if author in declarations:
+                    disclosed = set(declarations[author].get("coauthors", {}).get(path, []))
+                    if disclosed != authors - {author}:
+                        errors.append("author coauthorship mismatch: " + path + ": " + author)
+    except (JournalError, OSError, ValueError, TypeError, KeyError) as exc:
+        errors.append("author coverage: " + str(exc))
+    return errors
 
 
 def validate_engineering_simplicity_scope(
@@ -4926,6 +5041,7 @@ def validate_architecture_compliance_shape(
     selected_matrix_facets: set[str],
     known_matrix_facets: set[str],
     selected_capabilities: list[str],
+    simplicity_required: bool = True,
 ) -> tuple[dict | None, list[str]]:
     errors: list[str] = []
     compliance = lane.get("architecture_compliance")
@@ -5003,13 +5119,14 @@ def validate_architecture_compliance_shape(
             "must not set recheck_lane"
         )
 
-    errors.extend(
-        validate_engineering_simplicity_shape(
-            compliance,
-            label,
-            selected_capabilities=selected_capabilities,
+    if simplicity_required:
+        errors.extend(
+            validate_engineering_simplicity_shape(
+                compliance,
+                label,
+                selected_capabilities=selected_capabilities,
+            )
         )
-    )
 
     return compliance, errors
 
@@ -5387,12 +5504,16 @@ def validate_lane_map(
             else:
                 worker_wave = None
 
-            if architecture_contract_required:
+            registered_author = snapshot is not None and registered_workspace(snapshot) is not None and isinstance(lane.get("boundary"), dict) and final_verdict in POSITIVE_FINAL_VERDICTS
+            if registered_author:
+                boundary_worker_lane_ids.append(lane_id)
+            if architecture_contract_required or registered_author:
                 lane_boundary_required = (
                     schema_version == 2
                     and final_verdict in POSITIVE_FINAL_VERDICTS
                 )
-                if lane_boundary_required:
+                lane_boundary_required = lane_boundary_required or registered_author
+                if lane_boundary_required and lane_id not in boundary_worker_lane_ids:
                     boundary_worker_lane_ids.append(lane_id)
                 boundary_artifact, boundary_errors = validate_lane_boundary(
                     run_dir,
@@ -5558,6 +5679,10 @@ def validate_lane_map(
                                 else None,
                             )
                         )
+
+    if snapshot is not None and registered_workspace(snapshot) is not None and boundary_worker_lane_ids and final_verdict in POSITIVE_FINAL_VERDICTS:
+        errors.extend(validate_author_coverage(snapshot,
+            {lane_id: boundary_artifact_by_lane.get(lane_id) for lane_id in boundary_worker_lane_ids}))
 
     errors.extend(
         validate_handoff_states(
@@ -6250,7 +6375,26 @@ def validate_lane_map(
                     )
 
     if final_verdict == "ship":
+        resolved_obligations = set()
+        obligation_records = {}
+        native_obligations = snapshot is not None and snapshot.storage_version == 2
+        if native_obligations:
+            summary, summary_errors = load_json(run_dir / DELEGATION_SUMMARY_PATH, DELEGATION_SUMMARY_PATH, snapshot=snapshot)
+            errors.extend(summary_errors)
+            summary = summary if isinstance(summary, dict) else {}
+            from verification_evidence import evaluate_obligations
+            if any(not isinstance(summary.get(kind, []), list) for kind in ("subagents", "role_lanes")):
+                errors.append(f"{DELEGATION_SUMMARY_PATH}: obligation assignments must be arrays")
+            else:
+                resolved_obligations, obligation_errors = evaluate_obligations(snapshot, summary)
+                errors.extend(obligation_errors)
+                if obligation_errors:
+                    resolved_obligations = set()
+                obligation_records = {record.get("lane_id"): record for kind in ("subagents", "role_lanes")
+                                      for record in summary.get(kind, []) if isinstance(record, dict)}
         for lane_id, lane in lane_by_id.items():
+            if lane_id in scoped_followup(snapshot, "lane_ids"):
+                continue
             if lane.get("critical") is not True:
                 continue
             status = normalized_status_by_id.get(lane_id)
@@ -6258,15 +6402,195 @@ def validate_lane_map(
                 continue
             if status in {"timed-out", "replaced"}:
                 replacement = lane.get("replacement")
-                replacement_status = normalized_status_by_id.get(replacement) if isinstance(replacement, str) else None
-                if replacement_status in SUCCESSFUL_LANE_STATUSES:
-                    continue
+                if native_obligations and lane_id in resolved_obligations:
+                    resolution = obligation_records[lane_id]["obligation"]["resolution"]
+                    if replacement == resolution.get("replacement"):
+                        continue
+                if not native_obligations:
+                    replacement_status = normalized_status_by_id.get(replacement) if isinstance(replacement, str) else None
+                    if replacement_status in SUCCESSFUL_LANE_STATUSES:
+                        continue
             blocked_status = status or lane.get("status")
             errors.append(
                 f"lane-map.json: final Verdict ship is blocked by critical lane "
                 f"{lane_id} status {blocked_status}"
             )
 
+    return errors
+
+
+def validate_product_acceptance(run_dir: Path, *, session_source=None, snapshot=None, verdict=None) -> list[str]:
+    """Accept substantive local proof; the full validator audits presentation."""
+    from verification_evidence import evaluate_obligations, resolve_author_boundaries
+    snapshot = snapshot or JournalSnapshot.open(run_dir)
+    if verdict is None:
+        finalized = [snapshot.operation_receipt(identifier)["result"] for identifier in snapshot.receipts
+                     if snapshot.operation_receipt(identifier)["result"].get("command") == "finalize"
+                     and snapshot.operation_receipt(identifier)["result"].get("generation") == snapshot.generation]
+        if not snapshot.closed or len(finalized) != 1:
+            return ["product acceptance requires an authoritative finalized receipt"]
+        verdict = finalized[0].get("verdict")
+    if verdict not in POSITIVE_FINAL_VERDICTS:
+        return ["product acceptance requires a positive verdict"]
+    summary, errors = load_json(run_dir / DELEGATION_SUMMARY_PATH, DELEGATION_SUMMARY_PATH, snapshot=snapshot)
+    if not isinstance(summary, dict):
+        return [*errors, "product acceptance requires delegation-summary.json"]
+    verification = summary.get("verification")
+    if not isinstance(verification, dict):
+        return [*errors, "product acceptance requires verification"]
+    lane_map = {}
+    if snapshot.exists("lane-map.json"):
+        lane_map, map_errors = load_json(run_dir / "lane-map.json", "lane-map.json", snapshot=snapshot)
+        errors.extend(map_errors)
+        if not isinstance(lane_map, dict):
+            return [*errors, "lane-map.json must be an object"]
+    if not isinstance(lane_map.get("lanes", []), list) or not all(isinstance(lane, dict) for lane in lane_map.get("lanes", [])):
+        return [*errors, "lane-map.json lanes must be an object array"]
+    lanes = lane_map.get("lanes", [])
+    lane_ids = [lane.get("id") for lane in lanes]
+    if not all(isinstance(identifier, str) and identifier for identifier in lane_ids) or len(lane_ids) != len(set(lane_ids)):
+        return [*errors, "lane-map.json requires unique non-empty lane ids"]
+    by_id = {lane.get("id"): lane for lane in lanes}
+    if not lane_map:
+        from journal_io import service_lanes
+        by_id = {lane["id"]: lane for lane in service_lanes(snapshot)["lanes"]}
+    if any(not isinstance(record_set, list) or not all(isinstance(record, dict) for record in record_set)
+           for record_set in (summary.get("subagents"), summary.get("role_lanes"))):
+        return [*errors, "delegation-summary.json: obligation assignments must be arrays"]
+    records = [record for kind in ("subagents", "role_lanes") for record in summary[kind]]
+    record_ids = [record.get("lane_id") for record in records]
+    if not all(isinstance(identifier, str) and identifier for identifier in record_ids) or len(record_ids) != len(set(record_ids)):
+        return [*errors, "delegation-summary.json requires unique non-empty lane ids"]
+    selected_final = {verification.get("qa"), verification.get("reviewer")}
+    readiness = lane_map.get("verification_readiness", {})
+    preliminary = set(readiness.get("lanes", [])) if isinstance(readiness, dict) and isinstance(readiness.get("lanes", []), list) else set()
+    preliminary.update(record.get("lane_id") for record in records
+                       if record.get("purpose") in {"qa.requirements", "verification-readiness", "requirements-readiness"})
+    authors = verification.get("author_thread_ids", [])
+    if not isinstance(authors, list):
+        return [*errors, "verification.author_thread_ids must be an array"]
+    workspace = registered_workspace(snapshot)
+    fresh_v5 = workspace is not None and workspace.get("seal", {}).get("result_hash_version") == 5
+    inventory = []
+    if fresh_v5:
+        try:
+            inventory = resolve_author_boundaries(snapshot, workspace, presentation_required=False)
+        except (JournalError, OSError, ValueError, TypeError, KeyError) as exc:
+            errors.append("author boundaries: " + str(exc))
+    role_lane_ids = {record["lane_id"] for record in summary["role_lanes"]}
+    protected_authors = {record["lane_id"] for record in records
+                         if record["lane_id"] not in role_lane_ids and record.get("codex_thread_id") in authors
+                         or by_id.get(record["lane_id"], {}).get("boundary")
+                         or snapshot.exists("checks/lane-boundary-" + record["lane_id"] + ".json")}
+    protected_authors.update(entry["lane_id"] for entry in inventory)
+    selected = {record.get("lane_id") for record in records
+                if record.get("lane_id") not in preliminary or record.get("lane_id") in selected_final
+                or record.get("lane_id") in protected_authors
+                or by_id.get(record.get("lane_id"), {}).get("type") in {"implementation", "integration"}}
+    selected.update(selected_final - {None})
+    for lane in lanes:
+        lane_id = lane.get("id")
+        if lane_id not in preliminary and (lane.get("critical") is True or lane.get("type") in {"implementation", "integration"}):
+            selected.add(lane_id)
+            if not any(record.get("lane_id") == lane_id for record in records):
+                errors.append("delegation-summary.json: uncovered lane obligation: " + str(lane_id))
+    errors.extend(validate_verification(run_dir, summary, lane_map, verdict, session_source,
+        snapshot=snapshot, selected_lane_ids=selected, presentation_required=False))
+    if snapshot.storage_version == 2:
+        resolved, obligation_errors = evaluate_obligations(snapshot, summary, selected_lane_ids=selected)
+        errors.extend(obligation_errors)
+        record_by_id = {record.get("lane_id"): record for record in records}
+        for lane_id in selected:
+            lane = by_id.get(lane_id, {})
+            if lane and lane_id not in scoped_followup(snapshot, "lane_ids") and lane.get("status") not in SUCCESSFUL_LANE_STATUSES and lane_id not in resolved:
+                errors.append("required local lane not accepted: " + str(lane_id))
+            if lane.get("status") in {"replaced", "timed-out"} and lane_id in resolved:
+                replacement = record_by_id.get(lane_id, {}).get("obligation", {}).get("resolution", {}).get("replacement")
+                if lane.get("replacement") != replacement:
+                    errors.append("lane-map.json: obligation replacement mismatch: " + str(lane_id))
+    if verification.get("task_kind") == "change" and workspace is not None:
+        boundaries = {}
+        if fresh_v5:
+            for entry in inventory:
+                if entry["boundary"] is not None:
+                    name, boundary_errors = validate_lane_boundary(run_dir, entry["lane"], entry["lane_id"],
+                        required=True, allow_pending=False, snapshot=snapshot, presentation_required=False)
+                else:
+                    name = entry["artifact"]
+                    _, boundary_errors = validate_lane_boundary_artifact(run_dir / name, name, entry["lane_id"],
+                        snapshot=snapshot, presentation_required=False)
+                errors.extend(boundary_errors)
+                boundaries[entry["lane_id"]] = name
+        for lane in lanes:
+            if lane.get("type") in {"implementation", "integration"}:
+                if not fresh_v5:
+                    name, boundary_errors = validate_lane_boundary(run_dir, lane, lane.get("id"),
+                        required=True, allow_pending=False, snapshot=snapshot, presentation_required=False)
+                    errors.extend(boundary_errors)
+                    boundaries[lane.get("id")] = name
+                compliance = lane.get("architecture_compliance", {})
+                if isinstance(compliance, dict) and compliance.get("status") == "drift":
+                    recheck = by_id.get(compliance.get("recheck_lane"), {})
+                    if recheck.get("type") != "architecture" or recheck.get("critical") is not True or recheck.get("status") not in SUCCESSFUL_LANE_STATUSES:
+                        errors.append("architecture drift requires an accepted critical architecture recheck: " + str(lane.get("id")))
+                    if lane_wave(lane) is None or lane_wave(recheck) is None or lane_wave(recheck) <= lane_wave(lane):
+                        errors.append("architecture recheck must follow drifting worker: " + str(lane.get("id")))
+        if fresh_v5 or boundaries:
+            errors.extend(validate_author_coverage(snapshot, boundaries))
+    context = lane_map.get("architecture_context", {})
+    if not isinstance(context, dict):
+        errors.append("lane-map.json architecture_context must be an object")
+        context = {}
+    for axis in ("risk_gates", "verification_gates"):
+        if not isinstance(context.get(axis, []), list) or not all(isinstance(facet, str) and facet for facet in context.get(axis, [])):
+            errors.append("lane-map.json architecture_context." + axis + " must be a string array")
+            context = {**context, axis: []}
+    required_claims, required_acceptance = [], []
+    contract_required = lane_map.get("architecture_contract_required") is True
+    if contract_required:
+        for lane in lanes:
+            if lane.get("type") == "architecture" and lane.get("critical") is True:
+                handoff = lane.get("handoff")
+                if not isinstance(handoff, str) or not snapshot.exists(handoff):
+                    errors.append("required architecture contract missing: " + str(lane.get("id")))
+                    continue
+                ids, contract_errors = claim_evidence_ids_from_contract(run_dir / handoff, snapshot=snapshot)
+                required_claims.extend(ids); errors.extend(contract_errors)
+                ids, contract_errors = acceptance_criteria_ids_from_contract(run_dir / handoff, snapshot=snapshot)
+                required_acceptance.extend(ids); errors.extend(contract_errors)
+    errors.extend(validate_acceptance_traceability_records(run_dir,
+        required_acceptance_ids=required_acceptance, required=contract_required, final_verdict=verdict, snapshot=snapshot))
+    errors.extend(validate_claim_evidence_records(run_dir, required_claim_ids=required_claims,
+        required=contract_required, final_verdict=verdict, lane_by_id=by_id,
+        normalized_status_by_id={identifier: normalize_lane_status(lane.get("status")) for identifier, lane in by_id.items()},
+        snapshot=snapshot, presentation_required=False))
+    mitigation_risks = []
+    if snapshot.exists(RISK_MITIGATIONS_PATH):
+        mitigation_risks, mitigation_errors = validate_risk_mitigations(run_dir, verdict, snapshot=snapshot)
+        errors.extend(mitigation_errors)
+    _, resolution_errors = validate_risk_resolutions(run_dir, verdict, mitigation_risks,
+        snapshot=snapshot, presentation_required=False)
+    errors.extend(resolution_errors)
+    pairs = selected_verification_gate_pairs(context)
+    if pairs:
+        allowed, matrix_errors = load_architecture_matrix_facets(inputs=snapshot.external_inputs)
+        errors.extend(matrix_errors)
+        for axis, facet in pairs:
+            if facet not in allowed.get(axis, set()):
+                errors.append("unknown selected local gate facet: " + facet)
+        qa = by_id.get(verification.get("qa"))
+        if qa is None:
+            errors.append("selected local gates require the final QA lane")
+        else:
+            results, gate_errors = validate_qa_verification_results_shape(run_dir, qa, qa.get("id"),
+                selected_pairs=pairs, snapshot=snapshot, presentation_required=False)
+            errors.extend(gate_errors)
+            if results is not None:
+                for gate in results.get("gates", []) if isinstance(results.get("gates"), list) else []:
+                    if isinstance(gate, dict) and not external_gate(snapshot, gate) and gate.get("status") != "pass":
+                        errors.append("required local gate not passed: " + str(gate.get("facet")))
+                if results.get("status") != "pass":
+                    errors.append("final QA verification_results must pass all required local gates")
     return errors
 
 
@@ -6473,11 +6797,14 @@ def validate_full_run(
     if require_handoff and not list(journal_glob(run_dir / "handoffs", "*.md", snapshot=snapshot)):
         errors.append("no handoff markdown files")
 
-    if not allow_no_check and not list(journal_glob(run_dir / "checks", "*.md", snapshot=snapshot)):
+    negative_final = read_single_field(run_dir / "final.md", "Verdict", snapshot=snapshot) in {"blocked", "fail"}
+    if not negative_final and not allow_no_check and not list(journal_glob(run_dir / "checks", "*.md", snapshot=snapshot)):
         errors.append("no check markdown files")
 
     if not allow_pending:
         for name in ["manifest.md", "final.md"]:
+            if name == "manifest.md" and negative_final and read_single_field(run_dir / name, "Verdict", snapshot=snapshot) == "pending":
+                continue
             path = run_dir / name
             if not journal_exists(path, snapshot=snapshot):
                 continue
@@ -6490,9 +6817,11 @@ def validate_run(run_dir: Path, mode: str = "auto", *, require_handoff=False,
                  allow_no_check=False, allow_pending=False, session_source=None, snapshot=None) -> list[str]:
     run_dir = snapshot.artifact_root if snapshot is not None else Path(run_dir).resolve()
     snapshot = snapshot or JournalSnapshot.open(run_dir)
+    from journal_structure import assignment_errors, archived_assignment_facts
+    structural_errors = assignment_errors(snapshot.documents, history=archived_assignment_facts(snapshot)) if snapshot.durable and snapshot.storage_version == 2 else []
     if detect_mode(run_dir, mode, snapshot=snapshot) == "compact":
-        return validate_compact_run(run_dir, allow_no_check, allow_pending, session_source=session_source, snapshot=snapshot)
-    return validate_full_run(run_dir, require_handoff, allow_no_check, allow_pending, session_source=session_source, snapshot=snapshot)
+        return structural_errors + validate_compact_run(run_dir, allow_no_check, allow_pending, session_source=session_source, snapshot=snapshot)
+    return structural_errors + validate_full_run(run_dir, require_handoff, allow_no_check, allow_pending, session_source=session_source, snapshot=snapshot)
 
 
 def main() -> int:

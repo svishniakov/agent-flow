@@ -81,6 +81,7 @@ scripts/journal.py
 scripts/journal_io.py
 scripts/journal_lifecycle.py
 scripts/journal_recovery.py
+scripts/journal_structure.py
 scripts/model-eval.py
 scripts/model_eval_adapter.py
 scripts/model_eval_evaluator.py
@@ -145,6 +146,7 @@ scripts/validate-role-catalog.py
 scripts/validate-run.py
 scripts/validation_inputs.py
 scripts/verification_evidence.py
+scripts/workspace_scope.py
 testdata/codegraph/README.md
 testdata/golden-traces/invalid/acceptance-traceability-missing-surface-expectations/acceptance-traceability.json
 testdata/golden-traces/invalid/acceptance-traceability-missing-surface-expectations/agents/reviewer/trace.jsonl

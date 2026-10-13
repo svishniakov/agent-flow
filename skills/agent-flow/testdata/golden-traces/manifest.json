@@ -22,7 +22,7 @@
       "path": "verification/compact-wrong-reviewer-model",
       "mode": "compact",
       "expected": "fail",
-      "expected_error": "source model must be gpt-5.6-sol",
+      "expected_error": "source model must be gpt-6.1-sol",
       "covers": ["source model differs from canonical reviewer configuration"]
     },
     {

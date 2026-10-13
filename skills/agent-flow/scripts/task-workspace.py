@@ -12,8 +12,10 @@ def main(argv=None):
     parser.add_argument("--run-dir", required=True)
     commands = parser.add_subparsers(dest="command", required=True)
     initial = commands.add_parser("prepare")
-    initial.add_argument("--source", required=True)
-    initial.add_argument("--destination", required=True)
+    initial.add_argument("--source", required=True, action="append")
+    initial.add_argument("--context-root", action="append", default=[])
+    initial.add_argument("--operation-id")
+    initial.add_argument("--destination")
     initial.add_argument("--metadata-namespace", choices=["agent-flow-runtime"])
     initial.add_argument("--metadata-authorized-source")
     for name in ("scope", "qa-proof", "review-proof"):
@@ -36,7 +38,9 @@ def main(argv=None):
                 for key, value in (("scope_ref", args.metadata_scope_ref), ("qa_proof_ref", args.metadata_qa_proof_ref),
                                    ("reviewer_proof_ref", args.metadata_review_proof_ref)):
                     scope[key] = {"path": value[0], "sha256": value[1]}
-            result = prepare(Path(args.run_dir), Path(args.source), Path(args.destination), metadata_scope=scope)
+            result = prepare(Path(args.run_dir), [Path(source) for source in args.source], Path(args.destination) if args.destination else None,
+                             context_roots=[Path(root) for root in args.context_root], identifier=args.operation_id,
+                             metadata_scope=scope)
         elif args.command == "seal":
             result = seal(Path(args.run_dir), identifier=args.operation_id)
         elif args.command == "delivery":

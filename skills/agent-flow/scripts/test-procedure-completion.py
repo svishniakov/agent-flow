@@ -3,6 +3,7 @@
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -11,6 +12,7 @@ from contextlib import redirect_stdout
 from datetime import datetime
 from io import StringIO
 from pathlib import Path
+from types import SimpleNamespace
 import uuid
 from journal_io import JournalError, JournalSnapshot, transact, connect_database
 from journal_lifecycle import finalize
@@ -36,6 +38,13 @@ recorder = load("procedure_recorder", "record-agent-trace.py")
 
 def publish_fixture(run, name, content):
     transact(run, str(uuid.uuid4()), {}, lambda snapshot: ({name: content}, {}))
+
+
+def publish_actual_fixture_author(run, verification):
+    snapshot = JournalSnapshot.open(run)
+    case = SimpleNamespace(run=run, summary=json.loads(snapshot.read_text("delegation-summary.json")))
+    case.summary["verification"].update(verification)
+    base.publish_workspace_authors(case, workspace.registered_workspace(snapshot))
 
 
 def corrupt_fixture_document(run, name, content):
@@ -476,6 +485,7 @@ class ProcedureTests(unittest.TestCase):
         sealed = workspace.seal(run)
         verification = stored()["verification"]
         verification.update(task_kind="change", result_files=["result.txt"], author_thread_ids=[base.ROOT_ID])
+        publish_actual_fixture_author(run, verification)
         record(*register, "--verification-json", json.dumps(verification))
         digest = stored()["verification"]["result_hash"]
         publish_fixture(run, "checks.md", "Synthetic tests passed.\n")
@@ -519,7 +529,7 @@ class ProcedureTests(unittest.TestCase):
             snapshot = JournalSnapshot.open(run)
             finalize(run, expected_run_uuid=snapshot.run_uuid, expected_revision=snapshot.revision,
                      expected_generation=snapshot.generation, identifier="procedure-finalize",
-                     final_bytes=snapshot.read_bytes("final.md"), verdict="ship", session_source=source)
+                     final_summary="Actual procedure result independently accepted", verdict="ship", session_source=source)
             self.assertEqual(base.validator.validate_run(run, mode="auto", session_source=source), [])
             self.assertEqual(evidence.validate_verification(run, summary, {}, "ship", source), [])
             (self.root / "unrelated.txt").write_text("Parallel work")
@@ -739,8 +749,12 @@ class AnalysisCompletionTests(unittest.TestCase):
         for field in ("result_files", "run_changed_files"):
             verification = {**self.verification, field: ["product.txt"]}
             self.unchanged_failure([*args, "--verification-json", json.dumps(verification)])
-        publish_fixture(self.run, "lane-map.json", json.dumps({"lanes": [
-            {"id": "worker", "type": "implementation", "role": "python-worker"}]}))
+        summary = json.loads(JournalSnapshot.open(self.run).read_text("delegation-summary.json"))
+        lanes = [{"id": record["lane_id"], "role": record["role"], "execution_mode": "subagent",
+                  "status": record["status"]} for record in summary["subagents"]]
+        lanes.append({"id": "worker", "type": "implementation", "role": "python-worker",
+                      "execution_mode": "subagent", "status": "planned"})
+        publish_fixture(self.run, "lane-map.json", json.dumps({"lanes": lanes}))
         self.unchanged_failure(args, "analysis contradicts product changes or worker lanes")
 
     def test_identity_and_completion_defects_preserve_spawn(self):
@@ -846,6 +860,7 @@ class AnalysisCompletionTests(unittest.TestCase):
                              "initial_snapshot": {"path": "context.md", "section": "Initial Worktree Snapshot"},
                              "task_scope": {"path": "run.md", "section": "Task Scope"}}
         scope_hash = self.verification["result_hash"]
+        publish_actual_fixture_author(self.run, self.verification)
         self.register()
         registered = self.stored()["verification"]
         self.assertNotEqual(scope_hash, registered["result_hash"])
@@ -861,12 +876,10 @@ class AnalysisCompletionTests(unittest.TestCase):
         publish_fixture(self.run, "final.md", "# Итог\n\nVerdict: ship\n\nДобавлен product.txt.\n")
         self.cli("record-agent-trace.py", "--run-dir", str(self.run), "--render-final")
         snapshot = JournalSnapshot.open(self.run)
-        final_capture = self.root.parent / "final.md"
-        final_capture.write_bytes(snapshot.read_bytes("final.md"))
         self.cli("journal.py", "--run-dir", str(self.run), "finalize", "--expected-run-uuid", snapshot.run_uuid,
                  "--expected-revision", str(snapshot.revision), "--expected-generation", str(snapshot.generation),
-                 "--operation-id", "analysis-to-product-finalize", "--final-file", str(final_capture),
-                 "--verdict", "ship", wrapper=True)
+                 "--operation-id", "analysis-to-product-finalize", "--summary", "Product product.txt independently accepted after scoped analysis",
+                 "--status", "pass", wrapper=True)
         self.cli("validate-run.py", "--run-dir", str(self.run), wrapper=True)
         delivered = json.loads(self.cli("task-workspace.py", "--run-dir", str(self.run), "delivery").stdout)
         self.assertEqual(delivered["candidate_root"], sealed["candidate_root"])
@@ -904,23 +917,94 @@ class JournalCLITests(unittest.TestCase):
                     self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
                 return result
 
-            result = cli("init-run.py", "--repo", str(root), "--slug", "cli", "--mode", "compact", wrapper=True)
+            result = cli("init-run.py", "--repo", str(root), "--slug", "cli", "--mode", "compact", "--summary", "Change result.txt and verify actual output",
+                         "--plan-summary", "Implement result.txt, execute checks and obtain independent acceptance", wrapper=True)
             run = Path(result.stdout.strip())
+            preliminary = {**evidence.empty_verification(), "root_thread_id": base.ROOT_ID,
+                           "initial_snapshot": {"path": "context.md", "section": "Initial Worktree Snapshot"},
+                           "task_scope": {"path": "run.md", "section": "Task Scope"}}
+            cli("record-agent-trace.py", "--run-dir", str(run), "--role", "orchestrator", "--execution-mode", "role-lane",
+                "--stage", "verification", "--status", "active", "--summary", "Root and scope registered",
+                "--verification-json", json.dumps(preliminary))
             prepared = json.loads(cli("task-workspace.py", "--run-dir", str(run), "prepare", "--source", str(root),
                                       "--destination", str(root.parent / "workspace")).stdout)
+            cli("record-agent-trace.py", "--run-dir", str(run), "--role", "python-worker", "--execution-mode", "role-lane",
+                "--lane-id", "cli-author", "--stage", "spawned", "--status", "active", "--summary", "Assigned result.txt ownership")
             (Path(prepared["working_root"]) / "result.txt").write_text("Synthetic product\n")
-            sealed = json.loads(cli("task-workspace.py", "--run-dir", str(run), "seal").stdout)
-            publish_fixture(run, "context.md", "# Context\n\n## Initial Worktree Snapshot\n\nClean synthetic Git project.\n")
-            publish_fixture(run, "run.md", "# Run\n\n## Task Scope\n\nChange result.txt.\n")
-            publish_fixture(run, "checks.md", "Synthetic CLI assertions passed.\n")
+            request_capture = root.parent / "semantic-request.json"
+            def semantic(kind, request, identifier, ok=True):
+                request_capture.write_text(json.dumps(request))
+                return cli("journal.py", "--run-dir", str(run), "record", "--kind", kind,
+                           "--request-file", str(request_capture), "--operation-id", identifier, ok=ok)
+            semantic("progress", {"summary": "Implementation completed; checks follow", "status": "active"}, "cli-progress")
+            disposable = root.parent / "check-copy"
+            shutil.copytree(Path(prepared["working_root"]), disposable)
+            check_receipt = json.loads(semantic("check", {"summary": "Actual result bytes verified", "status": "pass",
+                      "command": [sys.executable, "-B", "-c", "from pathlib import Path; assert Path('result.txt').read_text() == 'Synthetic product\\n'; print('verified result')"],
+                      "cwd": str(disposable)}, "cli-check").stdout)
+            check_snapshot = JournalSnapshot.open(run)
+            check_paths = [ref["path"] for ref in check_receipt["evidence"]]
+            report_path = next(name for name in check_paths if name.endswith(".json"))
+            report = json.loads(check_snapshot.read_text(report_path))
+            self.assertEqual((report["exit_code"], report["status"]), (0, "pass"))
+            positive_output = next(path for path in check_paths if path.endswith(".output"))
+            negative_receipt = json.loads(semantic("check", {
+                "summary": "Negative fixture rejects changed result bytes", "status": "pass",
+                "command": [sys.executable, "-B", "-c", "from pathlib import Path\nvalue=Path('result.txt').read_text()\ntry:\n assert value == 'Wrong result\\n'\nexcept AssertionError:\n print('negative fixture rejected wrong bytes')\nelse:\n raise SystemExit('wrong bytes were accepted')"],
+                "cwd": str(disposable)}, "cli-negative-check").stdout)
+            negative_output = next(ref["path"] for ref in negative_receipt["evidence"] if ref["path"].endswith(".output"))
+            check_paths.extend(ref["path"] for ref in negative_receipt["evidence"])
+            # An attachment with a meaningful ID lets the generated Evidence section
+            # name the claim without hand-authoring a journal or a Markdown heading.
+            claim_capture = root.parent / "actual-claim-output"
+            claim_capture.write_bytes(JournalSnapshot.open(run).read_bytes(positive_output))
+            cli("journal.py", "--run-dir", str(run), "publish", "--file", "checks/cli-result-claim.output", str(claim_capture))
+            check_paths.append("checks/cli-result-claim.output")
             verification = {**evidence.empty_verification(), "root_thread_id": base.ROOT_ID,
                             "task_kind": "change", "author_thread_ids": [base.ROOT_ID],
                             "result_files": ["result.txt"], "run_changed_files": ["result.txt"],
                             "initial_snapshot": {"path": "context.md", "section": "Initial Worktree Snapshot"},
                             "task_scope": {"path": "run.md", "section": "Task Scope"}}
+            edit_capture = root.parent / "actual-edit.json"
+            edit_capture.write_text(json.dumps({"written_paths": ["result.txt"], "author_thread_id": base.ROOT_ID}))
+            cli("journal.py", "--run-dir", str(run), "publish", "--file", "artifacts/cli-author-edit.json", str(edit_capture))
+            semantic("handoff", {"summary": "Written result.txt; actual edit recorded", "status": "pass", "lane_id": "cli-author",
+                                "evidence": [{"path": "artifacts/cli-author-edit.json"}]}, "cli-author-handoff")
+            own = JournalSnapshot.open(run)
+            declaration = {"lane_id": "cli-author", "authored_paths": ["result.txt"],
+                           "handoff": {"path": "handoffs/cli-author.md", "sha256": evidence.sha256(own.read_bytes("handoffs/cli-author.md"))},
+                           "edit_evidence": [{"path": "artifacts/cli-author-edit.json", "sha256": evidence.sha256(own.read_bytes("artifacts/cli-author-edit.json"))}],
+                           "coauthors": {}}
+            # Boundary declaration remains a domain proof; hashes are computed from writer output.
+            edit_capture.write_text(json.dumps(declaration))
+            cli("journal.py", "--run-dir", str(run), "publish", "--file", "checks/cli-author-declaration.json", str(edit_capture))
+            sealed = json.loads(cli("task-workspace.py", "--run-dir", str(run), "seal").stdout)
+            cli("record-lane-boundary.py", "--run-dir", str(run), "--lane-id", "cli-author",
+                "--declaration-json", "checks/cli-author-declaration.json")
             cli("record-agent-trace.py", "--run-dir", str(run), "--role", "orchestrator", "--execution-mode", "role-lane",
                 "--stage", "verification", "--status", "active", "--summary", "Registered result",
                 "--verification-json", json.dumps(verification))
+            semantic("risk", {"id": "cli-independent-check-gap", "summary": "Result bytes await independent source acceptance",
+                               "status": "active", "category": "verification-gap", "impact": "Wrong bytes could be delivered",
+                               "affected_scope": "result.txt", "owner_lane": "cli-author", "detected_by": "cli-author",
+                               "evidence": [{"path": report_path}]}, "cli-risk")
+            semantic("harness-finding", {"id": "cli-practice", "summary": "Use native process evidence before marking result accepted",
+                                          "status": "active", "finding_type": "local-practice-candidate", "problem_class": "process-proof",
+                                          "architecture_context": [], "architecture_capabilities": [], "outcome": "success",
+                                          "lesson": "Assert actual result bytes in a disposable copy", "reuse_when": "A task changes a stored result",
+                                          "do_not_reuse_when": "There is no executable verification target", "evidence": [{"path": report_path}]}, "cli-harness-finding")
+            semantic("harness-proposal", {"id": "cli-practice-proposal", "finding_id": "cli-practice", "proposal_type": "evidence-record",
+                                           "summary": "Retain the actual check as project Evidence Records", "status": "planned",
+                                           "evidence": [{"path": report_path}]}, "cli-harness-proposal")
+            semantic("harness-evaluation", {"summary": "Actual finding and proposal await source reviewer", "status": "active",
+                                             "evidence": [{"path": report_path}]}, "cli-harness-needs-review")
+            harness_before = JournalSnapshot.open(run)
+            self.assertEqual(json.loads(harness_before.read_text("harness-evaluation.json"))["status"], "needs-review")
+            # Review input is an immutable byte capture of writer output. Updating
+            # canonical state later must not invalidate the accepted source evidence.
+            harness_capture = root.parent / "harness-review-input.json"
+            harness_capture.write_bytes(harness_before.read_bytes("harness-evaluation.json"))
+            cli("journal.py", "--run-dir", str(run), "publish", "--file", "artifacts/harness-review-input.json", str(harness_capture))
             repeat = []
             for role, thread, lane, second in (("qa-verifier", base.QA_ID, "qa", 10), ("reviewer", base.REVIEWER_ID, "reviewer", 20)):
                 args = ["--run-dir", str(run), "--role", role, "--lane-id", lane]
@@ -929,11 +1013,11 @@ class JournalCLITests(unittest.TestCase):
                 (sessions / f"synthetic-{thread}.jsonl").write_text("".join(json.dumps(e) + "\n" for e in started))
                 cli("record-agent-trace.py", *args, "--codex-thread-id", thread, "--stage", "spawned", "--status", "active", "--summary", "Assigned")
                 handoff = f"handoffs/{lane}.md"
-                publish_fixture(run, handoff, "Synthetic conclusion. checks.md " + evidence.sha256(JournalSnapshot.open(run).read_bytes("checks.md")) + "\n")
-                artifact_args = ["--artifact", handoff, "--artifact", "checks.md"]
+                artifact_args = ["--artifact", handoff, *[item for path in check_paths + ["artifacts/harness-review-input.json"] for item in ("--artifact", path)]]
                 before = dict(JournalSnapshot.open(run).documents)
-                prepared = cli("record-agent-trace.py", *args, "--prepare-conclusion", "--status", "pass", *artifact_args)
-                self.assertEqual(before, dict(JournalSnapshot.open(run).documents))
+                prepared = cli("record-agent-trace.py", *args, "--prepare-conclusion", "--status", "pass", "--summary", "Independent actual checks accepted", *artifact_args)
+                self.assertNotEqual(before, dict(JournalSnapshot.open(run).documents))
+                before = dict(JournalSnapshot.open(run).documents)
                 answer = json.loads(prepared.stdout)
                 handoff_args = [*args, "--completion-turn-id", thread + "-turn", "--stage", "handoff", "--status", "pass", "--summary", "Accepted", *artifact_args]
                 cli("record-agent-trace.py", *handoff_args, ok=False)
@@ -948,21 +1032,71 @@ class JournalCLITests(unittest.TestCase):
                 repeated = cli("record-agent-trace.py", *args)
                 self.assertIn("unchanged", repeated.stdout)
             self.assertEqual(before, dict(JournalSnapshot.open(run).documents))
-            publish_fixture(run, "final.md", "# Итог\n\nVerdict: ship\n\nРусское пояснение: файл исправлен.\n\nЧужие изменения:\n- other.txt\n")
-            cli("record-agent-trace.py", "--run-dir", str(run), "--render-final")
-            final = JournalSnapshot.open(run).read_bytes("final.md")
-            cli("record-agent-trace.py", "--run-dir", str(run), "--render-final", wrapper=True)
-            self.assertEqual(final, JournalSnapshot.open(run).read_bytes("final.md"))
+            claim_request = {"id": "cli-result-claim", "summary": "Actual bytes match the requested product",
+                                "status": "pass", "subjects": ["result.txt"], "owner_lane": "qa",
+                                "reviewed_by": "reviewer", "section": "Evidence",
+                                "evidence": [{"path": positive_output, "markers": ["verified result"]}]}
+            acceptance_request = {"id": "cli-result-acceptance", "summary": "Stored result matches requested bytes and rejects wrong bytes",
+                                    "status": "pass", "source": "run.md", "subjects": ["result.txt"],
+                                    "contract_types": ["storage"],
+                                    "surface_expectations": [{"surface": "service", "polarity": "positive", "proof_kinds": ["unit-test"]},
+                                                             {"surface": "service", "polarity": "negative", "proof_kinds": ["unit-test"]}],
+                                    "evidence": [{"path": positive_output, "markers": ["verified result"], "surface": "service", "polarity": "positive", "proof_kind": "unit-test"}],
+                                    "negative_fixture_evidence": [{"path": negative_output, "markers": ["negative fixture rejected wrong bytes"], "surface": "service", "polarity": "negative", "proof_kind": "unit-test"}]}
+            def service_rejected(kind, request, identifier):
+                before = {str(path.relative_to(run)): path.read_bytes() for path in run.rglob("*") if path.is_file()}
+                semantic(kind, request, identifier, ok=False)
+                self.assertEqual(before, {str(path.relative_to(run)): path.read_bytes() for path in run.rglob("*") if path.is_file()})
+            # Existing compact assignments stay compact: materializing a map would
+            # retroactively impose boundary obligations on historical registrations.
+            self.assertFalse(JournalSnapshot.open(run).exists("lane-map.json"))
+            service_rejected("lane", {"id": "late-architecture", "summary": "Late topology change is not a migration",
+                                      "status": "planned", "lane_type": "architecture", "role": "architect",
+                                      "execution_mode": "subagent", "wave": 1, "critical": False}, "cli-late-map")
+            service_rejected("harness-evaluation", {"summary": "An author cannot substitute for independent reviewer",
+                                                   "status": "pass", "reviewed_by": "cli-author", "evidence": [{"path": report_path}]}, "cli-harness-wrong-reviewer")
+            semantic("harness-evaluation", {"summary": "Source reviewer accepted the actual finding and retained proposal",
+                                             "status": "pass", "reviewed_by": "reviewer", "evidence": [{"path": report_path}]}, "cli-harness-evaluated")
+            evaluated = json.loads(JournalSnapshot.open(run).read_text("harness-evaluation.json"))
+            self.assertEqual(evaluated["status"], "evaluated")
+            self.assertEqual((evaluated["proposals"][0]["status"], evaluated["proposals"][0]["target"], evaluated["proposals"][0]["requires_human_approval"]),
+                             ("proposed", "Evidence Records", False))
+            service_rejected("claim", {**claim_request, "evidence": [{"path": positive_output, "markers": ["invented marker"]}]}, "cli-missing-marker")
+            service_rejected("claim", {**claim_request, "owner_lane": "cli-author"}, "cli-wrong-owner")
+            service_rejected("claim", {**claim_request, "reviewed_by": "qa"}, "cli-wrong-reviewer")
+            service_rejected("acceptance", {**acceptance_request, "evidence": [{**acceptance_request["evidence"][0], "surface": "storage"}]}, "cli-wrong-surface")
+            service_rejected("acceptance", {**acceptance_request, "evidence": [{**acceptance_request["evidence"][0], "proof_kind": "screenshot"}]}, "cli-wrong-proof")
+            service_rejected("acceptance", {**acceptance_request, "negative_fixture_evidence": [{**acceptance_request["negative_fixture_evidence"][0], "polarity": "positive"}]}, "cli-positive-negative-fixture")
+            semantic("claim", claim_request, "cli-claim")
+            semantic("acceptance", acceptance_request, "cli-acceptance")
+            resolution_request = {"risk_id": "cli-independent-check-gap", "summary": "QA and reviewer accepted actual check evidence in completed source turns",
+                                  "status": "pass", "resolution_type": "evidence-added", "effect": "fix",
+                                  "verification": "Actual process output and completed independent source acceptance match result.txt",
+                                  "owner_lane": "cli-author", "verified_by": "qa", "reviewed_by": "reviewer",
+                                  "evidence": [{"path": report_path}, {"path": "handoffs/qa.md"}, {"path": "handoffs/reviewer.md"}]}
+            service_rejected("resolution", {**resolution_request, "verified_by": "cli-author"}, "cli-resolution-without-qa")
+            semantic("resolution", resolution_request, "cli-resolution")
+            claims = json.loads(JournalSnapshot.open(run).read_text("claim-evidence.json"))["claims"]
+            acceptance = json.loads(JournalSnapshot.open(run).read_text("acceptance-traceability.json"))["acceptance"]
+            self.assertEqual((claims[0]["status"], acceptance[0]["status"]), ("supported", "supported"))
+            self.assertEqual(json.loads(JournalSnapshot.open(run).read_text("risk-resolutions.json"))["resolutions"][0]["status"], "fixed")
             snapshot = JournalSnapshot.open(run)
             cli("append-timeline.py", "--run-dir", str(run), "--role", "orchestrator", "--stage", "final", "--status", "pass", "--summary", "Complete", wrapper=True, ok=False)
             self.assertEqual(snapshot.revision, JournalSnapshot.open(run).revision)
-            final_capture = root.parent / "final-capture.md"
-            final_capture.write_bytes(final)
+            raw_final = root.parent / "raw-final-bypass.md"
+            raw_final.write_text("# Arbitrary caller format\n\nVerdict: ship\n\nCaller-owned metadata.\n")
+            before_raw = {str(path.relative_to(run)): path.read_bytes() for path in run.rglob("*") if path.is_file()}
+            rejected = cli("journal.py", "--run-dir", str(run), "finalize", "--expected-run-uuid", snapshot.run_uuid,
+                           "--expected-revision", str(snapshot.revision), "--expected-generation", str(snapshot.generation),
+                           "--operation-id", "cli-raw-final-bypass", "--final-file", str(raw_final), "--verdict", "ship", ok=False)
+            self.assertIn("--summary", rejected.stdout + rejected.stderr)
+            self.assertEqual(before_raw, {str(path.relative_to(run)): path.read_bytes() for path in run.rglob("*") if path.is_file()})
             finalize_args = ["--run-dir", str(run), "finalize", "--expected-run-uuid", snapshot.run_uuid,
                              "--expected-revision", str(snapshot.revision), "--expected-generation", str(snapshot.generation),
-                             "--operation-id", "cli-finalize", "--final-file", str(final_capture), "--verdict", "ship"]
+                             "--operation-id", "cli-finalize", "--summary", "Actual result checked and independently accepted", "--status", "pass"]
             cli("journal.py", *finalize_args, wrapper=True)
             finalized = JournalSnapshot.open(run)
+            final = finalized.read_bytes("final.md")
             cli("journal.py", *finalize_args)
             self.assertEqual(finalized.revision, JournalSnapshot.open(run).revision)
             cli("validate-run.py", "--run-dir", str(run))
@@ -981,7 +1115,7 @@ class JournalCLITests(unittest.TestCase):
                 publish_fixture(run, "checks.md", "Changed QA evidence\n")
             self.assertEqual(before.revision, JournalSnapshot.open(run).revision)
             self.assertEqual(dict(before.documents), dict(JournalSnapshot.open(run).documents))
-            corrupt_fixture_document(run, "checks.md", "Changed QA evidence\n")
+            corrupt_fixture_document(run, report_path, "Changed QA evidence\n")
             stale = cli("validate-run.py", "--run-dir", str(run), ok=False)
             self.assertIn("sha256", stale.stdout + stale.stderr)
             self.assertEqual(source_before, {p: p.read_bytes() for p in sessions.iterdir()})

@@ -12,24 +12,75 @@ Traceable runs store evidence for work that needs durable review history.
 ## Публикация и чтение журнала
 
 После `init-run.py` единственный источник опубликованных документов —
-`<run>/.journal/state.sqlite3`. Перечни файлов ниже обозначают логические пути
-в журнале. Не редактируйте одноимённые старые файлы или экспорт: валидатор их
-не читает. Агент готовит текст, JSON и отчёты в личных временных файлах, затем
-публикует связанные документы одной командой. Пользователь JSON не заполняет.
+`<run>/.journal/state.sqlite3`. Логические пути обозначают документы в журнале.
+Не редактируйте одноимённые файлы или экспорт: валидатор их не читает.
+
+Сначала получите действующий контракт. Поля, типы, статусы и примеры берите
+из его вывода, а не из копии списка в инструкции:
 
 ```sh
-python3 "$AF_PACKAGE/scripts/journal.py" --run-dir "$AF_RUN" publish \
-  --file checks.md "$AF_CHECKS_CAPTURE" \
-  --file handoffs/worker.md "$AF_HANDOFF_CAPTURE"
-python3 "$AF_PACKAGE/scripts/journal.py" --run-dir "$AF_RUN" read checks.md
-python3 "$AF_PACKAGE/scripts/journal.py" --run-dir "$AF_RUN" export
+python3 -B "$AF_PACKAGE/scripts/journal.py" contract
+python3 -B "$AF_PACKAGE/scripts/journal.py" --run-dir "$AF_RUN" record \
+  --kind progress --request-file "$AF_REQUEST_CAPTURE" --operation-id "$AF_OPERATION_ID"
+python3 -B "$AF_PACKAGE/scripts/journal.py" --run-dir "$AF_RUN" read progress.md
+```
+
+Агент передаёт смысловой текст и статус. Writer строго проверяет строки,
+неизвестные поля и вложенные ссылки до записи request envelope, документов,
+квитанций и revision; ту же проверку повторяет внутри транзакции. Отрицательный
+результат допустим и сохраняется как результат, а не ошибка входа. Один operation
+ID повторяет прежнюю запись без дубликатов; изменённый payload с тем же ID отклоняется.
+Код формирует заголовки, время, SHA доказательств и связанные проекции.
+
+Смысловой текст остаётся текстом: строки с Markdown-заголовками, полями Verdict
+или HTML-маркерами допустимы. Writer выводит summary и текст вложенных sections
+как буквальное содержимое; они не создают поля и разделы журнала. Многострочный
+смысл сохраняется. Отображение имени attachment экранируется отдельно, исходный
+путь, bytes и SHA доказательства не меняются.
+
+Это правило относится и к служебным JSON: claims, acceptance, risk/resolution,
+readiness, continuation, harness и lane observations записываются по одному
+содержательному запросу через `record`. При обновлении ID writer сохраняет
+остальные записи. Описания JSON ниже показывают результат writer, а не формат
+ручной публикации. Не передавайте готовый документ, произвольный patch или
+вычисленный результат native producer.
+
+`publish` не заменяет typed writer: он закрыт для служебных журналов, handoffs,
+trace, известных lane reports, command reports, boundary и workspace результатов,
+индексов и memory-проекций. Raw stdout, screenshots и specs остаются attachments
+с точными исходными bytes. Их содержимое само по себе не закрывает service gate.
+
+`init-run.py` создаёт запланированную работу без вымышленных approval requests,
+команд, маркеров доказательств и `TODO(agent):` proof rows. Неизвестный обязательный
+документ может отсутствовать; это блокирует соответствующий worker-start или
+успешный final до появления настоящих данных. Approval и process success
+подтверждаются исходной записью и native producer.
+
+`check` запускает переданный argv и сохраняет настоящий exit code и исходный
+output. Статус проверки определяется процессом; текст агента не доказывает запуск.
+Пишущие проверки продукта запускайте на расходной копии рабочего снимка.
+
+Исходные доказательства и attachments сохраняйте без изменения bytes:
+
+```sh
+python3 -B "$AF_PACKAGE/scripts/journal.py" --run-dir "$AF_RUN" publish \
+  --file checks/output.txt "$AF_OUTPUT_CAPTURE"
+python3 -B "$AF_PACKAGE/scripts/journal.py" --run-dir "$AF_RUN" read checks/output.txt
 ```
 
 `publish` принимает обычные локальные файлы; ссылки, FIFO и пути через ссылки
-отклоняются. Timeline, завершения агентов, handoff state и lane boundary
-публикуют соответствующие `append-timeline.py` и `record-*.py`: их проверки
-и связанные изменения выполняются одной транзакцией. Не заменяйте доменные
-команды ручным изменением таблиц или универсальной публикацией их результатов.
+отклоняются. Writer-owned журналы через `publish` записать нельзя. Timeline,
+source completion, handoff state и lane boundary сохраняют штатные adapters
+единого writer с собственными проверками и одной транзакцией.
+
+Для handoff передайте смысловой текст, назначение и ссылки по контракту.
+Для QA/reviewer `record-agent-trace.py --prepare-conclusion --summary` создаёт
+handoff и машинное заключение: укажите собственный lane и опубликованные
+доказательства через `--artifact`. Верните точный stdout инструмента как итог
+сессии. Подготовка не подменяет настоящее завершение хода и независимую приёмку.
+Для final используйте смысловой `--summary` штатного `journal.py finalize`;
+writer сам собирает формат и метаданные, а finalize проверяет настоящие completion,
+evidence и продуктовую приёмку. Заголовки, JSON заключения и SHA вручную не пишите.
 
 Новые журналы используют формат хранилища version 2 и явное поколение приёмки.
 Формат compact/full выбирает состав документов, а не версию SQLite-хранилища.
@@ -41,11 +92,46 @@ publish, trace, handoff, boundary, workspace и прямого API транза�
 допустимы чтение, export, точный технический повтор и штатная свежая delivery
 того же принятого результата.
 
-Для новых событий назначения с `lane_id` допустимы пары `spawned/active`,
-`handoff/pass`, `handoff/pass-with-risks`, `blocked/blocked` и `fail/fail`.
+Для новых событий назначения с `lane_id` допустимые пары стадии и статуса
+выводит `journal.py contract` в `constraints.event.stage_status`.
+`spawned` обозначает стадию с текущим статусом выполнения.
 Регистратор отклоняет другую пару до подготовительных записей и сообщает
 допустимый статус. Прочие служебные стадии сохраняют свои правила.
 Исторические записи остаются читаемыми, даже если содержат прежнюю ошибку.
+
+Структурные проверки выполняются внутри транзакции до сохранения предполагаемого
+состояния. Они сверяют ID назначений, роли, execution mode, lane-map при его
+наличии, summary и обе истории событий. Планируемое назначение может ещё не иметь
+UUID; `spawned` связывается с реально запущенным агентом. Recorder обновляет
+связанные документы атомарно. Ошибка указывает поле и назначение; отклонённая
+транзакция ничего не публикует. Неизменность завершённых назначений сохраняется.
+
+Перед implementation/integration обязательны `task_kind: change`, подготовленная
+рабочая область, заданные границы и действующая готовность выбранных проверок.
+Автор регистрируется при запуске. Analysis и planning допустимы до `prepare`;
+ранняя структурная проверка не требует успешного финального QA или готового candidate.
+Для обычного worker и других ролей `--resolve-session` при завершении проверяет
+собственные session metadata, parent, роль, модель и последний законченный turn.
+Текст `final_answer` должен совпасть с `task_complete.last_agent_message`.
+Регистратор сохраняет указатели исходных событий, SHA текста и хеши handoff
+и приложений. `--status` обозначает заявленный исход работы; наличие
+`task_complete` само по себе не подтверждает качество или успешность реализации.
+Обычное завершение не выбирает `verification.qa` или `verification.reviewer`
+и не получает `reviewed_result_hash`. Принятие результата остаётся отдельной
+проверкой QA/reviewer: строгий JSON, точный result hash, handoff SHA, независимость
+и порядок принятия сохраняются. Повтор команды с прежним operation ID сохраняет
+исходную квитанцию; завершённое назначение и handoff нельзя подменить.
+Если worker уже записал semantic handoff до фактического `task_complete`,
+после завершения привяжите источник той же командой `record-agent-trace.py`
+и тем же lane. Регистратор один раз добавит вычисленные completion facts
+в summary, сохранив прежние статус, handoff, доказательства и обе истории.
+Указатель `task_started_event` запуска остаётся прежним; начало завершённого
+turn хранится в `completion_task_started_event`. Новые доказательства,
+подмена прежних полей и повторное завершение другим turn запрещены.
+
+Существующие повреждения диагностируйте и исправляйте штатными операциями
+восстановления и обязательств, сохраняя историю. Новая запись не должна добавлять
+или заменять структурную ошибку другой ошибкой.
 
 Если в открытом журнале v2 у текущего QA или reviewer остался ошибочный
 `spawned/pass` либо `spawned/pass-with-risks`, зарегистрируйте существующее
@@ -112,12 +198,78 @@ missing/обнулённая/чужая база при marker отклоняе�
 
 ## Полная рабочая копия и выдача результата
 
+### Приёмка продукта и аудит журнала
+
+Разработчик занимается задачей и проверкой результата; сведения о ходе работы
+собирает инструмент. Обслуживание журнала не становится отдельной разработкой
+внутри каждой задачи. Эти правила уточняют прежние требования планов 013 и 018.
+
+`st_dev`, `st_ino` и временные файловые descriptors проверяются в пределах одной
+текущей операции чтения или записи. Сохранённые номера устройства и inode не
+служат бессрочным условием чтения, повторного seal или приёмки. Каждая операция
+заново закрепляет реальные дескрипторы и обнаруживает подмену и недопустимые
+symlinks. Принадлежность workspace проверяется по его логическим IDs; сохранность
+результата — по полному manifest, содержимому, типам, режимам, целям ссылок и delta.
+Проверки контекстных источников, provenance и точных исключений сохраняются.
+
+Новый seal содержит `result_hash_version: 5`. Хеш связывает baseline/candidate
+manifest digests и полный delta с содержательным scope: продуктовые и контекстные
+корни, provenance и исключения, локальные обязательства и external follow-up,
+авторские границы с фактическим `author_thread_id` и обязательные локальные gates. `requirements_sha256` закрепляет
+проверенный digest фактического содержимого исходного `verification.task_scope`.
+Смена требований инвалидирует прежнюю QA-приёмку; перенос ссылки с теми же
+байтами сохраняет хеш. Путь и имя раздела ссылки не входят в него. Номера устройства/inode,
+время наблюдения, служебные workspace/candidate UUID и revision,
+оформление служебных JSON/Markdown отчётов и пути
+служебных отчётов не определяют версию продукта. SHA-ссылки на реальные источники
+и evidence проверяются отдельно: исключение оформления из хеша не разрешает
+подмену доказательства. Без marker воспроизводятся прежние алгоритмы v2–4;
+исторический v1 сохраняется. Неизвестный marker отклоняется. Старые hashes,
+receipts и закрытые журналы не переписываются и не требуют миграции.
+
+Положительные `finalize` и `delivery` используют один `validate_product_acceptance`.
+`finalize` передаёт явный verdict; при delivery основанием служит единственная
+квитанция finalize текущего поколения. Текст `Verdict:` в Markdown не заменяет
+эту квитанцию и не разрешает выдачу сам по себе.
+Он проверяет сохранённый результат, scope, авторство и permissions, независимые
+QA/reviewer одного результата, целостность и завершённость их исходных доказательств,
+а также обязательные локальные проверки. Отсутствующий proof, `fail` или `blocked`
+обязательной локальной проверки запрещает и `ship`, и `pass-with-risks`.
+Внешний follow-up остаётся открытым и не объявляется выполненным.
+
+`validate-run.py` сохраняет полный аудит журнала. Недостатки оформления handoff,
+служебных `base_ref`/`head_ref`/`command`/`notes` и буквальных Markdown markers
+остаются видимыми замечаниями аудита. Они сами по себе не доказывают дефект продукта.
+Предварительный readiness-отчёт не блокирует принятие, если все обязательные
+локальные проверки действительно выполнены и подтверждены. Требования ниже
+к оформлению и предварительной церемонии относятся к полному аудиту; содержательные
+проверки продукта продолжают блокировать приёмку. Успешная delivery заново выполняет
+проверку продукта на свежих входах; прежняя квитанция её не заменяет.
+
 Для нового изменения orchestrator сначала создаёт журнал, затем вызывает
-`task-workspace.py prepare`. `--source` указывает исходный Git-проект,
-`--destination` задаёт отдельный каталог этой задачи. Инструмент сохраняет
-исходные байты, включая уже изменённые, staged, untracked и ignored файлы,
+`task-workspace.py prepare`. Повторяемый `--source` указывает выбранные продуктовые
+корни: репозитории и файловые зависимости приложения, сборки или тестов.
+Первый source остаётся основным. Повторяемый `--context-root` задаёт канонические
+файлы или каталоги инструкций. Основной source — Git-корень; дополнительные
+source могут быть репозиториями, обычными каталогами или регулярными файлами
+зависимостей. Создавать Git-репозиторий для файловой зависимости не требуется.
+Контекстный каталог выбирает точное поддерево инструкций. Для общего контекста
+укажите нужные `AGENTS.md`, память или docs; объявление всего общего родителя
+включило бы лишние материалы соседних репозиториев в контекст.
+`--destination` необязателен и задаёт отдельный каталог задачи. Для нового run
+`<owner>/.agent-work/runs/<run>` default —
+`<owner>/.agent-work/workspaces/<run>-<run_uuid>`; для другого расположения —
+`<run_dir>/workspace-<run_uuid>`. Якорь определяется журналом, не общим родителем
+source. Повтор без destination использует уже зарегистрированный bundle.
+Явный destination, включая временный fixture, сохраняет прежнюю совместимость
+и не перемещает зарегистрированную привязку. Родители default создаются через
+существующие owned/no-follow проверки в пределах текущей операции.
+Одиночный source без context
+сохраняет workspace version 1; несколько
+source или явный context создают version 2. Инструмент сохраняет исходные байты,
+включая уже изменённые, staged, untracked и ignored файлы,
 и создаёт независимую рабочую копию. Linked worktree поддерживается.
-Git-метаданные копируются через те же проверенные дескрипторы. Команды Git
+Для Git-корней метаданные копируются через те же проверенные дескрипторы. Команды Git
 читают только закрытый временный снимок; рабочая `.git` создаётся FD-копированием
 с фиксированным безопасным config. Git-фильтры, hooks, includes, fsmonitor и
 сетевые обращения отключены. Поля status/staged/unstaged описывают этот явный
@@ -128,9 +280,25 @@ Git исходного проекта: например, локальный `.gi
 Исходные файлы, index, HEAD и refs инструмент не изменяет.
 
 ```sh
-python3 "$AF_PACKAGE/scripts/task-workspace.py" --run-dir "$AF_RUN" prepare --source "$AF_SOURCE" --destination "$AF_WORKSPACE"
+python3 "$AF_PACKAGE/scripts/task-workspace.py" --run-dir "$AF_RUN" prepare \
+  --source "$AF_SOURCE"
 python3 "$AF_PACKAGE/scripts/task-workspace.py" --run-dir "$AF_RUN" inspect
 ```
+
+Для нескольких корней явно перечислите каждый. Например, приложение зависит от
+соседнего пакета, а инструкции лежат в общем корне проекта и внешнем skill:
+
+```sh
+python3 "$AF_PACKAGE/scripts/task-workspace.py" --run-dir "$AF_RUN" prepare \
+  --source "$AF_APP" --source "$AF_SHARED" \
+  --context-root "$AF_PROJECT/AGENTS.md" --context-root "$AF_CANONICAL_SKILL" \
+  --destination "$AF_WORKSPACE"
+```
+
+Общий родитель задаёт взаимное расположение выбранных корней, не разрешает обход
+прочих соседних каталогов. `workspace` artifact хранит состав и происхождение
+корней, связанные с `verification.task_scope`. Журнал может оставаться внутри
+основного репозитория или в общем корне проекта; его место не определяет scope.
 
 Авторы меняют только возвращённый `working_root`. Перед QA остановите записи,
 закончите проверки и статусы документов, затем сохраните полный кандидат:
@@ -140,14 +308,42 @@ python3 "$AF_PACKAGE/scripts/task-workspace.py" --run-dir "$AF_RUN" seal
 ```
 
 `seal` возвращает `candidate_root`, `candidate_id` и полный `changed_paths`.
+В version 2 пути `changed_paths` относительны layout anchor; принадлежность корню
+определяется `product_roots`, поэтому одинаковые имена в разных репозиториях
+различимы.
 Он сохраняет отдельную копию без общих hardlinks, исходную копию, manifests и
 разницу между ними. Перечень учитывает незаявленные файлы, ignored зависимости,
 пустые каталоги, удаления, типы, права и текст относительных ссылок.
-Ссылки не обходятся. Выходящие наружу ссылки, неподдерживаемые специальные
-объекты, вложенные репозитории, submodules, нечитаемые или нестабильные объекты
-вызывают явный отказ. Имена и цели ссылок, которые нельзя представить в UTF-8,
+Относительные ссылки между выбранными продуктовыми корнями сохраняют смысл.
+Абсолютные ссылки внутрь этой области преобразуются в относительные только
+в снимках, включая baseline. Исходная цель и преобразование входят в provenance;
+нормализация не считается правкой автора. Проверяется вся цепочка ссылок,
+включая циклы и конечную цель. Объявленный вложенный репозиторий обходится один
+раз; Git каждого репозитория обрабатывается отдельно. Необъявленный вложенный
+репозиторий, неизвестная внешняя цель, неподдерживаемые специальные объекты,
+нечитаемые или нестабильные объекты вызывают точный отказ с путём
+и причиной. Для внешней цели укажите, какой источник нужно объявить.
+Имена и цели ссылок, которые нельзя представить в UTF-8,
 отклоняются с указанием причины. Проверки выполняются через закреплённые дескрипторы;
 подмена имени не должна направить чтение или запись в чужой объект.
+Инициализированный gitlink допустим только при явно выбранном соответствующем
+вложенном Git-корне. Инструмент не выполняет init/update/fetch и не раскрывает
+submodules автоматически.
+
+Ссылка на объявленный источник контекста — точное контекстное исключение:
+workspace сохраняет её описание, каноническую цель и хеши выбранных материалов.
+Для alias через переадресующие ссылки закрепляется и перепроверяется ограниченная
+`resolution_chain` до объявленной канонической цели; содержимое других внешних
+целей не читается.
+Сам alias отсутствует в исполняемом снимке; агент читает канонический источник.
+Исключения и provenance входят в хеш результата, а изменение закреплённого
+контекста требует новой revision и приёмки. Правил по имени `.agents/skills` нет.
+Файлы приложения, сборки или тестов включаются в продуктовые корни и снимок;
+при пересечении категорий продуктовый корень имеет приоритет. QA проверяет
+фактический сценарий, reviewer — полноту снимка и обоснованность исключений.
+Если исполняемая зависимость ошибочно объявлена контекстом, положительная
+приёмка запрещена. Candidate не должен получать через alias доступ к живым
+внешним файлам.
 
 Из обхода исключаются точные Git metadata и собственные run/workspace roots.
 Обычный `.agent-work` входит в продукт. Исключить весь проектный runtime namespace
@@ -156,7 +352,7 @@ python3 "$AF_PACKAGE/scripts/task-workspace.py" --run-dir "$AF_RUN" seal
 `--metadata-authorized-source`, `--metadata-scope-ref PATH SHA256`,
 `--metadata-qa-proof-ref PATH SHA256` и `--metadata-review-proof-ref PATH SHA256`.
 Инструмент проверяет байты ссылок, исходные заключения QA/reviewer и порядок
-приёмки, закрепляет identity конкретного `source/.agent-work` в записи workspace.
+приёмки, закрепляет точный путь и назначение `source/.agent-work` в записи workspace.
 Первоначальный смысл назначения подтверждает orchestrator; код не толкует прозу.
 Произвольного пути исключения нет. Повтор не может изменить эту привязку.
 
@@ -179,18 +375,20 @@ Recorder рассчитает новый продуктовый хеш и сбр
 Продукт требует новых lanes, отдельных сессий QA/reviewer и приёмки нового хеша.
 Старые scope conclusions и proof остаются подтверждением исключения metadata.
 
-После `seal` recorder сам заполняет `verification.result_files` и
-`verification.run_changed_files` полным
-перечнем. Хеш версии 2 связывает исходный manifest, весь candidate manifest,
-разницу, workspace/candidate IDs, назначение metadata и прежние ссылки на
-снимок и границы задачи. Неизменённые зависимости тоже входят в этот хеш.
+После `seal` recorder сам заполняет `verification.result_files` полным scanner
+delta. Seal остаётся каноническим источником changed paths; новый recorder не
+пишет дублирующий `verification.run_changed_files`. Старое поле читается для
+совместимости. Неизменённые зависимости тоже входят в хеш полного manifest.
 QA и reviewer получают один `candidate_root` и `result_hash`. Проверки, которые
 пишут файлы, запускаются на отдельной расходной копии. Сам кандидат сохраняется
-для финальной проверки и выдачи. Новая редакция требует нового `seal` и приёмки.
+для финальной проверки и выдачи. Новый seal использует hash v5, описанный выше;
+старый seal без marker сохраняет прежние правила v2–4. Содержательное изменение
+результата или scope требует нового `seal` и приёмки.
 Изменения исходного проекта после `prepare` не подменяют сохранённый результат.
 
-`record-lane-boundary.py` берёт полный scanner delta. Для одного автора он
-полностью относится к его lane; передача владения не выводится из Git.
+`record-lane-boundary.py` сохраняет полный scanner delta в `changed_paths`.
+Авторство задаётся явным `authored_paths` boundary v2; разрешения проверяются
+по подтверждённому вкладу каждой lane. Порядок и формат декларации описаны ниже.
 `--render-final` строит Worktree Hygiene из того же перечня и перепроверяет
 приёмку. После финальной валидации выдайте сохранённую копию:
 
@@ -204,11 +402,48 @@ python3 "$AF_PACKAGE/scripts/task-workspace.py" --run-dir "$AF_RUN" delivery
 повреждённая копия не выдаётся. Оборванные попытки остаются в собственном каталоге
 для диагностики и не дают ложного опубликованного результата.
 
+Baseline, working и candidate сохраняются до явного удаления владельцем;
+автоматических backup и GC нет. При явном destination владелец отвечает за
+сохранность этого каталога. Default внутри временного fixture тоже временный.
+При missing baseline/candidate bytes inspect, validate и delivery называют
+конкретный отсутствующий root и непроверенную поставку. Manifest и история
+остаются диагностикой; они не восстанавливают байты, не заменяют candidate
+живым source и не создают bundle под прежней identity.
+
 Новый `change` без зарегистрированного sealed workspace не получает положительную
 приёмку. Старые run читаются для диагностики. При переходе к новому контракту
 сохраняется лишь технический повтор уже пригодной старой пары QA/reviewer:
 с теми же исходными завершениями, результатом и доказательствами. Новый turn,
 новый scope или новое заключение требуют полного workspace.
+
+### Обновление состава открытой задачи
+
+Перед расширением scope остановите исполнителей. Повторите `prepare` с полным
+новым составом и новым `--operation-id` в прежнем bundle и журнале. Сохраните
+первый source основным. Новый operation ID обозначает изменение состава;
+технический повтор использует прежний ID и тот же payload.
+Объявления продуктовых и контекстных корней сохраняются при расширении;
+основной source и bundle не меняются. Пример добавления репозитория:
+
+```sh
+python3 "$AF_PACKAGE/scripts/task-workspace.py" --run-dir "$AF_RUN" prepare \
+  --source "$AF_APP" --source "$AF_SHARED" --source "$AF_NEW_REPO" \
+  --context-root "$AF_PROJECT/AGENTS.md" --context-root "$AF_CANONICAL_SKILL" \
+  --destination "$AF_WORKSPACE" --operation-id "$AF_SCOPE_UPDATE_ID"
+```
+
+Следующая workspace revision сохраняет первоначальные baselines старых корней
+и текущие правки; новый корень снимается до его изменения. Внутреннее расположение
+может измениться для сохранения связей между каталогами. Старые записи, receipts
+и кандидаты остаются. Обновите `verification.task_scope`, контекст и задания
+до следующих правок. Новый seal относится к текущей revision; прежняя QA/reviewer
+становится неактуальной.
+
+`seal`, `result_hash`, `result_files` и delivery используют один состав и полные
+manifests с путями, различающими корни. Новые данные получают версию workspace
+контракта; прежние форматы и принятые хеши читаются по прежним правилам.
+Закрытые или восстановленные записи с закреплённой идентичностью автоматически
+не мигрируют и не расширяются.
 
 ## Location
 
@@ -297,10 +532,10 @@ When a traceable run creates a product commit, use this order:
 3. compare staged diff with the accepted delivery list, inspect document statuses in the index, create scoped product/docs commits, and verify SHA and committed document bytes with `git show` in every affected repository;
 4. update related `.agent-work/tasks/todo.md` sections in each repository with commit/check evidence, keeping the current task `Status: in_progress` until final validation;
 5. append a run-local `stage=commit` orchestrator event with the commit hash;
-6. write or update `final.md` with the commit hash, evidence and risks;
+6. pass the substantive result, actual commit evidence and risks through semantic `journal.py finalize --summary`; code writes `final.md`;
 7. use `journal.py finalize` to validate the prospective final and atomically close the current generation;
-8. run `scripts/validate-run.py --run-dir <run-dir>` and save stdout/stderr plus exit code outside the journal, as shown below;
-9. only after exit 0 and completion of all task criteria, set `Status: done` and send the final answer.
+8. run the full audit `scripts/validate-run.py --run-dir <run-dir>` and save its findings outside the journal, then use native delivery for fresh product acceptance;
+9. only after successful product acceptance and delivery, and completion of all task criteria, set `Status: done` and send the final answer; preserve audit findings separately.
 
 No commit is required when the user did not request it. A finished document uses
 `Document status: done`; separate implementation status stays factual. An explicitly
@@ -386,7 +621,7 @@ If `lane-map.json` exists, validation also checks the Lane Sharding contract:
 - Mandatory Independent QA Review Gate требует для `change` два отдельных назначения: `qa-verifier` проверяет результат, `reviewer` проверяет его и доказательства QA. Оба работают как реальные дочерние сессии текущего root; их IDs отличаются от IDs авторов. Модели берутся из действующих файлов ролей через `agent_config`. `reviewer.qa` допустим только как имя назначения канонического `reviewer`; QA под этим именем не заменяет reviewer.
 - role-lane-only reviewer evidence is rejected when Mandatory Independent QA Review Gate applies;
 - При недоступности запуска или исходной сессии записать причину в `verification.blocker` и завершить `blocked` или `fail`; успешные доказательства не выдумывать.
-- `Verdict: ship` is rejected while any critical lane is unresolved, failed, blocked, or missing replacement evidence.
+- `Verdict: ship` is rejected while a local critical lane is unresolved, failed, blocked, or missing replacement evidence. Explicit external follow-up retains its actual outcome and coverage.
 
 ## Delegation Trace Gate
 
@@ -456,9 +691,9 @@ Allowed `mode` values: `task`, `batch`. Allowed `status` values: `queued`,
 Use:
 
 ```bash
-python3 scripts/record-handoff-state.py --run-dir <run-dir> --lane-id worker-a --status queued --from architecture-contract --task worker-a-implementation --handoff handoffs/worker-a.md
-python3 scripts/record-handoff-state.py --run-dir <run-dir> --lane-id worker-a --status accepted
-python3 scripts/record-handoff-state.py --run-dir <run-dir> --lane-id worker-a --status completed
+python3 scripts/record-handoff-state.py --run-dir <run-dir> --lane-id worker-a --status planned --summary "Назначение подготовлено" --from architecture-contract --task worker-a-implementation --handoff handoffs/worker-a.md
+python3 scripts/record-handoff-state.py --run-dir <run-dir> --lane-id worker-a --status active --summary "Работа принята"
+python3 scripts/record-handoff-state.py --run-dir <run-dir> --lane-id worker-a --status pass --summary "Результат подтверждён"
 ```
 
 The recorder updates only `lane-map.json`. Timeline and per-agent traces still
@@ -491,13 +726,15 @@ come from `record-agent-trace.py`.
 | `task_kind` | `change` для продуктовых изменений; `analysis` для анализа с пустым результатом |
 | `root_thread_id` | Реальный UUID текущего root; его модель и запуск не проверяются |
 | `author_thread_ids` | UUID авторов; для root-owned работы включает root, для worker subagents включает их IDs |
-| `result_files` | Полный scanner delta: файлы, ссылки и каталоги относительно working root |
+| `result_files` | После seal полный scanner delta: файлы, ссылки и каталоги с путями относительно working root, различающими выбранные корни |
 | `initial_snapshot` | Ссылка с SHA-256 на раздел `Initial Worktree Snapshot` в context.md или route.md |
 | `task_scope` | Ссылка с SHA-256 на согласованные границы в плане задачи; можно выбрать раздел |
 | `qa`, `reviewer` | `lane_id` двух записей в `subagents`; до назначения допускается `null` |
-| `result_hash` | Хеш всего сохранённого кандидата, baseline, delta и исходных ссылок |
+| `result_hash` | Хеш всего сохранённого кандидата, baseline, delta, scope, provenance и boundary v2; без результата допускается `null` для отрицательного завершения |
+| `delivery_scope` | Необязательный opt-in version 1 для локальной приёмки с явно открытым external follow-up; отсутствие сохраняет строгую приёмку |
 | `behavioral_checks` | Необязательный список проверок поведения, только если это требует приёмка задачи |
 | `blocker` | Конкретная причина для `blocked` или `fail` |
+| `unverified` | Непустой список непроверенного для отрицательного завершения по новому контракту |
 
 Ссылка имеет вид `{"path":"context.md","section":"Initial Worktree Snapshot","sha256":"<SHA-256>"}`.
 `section` необязателен: без него хешируются все байты файла. С ним хешируется
@@ -507,9 +744,11 @@ come from `record-agent-trace.py`.
 
 Для новых изменений корни source, working и candidate берутся из зарегистрированного
 workspace. Исходный `source_root` журнала сохраняет происхождение старых ссылок.
-`result_files` и `run_changed_files` заполняются полным scanner delta после `seal`;
+`result_files` заполняется полным scanner delta после `seal`;
 декларации автора не ограничивают обход. Старый хеш списка файлов доступен только
 для исторической диагностики и разрешённого технического повтора.
+До seal наблюдаемые рабочие изменения учитываются отдельно от принятого результата.
+Без candidate не заполняйте `result_hash` фиктивным значением.
 
 После содержательного отчёта выполните:
 
@@ -528,10 +767,142 @@ Run-owned changed files:
 - `src/example.py`
 ```
 
-В full каждый Boundary Evidence должен совпадать с текущим полным workspace delta.
-Reviewer сверяет его с исходным снимком и принятыми границами. Предсуществующие
+В full `changed_paths` каждого Boundary Evidence совпадает с полным workspace delta;
+`authored_paths` содержит вклад автора, а union всех деклараций точно покрывает delta.
+Reviewer сверяет декларации с исходными edit evidence и принятыми границами. Предсуществующие
 байты остаются в baseline; дальнейшие чужие изменения source сохраняются отдельно.
 Авторство изменений закрепляется назначением worker, а не выводом Git.
+
+### Локальная приёмка и внешний follow-up
+
+Перед соответствующими проверками закрепите смысл разделения и конкретные IDs
+в существующем SHA-bound `task_scope`. Объявите записи этих IDs в текущих
+артефактах. Scope применяется к `task_kind: change` с самостоятельным локальным
+результатом. Через существующий `--verification-json` передайте в `verification`
+необязательный объект:
+
+```json
+{
+  "delivery_scope": {
+    "version": 1,
+    "completion_target": "local-deliverable",
+    "external_followup": {
+      "acceptance_ids": ["external-consumer-workflow"],
+      "claim_ids": ["external-consumer-accepted"],
+      "lane_ids": ["consumer-verification"],
+      "gate_refs": [{"axis": "verification_gates", "facet": "selected-external-gate"}],
+      "risk_ids": ["external-environment-unavailable"]
+    }
+  }
+}
+```
+
+Замените примеры реальными объявленными IDs. Все пять массивов обязательны,
+могут быть пустыми, содержат уникальные ссылки; неизвестные поля, версии и ссылки
+отклоняются. `gate_refs` используют существующие `axis/facet`. Без scope,
+а также для всех неперечисленных записей действует прежняя строгая приёмка.
+Смысловой scope и проверенное содержимое исходных требований входят в hash v5
+нового seal; seal без marker воспроизводит прежний hash v2–4. Изменение классификации сбрасывает
+выбранные QA/reviewer и требует новой независимой приёмки.
+
+До соответствующих readiness, QA и reviewer attempts сохраните native запись:
+
+```sh
+python3 "$AF_PACKAGE/scripts/record-agent-trace.py" --run-dir "$AF_RUN" \
+  --role orchestrator --execution-mode role-lane \
+  --stage verification-prepared --status active \
+  --summary "Область локальной приёмки закреплена до проверок" \
+  --verification-json "$AF_SCOPE_VERIFICATION"
+```
+
+`AF_SCOPE_VERIFICATION` — личный capture текущего полного объекта verification:
+сохраните его существующие поля, ссылки и `task_kind: change`, добавьте scope.
+Это не JSON только с delivery_scope. Recorder закрепляет нормализованный scope
+и проверенный task_scope SHA в событии и квитанции. Простая публикация summary
+или позднее добавление IDs не заменяют эту запись. Дождитесь успешной квитанции,
+затем проводите соответствующие проверки. Явное scoped update открытого run
+сохраняет историю, меняет result_hash и требует новых выбранных QA/reviewer;
+прежние попытки не переклассифицируются задним числом.
+
+Общий parser в `verification_evidence.py` применяется recorder, validator,
+readiness, QA verification-results, obligations, critical lanes, risk gates,
+finalize, render-final и delivery во всех compact/full/auto. Только перечисленный
+операционный follow-up может остаться gap или неуспешным при локальном финале.
+Его строки, прежние попытки, blockers, evidence и outcomes сохраняются; они
+не превращаются в supported, pass, resolved, exempt или устранённый риск.
+Агрегированные readiness/results описывают готовность локальных gates.
+Форма, источники, subjects, markers и целостность всех предъявленных evidence
+проверяются всегда; supported сохраняет требования поверхности и negative fixtures.
+
+QA и reviewer проверяют причины классификации по исходному заданию. Ошибка
+payload, auth, config или логики остаётся локальным дефектом, даже если её выявил
+внешний тест. Нельзя исключать авторские implementation/integration lanes,
+выбранные обязательные QA/reviewer, manifests, history, boundary и mandatory
+local proof. Слова external-provider, timeout, GitHub или недоступность сети
+не дают автоматического исключения. Mock подтверждает свой локальный сценарий,
+не реальный provider workflow. Локальная неготовность блокирует worker и приёмку.
+
+Final и delivery называют принятый локальный результат, исходную внешнюю цель
+и весь непроверенный follow-up. Deploy/e2e цель остаётся незавершённой;
+локальный ship не подтверждает её выполнение. Внешняя задача без самостоятельного
+локального результата не получает локальную delivery. Read/finalize/delivery
+не обращаются к GitHub или consumer по сети; исходные локальные сессии и retained
+bytes проверяются. Недоступный обязательный локальный proof блокирует приёмку.
+
+### Декларация авторства boundary v2
+
+Порядок внутри текущего этапа: остановить product writers → seal → опубликовать
+собственные handoffs, edit evidence и декларации → вычислить result_hash →
+независимый QA → последующий reviewer. Journal artifacts не входят в candidate.
+Декларация не содержит result_hash; recorder добавляет текущие workspace/candidate
+IDs, baseline/candidate digests, полную дельту и assignment identity.
+
+В новых запусках с seal v5 эти проверки действуют и в compact без lane-map: код использует
+зарегистрированные назначения и существующие `checks/lane-boundary-<lane_id>.json`.
+Отсутствие карты не делает root автором; совпадение его UUID с участником
+предварительной read-only проверки не доказывает вклад. `author_thread_id`
+связывается с фактическим автором и входит в хеш. Участник передаёт факты о своём
+вкладе, код собирает служебные привязки. Отдельная карта или registry не нужны.
+Исторические hashes v1–4 воспроизводятся по прежним правилам.
+
+Подготовьте собственную декларацию, затем опубликуйте её через journal publish.
+Все ссылки указывают на сохранённые документы журнала и их настоящие SHA-256:
+
+```json
+{
+  "lane_id": "worker-a",
+  "authored_paths": ["src/example.py"],
+  "handoff": {"path": "handoffs/worker-a.md", "sha256": "<SHA-256>"},
+  "edit_evidence": [{"path": "checks/worker-a-edits.patch", "sha256": "<SHA-256>"}],
+  "coauthors": {}
+}
+```
+
+Handoff перечисляет authored paths и соавторов. Для shared path `coauthors`
+отображает путь в список peer lane IDs; каждый участник раскрывает пересечение
+и предъявляет своё edit evidence. Промежуточные bytes допустимы, итоговый файл
+не обязан независимо создаваться каждым соавтором. Все участники должны иметь
+разрешение на путь; forbidden pattern имеет приоритет.
+
+```sh
+python3 "$AF_PACKAGE/scripts/record-lane-boundary.py" --run-dir "$AF_RUN" \
+  --lane-id worker-a --declaration-json checks/worker-a-declaration.json
+```
+
+`--declaration-json` принимает опубликованный логический путь журнала,
+а не private capture. Результат — `checks/lane-boundary-worker-a.json` version 2.
+`authored_paths` каждого автора — subset полного delta, permissions проверяются
+через `fnmatch.fnmatchcase` именно по нему. Union всех авторов точно равен delta;
+незаявленный путь, authored path вне delta, stale/forged handoff, запрещённый
+вклад и необъяснённое пересечение блокируют приёмку. Root как автор тоже
+предъявляет декларацию. Permissions filter общего diff не доказывает авторство.
+QA сверяет вклад с edit evidence; reviewer проверяет эту сверку.
+
+Version 1 сохраняется для legacy reading и точного replay принятой прежней пары.
+Новая registered приёмка при действующем boundary gate требует v2, включая
+единственного автора: его handoff явно подтверждает весь delta теми же evidence.
+Изменение candidate или декларации требует нового hash и приёмки;
+закрытые/recovered identities автоматически не мигрируют.
 
 Для compact analysis достаточно `task_kind: analysis`, реального root UUID,
 пустых `author_thread_ids`, `result_files`, `subagents`, `role_lanes`,
@@ -549,15 +920,19 @@ Reviewer сверяет его с исходным снимком и приня�
 
 ```sh
 python3 "$AF_PACKAGE/scripts/init-run.py" \
-  --repo "$AF_PROJECT" --slug completion-check --mode compact
+  --repo "$AF_PROJECT" --slug completion-check --mode compact \
+  --summary "Проверить согласованный сценарий задачи" \
+  --plan-summary "Выполнить задачу, запустить проверки и получить независимую приёмку"
 ```
 
 `init-run.py` создаёт штатный summary версии 1 даже без `--with-lanes`.
 Не собирайте summary вручную. `--reuse` сохраняет заполненные данные и формат;
 ошибка существующего summary требует явного исправления, не перезаписи init.
 
-До первого spawn заполните `context.md` с разделом `Initial Worktree Snapshot`
-и границы задачи в `run.md` или `plan.md`. Сохраните отдельный входной объект
+Передайте границы задачи через `init-run.py --summary`, план через
+`--plan-summary`. Код создаёт `run.md` с `Task Scope`, `plan.md` с `Execution Plan`
+и `context.md` с `Initial Worktree Snapshot` по настоящему git status, command и
+exit code. Ручные заголовки не нужны. Сохраните отдельный входной объект
 verification, взяв его из созданного summary. Установите реальный root UUID
 из среды в `root_thread_id`, ссылки `initial_snapshot` и `task_scope`.
 Для этого промежуточного шага оставьте `task_kind: null`, `qa: null`,
@@ -581,7 +956,7 @@ verification, взяв его из созданного summary. Установ�
 ```
 
 `AF_VERIFICATION` - файл с этим объектом, например `checks/verification-input.json`.
-Заголовок `Task Scope` и непустой текст границ должны существовать до команды.
+До команды init должен получить непустой смысловой текст границ задачи.
 
 ```sh
 python3 "$AF_PACKAGE/scripts/record-agent-trace.py" \
@@ -598,8 +973,9 @@ Recorder заполняет отсутствующие SHA-256 ссылок и �
 каждого репозитория по `definition-of-done.md`. Включите исходный план и все
 документы поставки в список; приёмка охватывает полные bytes со статусами.
 Возьмите текущий verification из summary, установите `task_kind: change`,
-полные `author_thread_ids`. Выполните `seal`: recorder заполнит `result_files`
-и `run_changed_files` из полного результата. Сохраните текущие behavioral_checks
+полные `author_thread_ids`. Выполните `seal`, опубликуйте boundary v2 декларации
+всех авторов; recorder заполнит `result_files`
+из полного результата. Не ведите второй список changed paths вручную. Сохраните текущие behavioral_checks
 и ссылки. Через recorder передайте объект строкой JSON или путём к локальному
 файлу. Команда вычисляет хеш всего сохранённого кандидата вместе со снимком и границами.
 Не заменяйте его собственной формулой хеширования списка файлов.
@@ -622,21 +998,45 @@ python3 "$AF_PACKAGE/scripts/record-agent-trace.py" \
 ```sh
 python3 scripts/record-agent-trace.py --run-dir "$RUN_DIR" --prepare-conclusion \
   --role qa-verifier --lane-id qa --status pass \
+  --summary "Проверки подтвердили согласованные критерии" \
   --artifact handoffs/qa.md --artifact checks/qa.md
 ```
 
-Reviewer передаёт свою роль, назначение и файлы; инструмент добавляет хеш
-принятого QA handoff. `--status` обязателен: `pass`, `pass-with-risks`, `fail`
-или `blocked`. Помощник проверяет текущие файлы и ссылки, выводит только итог;
+Reviewer передаёт свою роль, назначение и файлы; для положительного итога
+инструмент добавляет хеш принятого QA handoff. Поля, типы и допустимые статусы
+получите из `journal.py contract`. Переданный `--summary` создаёт handoff и ссылки
+с SHA; помощник выводит собственный итог для завершения хода. Подготовка handoff
 не пишет timeline, принятие или завершение сессии. Режимы `--prepare-conclusion`
 и `--render-final` несовместимы с регистрацией события. Пользователь JSON не готовит.
+
+Для отрицательного итога обязательны `--reason` и хотя бы один `--unverified`;
+последний повторяется для разных непроверенных пунктов. Например, reviewer
+может зафиксировать недоступную проверку до принятия QA:
+
+```sh
+python3 "$AF_PACKAGE/scripts/record-agent-trace.py" --run-dir "$AF_RUN" \
+  --prepare-conclusion --role reviewer --lane-id reviewer-negative --status blocked \
+  --summary "Проверка среды заблокирована, доказательство сохранено" \
+  --reason "Проверочная среда недоступна; причина зафиксирована в evidence" \
+  --unverified "Полный workflow candidate" --unverified "Независимое QA" \
+  --artifact handoffs/reviewer-negative.md --artifact checks/review-failure.md
+```
+
+Назначение уже должно быть зарегистрировано, evidence — опубликовано.
+Помощник создаёт handoff из `--summary`, добавляет пути и SHA evidence,
+`reason` и `unverified` в итоговый
+JSON. После настоящего завершения root регистрирует тот же исход через обычный
+recorder: `--stage blocked --status blocked` либо `--stage fail --status fail`,
+со ссылками на тот же handoff/evidence и исходный completion turn. Для canonical
+agent path поддерживается `--resolve-session --agent-path`. Причина и непроверенное
+берутся из собственного итога; prepare-only flags в обычную регистрацию не передаются.
 
 Каждый проверяющий завершает собственный ход полученным JSON-объектом. Поддержка
 последнего fenced блока `json` сохраняется; проза перед необрамлённым JSON
 не принимается. Подробный отчёт остаётся в handoff:
 
-В handoff перечислите пути использованных доказательств и их SHA-256.
-Validator требует эти значения в handoff, связанном с исходным итоговым ходом.
+Передайте инструменту пути использованных доказательств: writer добавит их
+SHA-256 в handoff. Validator сверяет их с исходным итоговым ходом.
 Правка checksum только в summary не принимает изменённое доказательство.
 
 ```json
@@ -648,10 +1048,17 @@ Validator требует эти значения в handoff, связанном 
 }
 ```
 
-Reviewer указывает свой handoff и добавляет `qa_handoff_sha256` с хешем
-прочитанного QA handoff. Допустимые положительные JSON-вердикты: `passed`,
+Для положительного итога reviewer указывает свой handoff и добавляет
+`qa_handoff_sha256` с хешем прочитанного принятого QA handoff.
+Допустимые положительные JSON-вердикты: `passed`,
 `pass-with-risks`. Для отрицательного итога используйте `fail` или `blocked`.
 Root не может заменить отрицательный ответ положительной записью summary.
+
+Отрицательное заключение связывается с настоящим завершённым ходом, handoff
+и доказательствами конкретной причины. Если запечатанного результата нет,
+`reviewed_result_hash` может быть `null`. Отрицательный reviewer может завершиться
+без принятого QA. Такие заключения сохраняются как отрицательные записи и не
+становятся выбранным принятием `verification.qa` или `verification.reviewer`.
 
 После реального запуска запишите назначение; подставляйте UUID из среды.
 Если инструмент вернул UUID, прямой путь остаётся доступен:
@@ -702,8 +1109,8 @@ Resolver ищет metadata по exact canonical path, `verification.root_thread_
 Для reviewer повторите команды с `--role reviewer`, отдельным `lane-id`,
 его UUID, завершённым turn ID и файлами reviewer. Успешная запись добавляет
 `completion_turn_id`, `reviewed_result_hash`, `handoff_sha256`, список `evidence`
-со ссылками и хешами; указатель `verification.qa` или `verification.reviewer`
-обновляется автоматически. Данные проверяются до записи. Timeline дополняется,
+со ссылками и хешами. При положительной приёмке указатель `verification.qa`
+или `verification.reviewer` обновляется автоматически. Данные проверяются до записи. Timeline дополняется,
 старые события и timestamps сохраняются. В full синхронизируйте статусы lanes.
 Новая редакция снимает оба прежних принятия; новое QA снимает принятие reviewer.
 Старые записи остаются в summary, но их невыбранные доказательства не принимают
@@ -733,7 +1140,7 @@ Agent Flow пишет собственное время в UTC с шестью �
 Диагностическое чтение старого журнала и `--reuse` не выполняют скрытую миграцию.
 Явные import и upgrade сохраняют доступные исторические байты; отсутствующие поля
 или доказательства не становятся подтверждёнными. После восстановления требуется
-свежая независимая приёмка. Полный scanner delta, включая `run_changed_files`,
+свежая независимая приёмка. Полный scanner delta из seal
 используется только для новой workspace-приёмки.
 
 Reader реализует наблюдённую локальную структуру событий Desktop. Поддержка той
@@ -751,7 +1158,87 @@ handoff требует нового `qa_handoff_sha256` в собственно�
 и выводит `PRELIMINARY (not final acceptance)`. Повреждённые и противоречивые данные
 отклоняются. Ни этот флаг, ни `--allow-no-check` не ослабляют положительный final.
 Для `blocked` и `fail` сохраняются причина в `verification.blocker` и имеющиеся
-записи; успешный запуск проверяющих не требуется.
+записи; успешный запуск проверяющих не требуется. Запишите непроверенное в
+`verification.unverified` и final вместе с незакрытыми критериями.
+`gap` допускает неполное покрытие без успешного владельца
+или reviewer и без вымышленных положительных доказательств; заявленный `supported`
+по-прежнему требует подтверждения. Все указанные доказательства проверяются
+на целостность, структура и история сохраняются. Отрицательный итог можно
+штатно закрыть до prepare/QA либо после частичных правок; delivery запрещена.
+Для `ship/pass-with-risks` нужны текущий запечатанный candidate, полная дельта,
+авторство, независимые QA и последующий reviewer того же результата, подтверждённые
+критерии и действующие risk gates. Отрицательный путь эти требования не заменяет.
+
+До seal `result_files=[]` и `result_hash=null` означают отсутствие принятого
+результата, а не отсутствие рабочих правок. Наблюдаемые изменения описывайте
+отдельно. Если workspace неполон или его нельзя безопасно просканировать целиком,
+допустимо честное `blocked/fail` с конкретной причиной и перечнем непроверенного.
+Повреждённая рабочая ссылка может быть такой причиной; закрытие отрицательного
+отчёта не требует фиктивной полной дельты. Для seal и положительной приёмки
+полные manifest и delta обязательны.
+
+### Приёмка контекстных исключений
+
+Для положительного `change` в workspace version 2 с непустым
+`task_scope.context_exclusions` собственные итоговые JSON QA и reviewer содержат
+`context_classification`. Без исключений поле не требуется; `blocked/fail`
+допускает незакрытую проверку классификации.
+
+QA указывает digest текущего запечатанного scope, полный набор путей исключённых aliases
+и ссылки на фактический вывод релевантного workflow:
+
+```json
+{
+  "context_classification": {
+    "task_scope_digest": "<current sealed task_scope_digest>",
+    "context_exclusions": ["<exclusion.relative_path>"],
+    "workflow_evidence": [
+      {
+        "path": "checks/candidate-workflow.txt",
+        "sha256": "<SHA-256 output bytes>",
+        "source_event": 17,
+        "source_call_id": "<observed QA tool call ID>"
+      }
+    ]
+  }
+}
+```
+
+Это поле дополняет обычные поля заключения. Reviewer указывает тот же digest
+и полный набор `context_exclusions`; повторный запуск workflow reviewer не нужен.
+Оба массива exclusions содержат уникальные строки и точно совпадают с текущим
+`exclusions.relative_path`, включая раскладку новой revision. Поле читается из
+настоящего итогового хода, ручная запись summary его не заменяет.
+
+Передайте объект classification помощнику через `--context-classification-json`
+как inline JSON или путь к личному capture-файлу. Он включит объект в stdout;
+завершите ход точным выводом помощника без пересоздания остальных полей.
+Например, для QA с уже подготовленным capture:
+
+```sh
+python3 "$AF_PACKAGE/scripts/record-agent-trace.py" --run-dir "$AF_RUN" \
+  --prepare-conclusion --role qa-verifier --lane-id qa-final --status pass \
+  --artifact handoffs/qa.md --artifact checks/candidate-workflow.txt \
+  --context-classification-json "$AF_CLASSIFICATION_CAPTURE"
+```
+
+Reviewer использует свою роль, lane и artifacts; его classification содержит
+digest и exclusions без обязательного повторного `workflow_evidence`.
+
+Каждый QA workflow reference входит в evidence принятого QA и его handoff.
+`source_event` указывает реальный tool output собственного принятого хода QA
+между его запуском и завершением; `source_call_id` и хеш соответствуют фактическим
+байтам вывода. Файл без такого исходного output или заявление «всё работает»
+недостаточны. Один релевантный workflow может охватывать несколько aliases.
+QA объясняет охват и проверяет candidate без исключённых файлов. Reviewer
+независимо оценивает достаточность workflow, полноту снимка, классификацию всех
+aliases и отсутствие доступа к живым внешним файлам.
+
+Если приложение, сборка или тест требует исключённый alias, включите зависимость
+в продуктовые корни, создайте новую revision и повторите приёмку. Недостаточное
+доказательство остаётся `gap`. Для этой проверки не нужны пользовательские inputs,
+`strict_inputs` или `behavior-input-prepared`; отдельно выбранные behavioral checks
+сохраняют свои требования.
 
 ### Условные проверки поведения
 
@@ -812,11 +1299,22 @@ python3 "$AF_PACKAGE/scripts/journal.py" --run-dir "$AF_RUN" resolve-obligation 
 
 Команда связывает прежний отказ с конкретным handoff замены и его хешем.
 Старые status, trace, handoff, UUID и timestamps сохраняются. Полная проверка
-требует принятия всех текущих обязательных назначений, а не только выбранной пары
-QA/reviewer. Активная работа, отсутствующая или непринятая замена, цикл ссылок,
+требует принятия всех текущих локальных обязательных назначений, а не только выбранной пары
+QA/reviewer. Объявленный external follow-up сохраняет непринятую обязанность.
+Активная локальная работа, отсутствующая или непринятая замена, цикл ссылок,
 непокрытая обязанность и изменённые доказательства блокируют положительный итог.
 Сообщение `done` не означает принятия. Произвольная пометка `historical` не снимает
 обязанность; необязательность консультации требует подтверждённого основания.
+
+Для blocked/fail общий evaluator проверяет исторические resolved/exempt отдельно
+от успешности текущих обязанностей. Original assignment/outcome, immutable archive
+при наличии, obligation ID, reason, evidence hashes и отсутствие циклов обязательны.
+Replacement должен быть принят и выполнять ту же обязанность даже при отрицательном
+финале. Coverage исключает только проверенные исторические resolutions; прежние
+summary и отрицательные events сохраняются. Голый status=replaced не даёт исключения.
+Текущая непринятая обязанность остаётся причиной отрицательного финала, не resolved.
+Отрицательный финал не принимает QA/reviewer пару и не разрешает delivery;
+failed finalize не пишет успешный final event.
 
 ### Восстановление прежнего журнала
 
@@ -951,24 +1449,29 @@ operation ID и содержимым возвращает сохранённую
 
 ### Финальная команда и завершение задачи
 
-Подготовьте полный окончательный текст `final.md`, остальные документы и актуальные
-независимые заключения. `--render-final` только готовит текст. Финальное событие
-создаёт `journal.py finalize`: полный validator проверяет предполагаемый снимок
+Подготовьте содержательный итог и актуальные независимые заключения.
+Writer формирует `final.md` и служебные разделы. Финальное событие
+создаёт `journal.py finalize`: для положительного изменения файлов проверка
+продукта оценивает предполагаемый снимок
 до атомарного закрытия текущего поколения. При отказе событие не добавляется,
 журнал остаётся открытым, задача — `Status: in_progress`.
 
-Сохраните отчёт в отдельный capture-файл. Возьмите UUID, редакцию и поколение
+Возьмите UUID, редакцию и поколение
 из текущего снимка журнала; operation ID сохраните до вызова. Не угадывайте эти
 значения и не создавайте новый ID для технического повтора той же операции.
 
 ```sh
-python3 "$AF_PACKAGE/scripts/journal.py" --run-dir "$AF_RUN" finalize \
+python3 -B "$AF_PACKAGE/scripts/journal.py" --run-dir "$AF_RUN" finalize \
   --expected-run-uuid "$AF_RUN_UUID" \
   --expected-revision "$AF_REVISION" \
   --expected-generation "$AF_GENERATION" \
   --operation-id "$AF_FINALIZE_OPERATION" \
-  --final-file "$AF_FINAL_CAPTURE" --verdict ship
+  --summary "$AF_FINAL_SUMMARY" --status pass
 ```
+
+Новый final нельзя передать готовыми bytes через `--final-file`: используйте
+`--summary`. Старый запрос с готовым final допустим только для точного повтора
+уже сохранённой квитанции; его bytes и operation ID остаются прежними.
 
 Не используйте `append-timeline.py --stage final` или запись final через publish
 для закрытия. Успех finalize фиксирует final, событие, проверенные входы и квитанцию
@@ -976,7 +1479,8 @@ python3 "$AF_PACKAGE/scripts/journal.py" --run-dir "$AF_RUN" finalize \
 другое содержимое с тем же ID отклоняется. Квитанция не подтверждает, что внешние
 сессии или файлы остались неизменными после проверки.
 
-Перед выдачей результата выполните свежую проверку. `AF_VALIDATION_LOG` должен
+Перед выдачей результата выполните полный аудит и сохраните его замечания.
+Свежую проверку продукта выполняет штатная `delivery`. `AF_VALIDATION_LOG` должен
 указывать на файл вне канонических документов журнала и проверяемого результата.
 
 ```sh
@@ -985,7 +1489,6 @@ python3 "$AF_PACKAGE/scripts/validate-run.py" --run-dir "$AF_RUN" \
 AF_VALIDATION_EXIT=$?
 printf '\nexit_code: %s\n' "$AF_VALIDATION_EXIT" >> "$AF_VALIDATION_LOG"
 cat "$AF_VALIDATION_LOG"
-test "$AF_VALIDATION_EXIT" -eq 0
 ```
 
 Запускайте пример в shell без `errexit`, чтобы сохранить код отказа. Не используйте
@@ -993,6 +1496,9 @@ test "$AF_VALIDATION_EXIT" -eq 0
 документов, trace, summary или workspace; штатная delivery отдельно проверяет
 тот же сохранённый результат. Чтение, export и точные технические повторы разрешены.
 Диагностический лог не служит разрешением на следующее завершение.
+Ненулевой код полного аудита требует разобрать причину: повреждённый результат
+или обязательное доказательство блокирует delivery; отдельный недостаток
+оформления сохраняется в отчёте аудита и сам по себе её не запрещает.
 
 При отказе до закрытия исправьте доступную ошибку и повторите finalize на свежих
 входах. Недоступное обязательное доказательство оставляет конкретный
@@ -1062,8 +1568,8 @@ Schema v2 adds the Architecture Contract Gate:
 - selected `architecture_capabilities` must exist in `registries/architecture-capabilities.json` and must cover every selected `architecture_context` facet;
 - Architecture Capability Router uses Soft Skill Binding: registry `recommended_skills` are checked by `validate-architecture-capabilities.py`, but do not block individual runtime validation;
 - Architecture Design Mode runs before implementation when `architecture_contract_required=true`;
-- Architecture Artifact Authoring Automation can initialize the run with `init-run.py --architecture-gate`, creating agent-authored templates for Architecture Design Brief, Architecture Contract, worker, QA, reviewer, and evidence artifacts;
-- generated templates use the exact placeholder marker `TODO(agent):`, and agents must replace it themselves instead of asking the human to fill the artifacts;
+- `init-run.py --architecture-gate` создаёт planned lanes и контекст; Architecture Design Brief, contract, handoffs и proof records появляются из содержательных записей writer по мере выполнения работы;
+- init не создаёт `TODO(agent):` proof rows или фиктивные approvals; неизвестные данные остаются незакрытыми, а required gates блокируют начало работы и успешный final;
 - positive final verdicts, `ship` and `pass-with-risks`, are blocked while any architecture artifact referenced from `lane-map.json` still contains `TODO(agent):`;
 - every successful critical `architecture` lane must set `architecture_design_brief` to an existing Architecture Design Brief;
 - the Architecture Design Brief must include `Problem Shape`, `Selected Matrix Facets`, `System Boundaries`, `Data And State Model`, `Public Interfaces`, `Execution Plan`, `Risk Model`, `Verification Strategy`, `Open Questions`, and `Decision`;
@@ -1076,15 +1582,16 @@ Schema v2 adds the Architecture Contract Gate:
 - positive architecture-gated runs with QA and reviewer lanes require Claim Evidence Gate: the architecture handoff `QA Gates` and `Reviewer Checklist` sections must contain `Claim Evidence` ids, and the run root must include `claim-evidence.json`;
 - `claim-evidence.json` uses `version=1` and a non-empty `claims` array; every claim id is unique kebab-case and every required contract claim id has a record;
 - each claim record names `owner_lane`, `reviewed_by`, owner handoff `section`, `status`, `claim`, `subjects`, and evidence entries with literal `markers`;
-- `owner_lane` must be a successful QA or review lane, `reviewed_by` must be a successful review lane, the owner handoff section must mention the claim id, and every marker must appear in the referenced evidence file;
-- positive verdicts require `status=supported`; `status=gap` is allowed only for `blocked` or `fail`;
+- for `supported`, `owner_lane` must be a successful QA or review lane, `reviewed_by` must be a successful review lane, the owner handoff section must mention the claim id, and every marker must appear in the referenced evidence file;
+- positive verdicts require `status=supported` for local claims; an explicitly scoped external claim may remain `gap`, with its structure and supplied evidence checked;
+- a negative `gap` may lack successful owner/reviewer and complete evidence coverage; every supplied lane, reference and marker still undergoes structural and integrity checks;
 - positive architecture-gated runs require Acceptance Criteria Traceability Gate: the architecture handoff `QA Gates` and `Reviewer Checklist` sections must contain `Acceptance Criteria` ids, and the run root must include `acceptance-traceability.json`;
 - `acceptance-traceability.json` uses `version=1` and a non-empty `acceptance` array; every acceptance id is unique kebab-case and every required contract acceptance id has a record;
 - each acceptance record names `source`, `requirement`, `subjects`, `contract_types`, `status`, `surface_expectations`, and evidence entries with literal `markers`;
 - Surface Evidence Gate requires each `surface_expectations` item to name `surface`, `polarity`, and allowed `proof_kinds`; each `evidence` or `negative_fixture_evidence` record names matching `surface`, `polarity`, and `proof_kind`, and only a matching record can cover that expectation;
 - storage or other internal evidence cannot satisfy API, UI, logs, history, provider metadata, or external-provider acceptance unless the target `surface` matches exactly;
-- positive verdicts require every acceptance record to use `status=supported`, every marker must appear in the referenced evidence file, every `surface_expectations` item must have matching evidence, and every required acceptance id must have evidence;
-- Contract Negative Fixture Gate applies to acceptance records marked `gate`, `cli`, `query`, `storage`, `config`, or `parser`; those records must include `negative_fixture_evidence` with at least one evidence path and literal marker for a negative or drift fixture, and `negative_fixture_evidence` cannot use `polarity=positive`;
+- positive verdicts require every local acceptance record to use `status=supported`, every supplied marker must appear in its evidence file, every local `surface_expectations` item must have matching evidence, and every required local acceptance id must have evidence; explicitly scoped external gaps remain open;
+- Contract Negative Fixture Gate applies to supported acceptance records marked `gate`, `cli`, `query`, `storage`, `config`, or `parser`; those records must include `negative_fixture_evidence` with at least one evidence path and literal marker for a negative or drift fixture, and `negative_fixture_evidence` cannot use `polarity=positive`. A `gap` in a blocked/fail final may leave target coverage incomplete;
 - failed, blocked, or timed-out architecture lanes block `ship`;
 - reviewer and QA lanes may pass only after the architecture contract passes;
 - when `architecture_contract_independent` is true, the architecture lane must use `subagent` execution with spawned trace evidence.
@@ -1104,22 +1611,29 @@ requires Verification Readiness Gate before implementation:
   `verification_gates` facet from `architecture_context`;
 - unknown, unselected, duplicate, wrong-axis, or missing readiness facets fail
   validation;
-- `ready` requires all gate records to be ready and no blockers;
+- `ready` requires all local gate records to be ready and no local blockers; explicitly scoped external rows keep their actual status, blockers and evidence;
 - `needs-approval` requires pending `approval_requests` and no successful worker
   lanes;
-- approval requests can list only documented safe commands, a source document,
-  manual instruction, affected gates, and `resume_phrase`;
-- when the user approves, the agent records `approval_executions` with evidence,
-  then repeats readiness before starting workers;
+- approval requests list documented safe commands, a source document,
+  manual instruction and affected gates through the generated contract;
+- решение пользователя передаётся закрытым typed intent с настоящим root user
+  source event и точной цитатой; writer привязывает source и hash. Одно слово
+  или временная позиция сообщения не заменяют существующее разрешение;
+- actual execution берётся из native check receipt, затем readiness проверяется
+  повторно перед стартом workers;
 - when the user declines, status becomes `paused-blocked`, final verdict must be
   `blocked`, no successful workers may exist, and `final.md` must include the
-  manual instruction plus `resume_phrase=Готово`;
+  manual instruction. Legacy `resume_phrase` is metadata, not a password;
+- новое `readiness-approval` использует настоящий root user event, точную
+  цитату и закрытое решение. Ранее данное применимое разрешение действует:
+  новое сообщение или точная фраза не нужны; NLP-проверки нет;
 - successful worker lanes must run after the latest `ready` readiness lane;
-- positive final verdicts require the latest readiness status to be `ready`;
+- the full audit checks the latest readiness status; product acceptance requires actual successful local verification, not the preliminary ceremony alone;
 - post-worker QA records `verification_results` in lane-map and a handoff
   section named `Verification Gate Results`;
-- a QA lane may pass only when `verification_results.status=pass`; blocked
-  required verification forces QA `blocked` and prevents positive final verdicts.
+- a QA lane may pass only when `verification_results.status=pass`; this aggregate
+  describes local gates under delivery_scope. Blocked required local verification
+  forces QA `blocked`; external follow-up rows retain their actual outcomes.
 
 ## Continuation Gate
 
@@ -1127,6 +1641,13 @@ When a same-run continuation resumes after a blocked checkpoint, do not rewrite
 the old order as if the new gate had existed from the start. If `timeline.jsonl`
 contains `stage=blocked-checkpoint` or `stage=continuation` and the final verdict
 is `ship` or `pass-with-risks`, schema v2 requires `continuation-summary.json`.
+
+Checkpoint создаёт writer после настоящего `finalize --status blocked` и
+native `reopen`: semantic event `blocked-checkpoint` с зарегистрированным
+root lane копирует последний authoritative blocked archive. Для continuation
+передавайте `checkpoint` из receipt. Путь snapshot и SHA вычисляет writer;
+raw attachment не заменяет этот receipt. Разрешение blocker отрицательным
+статусом не создаёт resolved record.
 
 `continuation-summary.json` uses `version=1` and records:
 
@@ -1249,19 +1770,23 @@ Schema v2 also enforces Architecture Execution Control and Engineering Simplicit
   runs with successful worker lanes: every successful `implementation` or
   `integration` lane must include `boundary.allowed_paths`, optional
   `boundary.forbidden_paths`, `boundary.changed_paths_artifact`, and notes;
-- `scripts/record-lane-boundary.py --run-dir <run-dir> --lane-id <lane-id>`
-  writes `checks/lane-boundary-<lane-id>.json` with `version=1`, matching
-  `lane_id`, `changed_paths`, `tracked_changed_paths`, `untracked_paths`,
-  `base_ref`, `head_ref`, `command`, and notes;
+- `scripts/record-lane-boundary.py --run-dir <run-dir> --lane-id <lane-id> --declaration-json <published-path>`
+  writes boundary `version=2` for a new registered result: full `changed_paths`,
+  explicit `authored_paths`, own handoff/edit evidence references, coauthors,
+  assignment identity and workspace/candidate bindings. Version 1 remains
+  readable for historical diagnosis and exact accepted replay;
 - `boundary.changed_paths_artifact` must exist and be listed in the lane
   `evidence`;
 - all boundary paths and changed paths must be repo-relative POSIX paths:
   no absolute paths, no empty paths, no backslashes, and no `..`;
-- glob matching uses Python `fnmatch.fnmatchcase`; every changed path must
+- glob matching uses Python `fnmatch.fnmatchcase`; every authored path must
   match at least one `allowed_paths` pattern, and any `forbidden_paths` match
   fails even when the path is also allowed;
 - empty `changed_paths` is valid because this gate checks boundaries, not
   whether a worker was required to edit product code;
+- every authored path belongs to the full delta; the union of all declarations
+  exactly covers it. Shared paths require disclosure, edit evidence and permission
+  from every contributor; a permission-filtered diff cannot prove authorship;
 - worker handoffs must include `Boundary Evidence`; QA `Architecture
   Invariants`, reviewer `Contract Drift`, and final `Boundary Evidence` must
   mention every successful worker lane id;
@@ -1289,6 +1814,11 @@ Schema v2 also enforces Architecture Execution Control and Engineering Simplicit
 
 Mitigation Gate applies to every traceable run with `Verdict: pass-with-risks`:
 
+With delivery_scope, the outcome requirements below apply to local risk IDs.
+Explicit external risk records retain their actual status and supplied evidence,
+remain visible in final/report coverage, and are not treated as resolved.
+Structure, references and evidence integrity still apply to every record.
+
 - `risk-mitigations.json` is required at the run root;
 - `risk-mitigations.json` must use `version=1` and a non-empty `risks` array;
 - each risk id must be unique kebab-case;
@@ -1306,8 +1836,9 @@ Resolution Gate follows Mitigation Gate for every traceable run with `Verdict: p
 - `risk-resolutions.json` must use `version=1` and a non-empty `resolutions` array;
 - every resolution `risk_id` must match an identified risk from `risk-mitigations.json`;
 - every identified risk must have exactly one resolution record for `pass-with-risks`;
-- resolution status must be `fixed`, `mitigated`, or `contained` for `pass-with-risks`;
-- `unresolved` is allowed only for `blocked` or `fail`;
+- local resolution status must be `fixed`, `mitigated`, or `contained` for `pass-with-risks`;
+- `unresolved` is allowed for `blocked` or `fail`, and for explicitly scoped
+  external follow-up in a local positive final; it is never reported as resolved;
 - `resolution_type` must be one of `code-change`, `test-added`, `evidence-added`, `scope-contained`, `architecture-recheck`, `config-change`, `docs-corrected`, or `not-resolved`;
 - each resolution records non-empty `owner_lane`, `resolution`, `evidence`, `verification`, `verified_by`, and `reviewed_by`;
 - every evidence path must exist;
@@ -1336,7 +1867,7 @@ For final handoff, `validate-run.py` also requires:
 - exactly one `Verdict:` field in `final.md`;
 - exactly one valid final verdict value: `ship`, `pass-with-risks`, `blocked`, or `fail`;
 - exactly one `timeline.jsonl` final event in the current lifecycle generation when a timeline exists or any agent trace exists; earlier generations remain unchanged;
-- the current generation closes with `stage=final` and `role=orchestrator`, created only by `journal.py finalize` after full prospective validation;
+- the current generation closes with `stage=final` and `role=orchestrator`, created only by `journal.py finalize` after the applicable prospective acceptance check;
 - timeline timestamps must be non-decreasing in file order;
 - if the timeline contains orchestrator `implementation` or `fix` events, the
   final successful orchestrator `verification` or `checks` event must come after
@@ -1380,7 +1911,7 @@ fix. The final timeline should make the actual sequence readable without
 opening chat history.
 
 One final orchestrator event per lifecycle generation is required before final
-handoff. `journal.py finalize` creates it after full prospective validation;
+handoff. `journal.py finalize` creates it after the applicable prospective acceptance check;
 call the command described in «Финальная команда и завершение задачи» above.
 Do not append this event manually. Archived generations retain their original
 final events and verdicts.

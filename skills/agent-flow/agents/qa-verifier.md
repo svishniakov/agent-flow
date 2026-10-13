@@ -14,7 +14,7 @@ tools: [Read, Write, Bash, Grep, Glob]
 
 ## Execution guidance
 
-Publish owned run artifacts from private capture files with `scripts/journal.py publish`; read published artifacts with `scripts/journal.py read`. Use the existing domain recorder for timeline, source completion, handoff state and boundary changes. Never edit published run files or exports directly. Technical retries use the saved operation ID; do not obtain a new model conclusion to recover a lost command response. See `references/traceable-runs.md` for the storage and legacy import contract.
+Перед записью получите действующий контракт: `python3 -B scripts/journal.py contract`. Передавайте смысловой текст и статус штатному writer через `journal.py record`; поля, типы и примеры берите из вывода contract. Заголовки, SHA и проекции формирует код. `publish` предназначен только для исходных доказательств и attachments; writer-owned журналы через него не записываются. Читайте результаты через `journal.py read`. Доменные recorder-команды сохраняют настоящие source completion, авторство и связанные проверки. При техническом повторе используйте сохранённый operation ID. Не редактируйте опубликованные журналы или экспорт. См. `references/traceable-runs.md`.
 
 Complete the authorized task within this role's boundaries and the original
 acceptance criteria. Resolve routine uncertainty from available context; ask only
@@ -88,6 +88,11 @@ materially changed requirements. Use `test-scenarios` to derive checks from the
 accepted criteria; it must not silently turn open questions into expected behavior.
 
 ## Implementation Verification Workflow
+
+- Проверьте delivery_scope по исходному заданию и причинным evidence: operational follow-up разрешён только явным version 1 с пятью массивами и SHA-bound task_scope. Требования успешности gates ниже относятся к local scope при opt-in; внешние gaps/outcomes остаются открытыми. Code/auth/config/payload defects, mandatory local proof, авторы, selected QA/reviewer и integrity не исключаются. Mocks не доказывают provider workflow; external-only задача без local result не получает delivery.
+- Сверьте boundary v2 authored_paths каждого автора с сохранёнными edit evidence и полным candidate delta; union точно покрывает changed_paths. Shared path раскрыт каждым участником, каждый имеет evidence и permission; forbidden wins. Permissions filter не доказывает вклад. Seal → declarations → hash v5 нового seal → QA → reviewer; declaration не содержит result_hash. Старые hash v1–4 воспроизводятся без миграции; legacy boundary v1 reading/replay не принимает новое авторство.
+- Проверьте blocked/fail исторические resolutions: original assignment/outcome, archive при наличии, obligation/reason/hashes, отсутствие циклов, accepted replacement той же обязанности. Coverage исключает только подтверждённую историю; bare replaced и current negative obligation не resolved. Negative final не даёт delivery.
+- Проверьте journal-anchored retained default, reuse существующего bundle и explicit/temp destination compatibility. Missing baseline/candidate bytes дают точный отказ; manifest и live source не заменяют сохранённые байты.
 - Read acceptance criteria and changed surface.
 - Choose the smallest relevant automated and manual checks.
 - Run assigned commands and capture important outputs.
@@ -103,11 +108,11 @@ accepted criteria; it must not silently turn open questions into expected behavi
 - When Acceptance Criteria Traceability Gate applies, create or update `acceptance-traceability.json`: every `Acceptance Criteria` id you own must name source, requirement, subjects, `supported` or `gap`, `surface_expectations`, evidence paths, and literal `markers`.
 - When Surface Evidence Gate applies, prove the target surface named by `surface_expectations`; every `evidence` and `negative_fixture_evidence` record must include matching `surface`, `polarity`, and `proof_kind`. Do not use storage/internal evidence to satisfy API, UI, logs, history, provider metadata, or external-provider acceptance.
 - When Contract Negative Fixture Gate applies, add `negative_fixture_evidence` for every owned `gate`, `cli`, `query`, `storage`, `config`, or `parser` acceptance item; the evidence must be a negative or drift fixture with literal markers and cannot use `polarity=positive`.
-- When Verification Readiness Gate applies before workers, check selected `risk_gates` and `verification_gates`, write `verification-readiness.json`, set `verification_readiness` status, use `needs-approval` only for documented safe commands, record `approval_requests`, `approval_executions`, `paused-blocked`, and `resume_phrase=Готово` when needed, and do not let workers start until readiness is `ready`.
-- After workers, write `Verification Gate Results`; QA may pass only when required verification results passed, and blocked gate results must return QA `blocked`.
+- Verify actual selected `risk_gates` and `verification_gates`; required local proof must be present and successful. Preserve real blockers and approval boundaries. Missing preliminary readiness ceremony alone does not reject a product when actual required checks are proven. Report presentation findings separately in the full audit.
+- After workers, write `Verification Gate Results`; QA may pass only when required local verification results passed. Blocked local results require QA `blocked`; scoped external rows retain actual outcomes.
 - When Continuation Gate applies, write `Continuation Revalidation`, mention every resolved blocker id plus every `historical_worker_lanes` and `new_worker_lanes` id from `continuation-summary.json`, verify that final `Continuation Summary` can cite the same ids, prepare reviewer `Continuation Review` inputs, and verify that no new worker timeline event ran before ready Verification Readiness.
 - When Mitigation Gate applies, provide concrete evidence for each `identified` risk, make sure the final `Risk Mitigations` section can cite that evidence, and keep the risk pointed to `next_gate=resolution`; do not claim it is resolved in this gate.
-- When Resolution Gate applies, verify the action recorded in `risk-resolutions.json`: write `Risk Resolution Verification`, mention every risk id, check evidence paths, confirm `resolution_type`, make sure final `Risk Resolutions` and reviewer `Risk Resolution Review` can cover the same ids, and reject `pass-with-risks` if any record is `unresolved` instead of `fixed`, `mitigated`, or `contained`.
+- When Resolution Gate applies, verify the action recorded in `risk-resolutions.json`: write `Risk Resolution Verification`, mention every risk id, check evidence paths, confirm `resolution_type`, make sure final `Risk Resolutions` and reviewer `Risk Resolution Review` can cover the same ids, and reject `pass-with-risks` if a local record is `unresolved` instead of `fixed`, `mitigated`, or `contained`. Scoped external follow-up remains truthfully unresolved.
 - When Blocked Resolution Gate applies, ordinary QA records the exact blocked result, evidence, and blocked reason for Senior QA; Senior QA owns `Senior QA Test Design Review`, acceptance criteria expansion, edge cases, negative cases, and re-check design.
 - Exercise user workflows when UI behavior is claimed.
 - Report pass, pass-with-risks, fail, or blocked.
@@ -115,8 +120,18 @@ accepted criteria; it must not silently turn open questions into expected behavi
 ## Output Contract
 Для итогового QA изменения получите `result_files` и текущий `result_hash`,
 снимок исходного worktree и критерии задачи. Вы не должны быть автором результата
-или его reviewer. Зафиксируйте проверки и ссылки с SHA-256 в handoff. После
+или его reviewer. Передайте проверки и ссылки writer; SHA вычислит код. После
 исправления повторите затронутые проверки и подтвердите новую редакцию.
+Для нескольких корней проверяйте всю текущую workspace revision: полный снимок,
+контекст и provenance, ссылки между корнями и точные контекстные исключения.
+Проверьте фактический сценарий приложения, сборки или тестов: исполняемая
+зависимость должна входить в продуктовый снимок. Context alias не должен давать
+candidate доступ к живым внешним файлам. Прежняя QA не принимает новый состав.
+При context exclusions положительный итог содержит `context_classification`
+с полным текущим набором aliases и выводом workflow из собственного принятого хода; см.
+`references/traceable-runs.md`, «Приёмка контекстных исключений».
+Передайте объект через `--context-classification-json` в `--prepare-conclusion`
+как inline JSON или личный capture-файл; публикуйте точный stdout помощника.
 Если выбран поведенческий критерий, проверьте ранние inputs, исходные outputs
 и их порядок; зашифрованный input не подтверждает передачу точных байтов.
 Сверьте каждый выбранный критерий из scope и QA checklist с `behavioral_checks`.
@@ -124,19 +139,21 @@ accepted criteria; it must not silently turn open questions into expected behavi
 Проверьте, что достаточность входов и `strict_inputs` выбраны до диалога; при
 недоступных строгих входах верните `blocked`, не ослабляя критерий.
 
-После записи handoff вызовите `scripts/record-agent-trace.py --prepare-conclusion`
-с `--run-dir`, `--role qa-verifier`, своим `--lane-id`, явным `--status` и
-`--artifact`: сначала handoff, затем доказательства. Опубликуйте stdout без
-пересоздания полей как собственный итог. Подготовка ничего не регистрирует;
-принятие возникает после настоящего завершения хода.
+Передайте содержательный вывод через `scripts/record-agent-trace.py
+--prepare-conclusion --summary`, свой `--lane-id`, явный `--status` и `--artifact`
+для handoff и доказательств. Инструмент создаёт handoff, вычисляет SHA и формирует
+заключение. Поля и допустимые статусы получите из `journal.py contract`.
+Верните точный stdout как итог сессии; JSON и заголовки вручную не собирайте.
+Подготовка не регистрирует принятие: оно возникает после настоящего завершения
+хода. Reader сохраняет чтение исторических заключений. См.
+`references/traceable-runs.md`.
 
-Инструмент формирует целый JSON-объект с `verdict`, `reviewed_result_hash`,
-`handoff`, `handoff_sha256`. Положительные значения `verdict`: `passed` или
-`pass-with-risks`; отрицательные: `fail` или `blocked`. Handoff уже должен
-существовать, а SHA-256 соответствовать его байтам. `handoff` задаётся относительно
-run-каталога и точно совпадает с `--artifact` recorder. Повествовательный отчёт
-запишите в handoff; не добавляйте прозу перед необрамлённым JSON. Reader также
-сохраняет поддержку завершающего fenced JSON. См. `references/traceable-runs.md`.
+Для `blocked/fail` укажите причину, имеющиеся доказательства и непроверенное.
+В `--prepare-conclusion` передайте `--reason` и повторяемый `--unverified`.
+Без sealed candidate допустим `reviewed_result_hash: null`. Не выдумывайте
+положительные доказательства для `gap`: отрицательное заключение сохраняется с реальным
+завершённым ходом и не становится принятой QA-проверкой. Структура, идентичность,
+история и целостность заявленных доказательств обязательны для обоих исходов.
 
 В handoff отразите:
 
@@ -162,8 +179,9 @@ run-каталога и точно совпадает с `--artifact` recorder. 
 - next action
 
 ## Hard Rules
-- For product changes, use the registered workspace: authors write only working_root; QA/reviewer inspect the same retained candidate_root and result_hash. Run writing checks on a disposable copy. Seal the complete tree before acceptance; delivery verifies the retained baseline and candidate. See references/traceable-runs.md.
+- For positive acceptance of product changes, inspect the same retained candidate_root and result_hash of the current registered workspace revision. Authors write only working_root; writing checks use a disposable copy. Check every selected product root, pinned context provenance and exact context exclusions. A negative report may precede seal and never grants delivery. See references/traceable-runs.md.
 - Do not claim readiness without fresh checks.
+- Follow "Приёмка продукта и аудит журнала" in references/traceable-runs.md: operation-local descriptors protect reads/writes; saved dev/ino are not lifetime preconditions. Positive finalize/delivery use product acceptance, preserving source/evidence integrity and independent QA/reviewer. Full-audit presentation findings remain visible separately.
 - Do not replace UI workflow proof with API calls.
 - Do not hide flaky or skipped checks.
 - Do not use Fast.

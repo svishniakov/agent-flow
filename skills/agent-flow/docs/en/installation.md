@@ -55,6 +55,33 @@ Start a new Desktop task, type `@`, select Agent Flow, and send the task. An
 explicit plugin selection invokes its main skill. Plain messages without that
 selection or a textual invocation must not start Agent Flow.
 
+## Package validation and CLI selection
+
+`check-installed-package.py --package-only` checks hashes and runs a disposable
+project from the installed package: module imports and run initialization.
+It needs no account or role setup. Distribution tests exercise semantic journal
+record and read and workspace preparation with a context root in both extracted archives.
+
+If the application ships its own Codex CLI, select it explicitly for the command.
+For example, with ChatGPT installed under `/Applications`:
+
+```sh
+AF_CODEX_BIN="/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin"
+PATH="$AF_CODEX_BIN:$PATH" codex --version
+PATH="$AF_CODEX_BIN:$PATH" codex exec --help
+PATH="$AF_CODEX_BIN:$PATH" codex debug models --bundled
+```
+
+Check that this path exists in your installation. Use the same `PATH` prefix for
+plugin installation commands. This does not update the global CLI. The bundled
+catalog reports shipped models and reasoning levels without refreshing from the
+server; it does not prove that your account can execute a model request.
+
+The Codex `0.144.1` pin in `check-tools.json` belongs to the complete source test
+suite and frozen model-eval harness with its `gpt-5.6-*` catalog. It does not certify
+compatibility with current Agent Flow role models. Select the prepared suite CLI
+separately through `PATH` for those tests.
+
 ## Roles, active source, and updates
 
 The readiness check also rejects explicit Agent Flow role declarations in

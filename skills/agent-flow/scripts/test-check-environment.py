@@ -65,6 +65,15 @@ class EnvironmentChecks(unittest.TestCase):
             with self.assertRaisesRegex(environment.EnvironmentError, "Python dependency is missing"):
                 environment.check_environment()
 
+    def test_codex_pin_diagnostic_identifies_selected_binary_and_scope(self):
+        with patch.object(environment, "require_tool", return_value="/selected/bin/codex"), \
+             patch.object(environment, "version_of", return_value="0.162.0-alpha.17.2"):
+            with self.assertRaises(environment.EnvironmentError) as raised:
+                environment.require_version("codex", "0.144.1")
+        self.assertIn("/selected/bin/codex", str(raised.exception))
+        self.assertIn("frozen model-eval harness", str(raised.exception))
+        self.assertIn("does not certify compatibility", str(raised.exception))
+
     def test_unsupported_platform_fails(self):
         with patch.object(environment.sys, "platform", "win32"):
             with self.assertRaisesRegex(environment.EnvironmentError, "cannot be skipped"):

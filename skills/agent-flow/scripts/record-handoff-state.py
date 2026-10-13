@@ -52,11 +52,15 @@ def record_handoff_state(
     batch_id: str | None,
     batch_items: list[str],
     identifier: str | None = None,
+    summary: str = "Record handoff state",
 ) -> Path:
+    from journal_structure import validate_request
+    from journal_io import write_entry
+    validate_request("event", {"summary": summary, "status": status, "role": "orchestrator", "stage": "handoff-state"})
+    domain_status = {"planned": "queued", "active": "accepted", "pass": "completed", "pass-with-risks": "completed", "blocked": "blocked", "fail": "failed", "timed-out": "blocked", "replaced": "blocked"}[status]
     lane_map_path = run_dir.resolve() / "lane-map.json"
     payload = dict(lane_id=lane_id, status=status, mode=mode, from_lane=from_lane,
                    to_lane=to_lane, task=task, handoff=handoff, batch_id=batch_id, batch_items=batch_items)
-    identifier = operation_id(run_dir, "handoff-state", payload, identifier=identifier)
     def mutation(snapshot):
         if snapshot.exists("timeline.jsonl"):
             events = [json.loads(line) for line in snapshot.read_text("timeline.jsonl").splitlines() if line.strip()]
@@ -65,11 +69,12 @@ def record_handoff_state(
         data = load_lane_map(lane_map_path, snapshot=snapshot)
         lane = find_lane(data["lanes"], lane_id)
         expected = {"pass": "completed", "pass-with-risks": "completed", "fail": "failed", "blocked": "blocked"}.get(lane.get("status"))
-        if expected is not None and status != expected:
+        if expected is not None and domain_status != expected:
             raise JournalError(f"terminal lane status {lane['status']} requires handoff state {expected}")
-        lane["handoff_state"] = update_handoff_state(lane=lane, **payload)
+        lane["handoff_state"] = update_handoff_state(lane=lane, **{**payload, "status": domain_status})
         return {"lane-map.json": encode_json(data, pretty=True) + "\n"}, {}
-    transact(run_dir, identifier, payload, mutation)
+    write_entry(run_dir, "event", {"summary": summary, "status": status, "role": "orchestrator", "stage": "handoff-state"},
+                identifier=identifier, payload=payload, mutation=mutation)
     return lane_map_path
 
 
@@ -78,7 +83,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--run-dir", required=True, help="Traceable run directory.")
     parser.add_argument("--lane-id", required=True, help="Lane id in lane-map.json.")
     parser.add_argument("--operation-id", help="Saved machine request ID for retry.")
-    parser.add_argument("--status", required=True, choices=sorted(HANDOFF_STATE_STATUSES))
+    from journal_structure import CALLER_STATUSES
+    parser.add_argument("--status", required=True, choices=sorted(CALLER_STATUSES))
+    parser.add_argument("--summary", required=True)
     parser.add_argument("--mode", choices=sorted(HANDOFF_STATE_MODES), help="Defaults to task.")
     parser.add_argument("--from", dest="from_lane", help="Source lane or role id.")
     parser.add_argument("--to", dest="to_lane", help="Target lane or role id. Defaults to lane id.")
@@ -111,6 +118,7 @@ def main(argv: list[str] | None = None) -> int:
             batch_id=args.batch_id,
             batch_items=args.batch_items,
             identifier=args.operation_id,
+            summary=args.summary,
         )
     except (RuntimeError, JournalError, OSError) as exc:
         print(str(exc), file=sys.stderr)

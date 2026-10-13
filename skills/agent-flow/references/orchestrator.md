@@ -2,7 +2,13 @@
 
 Для нового `change` сначала подготовьте отдельный workspace, перед QA сохраните полный кандидат через `task-workspace.py seal`, после приёмки выдайте его через `delivery`. Авторы работают в `working_root`, QA/reviewer проверяют один `candidate_root`; пишущие проверки используют расходную копию. Полный порядок: [рабочая копия и выдача результата](traceable-runs.md#полная-рабочая-копия-и-выдача-результата).
 
-Публикуйте run-артефакты штатными командами журнала; личные файлы служат входом `journal.py publish`, чтение выполняется через `journal.py read`. Прямое редактирование файлов run или экспорта не публикует изменения. Порядок публикации, повторов и импорта описан в [Traceable Runs](traceable-runs.md#публикация-и-чтение-журнала).
+Передавайте смысловой текст и статус через `journal.py record`; допустимые поля, типы и примеры получите командой `python3 -B scripts/journal.py contract`. Код формирует заголовки, метаданные, SHA и проекции. Исходные доказательства публикуйте через `journal.py publish`, результаты читайте через `journal.py read`. Опубликованные журналы и экспорт вручную не редактируйте. Порядок записи, повторов и импорта: [Traceable Runs](traceable-runs.md#публикация-и-чтение-журнала).
+
+Служебные JSON и lane state также принадлежат writer. Указание «записать» или
+«поддерживать» журнал ниже означает typed `record` из действующего `contract`,
+а не raw publish готового JSON. Worker-start и final проверяют реальные proof,
+независимых owner/QA/reviewer, readiness, recovery и историю continuation/harness.
+Сформированный writer документ не означает, что эти проверки пройдены.
 
 Document status: done
 
@@ -46,15 +52,66 @@ The orchestrator must obey:
 ### Обязательная последовательность для изменения файлов
 
 1. До первого делегирования создайте журнал через `init-run.py --mode compact|full`. Заполните исходный снимок и границы, затем через recorder сохраните частичный verification с реальным `root_thread_id`. Порядок и команды: `traceable-runs.md`, раздел «Запись и собственный итог проверяющего».
-2. Зарегистрируйте каждое настоящее назначение через `record-agent-trace.py`. Если инструмент вернул только canonical name, используйте `--resolve-session --agent-path`; UUID берётся из исходной сессии, не из догадки.
+2. До implementation/integration подготовьте workspace по явным продуктовым и контекстным корням, зарегистрируйте `task_kind: change`, границы и готовность обязательных проверок. Analysis/planning могут предшествовать prepare. Зарегистрируйте каждое настоящее назначение через `record-agent-trace.py`; автор добавляется при запуске. Если инструмент вернул только canonical name, используйте `--resolve-session --agent-path`; UUID берётся из исходной сессии, не из догадки.
 3. Для выбранного поведенческого критерия до отправки сохраните полный начальный пакет и каждый followup, запишите `behavior-input-prepared`. Заранее зафиксируйте критерий, QA checklist и достаточность `strict_inputs`.
-4. Закончите scope и проверки, подготовьте окончательные статусы и checklist всех связанных документов каждого репозитория, включая исходный план. Перед QA выполните `seal` и передайте recorder `task_kind: change` и IDs авторов. Recorder заполняет `result_files` из полного scanner delta. Используйте выведенный `result_hash`, который включает весь сохранённый кандидат, baseline, статусы документов, снимок и границы. Каждое назначение получает полные инструкции роли, текущие ограничения и доказательства. Это кандидат результата; текущая задача остаётся активной до приёмки и финальной валидации.
-5. QA готовит собственный итог через recorder `--prepare-conclusion` и публикует stdout без пересоздания полей. После настоящего завершения зарегистрируйте его через recorder. Только после успешной записи передайте reviewer текущий результат и принятый QA handoff; reviewer использует тот же помощник, который добавляет `qa_handoff_sha256`.
+4. Закончите scope и проверки, подготовьте окончательные статусы и checklist всех связанных документов каждого репозитория, включая исходный план. Остановите product writers, выполните `seal`, опубликуйте handoff/edit evidence и boundary v2 декларацию каждого автора. Затем передайте recorder `task_kind: change` и IDs авторов. Recorder заполняет `result_files` полным scanner delta; новый seal использует hash v5 для содержимого, исходных требований и смыслового scope/авторских границ. Permissions проверяются по authored_paths каждого автора, union точно покрывает delta, shared paths раскрыты всеми участниками. Каждое назначение получает полные инструкции роли, текущие ограничения и доказательства. Это кандидат результата; текущая задача остаётся активной до приёмки и финальной валидации.
+5. QA готовит собственный итог через recorder `--prepare-conclusion` и публикует stdout без пересоздания полей. После настоящего завершения зарегистрируйте его через recorder. Для положительной приёмки только после успешной записи передайте reviewer текущий результат и принятый QA handoff; reviewer использует тот же помощник, который добавляет `qa_handoff_sha256`. Отрицательный reviewer может зафиксировать причину без принятого QA; без sealed candidate допустим `reviewed_result_hash: null`. Эти записи не принимают результат.
 6. Ошибку записи исправляйте по диагностике. Не переписывайте исходные ответы. Новый ответ, если он нужен, получают продолжением того же назначения с прежними моделью, достигнутым reasoning и счётчиком попыток. Исправление регистрации само по себе не требует нового запуска модели.
-7. Если commit запрошен, сверяйте index с принятой поставкой, создайте scoped commit и проверьте документы через `git show` в каждом репозитории; запишите SHA в память и timeline. Подготовьте окончательный текст отчёта и выполните `journal.py finalize`: команда проверяет предполагаемый итог и атомарно закрывает текущее поколение. При отказе журнал остаётся открытым для исправления. Затем выполните свежий `validate-run.py --run-dir ...` без допуска незавершённых данных. Сохраните stdout/stderr и exit code вне канонических документов журнала. При недоступных обязательных доказательствах укажите `verification.blocker` и отрицательный итог. Принятые документы больше не меняйте без повторной приёмки.
-8. Только после успешной команды и закрытия всех критериев установите `Status: done`, затем сообщите результат. Изменения результата требуют повторного принятия; изменения handoff, summary или итогового отчёта требуют затронутых проверок и свежей валидации. Сохранённый лог команды не служит разрешением на следующее завершение.
+7. Если commit запрошен, сверяйте index с принятой поставкой, создайте scoped commit и проверьте документы через `git show` в каждом репозитории; запишите SHA в память и timeline. Подготовьте окончательный текст отчёта и выполните `journal.py finalize`: команда проверяет предполагаемый итог и атомарно закрывает текущее поколение. При отказе журнал остаётся открытым для исправления. Сохраните свежий полный аудит `validate-run.py --run-dir ...` без permissive flags, затем выполните штатную `delivery` со свежей проверкой продукта. Замечания только об оформлении сохраняются в аудите и сами по себе не запрещают delivery. При недоступных обязательных доказательствах укажите `verification.blocker` и отрицательный итог. Принятые продуктовые документы больше не меняйте без повторной приёмки.
+8. Только после успешной проверки продукта и delivery, закрытия всех критериев установите `Status: done`, затем сообщите результат. Изменения продукта или смыслового scope требуют повторного принятия; изменения доказательств требуют затронутых проверок. Сохранённый лог команды не служит разрешением на следующее завершение.
 
 Этот порядок дополняет применимые gates ниже. Скрипт проверяет только вызванную команду и не перехватывает произвольный final Codex.
+
+[Приёмка продукта и аудит журнала](traceable-runs.md#приёмка-продукта-и-аудит-журнала)
+уточняет правила ниже: saved dev/ino не служат долгосрочным условием приёмки,
+новые seals используют hash v5, полный аудит не подменяет проверку продукта.
+Предварительная readiness-церемония сама по себе не блокирует проверенный результат;
+обязательные local gates, авторство, permissions и независимые QA/reviewer сохраняются.
+
+Расположение `.agent-work` сохраняется; scope включает явно выбранные корни
+изменений и контекста. Для одного репозитория читайте его контекст, для нескольких
+также общий контекст проекта; наследуемые инструкции действуют всегда.
+Перед расширением scope остановите исполнителей, обновите workspace revision,
+контекст и задания. Canonical skills читаются по исходному пути; зависимости
+приложения, сборки и тестов входят в продуктовый снимок.
+
+`blocked/fail` закрывает честный отчёт о незавершённой работе: конкретная причина,
+перечень непроверенного и `gap` допустимы без candidate или успешных проверяющих.
+Структура, identity, история и целостность заявленных доказательств обязательны.
+Успешный validator такого отчёта не разрешает delivery или `Status: done`.
+
+Исторические resolved/exempt проверяются для всех исходов общей логикой:
+assignment/outcome, immutable archive при наличии, obligation ID, reason,
+evidence hashes, отсутствие циклов и принятый replacement той же обязанности.
+Coverage исключает только проверенные resolutions. Голый replaced не помогает;
+текущие непринятые обязанности допустимы как причина blocked/fail, не resolved.
+
+### Локальная поставка
+
+Явный `verification.delivery_scope` version 1 задаёт local-deliverable через пять
+массивов external_followup. Смысл и ссылки закрепляются до checks в SHA-bound
+task_scope. [Единый контракт](traceable-runs.md#локальная-приёмка-и-внешний-follow-up)
+закрепляется до соответствующих новых readiness/QA/reviewer attempts штатным
+recorder `--stage verification-prepared --status active --verification-json`
+с текущим полным verification и delivery_scope. Event и квитанция фиксируют
+нормализованный scope/task_scope SHA. Scoped update сохраняет историю, требует
+нового result_hash и новых выбранных QA/reviewer.
+Контракт
+применяется claims/acceptance, readiness/results, obligations, critical/risk,
+recorders, finalize, report и delivery. Требования успешности gates ниже относятся
+к локальной области при таком opt-in; external gaps и outcomes остаются открытыми.
+Без scope всё строго. Auth/config/payload/code defects, авторство, выбранные
+QA/reviewer, history и обязательный local proof продолжают блокировать приёмку.
+Scope edit сбрасывает stale QA/reviewer. В итогах отдельно назовите local result,
+исходную внешнюю цель и follow-up; deploy-only задача без local deliverable
+не получает delivery. Чтение/finalize/delivery не требует сети к внешнему сервису.
+
+Prepare без destination использует journal-anchored retained default:
+canonical run → `.agent-work/workspaces/<run>-<run_uuid>`,
+noncanonical → `<run_dir>/workspace-<run_uuid>`. Повтор использует existing bundle;
+explicit/temp destination совместим, прежняя binding не перемещается.
+No-follow/identity checks сохраняются. Missing baseline/candidate bytes дают
+точный отказ; manifests не восстанавливают результат, source его не заменяет.
 
 1. Enter this route only for an explicit instruction to use `Agent Flow`, `AgentFlow`, `$agent-flow`, `agent-flow`, or `агент-флоу` to perform the task; apply the canonical Invocation Model.
 2. Strip the invocation marker and read local project rules.
@@ -90,7 +147,7 @@ Agent Flow-invoked request:
 - Authorizes the orchestrator to choose solo or subagent execution according to budget.
 - Keeps `light` solo for implementation ownership.
 - Allows `standard` and `release` subagents when they add independent evidence, parallelism, or review value.
-- После изменения файлов требует отдельные `qa-verifier` и `reviewer` с доказательствами текущей редакции.
+- Для положительного итога после изменения файлов требует отдельные `qa-verifier` и `reviewer` с доказательствами текущей редакции.
 
 ## Subagent Discovery
 
@@ -107,7 +164,7 @@ Only after the budget/task shape justifies subagents or a required subagent gate
 - Prefer solo implementation for `light`.
 - In `standard`, use subagents only for narrow independent lanes, QA, review, or research evidence.
 - In `release`, consider architect, QA, reviewer, and worker lanes by default; skip only with a concrete reason.
-- Mandatory Independent QA Review Gate требует для изменения файлов отдельные `qa-verifier` и `reviewer`. Контракт `delegation-summary.json.verification` одинаков для compact/full/auto; role-lane его не заменяет. При недоступных доказательствах запишите `verification.blocker` и завершите `blocked`. Подробности: `references/traceable-runs.md`.
+- Mandatory Independent QA Review Gate требует для положительной приёмки изменения файлов отдельные `qa-verifier` и `reviewer`. Контракт `delegation-summary.json.verification` одинаков для compact/full/auto; role-lane его не заменяет. При недоступных доказательствах запишите `verification.blocker` и завершите `blocked` или `fail`. Подробности: `references/traceable-runs.md`.
 - Use workflow patterns as internal recipes only when they strengthen routing or verification.
 - Treat unclear Agent Flow scope as intake and routing work, not as a reason to launch brainstorming.
 - Stop only the part with a confirmed active conflict or a specific required result still unproven after available checks. Stale status and unavailable session listing alone are not blockers; continue independent scope.
@@ -121,7 +178,7 @@ Only after the budget/task shape justifies subagents or a required subagent gate
 - In lane-map schema v2, record selected facets in `architecture_context` with `product_context`, `application_surface`, `architecture_pattern`, `stack_runtime`, `risk_gates`, and `verification_gates`.
 - Apply Architecture Capability Router after Matrix selection: record `architecture_capabilities`, select capability ids from `registries/architecture-capabilities.json`, and use Soft Skill Binding so `recommended_skills` inform preparation but do not block `validate-run.py`.
 - Enforce Architecture Design Mode before implementation when `architecture_contract_required=true`: require `architecture_design_brief`, an Architecture Design Brief, `Selected Matrix Facets`, and `Status: approved` before worker lanes and before `ship` or `pass-with-risks`.
-- Use Architecture Artifact Authoring Automation for architecture-gated traceable runs: create the skeleton with `init-run.py --architecture-gate`, then have agents fill their own artifacts and remove every `TODO(agent):` before any positive final verdict.
+- `init-run.py --architecture-gate` создаёт planned lanes и архитектурный контекст без вымышленных approvals, command results и proof rows. Затем роли передают смысл через `journal.py record`; формат запроса берут из `journal.py contract`. Отсутствующие результаты закрывают старт worker и успешный final.
 - When the Architecture Contract Gate applies, enforce Architecture Execution Control: workers record `Architecture Compliance` and `Engineering Simplicity`, fix now if fixable before QA/reviewer, any architecture or simplicity drift routes to architect re-check, QA records `Architecture Invariants`, and reviewer records `Architecture Matrix Mismatches` plus `Contract Drift` covering Engineering Simplicity.
 - Engineering Simplicity Gate is recorded in `architecture_compliance.engineering_simplicity` with `no-extra-work`, `stdlib-native-first`, `existing-helper-first`, `dependency-justified`, `abstraction-justified`, `smallest-working-diff`, and `tests-fit-risk`. Simplicity Gate is not a reporting gate: fixable overengineering, duplicated helper, unnecessary abstraction, dependency/stack drift, or wider-than-needed implementation must be fixed or routed as drift; reporting-only closure is invalid.
 - Enforce Simplicity Scope Coverage by recording `engineering_simplicity_scope.primary_surfaces` for core task surfaces, `secondary_surfaces` for peripheral evidence, and worker `scope_coverage`; primary scope must be audited before peripheral-only closure can pass QA, reviewer, or final.
@@ -131,14 +188,15 @@ Only after the budget/task shape justifies subagents or a required subagent gate
 - Enforce Acceptance Criteria Traceability Gate for positive architecture-gated runs: Architecture Contract `QA Gates` and `Reviewer Checklist` list `Acceptance Criteria` ids, `acceptance-traceability.json` records every required id as `supported`, and every referenced evidence marker exists.
 - Enforce Surface Evidence Gate inside `acceptance-traceability.json`: every acceptance record has `surface_expectations`, and every `evidence` or `negative_fixture_evidence` record names matching `surface`, `polarity`, and `proof_kind`; storage/internal evidence cannot satisfy API, UI, logs, history, provider metadata, or external-provider acceptance unless the target surface matches.
 - Enforce Contract Negative Fixture Gate for contract-like acceptance records: any `gate`, `cli`, `query`, `storage`, `config`, or `parser` acceptance item has `negative_fixture_evidence` with marker-backed negative or drift fixture evidence before `ship` or `pass-with-risks`, and `negative_fixture_evidence` cannot use `polarity=positive`.
-- Enforce Verification Readiness Gate before workers: write `verification_readiness`, maintain `verification-readiness.json`, cover selected `risk_gates` and `verification_gates`, ask user approval only for documented safe commands when status is `needs-approval`, record `approval_requests` and `approval_executions`, stop immediately as `paused-blocked` with final `blocked` and `resume_phrase=Готово` when the user declines, and require post-worker QA `Verification Gate Results`.
+- Enforce Verification Readiness Gate before workers through the typed writer: cover selected `risk_gates` and `verification_gates`, use documented safe commands and actual user authorization, record native execution evidence, stop immediately as `paused-blocked` with final `blocked` when the user declines, and require post-worker QA `Verification Gate Results`.
+- Legacy `resume_phrase` — метаданные, а не пароль. Новое `readiness-approval` связывает решение с настоящим root user event и точной цитатой. Прежнее применимое разрешение действует без нового сообщения, точной фразы или NLP-проверки.
 - Enforce Continuation Gate for resumed runs: keep the original `blocked-checkpoint` in `timeline.jsonl`, write `continuation-summary.json`, preserve the checkpoint snapshot, distinguish `historical_worker_lanes` from `new_worker_lanes`, require `revalidated_lanes`, and do not start new worker work before ready Verification Readiness. Final must include `Continuation Summary`; QA writes `Continuation Revalidation`; reviewer writes `Continuation Review`.
 - Enforce Harness Evaluation Loop when a learning trigger exists: write `harness-evaluation.json`, record `learning_triggers`, findings, Evidence Records proposals, and source evidence, add final `Harness Evaluation`, and route reviewer `Harness Evaluation Review` for positive lane-map runs. Proposals must stay `proposed`, target only `Evidence Records`, and set `requires_human_approval=false`; project-trace learning may promote only into the current project's Project Memory. Promotion may add ACE-inspired analyzer metadata, but it must not add an ACE runtime dependency, external MCP server, vector store, or separate skillbook.
 - Enforce Mitigation Gate before `pass-with-risks`: write `risk-mitigations.json`, mark every risk as `identified`, include `problem`, `impact`, `affected_scope`, evidence, and `next_gate=resolution`, record the ids in `Risk Mitigations`, then route reviewer `Risk Mitigation Review`.
 - Enforce Resolution Gate after Mitigation Gate before `pass-with-risks`: write `risk-resolutions.json`, create one record per identified risk, include `resolution_type`, concrete `resolution`, evidence, `verification`, `verified_by`, `reviewed_by`, record the ids in `Risk Resolutions`, route QA `Risk Resolution Verification`, and route reviewer `Risk Resolution Review`; only `fixed`, `mitigated`, or `contained` may close `pass-with-risks`, while `unresolved` is only valid for `blocked` or `fail`.
 - Enforce Blocked Resolution Gate inside Resolution Gate: blocked attempts require `blocked_lesson`, `rollback`, `forbidden_repeat`, and a Blocked Recovery Path; attempt 1 blocked routes to Senior QA `Senior QA Test Design Review` and architect `Resolution Architect Review` before attempt 2; attempt 2 blocked routes to `Supervising Architect Review` before attempt 3; a third blocked attempt ends as `blocked` or `fail`.
 - Enforce Delegation Trace Gate for every positive traceable run, including compact without lane-map: keep `delegation-summary.json`, final `Delegation Trace`, `Subagents Used`, `Role Lanes Used`, and `Subagent Trace Evidence` synchronized with actual trace evidence.
-- Enforce Handoff State Gate when `handoff_state_required=true`: use `scripts/record-handoff-state.py` to record `queued`, `accepted`, and `completed` state in `lane-map.json`; terminal `pass`, `blocked`, and `fail` lane statuses must match `handoff_state`, and batch items must be completed before batch acceptance.
+- При `handoff_state_required=true` передавайте смысл и caller status через `scripts/record-handoff-state.py`; допустимые значения берите из действующего `journal.py contract`. Код выводит внутреннее состояние handoff; terminal lane status должен ему соответствовать, а batch items должны завершиться до batch acceptance.
 - For lane-map schema v2, set `budget`, `architecture_contract_required`, `architecture_contract_independent`, `architecture_context`, and `architecture_capabilities` explicitly.
 - Send rejected, regressed, or uncertain architecture attempts through the Architecture Approval Gate before retrying implementation.
 - Treat regression demotion as immediate: a reused approach that regresses is no longer auto-applicable until reviewed.
@@ -190,7 +248,7 @@ Before final answer:
 14. If a trace timeline exists and a product commit was created, append an orchestrator `stage=commit` event with the commit hash.
 15. Compare the initial worktree snapshot with current `git status --short`.
 16. In `final.md`, record run-owned changes, product commit hash when applicable, pre-existing dirty files left untouched, and pre-existing dirty files touched by the run.
-17. Call recorder `--render-final --run-dir <run-dir>` to prepare Worktree Hygiene and Delegation Trace from structured data; this does not close the journal. Seal the workspace before QA; the recorder derives both file arrays from the complete scanner delta. Repeating an unchanged accepted QA/reviewer completion preserves its original trace, timestamps and acceptance; it needs no new model turn. Resolve historical failures explicitly with accepted evidence for the same obligation; retain their original events and handoffs.
-18. Выполните `journal.py finalize` с ожидаемыми UUID, редакцией, поколением, сохранённым operation ID и окончательным текстом отчёта. Не добавляйте `stage=final` через append или publish. После успешного закрытия выполните свежий `validate-run.py --run-dir ...` без `--allow-pending` и `--allow-no-check`; сохраните вывод и код выхода вне канонических документов журнала. Квитанция finalize не заменяет свежую проверку внешних источников при выдаче результата и delivery.
-19. Только при exit 0, полном checklist и отсутствии блокеров выполните Task Status Completion Gate и установите `Status: done`. Остаточные риски должны быть записаны до проверки; правка итоговых доказательств после неё требует свежей валидации.
+17. Call recorder `--render-final --run-dir <run-dir>` to prepare Worktree Hygiene and Delegation Trace from structured data; this does not close the journal. Seal the workspace before QA; the recorder derives `result_files` from the complete scanner delta. Do not maintain duplicate `run_changed_files`; old records remain readable. Repeating an unchanged accepted QA/reviewer completion preserves its original trace, timestamps and acceptance; it needs no new model turn. Resolve historical failures explicitly with accepted evidence for the same obligation; retain their original events and handoffs.
+18. Выполните `journal.py finalize` с ожидаемыми UUID, редакцией, поколением, сохранённым operation ID и окончательным текстом отчёта. Не добавляйте `stage=final` через append или publish. После закрытия сохраните свежий полный аудит `validate-run.py --run-dir ...` без permissive flags и выполните штатную `delivery`. Квитанция finalize не заменяет свежую проверку продукта и его доказательств при delivery.
+19. Только при успешной проверке продукта и delivery, полном checklist и отсутствии продуктовых блокеров выполните Task Status Completion Gate и установите `Status: done`. Остаточные риски и замечания аудита сохраняйте явно; правка итоговых доказательств после проверки требует свежей валидации.
 20. Keep final answer short and evidence-based. Положительный финальный ответ следует после успешной валидации и обновления памяти.

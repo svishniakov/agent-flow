@@ -11,8 +11,13 @@ from journal_io import (JournalError, JournalSnapshot, digest, export_snapshot,
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--run-dir", required=True)
+    parser.add_argument("--run-dir")
     commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("contract", help="Print the actual semantic writer contract.")
+    record = commands.add_parser("record")
+    record.add_argument("--kind", required=True)
+    record.add_argument("--request-file", required=True)
+    record.add_argument("--operation-id")
     publish = commands.add_parser("publish")
     publish.add_argument("--file", action="append", nargs=2, metavar=("LOGICAL_PATH", "CAPTURE"), required=True)
     publish.add_argument("--operation-id", help="Saved machine request ID for a technical retry.")
@@ -44,8 +49,11 @@ def main(argv=None):
     finalize_parser.add_argument("--expected-revision", type=int, required=True)
     finalize_parser.add_argument("--expected-generation", type=int, required=True)
     finalize_parser.add_argument("--operation-id", required=True)
-    finalize_parser.add_argument("--final-file", required=True)
-    finalize_parser.add_argument("--verdict", required=True, choices=("ship", "blocked", "fail", "pass-with-risks"))
+    final_input = finalize_parser.add_mutually_exclusive_group(required=True)
+    final_input.add_argument("--final-file")
+    final_input.add_argument("--summary")
+    finalize_parser.add_argument("--verdict", choices=("ship", "blocked", "fail", "pass-with-risks"))
+    finalize_parser.add_argument("--status", choices=("pass", "blocked", "fail", "pass-with-risks"))
     resolution_parser = commands.add_parser("resolve-obligation", help="Record evidence that another assignment covers the same responsibility.")
     resolution_parser.add_argument("--lane-id", required=True)
     resolution_parser.add_argument("--replacement", required=True)
@@ -53,9 +61,19 @@ def main(argv=None):
     resolution_parser.add_argument("--expected-revision", type=int, required=True)
     resolution_parser.add_argument("--operation-id", required=True)
     args = parser.parse_args(argv)
+    if args.command == "contract":
+        from journal_structure import request_contract
+        print(json.dumps(request_contract(), ensure_ascii=False, indent=2))
+        return 0
+    if not args.run_dir:
+        parser.error("--run-dir is required for journal operations")
     run_dir = Path(args.run_dir).expanduser().absolute()
     try:
-        if args.command == "diagnose-recovery":
+        if args.command == "record":
+            from journal_io import write_entry
+            request = json.loads(capture_file(Path(args.request_file)))
+            print(json.dumps(write_entry(run_dir, args.kind, request, identifier=args.operation_id)))
+        elif args.command == "diagnose-recovery":
             from journal_recovery import diagnose_recovery
             print(json.dumps(diagnose_recovery(run_dir), ensure_ascii=False, indent=2))
         elif args.command == "import-legacy":
@@ -77,20 +95,34 @@ def main(argv=None):
             print(json.dumps({"operation_id": args.operation_id, **classify_legacy(run_dir, json.loads(capture_file(Path(args.classification_file))),
                 expected_revision=args.expected_revision, identifier=args.operation_id)}))
         elif args.command == "publish":
+            current = JournalSnapshot.open(run_dir)
+            def check_owned(snapshot, names):
+                lane_map = json.loads(snapshot.documents.get("lane-map.json", b"{}"))
+                summary = json.loads(snapshot.documents.get("delegation-summary.json", b"{}"))
+                lane_ids = {lane["id"] for lane in lane_map.get("lanes", [])}
+                lane_ids.update(record["lane_id"] for group in ("subagents", "role_lanes") for record in summary.get(group, []))
+                from journal_structure import writer_owned_path
+                for name in names:
+                    if writer_owned_path(name, lane_ids=lane_ids):
+                        raise JournalError("writer-owned document requires semantic recorder: " + name)
+            check_owned(current, [name for name, capture in args.file])
             documents = {}
             for name, capture in args.file:
                 logical_path(name)
+                from journal_structure import writer_owned_path
+                if writer_owned_path(name):
+                    raise JournalError("writer-owned document requires semantic recorder: " + name)
                 path = Path(capture)
                 if path.is_symlink():
                     raise JournalError(f"capture must not be a symlink: {path}")
                 if name in documents:
                     raise JournalError(f"duplicate document: {name}")
                 documents[name] = capture_file(path)
-            current = JournalSnapshot.open(run_dir)
             documents = capture_external_references(run_dir, documents, current.source_root, previous=current.documents)
             payload = {name: digest(data) if data is not None else None for name, data in documents.items()}
             identifier = operation_id(run_dir, "publish", payload, identifier=args.operation_id)
             def publish_documents(snapshot):
+                check_owned(snapshot, [name for name, capture in args.file])
                 published = dict(documents)
                 index_path = "artifacts/source-references.json"
                 if index_path in published:
@@ -108,10 +140,15 @@ def main(argv=None):
             print(json.dumps({"operation_id": args.operation_id, **receipt}))
         elif args.command == "finalize":
             from journal_lifecycle import finalize
+            if args.final_file and JournalSnapshot.open(run_dir).operation_receipt(args.operation_id) is None:
+                raise JournalError("new finalization requires --summary; --final-file is available only for exact historical receipt replay")
+            verdict = "ship" if args.status == "pass" else args.status or args.verdict
+            if not verdict or args.verdict and args.verdict != verdict:
+                raise JournalError("finalize requires matching status/verdict")
             receipt = finalize(run_dir, expected_run_uuid=args.expected_run_uuid,
                                expected_revision=args.expected_revision, expected_generation=args.expected_generation,
-                               identifier=args.operation_id, final_bytes=capture_file(Path(args.final_file)),
-                               verdict=args.verdict)
+                               identifier=args.operation_id, final_bytes=capture_file(Path(args.final_file)) if args.final_file else None,
+                               final_summary=args.summary, verdict=verdict)
             print(json.dumps({"operation_id": args.operation_id, **receipt}))
         elif args.command == "read":
             snapshot = JournalSnapshot.open(run_dir)

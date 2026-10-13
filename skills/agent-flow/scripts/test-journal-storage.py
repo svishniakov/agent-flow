@@ -45,6 +45,45 @@ def load(name, filename):
 
 
 class StorageTests(unittest.TestCase):
+    def test_public_publish_denies_writer_owned_paths_before_request_and_preserves_raw_evidence(self):
+        journal.transact(self.run, "owned-lane-fixture", {}, lambda snapshot: (
+            {"lane-map.json": json.dumps({"schema_version": 2, "lanes": [
+                {"id": "worker", "role": "python-worker", "execution_mode": "role-lane", "status": "planned"}]})}, {}))
+        capture = self.run.parent / "raw-evidence"
+        raw = b"\x00original\xff\r\nbytes\n"
+        capture.write_bytes(raw)
+        before = journal.JournalSnapshot.open(self.run)
+        before_tree = {str(path.relative_to(self.run)): path.read_bytes()
+                       for path in self.run.rglob("*") if path.is_file()}
+        owned_paths = (
+            "timeline.jsonl", "delegation-summary.json", "lane-map.json", "final.md", "task.md", "run.md",
+            "context.md", "manifest.md", "plan.md", "progress.md", "lesson.md", "artifacts.json",
+            "route.md", "decisions.md", "definition-of-done.md", "checks.md",
+            "claim-evidence.json", "acceptance-traceability.json", "risk-mitigations.json", "risk-resolutions.json",
+            "verification-readiness.json", "continuation-summary.json", "harness-evaluation.json",
+            "checks/coverage-matrix.md", "checks/engineering-simplicity-scope.md", "checks/worker.md",
+            "checks/lane-boundary-worker.json", "checks/command-owned.json", "checks/command-owned.output",
+            "handoffs/worker.md", "agents/worker/trace.jsonl", "artifacts/source-references.json",
+            "artifacts/memory/owned.md", "artifacts/workspaces/owned.json",
+            "artifacts/lifecycle/owned.json", "artifacts/checkpoints/owned.json",
+        )
+        for name in owned_paths:
+            with self.subTest(name=name):
+                result = subprocess.run([sys.executable, "-B", str(SCRIPTS / "journal.py"), "--run-dir", str(self.run),
+                                         "publish", "--file", name, str(capture)], capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("writer-owned", result.stderr)
+                after = journal.JournalSnapshot.open(self.run)
+                self.assertEqual((before.revision, before.documents, before.receipts),
+                                 (after.revision, after.documents, after.receipts))
+                self.assertEqual(before_tree, {str(path.relative_to(self.run)): path.read_bytes()
+                                               for path in self.run.rglob("*") if path.is_file()})
+        for name in ("checks/raw.output", "artifacts/screenshots/raw.png", "artifacts/specs/raw.md", "checks/unassigned-evidence.md"):
+            result = subprocess.run([sys.executable, "-B", str(SCRIPTS / "journal.py"), "--run-dir", str(self.run),
+                                     "publish", "--file", name, str(capture)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(journal.JournalSnapshot.open(self.run).read_bytes(name), raw)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -115,7 +154,7 @@ os.kill(os.getpid(), signal.SIGKILL)
         commands = []
         for i in range(4):
             commands.append(["append-timeline.py", "--role", "orchestrator", "--stage", "checks", "--status", "pass", "--summary", "Identical independent event"])
-            commands.append(["record-handoff-state.py", "--lane-id", f"worker-{i}", "--status", "queued"])
+            commands.append(["record-handoff-state.py", "--lane-id", f"worker-{i}", "--status", "planned", "--summary", "Queued work"])
             commands.append(["record-agent-trace.py", "--role", "orchestrator", "--execution-mode", "role-lane", "--stage", "checks", "--status", "pass", "--summary", str(i)])
         processes = [subprocess.Popen([sys.executable, "-B", str(SCRIPTS / command[0]), "--run-dir", str(self.run), *command[1:]], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) for command in commands]
         for process in processes:
@@ -278,32 +317,23 @@ journal.main(['--run-dir', sys.argv[1], 'publish', '--file', 'accepted', sys.arg
             self.assertNotEqual(result.returncode, 0, result.stdout)
         self.unchanged(before)
 
-    def test_jd07_cli_publish_absolute_reference_and_capture_directories(self):
+    def test_jd07_domain_capture_absolute_reference_and_capture_directories(self):
         source = self.run.parent / "scope.md"
         source.write_bytes(b"original scope bytes")
-        capture = self.run.parent / "summary-capture.json"
-        capture.write_text(json.dumps({"verification": {"task_scope": {"path": str(source)}}}))
-        result = subprocess.run([sys.executable, "-B", str(SCRIPTS / "journal.py"), "--run-dir", str(self.run),
-                                 "publish", "--file", "delegation-summary.json", str(capture)],
-                                capture_output=True, text=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
+        def publish_summary(path, identifier):
+            current = journal.JournalSnapshot.open(self.run)
+            documents = {"delegation-summary.json": json.dumps({"verification": {"task_scope": {"path": str(path)}}}).encode()}
+            documents = journal.capture_external_references(self.run, documents, current.source_root, previous=current.documents)
+            return journal.transact(self.run, identifier, {"path": str(path)}, lambda snapshot: (documents, {}))
+        publish_summary(source, "first-capture")
         snapshot = journal.JournalSnapshot.open(self.run)
         self.assertEqual(snapshot.read_bytes(source), b"original scope bytes")
         self.assertTrue(snapshot.is_dir("artifacts/source-captures"))
-        identifier = json.loads(result.stdout)["operation_id"]
         other_source = self.run.parent / "other.md"
         other_source.write_bytes(b"other reference")
-        other_capture = self.run.parent / "other-summary.json"
-        other_capture.write_text(json.dumps({"verification": {"task_scope": {"path": str(other_source)}}}))
-        other = subprocess.run([sys.executable, "-B", str(SCRIPTS / "journal.py"), "--run-dir", str(self.run),
-                                "publish", "--file", "delegation-summary.json", str(other_capture)],
-                               capture_output=True, text=True)
-        self.assertEqual(other.returncode, 0, other.stderr)
-        repeat = subprocess.run([sys.executable, "-B", str(SCRIPTS / "journal.py"), "--run-dir", str(self.run),
-                                 "publish", "--file", "delegation-summary.json", str(capture), "--operation-id", identifier],
-                                capture_output=True, text=True)
-        self.assertEqual(repeat.returncode, 0, repeat.stderr)
-        self.assertEqual(json.loads(repeat.stdout)["revision"], snapshot.revision)
+        publish_summary(other_source, "other-capture")
+        replay = publish_summary(source, "first-capture")
+        self.assertEqual(replay["revision"], snapshot.revision)
         self.assertEqual(journal.JournalSnapshot.open(self.run).read_bytes(other_source), b"other reference")
 
 

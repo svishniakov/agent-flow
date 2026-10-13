@@ -2,7 +2,7 @@
 
 Для нового `change` сначала подготовьте отдельный workspace, перед QA сохраните полный кандидат через `task-workspace.py seal`, после приёмки выдайте его через `delivery`. Авторы работают в `working_root`, QA/reviewer проверяют один `candidate_root`; пишущие проверки используют расходную копию. Полный порядок: [рабочая копия и выдача результата](traceable-runs.md#полная-рабочая-копия-и-выдача-результата).
 
-Публикуйте run-артефакты штатными командами журнала; личные файлы служат входом `journal.py publish`, чтение выполняется через `journal.py read`. Прямое редактирование файлов run или экспорта не публикует изменения. Порядок публикации, повторов и импорта описан в [Traceable Runs](traceable-runs.md#публикация-и-чтение-журнала).
+Передавайте смысловой текст и статус через `journal.py record`; допустимые поля, типы и примеры получите командой `python3 -B scripts/journal.py contract`. Код формирует заголовки, метаданные, SHA и проекции. Исходные доказательства публикуйте через `journal.py publish`, результаты читайте через `journal.py read`. Опубликованные журналы и экспорт вручную не редактируйте. Порядок записи, повторов и импорта: [Traceable Runs](traceable-runs.md#публикация-и-чтение-журнала).
 
 Document status: done
 
@@ -139,13 +139,12 @@ a `Decision` section, selected `architecture_capabilities`, and `Status: approve
 `ship` and `pass-with-risks` stay blocked while the brief is missing,
 needs-revision, or rejected.
 
-Architecture Artifact Authoring Automation starts with `init-run.py
---architecture-gate`, which creates agent-authored skeleton artifacts for the
-Architecture Design Brief, Architecture Contract, worker handoffs, QA handoff,
-reviewer handoff, and evidence files. Roles fill their own artifacts and remove
-every `TODO(agent):` marker; no role asks the human to write these sections
-manually. `validate-run.py` blocks `ship` and `pass-with-risks` while any
-referenced architecture artifact still contains `TODO(agent):`.
+`init-run.py --architecture-gate` создаёт запланированные lanes и архитектурный
+контекст. Неизвестные результаты, доказательства и approval requests остаются
+незаполненными. Роль передаёт содержательные записи через `journal.py record`;
+поля, типы и допустимые статусы берёт из `journal.py contract`. Writer создаёт
+документы и проекции. Отсутствующие readiness и architecture evidence блокируют
+старт worker и успешный final; `TODO(agent):` не служит доказательством.
 
 The architecture handoff must include these sections: `Selected Architecture`,
 `Rejected Alternatives`, `Module Boundaries`, `Data And State Flow`, `Public
@@ -186,12 +185,31 @@ For schema v2 positive architecture-gated runs, each successful
 `implementation` or `integration` worker records `boundary.allowed_paths`,
 optional `boundary.forbidden_paths`, `changed_paths_artifact`, and a worker
 `Boundary Evidence` handoff section. The orchestrator or worker runs
-`scripts/record-lane-boundary.py --run-dir <run-dir> --lane-id <lane-id>` to
-write `checks/lane-boundary-<lane-id>.json`. The validator checks explicit
-repo-relative POSIX `changed_paths` with `fnmatch.fnmatchcase`; every path must
+`scripts/record-lane-boundary.py --run-dir <run-dir> --lane-id <lane-id> --declaration-json <published-path>` to
+write boundary version 2 in `checks/lane-boundary-<lane-id>.json`. Full
+`changed_paths` remains the scanner delta; explicit `authored_paths` comes from
+the author's published handoff/declaration with retained edit evidence.
+The validator checks authored POSIX paths with `fnmatch.fnmatchcase`; every path must
 match `allowed_paths`, and `forbidden_paths` wins. QA `Architecture
 Invariants`, reviewer `Contract Drift`, and final `Boundary Evidence` must
 mention every worker lane id.
+
+Union всех авторских деклараций точно покрывает полный delta. QA сверяет
+подтверждённый вклад с edit evidence; reviewer проверяет эту сверку. Shared path
+требует раскрытия и разрешений всех участников; forbidden имеет приоритет.
+Root как автор тоже предъявляет декларацию. Permissions filter общего diff
+не доказывает авторство. Порядок: остановка product writers → seal → handoffs,
+edit evidence и declarations → hash v5 нового seal → QA → reviewer. Декларации не содержат
+result_hash. Boundary v1/hash v1–4 сохраняют legacy reading и exact accepted replay.
+Полный формат: [Traceable Runs](traceable-runs.md#декларация-авторства-boundary-v2).
+
+При явном [delivery_scope](traceable-runs.md#локальная-приёмка-и-внешний-follow-up)
+требования успешности claims/acceptance, readiness/results, obligations,
+critical lanes и risk gates ниже относятся к локальной области. Все пять массивов
+external_followup обязательны; конкретные ссылки закрепляются до checks в SHA-bound
+task_scope. Внешние gaps/outcomes сохраняются. Code/auth/config defects, авторские
+lanes, выбранные QA/reviewer и integrity не исключаются. Без scope требования строгие.
+Недоступность обязательного local proof блокирует приёмку.
 
 Architecture Context Propagation carries the selected `architecture_context`
 through execution. Workers must set `architecture_compliance.matrix_facets` to
@@ -230,8 +248,12 @@ for a negative or drift fixture. `negative_fixture_evidence` cannot use
 `polarity=positive`. Missing negative/drift fixture evidence blocks positive
 verdicts.
 
-Verification Readiness Gate runs before workers when an architecture-gated run
-has worker lanes. The orchestrator writes `verification_readiness` in
+Verification Readiness Gate records check availability when an architecture-gated run
+has worker lanes. Its preliminary report alone is not a product acceptance blocker
+when actual required local checks are proven. Keep real blockers and user approval
+boundaries; the full audit retains ceremony and presentation findings. See
+[product acceptance](traceable-runs.md#приёмка-продукта-и-аудит-журнала).
+The orchestrator writes `verification_readiness` in
 `lane-map.json` and `verification-readiness.json`. The readiness QA lane checks
 whether every selected `risk_gates` and `verification_gates` facet can actually
 be verified. If a documented local command is needed, the gate records
@@ -239,7 +261,10 @@ be verified. If a documented local command is needed, the gate records
 anything. Approved commands produce `approval_executions` evidence and a later
 ready attempt. A user decline stops the current pass immediately as
 `paused-blocked`, final `blocked`, with a manual instruction and
-`resume_phrase=Готово`. Workers start only after a `ready` readiness lane. The
+the unmet gates. Legacy `resume_phrase` is metadata, not a password. Новое
+`readiness-approval` привязывает решение к настоящему root user event и точной
+цитате. Прежнее применимое разрешение действует без нового сообщения,
+точной фразы или NLP-проверки. Do not begin work that actually depends on an unavailable check. The
 post-worker QA lane records `Verification Gate Results`.
 
 Continuation Gate applies when a run resumes after `blocked-checkpoint` or a
@@ -267,11 +292,12 @@ keeps concrete `problem`, `impact`, `affected_scope`, evidence, and
 handoff lists every id in `Risk Mitigations`. Reviewer writes
 `Risk Mitigation Review` and confirms that every risk id is visible in the final handoff.
 
-Resolution Gate follows Mitigation Gate before `pass-with-risks`. The
-orchestrator writes `risk-resolutions.json` with one record per identified
-risk. The owner lane records the concrete action in `resolution`, chooses
-`resolution_type`, attaches evidence, and sets the status to `fixed`,
-`mitigated`, or `contained`. QA writes `Risk Resolution Verification` and
+Resolution Gate follows Mitigation Gate before `pass-with-risks`.
+Owner передаёт отдельный typed resolution request для каждого risk ID:
+содержательное действие, классификацию, эффект и настоящие evidence. Поля и
+допустимые значения берёт из `journal.py contract`. Writer формирует
+`risk-resolutions.json`; успешный domain outcome требует QA/reviewer proof.
+QA writes `Risk Resolution Verification` and
 mentions every risk id. Reviewer writes `Risk Resolution Review`, checks every
 risk id, verifies that `final.md` includes `Risk Resolutions`, and confirms
 that `unresolved` does not appear in a positive final verdict.

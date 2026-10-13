@@ -7,7 +7,12 @@ description: "Use only when the user explicitly asks to perform the task through
 
 Document status: done
 
-Run-артефакты публикуются через `journal.py publish` и доменные recorder-команды, читаются через `journal.py read`. Файлы экспорта не являются источником журнала. Правила повторов, снимков и импорта: [Traceable Runs](references/traceable-runs.md#публикация-и-чтение-журнала).
+Журнал принимает смысловой текст и статус через единый Python writer. Перед записью получите поля, типы, статусы и примеры командой `python3 -B scripts/journal.py contract`; записывайте через `journal.py record` или штатный доменный adapter. Код формирует формат, метаданные и связанные проекции. `publish` сохраняет исходные доказательства и attachments, `read` читает опубликованный результат. Writer-owned журналы и экспорт вручную не редактируйте. Правила повторов, снимков и импорта: [Traceable Runs](references/traceable-runs.md#публикация-и-чтение-журнала).
+
+Summary и текст sections — буквальное содержимое, включая переносы строк,
+Markdown и HTML. Форматирование этого текста не меняет Verdict, Evidence или
+служебные блоки: их создаёт writer. Имена attachments отображаются безопасно,
+но исходные пути и доказательства сохраняются точно.
 
 Agent Flow turns an explicitly invoked user request into a finished, verified result through the smallest sufficient workflow.
 
@@ -102,6 +107,44 @@ Agent Flow-invoked work:
 Inside Agent Flow, the orchestrator owns the outcome:
 
 Для нового изменения сначала используйте `task-workspace.py prepare`, работайте в `working_root`, перед QA выполните `seal`, а после приёмки выдайте сохранённый `candidate_root` через `delivery`. Полные правила обхода и исторического повтора: `references/traceable-runs.md`.
+
+Разработчик занимается задачей и проверкой результата; сведения собирает инструмент.
+Сохранённые `st_dev`/`st_ino` не блокируют чтение или приёмку неизменённых байтов:
+дескрипторы закрепляются заново внутри каждой файловой операции. Новые seals
+используют `result_hash_version: 5` для содержимого и смыслового scope; прежние
+hashes воспроизводятся без миграции. Положительные finalize/delivery проверяют
+продукт через `validate_product_acceptance`; полный `validate-run.py` сохраняет
+отдельные замечания об оформлении. Эти правила имеют приоритет над прежними
+требованиями полного аудита как условия доставки. См. [контракт приёмки](references/traceable-runs.md#приёмка-продукта-и-аудит-журнала).
+
+Prepare без `--destination` сохраняет bundle рядом с canonical run в
+`.agent-work/workspaces/<run>-<run_uuid>`; для noncanonical run —
+`<run_dir>/workspace-<run_uuid>`. Повтор использует зарегистрированный bundle;
+явный путь сохраняет совместимость. Удалённые baseline/candidate bytes не
+восстанавливаются по manifest и не заменяются живым source.
+
+Локальная приёмка может явно использовать `verification.delivery_scope` version 1,
+`completion_target: local-deliverable`, с SHA-bound task_scope и пятью массивами
+`external_followup`. Только объявленный операционный follow-up остаётся открытым;
+code/auth/config defects, mandatory local proof, identity/history, boundary и
+выбранные QA/reviewer продолжают блокировать принятие. Итог называет локальный
+результат, исходную внешнюю цель и непроверенные внешние требования отдельно.
+Формат и единые правила consumers: [Traceable Runs](references/traceable-runs.md#локальная-приёмка-и-внешний-follow-up).
+
+Перед result_hash после seal опубликуйте boundary v2 декларации всех авторов:
+полный `changed_paths`, явный вклад `authored_paths`, own handoff и edit evidence.
+Permissions проверяются по вкладу, union покрывает весь delta; shared paths
+раскрывают все соавторы. Hash v5 связывает смысловой scope и авторские границы;
+seal без marker сохраняет прежние алгоритмы v2–4. Hash v1 и boundary v1 сохраняются для legacy reading/exact accepted replay,
+не новой приёмки авторства. [Порядок деклараций](references/traceable-runs.md#декларация-авторства-boundary-v2).
+
+Область задачи задают явно выбранные продуктовые корни и источники контекста.
+Расположение `.agent-work` сохраняется и не ограничивает задачу одним репозиторием.
+Читайте обязательные наследуемые инструкции и контекст затронутых репозиториев;
+для задачи из нескольких репозиториев добавьте общий контекст проекта.
+Skills читаются из канонического места без отдельных установленных копий.
+При расширении задачи остановите исполнителей, обновите workspace revision,
+контекст и задания до следующих правок. Соседняя папка сама по себе scope не меняет.
 
 Для изменения файлов сначала выполните обязательную последовательность из
 `references/orchestrator.md`: штатный init и root UUID до делегирования,
@@ -234,7 +277,7 @@ Surface Evidence Gate is part of Acceptance Criteria Traceability Gate. Every ac
 
 Contract Negative Fixture Gate is required for contract-like acceptance items in positive architecture-gated runs. Any acceptance item marked `gate`, `cli`, `query`, `storage`, `config`, or `parser` in `acceptance-traceability.json` must include `negative_fixture_evidence` with at least one evidence path and literal marker. `negative_fixture_evidence` may use only `polarity=negative` or `polarity=drift`. Missing negative or drift fixture evidence blocks `ship` and `pass-with-risks`.
 
-Verification Readiness Gate runs after an approved Architecture Design Brief and before worker lanes when architecture-gated runs have workers. The orchestrator records `verification_readiness` in `lane-map.json` and writes `verification-readiness.json` to prove every selected `risk_gates` and `verification_gates` facet is ready. If documented infra or environment startup is needed, readiness becomes `needs-approval`; the agent asks the user, runs only approved documented safe commands, records `approval_requests` and `approval_executions`, and retries readiness. If the user declines, the run stops immediately as `paused-blocked` with final `blocked`, manual instructions, and `resume_phrase` set to `Готово`. Positive verdicts require the latest readiness attempt to be `ready`, and QA records `Verification Gate Results`.
+Verification Readiness Gate records whether the selected checks can run. Actual required local verification must pass before positive product acceptance. A missing preliminary readiness ceremony alone does not reject a product whose required local checks are proven. Keep real environment blockers and user approval boundaries; do not invent successful readiness or verification. The full audit retains readiness formatting and workflow findings.
 
 Continuation Gate applies when a run has a `blocked-checkpoint` or `continuation` timeline stage and later closes with `ship` or `pass-with-risks`. The orchestrator writes `continuation-summary.json`, preserves the blocked checkpoint snapshot, records `historical_worker_lanes`, `new_worker_lanes`, `revalidated_lanes`, and resolved blockers, and proves with timeline `lane_id` events that no new worker ran before ready Verification Readiness. Final output includes `Continuation Summary`; QA writes `Continuation Revalidation`; reviewer writes `Continuation Review`.
 
@@ -381,6 +424,11 @@ event per lifecycle generation. A failed finalization leaves the journal open.
 Preserve historical failures and finals; resolve an outstanding obligation through
 an explicit accepted replacement, never by changing its old event.
 
+Если назначение заменено, blocked/fail тоже проверяют историческую замену:
+original assignment, outcome/archive, obligation, reason и evidence hashes сохраняются. Replacement
+принят даже при отрицательном финале; текущие непринятые обязанности не становятся
+resolved. Голый replaced не снимает coverage. Отрицательный финал не даёт delivery.
+
 ## Delegation Gate
 
 Read `references/delegation.md` before launching subagents.
@@ -418,9 +466,9 @@ When Codex custom-agent files have been generated for the current project or use
 
 ## Mandatory Independent QA Review Gate
 
-Mandatory Independent QA Review Gate требует для `change` два отдельных назначения: `qa-verifier` проверяет результат, `reviewer` проверяет его и доказательства QA. Оба работают как реальные дочерние сессии текущего root; их IDs отличаются от IDs авторов. Модели берутся из действующих файлов ролей через `agent_config`. `reviewer.qa` допустим только как имя назначения канонического `reviewer`; QA под этим именем не заменяет reviewer.
+Mandatory Independent QA Review Gate требует для положительной приёмки `change` два отдельных назначения: `qa-verifier` проверяет результат, `reviewer` проверяет его и доказательства QA. Оба работают как реальные дочерние сессии текущего root; их IDs отличаются от IDs авторов. Модели берутся из действующих файлов ролей через `agent_config`. `reviewer.qa` допустим только как имя назначения канонического `reviewer`; QA под этим именем не заменяет reviewer.
 
-Контракт `delegation-summary.json.verification` действует одинаково в compact/full/auto, включая отсутствие lane-map. Обязательны собственный `completion_turn_id`, текущий `reviewed_result_hash`, хеш handoff и `qa_handoff_sha256` в итоговом ходе reviewer. `analysis` с пустым результатом освобождён от этих двух назначений. При недоступных доказательствах записать `verification.blocker` и завершить `blocked`. Поля и порядок записи описаны в `references/traceable-runs.md`.
+Контракт `delegation-summary.json.verification` действует одинаково в compact/full/auto, включая отсутствие lane-map. Для положительной приёмки обязательны собственный `completion_turn_id`, текущий `reviewed_result_hash`, хеш handoff и `qa_handoff_sha256` в итоговом ходе reviewer. `analysis` с пустым результатом освобождён от этих двух назначений. При недоступных доказательствах записать `verification.blocker` и завершить `blocked` или `fail` с причиной и перечнем непроверенного. Отрицательный итог допускает `gap` и отсутствие candidate; он не создаёт принятую QA/reviewer-проверку и не разрешает delivery. Структура, идентичность, история и целостность заявленных доказательств проверяются для всех исходов. Поля и порядок записи описаны в `references/traceable-runs.md`.
 
 For code review and release readiness work that touches architecture, public contracts, APIs, data flow, security, migrations, or multiple subsystems, require an architect-owned review contract before the reviewer verdict:
 
@@ -442,8 +490,8 @@ Before final response for any repo task, run the Task Status Completion Gate:
 - when commit is authorized, compare staged diff with the accepted delivery list, verify document statuses in the index, create scoped commits and inspect each repository's committed documents with `git show`. A finished document commit contains `Document status: done`; an explicitly requested intermediate snapshot retains truthful WIP status. No commit is required when none was requested;
 - record commit evidence in each affected repository's task memory and the timeline after commit, never put a future commit's own SHA inside its document. Commit failure keeps delivery incomplete; validator failure after commit preserves the SHA and unresolved criteria, not a false done claim;
 
-- для изменения файлов завершите журнал через `journal.py finalize`, затем выполните свежий `validate-run.py --run-dir ...` без `--allow-pending` и `--allow-no-check`; сохраняйте диагностику вне канонических документов журнала по примеру в `references/traceable-runs.md`;
-- if the current task checklist is complete, final validation exited 0, verification is recorded, no blocker remains, and any requested product commit succeeded, set the current `.agent-work/tasks/todo.md` section to `Status: done`; для консультаций без run достаточно применимых прямых проверок;
+- для изменения файлов завершите журнал через `journal.py finalize`, сохраните свежий полный аудит `validate-run.py --run-dir ...` без permissive flags и выполните штатную `delivery` со свежей проверкой продукта; отдельные замечания об оформлении не равны провалу проверки продукта;
+- if the current task checklist is complete, product acceptance and delivery succeeded, verification is recorded, no product blocker remains, and any requested product commit succeeded, set the current `.agent-work/tasks/todo.md` section to `Status: done`; preserve full-audit findings separately. Для консультаций без run достаточно применимых прямых проверок;
 - if a product commit was created for the task, update the current task section after the commit with the commit/check evidence before final handoff;
 - if any checklist item, verification, approval, or commit step is missing, keep `Status: in_progress` or `Status: blocked` and record the exact missing item. Изменение результата или доказательств после проверки требует повторного принятия по затронутой части и нового вызова валидатора. Число tests и текстовое одобрение не заменяют эту команду.
 

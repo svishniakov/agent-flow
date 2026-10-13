@@ -181,7 +181,7 @@ class ProvenCompletionTests(unittest.TestCase):
                                  'publish', '--file', 'delegation-summary.json', str(capture),
                                  '--operation-id', 'public-publish-bypass'], capture_output=True, text=True)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn('terminal assignment', result.stderr)
+        self.assertIn('writer-owned', result.stderr)
         self.assertEqual(before, self.state())
         self.complete()
         before = self.state()
@@ -191,13 +191,14 @@ class ProvenCompletionTests(unittest.TestCase):
 
     def test_proven_completion_rechecks_current_snapshot_and_rolls_back(self):
         self.fixture()
-        original = journal_cases.recorder._transact_completion
+        import journal_io
+        original = journal_io._transact_completion
         raced = []
         def race(*args, **kwargs):
             transact(self.run, 'concurrent-resolution', {}, lambda current: self.resolve_document(current))
             raced.append(self.state())
             return original(*args, **kwargs)
-        with patch.object(journal_cases.recorder, '_transact_completion', side_effect=race), self.assertRaisesRegex((SystemExit, ValueError), 'current successful'):
+        with patch.object(journal_io, '_transact_completion', side_effect=race), self.assertRaisesRegex((SystemExit, ValueError), 'current successful'):
             self.complete()
         self.assertEqual(raced[0], self.state())
         self.setUp()
@@ -215,11 +216,12 @@ class ProvenCompletionTests(unittest.TestCase):
             {'type': 'event_msg', 'payload': {'type': 'task_started', 'turn_id': 'original-spawn-turn'}},
             {'type': 'event_msg', 'payload': {'type': 'task_complete', 'turn_id': 'original-spawn-turn', 'last_agent_message': 'preparation'}},
         ]
-        original = journal_cases.recorder._transact_completion
+        import journal_io
+        original = journal_io._transact_completion
         def captured_only(*args, **kwargs):
             with patch.object(self.source, 'read', side_effect=AssertionError('live source under SQL')):
                 return original(*args, **kwargs)
-        with patch.object(journal_cases.recorder, '_transact_completion', side_effect=captured_only):
+        with patch.object(journal_io, '_transact_completion', side_effect=captured_only):
             self.complete()
         updated = json.loads(JournalSnapshot.open(self.run).read_text('delegation-summary.json'))['subagents'][0]
         self.assertEqual(updated['task_started_event'], 4)
@@ -248,11 +250,12 @@ class ProvenCompletionTests(unittest.TestCase):
 
     def test_proven_completion_lost_response_reuses_receipt_and_proof(self):
         self.fixture()
-        original = journal_cases.recorder._transact_completion
+        import journal_io
+        original = journal_io._transact_completion
         def lost_response(*args, **kwargs):
             original(*args, **kwargs)
             raise OSError('lost completion response')
-        with patch.object(journal_cases.recorder, '_transact_completion', side_effect=lost_response), self.assertRaisesRegex(SystemExit, 'lost completion response'):
+        with patch.object(journal_io, '_transact_completion', side_effect=lost_response), self.assertRaisesRegex(SystemExit, 'lost completion response'):
             self.complete()
         before = self.state()
         self.assertIn('unchanged', self.complete())
@@ -270,6 +273,23 @@ class ProvenCompletionTests(unittest.TestCase):
 
 
 class RecoveryTests(unittest.TestCase):
+    def append_assignment_event(self, event, *, identifier):
+        def mutation(current):
+            encoded = (encode_json(event) + "\n").encode()
+            summary = json.loads(current.read_text("delegation-summary.json"))
+            records = [record for group in ("subagents", "role_lanes") for record in summary.get(group, [])
+                       if record.get("lane_id") == event["lane_id"]]
+            documents = {"timeline.jsonl": current.read_bytes("timeline.jsonl") + encoded}
+            for record in records:
+                trace = record.get("trace")
+                if trace and trace != "timeline.jsonl":
+                    documents[trace] = current.read_bytes(trace) + encoded
+                if "status" in record:
+                    record["status"] = event["status"]
+            documents["delegation-summary.json"] = encode_json(summary)
+            return documents, {}
+        return transact(self.run, identifier, {}, mutation)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -620,7 +640,7 @@ class RecoveryTests(unittest.TestCase):
             event = {**self.event, 'lane_id': 'old-preparation', 'role': 'python-worker',
                      'execution_mode': 'role-lane', 'timestamp': now_iso(),
                      'stage': 'blocked', 'status': 'blocked', 'artifacts': ['handoffs/old.md']}
-            append_event(self.run / 'timeline.jsonl', event, identifier='continued-terminal')
+            self.append_assignment_event(event, identifier='continued-terminal')
         snapshot = JournalSnapshot.open(self.run)
         classify_legacy(self.run, request, expected_revision=snapshot.revision, identifier='classify')
         def add(snapshot):
@@ -631,9 +651,11 @@ class RecoveryTests(unittest.TestCase):
             summary['role_lanes'].append(replacement)
             event = {**self.event, 'lane_id': 'replacement', 'stage': 'handoff', 'status': 'pass',
                      'role': 'python-worker', 'artifacts': ['replacement.md']}
-            rows = [{'id': 'replacement', 'status': 'pass'}]
+            rows = [{'id': 'replacement', 'status': 'pass', 'role': 'python-worker',
+                     'execution_mode': 'role-lane'}]
             if current_old:
-                rows.append({'id': 'old-preparation', 'status': 'done', 'role': 'python-worker'})
+                rows.append({'id': 'old-preparation', 'status': 'done', 'role': 'python-worker',
+                             'execution_mode': 'role-lane'})
             return {'delegation-summary.json': encode_json(summary).encode(),
                     'lane-map.json': encode_json({'schema_version': 2, 'lanes': rows}).encode(),
                     'replacement.md': b'Verdict: pass\nSame preparation duty verified.\n',
@@ -704,6 +726,13 @@ class RecoveryTests(unittest.TestCase):
                     lane_map = json.loads(snapshot.read_text('lane-map.json'))
                     lane_map['lanes'][1].update(fields)
                     return {'lane-map.json': encode_json(lane_map).encode()}, {}
+                if next(iter(fields)) in {'role', 'codex_thread_id', 'trace'}:
+                    before = self.raw_state()
+                    with self.assertRaises(JournalError):
+                        transact(self.run, 'conflict', {}, conflict)
+                    self.assertEqual(self.raw_state(), before)
+                    resolve_obligation(self.run, **args)
+                    continue
                 transact(self.run, 'conflict', {}, conflict)
                 args['expected_revision'] = JournalSnapshot.open(self.run).revision
                 before = self.raw_state()
@@ -725,7 +754,7 @@ class RecoveryTests(unittest.TestCase):
                     event = {**old['legacy']['terminal']['event'], 'timestamp': now_iso(),
                              'stage': 'checks', 'status': 'active'}
                     with self.assertRaisesRegex(JournalError, 'terminal assignment history is immutable'):
-                        append_event(self.run / 'timeline.jsonl', event, identifier='newer-work')
+                        self.append_assignment_event(event, identifier='newer-work')
                     # Seed invalid historical bytes that current writers correctly reject.
                     raw = snapshot.read_bytes('timeline.jsonl') + (encode_json(event) + '\n').encode()
                     with sqlite3.connect(self.run / '.journal/state.sqlite3') as db:
@@ -842,7 +871,7 @@ class RecoveryTests(unittest.TestCase):
         request=self.legacy_lane_fixture(outcome='pass')
         event={**self.event,'timestamp':'2026-12-01T00:00:00Z','stage':'checks','status':'active',
                'lane_id':'old-preparation','role':'python-worker','execution_mode':'role-lane'}
-        append_event(self.run/'timeline.jsonl',event,identifier='active')
+        self.append_assignment_event(event, identifier='active')
         before=self.raw_state()
         with self.assertRaisesRegex(JournalError,'explicit completion'):
             classify_legacy(self.run,request,expected_revision=before[0],identifier='classify')
@@ -862,7 +891,12 @@ class RecoveryTests(unittest.TestCase):
         raw=b'Verdict: pass\nImplementation completed.'
         transact(self.run,'handoff',{},lambda s:({'completed.md':raw},{}))
         event={**event,'timestamp':'2026-12-01T00:00:00Z','stage':'handoff','status':'pass','artifacts':['completed.md']}
-        append_event(self.run/'timeline.jsonl',event,identifier='terminal')
+        def complete(current):
+            summary = json.loads(current.read_text('delegation-summary.json'))
+            summary['role_lanes'][0]['status'] = 'pass'
+            return {'delegation-summary.json': encode_json(summary),
+                    'timeline.jsonl': current.read_bytes('timeline.jsonl') + (encode_json(event) + '\n').encode()}, {}
+        transact(self.run, 'terminal', {}, complete)
         request={'archive_id':result['archive_id'],'assignments':[{'lane_id':'active','obligation_id':'implementation',
             'reason':'Actual completion after explicit upgrade','outcome':'pass',
             'scope':{'path':'scope.md','sha256':digest(docs['scope.md']),'quote':'Original implementation'},
@@ -871,7 +905,7 @@ class RecoveryTests(unittest.TestCase):
         classify_legacy(self.run,request,expected_revision=current.revision,identifier='classify')
         current=JournalSnapshot.open(self.run)
         record=json.loads(current.read_text('delegation-summary.json'))['role_lanes'][0]
-        self.assertEqual(record['status'],'active')
+        self.assertEqual(record['status'],'pass')
         self.assertTrue(record['legacy']['continued'])
         self.assertNotIn('completed.md',current.archive(result['archive_id']).documents)
 
@@ -956,7 +990,14 @@ class RecoveryTests(unittest.TestCase):
             summary=json.loads(snapshot.read_text('delegation-summary.json'))
             summary['role_lanes'][0]['role']='reviewer'
             return {'delegation-summary.json':encode_json(summary).encode()},{}
-        transact(self.run,'wrong-role',{},change)
+        with self.assertRaisesRegex(JournalError, "role.*differs"):
+            transact(self.run,'wrong-role',{},change)
+        # Imported corruption remains diagnosable by the classification guard.
+        docs, _ = change(JournalSnapshot.open(self.run))
+        with sqlite3.connect(self.run/'.journal/state.sqlite3') as db:
+            raw = docs['delegation-summary.json']
+            db.execute('UPDATE documents SET content=?,sha256=? WHERE path=?',
+                       (raw, digest(raw), 'delegation-summary.json'))
         before=self.raw_state()
         with self.assertRaisesRegex(JournalError,'original assignment identity'):
             classify_legacy(self.run,request,expected_revision=before[0],identifier='classify')
@@ -1157,7 +1198,7 @@ recover(sys.argv[1],**args,barrier=stop)
     def test_new_generation_requires_new_selected_verifiers(self):
         spec=importlib.util.spec_from_file_location('recovery_lifecycle',SCRIPTS/'test-journal-lifecycle.py')
         lifecycle=importlib.util.module_from_spec(spec);spec.loader.exec_module(lifecycle)
-        case=lifecycle.LifecycleTests('test_failed_full_validation_leaves_open_then_repair_closes')
+        case=lifecycle.LifecycleTests('test_report_formatting_is_audited_without_blocking_verified_product')
         case.setUp();self.addCleanup(case.doCleanups)
         case.root=case.run.parent
         # Build the unaccepted workspace fixture before assigning terminal outcomes.
@@ -1172,7 +1213,7 @@ recover(sys.argv[1],**args,barrier=stop)
         summary=json.loads(JournalSnapshot.open(case.run).read_text('delegation-summary.json'))
         summary['verification']['blocker']='Synthetic incomplete acceptance'
         transact(case.run,'blocker',{},lambda s:({'delegation-summary.json':encode_json(summary)},{}))
-        case.close(final_bytes=case.final.replace(b'Verdict: ship',b'Verdict: blocked'),verdict='blocked')
+        case.close(final_summary='Synthetic incomplete acceptance requires recovery',verdict='blocked')
         oldrun=self.run;self.run=case.run
         try:
             args=self.args()
@@ -1201,7 +1242,7 @@ recover(sys.argv[1],**args,barrier=stop)
             record['completion_turn_id']=original['completion_turn_id']+'-fresh'
             documents[record['handoff']]=current.read_bytes(original['handoff'])
             summary['subagents'].append(record);summary['verification'][key]=record['lane_id']
-            thread=record['codex_thread_id'];session=case.source.sessions[thread]
+            thread=record['codex_thread_id'];session=deepcopy(case.source.sessions[thread])
             stamp=now_iso()
             for observation in session:
                 if 'timestamp' in observation: observation['timestamp']=stamp
@@ -1213,6 +1254,7 @@ recover(sys.argv[1],**args,barrier=stop)
                 if observation.get('type')=='response_item':
                     answer=json.loads(body['content'][0]['text']);answer['handoff']=record['handoff']
                     body['content'][0]['text']=json.dumps(answer)
+            case.source.sessions[thread].extend(session[1:])
             lane_events=[{**lifecycle.fixtures.trace_event(record,stage),'timestamp':stamp} for stage in ('spawned','handoff')]
             trace=''.join(encode_json(e)+'\n' for e in lane_events).encode()
             documents[record['trace']]=current.read_bytes(record['trace'])+trace
@@ -1220,8 +1262,7 @@ recover(sys.argv[1],**args,barrier=stop)
         documents['delegation-summary.json']=encode_json(summary).encode()
         documents['timeline.jsonl']=current.read_bytes('timeline.jsonl')+''.join(encode_json(e)+'\n' for e in events).encode()
         transact(case.run,'fresh-verifiers',{},lambda s:(documents,{}))
-        report=case.final.split(b'## Delegation Trace')[0]+lifecycle.fixtures.delegation_section(summary).encode()
-        result=case.close(expected_generation=2,identifier='new-final',final_bytes=report)
+        result=case.close(expected_generation=2,identifier='new-final',final_summary='Fresh generation independently accepted by current verifiers')
         self.assertEqual(result['generation'],2)
         self.assertTrue(JournalSnapshot.open(case.run).closed)
         from task_workspace import delivery
@@ -1265,9 +1306,10 @@ recover(sys.argv[1],**args,barrier=stop)
         append_event(run/'timeline.jsonl',check,identifier='fresh-check')
         current=JournalSnapshot.open(run)
         finalize(run,expected_run_uuid=current.run_uuid,expected_revision=current.revision,expected_generation=2,
-                 identifier='negative-generation',final_bytes=current.read_bytes('final.md'),verdict='blocked',
+                 identifier='negative-generation',final_summary='Current unresolved local checks remain blocked',verdict='blocked',
                  session_source=fixtures.SESSION_SOURCES[run.resolve()])
-        _,output=validate_run(run)
+        with patch('verification_evidence.CodexSessionSource', return_value=fixtures.SESSION_SOURCES[run.resolve()]):
+            _,output=validate_run(run)
         self.assertIn('PASS revision',output)
 
     def test_public_diagnosis_upgrade_reopen_and_archive_read(self):
@@ -1276,11 +1318,16 @@ recover(sys.argv[1],**args,barrier=stop)
         diagnosis=subprocess.run(command+['diagnose-recovery'],capture_output=True,text=True,check=True)
         report=json.loads(diagnosis.stdout)
         identity=self.root/'identity.json';identity.write_text(json.dumps(report['identity']))
+        reason='Repair same result\u0085Preserve caller meaning\u2028Verdict: ship\u2029## Evidence'
         result=subprocess.run(command+['reopen','--upgrade','--expected-run-uuid',old.run_uuid,
             '--expected-revision','1','--expected-generation','1','--operation-id','cli-recover',
-            '--reason','Repair same result','--identity-file',str(identity),'--final-index','1',
+            '--reason',reason,'--identity-file',str(identity),'--final-index','1',
             '--final-sha256',report['final']['sha256']],capture_output=True,text=True)
         self.assertEqual(result.returncode,0,result.stderr)
+        current=JournalSnapshot.open(self.run)
+        events=[json.loads(line) for line in current.read_text('timeline.jsonl').splitlines()]
+        self.assertEqual(events[-1]['stage'],'reopen')
+        self.assertEqual(events[-1]['summary'],reason)
         archive=json.loads(result.stdout)['archive_id']
         read=subprocess.run(command+['read','final.md','--archive',archive],capture_output=True,check=True)
         self.assertEqual(read.stdout,old.read_bytes('final.md'))
@@ -1604,7 +1651,7 @@ class TraceModeCorrectionTests(unittest.TestCase):
         from types import SimpleNamespace
         snapshot=JournalSnapshot.open(self.run);before=self.state()
         args=SimpleNamespace(execution_mode='subagent',codex_thread_id=None,lane_id=None,
-                             resolve_session=False,role='orchestrator',stage='verification-ready')
+                             resolve_session=False,role='orchestrator',stage='verification-ready',summary='Identity is required before preparation',status='active')
         with patch.object(self.recorder,'prepare_summary',side_effect=AssertionError('preparation must not run')):
             with self.assertRaisesRegex(JournalError,'explicit --execution-mode role-lane'):
                 self.recorder.record_event(self.run,args,[],self.source,snapshot)

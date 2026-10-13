@@ -5,7 +5,7 @@ from pathlib import Path
 import re
 from types import MappingProxyType, ModuleType
 
-from journal_io import (JournalSnapshot, _transact, require, digest, encode_json,
+from journal_io import (JournalSnapshot, _transact, require, digest, encode_json, encode_json_line,
                         now_iso, validate_event, JournalError, operation_id)
 from validation_inputs import ValidationInputs
 
@@ -34,7 +34,7 @@ def resolve_obligation(run_dir, *, lane_id, replacement, reason, expected_revisi
         old["obligation"].update(state="resolved", resolution={
             "original_lane": lane_id, "replacement": replacement, "reason": reason,
             "evidence": [evidence], "timestamp": now_iso()})
-        resolved, errors = evaluate_obligations(snapshot, summary)
+        resolved, errors = evaluate_obligations(snapshot, summary, require_current=False)
         require(lane_id in resolved, "obligation resolution failed: " + "; ".join(errors))
         documents = {"delegation-summary.json": (encode_json(summary, pretty=True) + "\n").encode()}
         original_status = old.get("status")
@@ -117,22 +117,57 @@ def freeze_validation(snapshot, source):
 
 
 def finalize(run_dir, *, expected_run_uuid, expected_revision, expected_generation,
-             identifier, final_bytes, verdict, session_source=None, barrier=None):
+             identifier, final_bytes=None, verdict, session_source=None, barrier=None, final_summary=None):
     require(verdict in {"ship", "blocked", "fail", "pass-with-risks"}, "unsupported final verdict")
     require(isinstance(identifier, str) and bool(identifier.strip()), "finalize requires saved operation ID")
+    if final_summary is not None:
+        from journal_structure import validate_request, render_document
+        validate_request("final", {"summary": final_summary, "status": "pass" if verdict == "ship" else verdict})
+        require(final_bytes is None, "provide semantic text or legacy final bytes, not both")
+        final_bytes = render_document("final", final_summary, "pass" if verdict == "ship" else verdict).encode()
     require(isinstance(final_bytes, bytes), "final file must contain bytes")
-    fields = re.findall(r"^Verdict:\s*(.*?)\s*$", final_bytes.decode("utf-8"), re.MULTILINE)
-    require(fields == [verdict], "final verdict differs from requested verdict")
     snapshot = JournalSnapshot.open(run_dir)
-    require(snapshot.durable, "flat legacy requires explicit import before finalization")
     payload = {"command": "finalize", "run_uuid": expected_run_uuid,
                "revision": expected_revision, "generation": expected_generation,
                "final_sha256": digest(final_bytes), "verdict": verdict}
-    identifier = operation_id(run_dir, "finalize", payload, identifier=identifier)
     receipt = snapshot.operation_receipt(identifier)
+    if final_summary is None:
+        require(receipt is not None and receipt["result"].get("command") == "finalize",
+                "new finalization requires semantic final_summary; final_bytes is available only for exact historical receipt replay")
+        require(receipt["payload_sha256"] == digest(encode_json(payload).encode()), "operation ID payload conflict")
+        return receipt["result"]
+    require(snapshot.durable, "flat legacy requires explicit import before finalization")
+    summary = json.loads(snapshot.read_text("delegation-summary.json")) if snapshot.exists("delegation-summary.json") else {}
+    product_positive = verdict in {"ship", "pass-with-risks"} and summary.get("verification", {}).get("task_kind") == "change"
+    if final_summary is not None:
+        from journal_io import render_final, unique_paths
+        from verification_evidence import changed_paths, delivery_scope
+        lanes = json.loads(snapshot.read_text("lane-map.json")) if snapshot.exists("lane-map.json") else {}
+        verification = summary["verification"]
+        if verdict in {"blocked", "fail"} and isinstance(verification.get("blocker"), str) and verification["blocker"].strip():
+            from task_workspace import registered_workspace
+            workspace = registered_workspace(snapshot)
+            if workspace is not None and "seal" in workspace:
+                paths, declared = workspace["seal"]["changed_paths"], True
+            elif "run_changed_files" in verification:
+                paths, declared = unique_paths(verification["run_changed_files"]), True
+            else:
+                paths, declared = [], False
+        else:
+            paths = changed_paths(run_dir, lanes, verification, snapshot=snapshot)
+            declared = "run_changed_files" in verification or bool(paths)
+        final_bytes = render_final(final_bytes.decode(), summary, paths,
+            declared=declared,
+            scope=delivery_scope(snapshot, summary["verification"], summary=summary)).encode()
+        from journal_io import render_service_sections
+        final_bytes = (final_bytes.decode() + render_service_sections(snapshot)).encode()
+    payload["final_sha256"] = digest(final_bytes)
     if receipt is not None:
         require(receipt["payload_sha256"] == digest(encode_json(payload).encode()), "operation ID payload conflict")
         return receipt["result"]
+    fields = re.findall(r"^Verdict:\s*(.*?)\s*$", final_bytes.decode("utf-8"), re.MULTILINE)
+    require(fields == [verdict], "final verdict differs from requested verdict")
+    identifier = operation_id(run_dir, "finalize", payload, identifier=identifier)
     require(snapshot.storage_version == 2, "journal storage version 1 is read-only; explicit upgrade required")
     require(not snapshot.closed, "journal generation is closed")
     require((snapshot.run_uuid, snapshot.revision, snapshot.generation) ==
@@ -143,13 +178,15 @@ def finalize(run_dir, *, expected_run_uuid, expected_revision, expected_generati
              "artifacts": ["final.md"], "next_step": "", "generation": expected_generation}
     validate_event(event)
     documents = {"final.md": final_bytes,
-                 "timeline.jsonl": snapshot.documents.get("timeline.jsonl", b"") + (encode_json(event) + "\n").encode()}
+                 "timeline.jsonl": snapshot.documents.get("timeline.jsonl", b"") + (encode_json_line(event) + "\n").encode()}
     def proposed(current):
         return replace(current, documents=MappingProxyType({**current.documents, **documents}))
     captured_snapshot, source = capture_validation(proposed(snapshot), session_source=session_source)
     validator_bytes = captured_snapshot.external_inputs.file(Path(__file__).with_name("validate-run.py"))
     validator = load_validator(validator_bytes)
-    errors = validator.validate_run(Path(run_dir), snapshot=captured_snapshot, session_source=source)
+    validate = validator.validate_product_acceptance if product_positive else validator.validate_run
+    validation_args = {"verdict": verdict} if product_positive else {}
+    errors = validate(Path(run_dir), snapshot=captured_snapshot, session_source=source, **validation_args)
     require(not errors, "finalize validation failed: " + "; ".join(errors))
     freeze_validation(captured_snapshot, source)
     if barrier is not None:
@@ -160,7 +197,7 @@ def finalize(run_dir, *, expected_run_uuid, expected_revision, expected_generati
         future = replace(proposed(current), external_inputs=captured_snapshot.external_inputs)
         if barrier is not None:
             barrier("locked")
-        errors = validator.validate_run(Path(run_dir), snapshot=future, session_source=source)
+        errors = validate(Path(run_dir), snapshot=future, session_source=source, **validation_args)
         if barrier is not None:
             barrier("validated")
         require(not errors, "finalize validation failed: " + "; ".join(errors))

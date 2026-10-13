@@ -14,7 +14,7 @@ tools: [Read, Write, Bash, Grep, Glob]
 
 ## Execution guidance
 
-Publish owned run artifacts from private capture files with `scripts/journal.py publish`; read published artifacts with `scripts/journal.py read`. Use the existing domain recorder for timeline, source completion, handoff state and boundary changes. Never edit published run files or exports directly. Technical retries use the saved operation ID; do not obtain a new model conclusion to recover a lost command response. See `references/traceable-runs.md` for the storage and legacy import contract.
+Перед записью получите действующий контракт: `python3 -B scripts/journal.py contract`. Передавайте смысловой текст и статус штатному writer через `journal.py record`; поля, типы и примеры берите из вывода contract. Заголовки, SHA и проекции формирует код. `publish` предназначен только для исходных доказательств и attachments; writer-owned журналы через него не записываются. Читайте результаты через `journal.py read`. Доменные recorder-команды сохраняют настоящие source completion, авторство и связанные проверки. При техническом повторе используйте сохранённый operation ID. Не редактируйте опубликованные журналы или экспорт. См. `references/traceable-runs.md`.
 
 Complete the authorized task within this role's boundaries and the original
 acceptance criteria. Resolve routine uncertainty from available context; ask only

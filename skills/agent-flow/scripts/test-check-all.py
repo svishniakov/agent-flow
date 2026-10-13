@@ -162,12 +162,48 @@ class RepositoryChecks(unittest.TestCase):
             stack.enter_context(patch.object(self.checks, "check_environment", return_value={}))
             for name in names:
                 stack.enter_context(patch.object(self.checks, name, return_value=0))
-            later = stack.enter_context(patch.object(self.checks, "run_required_runtime_text_guard", return_value=0))
+            later = stack.enter_context(patch.object(self.checks, "run_retired_blocking_rules_guard", return_value=0))
             stack.enter_context(patch.object(self.checks, "run_role_prompt_dedup_guard", return_value=0))
             code, _, err = self.capture(self.checks.main)
         self.assertEqual(code, 1)
         self.assertIn("FAILED 1 check(s)", err)
         later.assert_called_once()
+
+    def test_retired_guard_accepts_documents_without_ceremony_and_rejects_blocking_rule(self):
+        for relative in ("SKILL.md", "agents/orchestrator.md", "references/runtime.md",
+                         "docs/en/agent-flow.md", "docs/ru/agent-flow.md"):
+            path = self.package / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("Current concise instructions.\n")
+        code, output, errors = self.capture(self.checks.run_retired_blocking_rules_guard)
+        self.assertEqual(code, 0, errors)
+        self.assertIn("PASS retired blocking rules guard", output)
+        # Neither old readiness phrases nor literals in source/fixtures are required.
+        self.assertFalse((self.package / "scripts/init-run.py").exists())
+        orchestrator = self.package / "agents/orchestrator.md"
+        orchestrator.write_text("If any active task is `dependent` or `uncertain`,\nstop before new work.\n")
+        code, _, errors = self.capture(self.checks.run_retired_blocking_rules_guard)
+        self.assertEqual(code, 1)
+        self.assertIn("agents/orchestrator.md: retired rule", errors)
+
+    def test_runtime_suites_remain_planned_and_failures_propagate(self):
+        guards = ("run_skills_cli_layout_guard", "run_skills_cli_discovery_guard", "run_skills_cli_install_guard",
+                  "run_codegraph_dependency_preflight", "run_golden_trace_artifacts_guard", "run_content_guard",
+                  "run_test_inventory_guard", "run_retired_blocking_rules_guard", "run_role_prompt_dedup_guard")
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(patch.object(self.checks, "check_environment", return_value={}))
+            for name in guards:
+                stack.enter_context(patch.object(self.checks, name, return_value=0))
+            steps = stack.enter_context(patch.object(self.checks, "run_step",
+                side_effect=lambda name, command: int("scripts/test-journal-io.py" in command)))
+            code, _, errors = self.capture(self.checks.main)
+        commands = [call.args[1] for call in steps.call_args_list]
+        for script in ("test-init-run.py", "test-journal-io.py", "test-journal-storage.py", "test-journal-recovery.py",
+                       "test-journal-lifecycle.py", "test-task-workspace.py", "test-procedure-completion.py",
+                       "test-verification-evidence.py", "test-golden-traces.py"):
+            self.assertTrue(any("scripts/" + script in command for command in commands), script)
+        self.assertEqual(code, 1)
+        self.assertIn("FAILED 1 check(s)", errors)
 
     def test_missing_environment_stops_before_running_any_check(self):
         with patch.object(self.checks, "check_environment", side_effect=self.checks.EnvironmentError("codex missing")), \

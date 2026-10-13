@@ -6,6 +6,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import sqlite3
@@ -59,6 +60,26 @@ class Distributions(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             data = json.loads(result.stdout)
             self.assertEqual(data["package_root"], str(root))
+            self.assertEqual(data["runtime_smoke"], "passed")
+
+    def test_self_consistent_incomplete_archive_fails_runtime_smoke(self):
+        for missing in ("journal_structure.py", "workspace_scope.py"):
+            with self.subTest(missing=missing):
+                source = self.copy_source("missing-" + missing)
+                manifest = source / "skills/agent-flow/package-files.txt"
+                manifest.write_text(manifest.read_text().replace("scripts/" + missing + "\n", ""))
+                built = builder.build(source, self.base / ("archive-" + missing))
+                for archive in built["archives"]:
+                    installed = self.base / ("installed-" + missing + Path(archive).stem)
+                    with zipfile.ZipFile(archive) as zipped:
+                        zipped.extractall(installed)
+                    package = installed / ("agent-flow/skills/agent-flow" if archive.endswith("-codex-plugin.zip") else "agent-flow")
+                    check_package(package)  # Its manifest and checksums agree, but runtime is incomplete.
+                    result = subprocess.run([sys.executable, "-B", str(package / "scripts/check-installed-package.py"), "--package-only"],
+                                            cwd=installed, capture_output=True, text=True)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("runtime smoke failed", result.stderr)
+                    self.assertIn(missing.removesuffix(".py"), result.stderr)
 
     def test_both_archives_create_v2_journals_and_reject_manual_final(self):
         for form, package in (("skill", self.install / "skill/agent-flow"),
@@ -71,6 +92,33 @@ class Distributions(unittest.TestCase):
                 initialized = subprocess.run(command, capture_output=True, text=True)
                 self.assertEqual(initialized.returncode, 0, initialized.stdout + initialized.stderr)
                 run = Path(initialized.stdout.strip())
+                request = project / "progress-request.json"
+                request.write_text(json.dumps({"summary": "Installed lifecycle record", "status": "active"}))
+                recorded = subprocess.run([sys.executable, "-B", str(package / "scripts/journal.py"),
+                                           "--run-dir", str(run), "record", "--kind", "progress", "--request-file", str(request)],
+                                          capture_output=True, text=True)
+                self.assertEqual(recorded.returncode, 0, recorded.stdout + recorded.stderr)
+                read = subprocess.run([sys.executable, "-B", str(package / "scripts/journal.py"),
+                                       "--run-dir", str(run), "read", "progress.md"], capture_output=True, text=True)
+                self.assertEqual(read.returncode, 0, read.stderr)
+                self.assertIn("Installed lifecycle record", read.stdout)
+                source, context = self.base / (form + "-source"), self.base / (form + "-context")
+                source.mkdir()
+                context.mkdir()
+                (source / "product.txt").write_text("product\n")
+                (context / "context.txt").write_text("context\n")
+                environment = {**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"}
+                for arguments in (("init", "-q"), ("add", "product.txt"),
+                                  ("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                                   "-c", "commit.gpgsign=false", "commit", "-qm", "fixture")):
+                    git = subprocess.run(["git", "-C", str(source), *arguments], env=environment, capture_output=True, text=True)
+                    self.assertEqual(git.returncode, 0, git.stderr)
+                prepared = subprocess.run([sys.executable, "-B", str(package / "scripts/task-workspace.py"),
+                                           "--run-dir", str(run), "prepare", "--source", str(source),
+                                           "--context-root", str(context), "--destination", str(self.base / (form + "-workspace"))],
+                                          env=environment, capture_output=True, text=True)
+                self.assertEqual(prepared.returncode, 0, prepared.stdout + prepared.stderr)
+                self.assertEqual(json.loads(prepared.stdout)["version"], 2)
                 with sqlite3.connect(run / ".journal/state.sqlite3") as connection:
                     before = connection.execute("SELECT version, revision FROM run_state").fetchone()
                 self.assertEqual(before[0], 2)
@@ -227,7 +275,11 @@ class Distributions(unittest.TestCase):
         result = subprocess.run(check, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         role = output / "qa-verifier.toml"
-        role.write_text(role.read_text().replace('model = "gpt-6-astra"', 'model = "different-model"'))
+        original = role.read_text()
+        changed, replacements = re.subn(r'^model = "[^"]+"$', 'model = "different-model"', original, count=1, flags=re.MULTILINE)
+        self.assertEqual(replacements, 1)
+        self.assertNotEqual(original, changed)
+        role.write_text(changed)
         result = subprocess.run(check, capture_output=True, text=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(str(role), result.stderr)

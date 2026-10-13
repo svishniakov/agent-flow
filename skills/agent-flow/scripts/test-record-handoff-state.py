@@ -21,6 +21,8 @@ def run(
     cwd: Path,
     check: bool = True,
 ) -> subprocess.CompletedProcess[str]:
+    if str(RECORDER) in args and "--summary" not in args:
+        args = [*args, "--summary", "Fixture handoff lifecycle"]
     result = subprocess.run(
         args,
         cwd=cwd,
@@ -108,7 +110,7 @@ def main() -> int:
                 "--lane-id",
                 "worker-a",
                 "--status",
-                "queued",
+                "planned",
                 "--from",
                 "architecture-contract",
                 "--task",
@@ -132,7 +134,7 @@ def main() -> int:
 
         progress_run = root / "progress"
         write_lane_map(progress_run)
-        for status in ["queued", "accepted", "completed"]:
+        for status in ["planned", "active", "pass"]:
             run(
                 [
                     sys.executable,
@@ -162,7 +164,7 @@ def main() -> int:
                 "--lane-id",
                 "missing",
                 "--status",
-                "queued",
+                "planned",
             ],
             cwd=root,
             check=False,
@@ -181,7 +183,7 @@ def main() -> int:
                 "--lane-id",
                 "worker-a",
                 "--status",
-                "queued",
+                "planned",
                 "--handoff",
                 "handoffs/other.md",
             ],
@@ -221,7 +223,7 @@ def main() -> int:
                 "--lane-id",
                 "worker-a",
                 "--status",
-                "queued",
+                "planned",
                 "--mode",
                 "single",
             ],

@@ -44,7 +44,8 @@ def version_of(command: list[str]) -> str:
 
 
 def require_version(name: str, expected: str, *, minimum: bool = False) -> str:
-    actual = version_of([require_tool(name), "--version"])
+    executable = require_tool(name)
+    actual = version_of([executable, "--version"])
     if minimum:
         accepted = bool(re.fullmatch(r"\d+\.\d+\.\d+", actual))
         if accepted:
@@ -53,7 +54,10 @@ def require_version(name: str, expected: str, *, minimum: bool = False) -> str:
         accepted = actual == expected
     if not accepted:
         relation = ">=" if minimum else "=="
-        raise EnvironmentError(f"Required {name}{relation}{expected}; found {actual}.")
+        detail = (" This pin belongs to the reproducible source test suite and frozen model-eval harness; "
+                  "it does not certify compatibility with current Agent Flow role models. Select the suite CLI explicitly through PATH."
+                  if name == "codex" else "")
+        raise EnvironmentError(f"Required {name}{relation}{expected}; found {actual} at {executable}.{detail}")
     return actual
 
 

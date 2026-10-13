@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 import re
 
-from journal_io import (JournalSnapshot, JournalError, require, digest, encode_json,
+from journal_io import (JournalSnapshot, JournalError, require, digest, encode_json, encode_json_line,
                         capture_archive, _transact, now_iso, validate_event, operation_id)
 from journal_lifecycle import capture_validation, freeze_validation
 from validation_inputs import captured
@@ -166,7 +166,7 @@ def recover(run_dir, *, upgrade, reopen, expected_run_uuid, expected_revision,
         if barrier:
             barrier("locked")
         verify(replace(current, external_inputs=snapshot.external_inputs))
-        documents = {"timeline.jsonl": current.documents.get("timeline.jsonl", b"") + (encode_json(event) + "\n").encode()}
+        documents = {"timeline.jsonl": current.documents.get("timeline.jsonl", b"") + (encode_json_line(event) + "\n").encode()}
         if current.exists("delegation-summary.json"):
             summary = json.loads(current.read_text("delegation-summary.json"))
             for key in ("qa", "reviewer"):

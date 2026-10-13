@@ -2,7 +2,7 @@
 
 Для нового `change` сначала подготовьте отдельный workspace, перед QA сохраните полный кандидат через `task-workspace.py seal`, после приёмки выдайте его через `delivery`. Авторы работают в `working_root`, QA/reviewer проверяют один `candidate_root`; пишущие проверки используют расходную копию. Полный порядок: [рабочая копия и выдача результата](traceable-runs.md#полная-рабочая-копия-и-выдача-результата).
 
-Публикуйте run-артефакты штатными командами журнала; личные файлы служат входом `journal.py publish`, чтение выполняется через `journal.py read`. Прямое редактирование файлов run или экспорта не публикует изменения. Порядок публикации, повторов и импорта описан в [Traceable Runs](traceable-runs.md#публикация-и-чтение-журнала).
+Передавайте смысловой текст и статус через `journal.py record`; допустимые поля, типы и примеры получите командой `python3 -B scripts/journal.py contract`. Код формирует заголовки, метаданные, SHA и проекции. Исходные доказательства публикуйте через `journal.py publish`, результаты читайте через `journal.py read`. Опубликованные журналы и экспорт вручную не редактируйте. Порядок записи, повторов и импорта: [Traceable Runs](traceable-runs.md#публикация-и-чтение-журнала).
 
 Document status: done
 
@@ -67,10 +67,17 @@ Unrelated active documents and historical runs stay unchanged.
 
 ### Current task delivery
 
+Положительные finalize/delivery оценивают продукт по [контракту приёмки](traceable-runs.md#приёмка-продукта-и-аудит-журнала).
+Сохранённые `st_dev`/`st_ino` и оформление отчёта не определяют пригодность
+неизменённого результата. Полный аудит ниже сохраняет замечания о формате
+и предварительном readiness; они сами по себе не заменяют проверку продукта.
+Обязательные локальные proof, авторство, независимость QA/reviewer и целостность
+источников остаются условиями положительной приёмки.
+
 Before final handoff for any repo task, audit the current `.agent-work/tasks/todo.md` section:
 
-- для изменения файлов сначала подготовьте итоговые документы, выполните `journal.py finalize`, затем свежий `validate-run.py --run-dir ...` без `--allow-pending` и `--allow-no-check`; сохраняйте stdout/stderr и exit code вне канонических документов журнала;
-- if every checklist item is checked, final validation exited 0, verification is recorded, no blocker remains, and any requested product commit succeeded, set `Status: done`; консультации без run завершаются после применимых прямых проверок;
+- для изменения файлов подготовьте итоговые документы, выполните `journal.py finalize`, сохраните свежий полный аудит `validate-run.py --run-dir ...` без permissive flags и выполните штатную `delivery` со свежей проверкой продукта;
+- if every checklist item is checked, product acceptance and delivery succeeded, verification is recorded, no product blocker remains, and any requested product commit succeeded, set `Status: done`; preserve audit findings separately. Консультации без run завершаются после применимых прямых проверок;
 - if product commits were created, update task sections in every affected repository after commit with SHA and committed-document/check evidence before final handoff;
 - if every checklist item is checked but required verification, review, approval, or requested commit evidence is missing, do not call the task done; keep `Status: in_progress` or `Status: blocked` and record the missing evidence;
 - if work is intentionally deferred, leave an unchecked item or explicit blocker so the dependency gate has an honest active task to read.
@@ -90,6 +97,40 @@ QA handoff требует актуального принятия; правка 
 
 ## Traceable Gates
 
+При явном `verification.delivery_scope` version 1 положительный итог принимает
+`local-deliverable`. Смысл и IDs пяти массивов external_followup заранее
+закреплены в SHA-bound task_scope. Требования успешности claims/acceptance,
+readiness/results, obligations, critical lanes и risk gates ниже относятся
+к локальной области; явно перечисленный операционный follow-up сохраняет gaps,
+blockers, реальные outcomes и предъявленные evidence. Без scope всё строго.
+Форма и целостность записей проверяются всегда. Code/auth/config/payload defects,
+mandatory local proof, авторские lanes, selected QA/reviewer и history/boundary
+не исключаются. QA/reviewer проверяют причину классификации по исходному заданию.
+Final/delivery отдельно называют локальный результат, исходную внешнюю цель
+и непроверенный follow-up; mock не закрывает provider workflow.
+Внешняя задача без local deliverable не получает локальную delivery.
+Контракт: [Traceable Runs](traceable-runs.md#локальная-приёмка-и-внешний-follow-up).
+
+Положительная приёмка требует выполнения применимых gates ниже для текущей
+workspace revision. Для `blocked/fail` сохраняются структура, идентичность,
+история и целостность заявленных доказательств; конкретная причина, непроверенное
+и `gap` допустимы без candidate или успешного QA/reviewer. Такой журнал закрывает
+отрицательный отчёт, не выполнение задачи, и не разрешает delivery. Порядок:
+`traceable-runs.md`, раздел «Запись и собственный итог проверяющего».
+
+Historical resolved/exempt проверяются независимо от успешности текущих обязанностей:
+original assignment/outcome, archive при наличии, obligation, reason, evidence
+hashes, отсутствие циклов и принятый replacement той же обязанности. Coverage
+исключает лишь проверенные resolutions; голый replaced не даёт исключения.
+Current blocked/fail не становятся resolved. Failed finalize не пишет successful final.
+
+Prepare по умолчанию сохраняет canonical bundle в
+`<owner>/.agent-work/workspaces/<run>-<run_uuid>`, noncanonical —
+`<run_dir>/workspace-<run_uuid>`. Existing bundle и explicit destination сохраняют
+binding; temp fixture остаётся временным. Baseline/candidate retained bytes
+обязательны для выдачи. Их отсутствие даёт точный отказ; manifest, история
+или живой source не восстанавливают принятые байты.
+
 For compact `standard` trace:
 
 - `run.md`, `checks.md`, `context.md`, `final.md`, `timeline.jsonl` и штатный `delegation-summary.json` существуют; создавайте их через `init-run.py --mode compact`;
@@ -104,31 +145,31 @@ For full `release` trace:
 - timeline is valid JSONL;
 - timeline records the actual workflow order, with final successful verification/checks after the last orchestrator implementation/fix;
 - if the run creates a product commit, timeline has an orchestrator `stage=commit` event with the commit hash after successful checks and before the final event;
-- the current lifecycle generation has exactly one final orchestrator event, written atomically by `journal.py finalize` after full validation; historical generations and their failed attempts remain unchanged;
+- the current lifecycle generation has exactly one final orchestrator event, written atomically by `journal.py finalize` after the applicable acceptance check; historical generations and their failed attempts remain unchanged;
 - initial and final worktree states are recorded when the run edits a git repo;
 - every delegated subagent has `agents/<role>/trace.jsonl` and matching run-level timeline events;
 - Delegation Trace Gate is covered: every positive traceable run includes `delegation-summary.json`, final `Delegation Trace`, `Subagents Used`, `Role Lanes Used`, `Subagent Trace Evidence`, and terminal handoff trace evidence for every successful spawned subagent;
 - Handoff State Gate is covered when `handoff_state_required=true`: every lane records `handoff_state` with `mode` `task` or `batch`, status `queued`, `accepted`, `completed`, `blocked`, or `failed`; `scripts/record-handoff-state.py` updates only `lane-map.json`; terminal lane status matches handoff state; timestamps are ordered; and batch items are completed before batch acceptance;
 - Mandatory Independent QA Review Gate требует для `change` два отдельных назначения: `qa-verifier` проверяет результат, `reviewer` проверяет его и доказательства QA. Оба работают как реальные дочерние сессии текущего root; их IDs отличаются от IDs авторов. Модели берутся из действующих файлов ролей через `agent_config`. `reviewer.qa` допустим только как имя назначения канонического `reviewer`; QA под этим именем не заменяет reviewer.
-- Каждый проверяющий подтвердил текущий `reviewed_result_hash` собственным `completion_turn_id` из исходной сессии; reviewer вернул `qa_handoff_sha256` прочитанного QA handoff. Пути доказательств и SHA-256 присутствуют в handoff и совпадают с текущими байтами.
+- Каждый проверяющий подтвердил текущий `reviewed_result_hash` собственным `completion_turn_id` из исходной сессии; reviewer вернул `qa_handoff_sha256` прочитанного QA handoff. Writer добавил пути доказательств и SHA-256 в handoff; они совпадают с текущими байтами.
 - Compact/full/auto используют один `delegation-summary.json.verification`. Отсутствующий lane-map не отменяет проверку. `analysis` допустим только с пустым продуктовым результатом; `--allow-pending` не разрешает предварительный PASS.
 - При недоступности запуска или исходной сессии записать причину в `verification.blocker` и завершить `blocked` или `fail`; успешные доказательства не выдумывать.
 - when Lane Sharding is used, `lane-map.json` is valid and every critical lane is covered by evidence or a valid replacement lane;
 - when the Architecture Contract Gate is required, `lane-map.json` uses schema v2, records `budget`, `architecture_context`, and `architecture_capabilities`, includes a critical `architecture` lane, and blocks `ship` until that lane has handoff and evidence with the required contract sections;
 - Architecture Design Mode is covered: every successful critical `architecture` lane records `architecture_design_brief`, the Architecture Design Brief includes `Selected Matrix Facets`, and `Decision` contains `Status: approved` before any positive final verdict;
-- Architecture Artifact Authoring Automation is covered: `init-run.py --architecture-gate` can create the skeleton, roles fill their own artifacts, and no positive final verdict ships with `TODO(agent):` left in referenced architecture artifacts;
+- `init-run.py --architecture-gate` создаёт planned lanes без вымышленных результатов и `TODO(agent):` proof rows. Роли записывают смысл через typed writer; успешный final требует настоящих architecture и readiness evidence, а не наличия skeleton-файлов;
 - when Architecture Matrix facets apply, `architecture_context` records the selected facets and the architecture handoff `Selected Architecture` section includes those facet ids before QA/reviewer gates cover facet-driven invariants;
 - Architecture Capability Router is covered: selected `architecture_capabilities` from `registries/architecture-capabilities.json` cover selected Matrix facets, Architecture Design Brief `Execution Plan` includes the capability ids, Architecture Contract `Selected Architecture` includes them, and Soft Skill Binding handles `recommended_skills` through registry checks;
 - when Architecture Execution Control applies, worker lanes record `Architecture Compliance` and `Engineering Simplicity`, architecture or simplicity drift has architect re-check before `ship` or `pass-with-risks`, QA records `Architecture Invariants`, and reviewer records `Architecture Matrix Mismatches` plus `Contract Drift` including Engineering Simplicity;
 - Simplicity Gate is not a reporting gate: fix now if fixable. Fixable overengineering, duplicated helper, unnecessary abstraction, dependency/stack drift, or wider-than-needed implementation is remediated before QA/reviewer, while reporting-only closure is rejected unless the worker routed true architecture drift to architect re-check;
 - Simplicity Scope Coverage is covered: `engineering_simplicity_scope.primary_surfaces` names the core task surfaces, `secondary_surfaces` names peripheral surfaces, every primary surface is covered by at least one worker `scope_coverage`, QA writes `Engineering Simplicity Scope`, reviewer `Contract Drift` rejects peripheral-only closure, and final `Engineering Simplicity` names every primary surface;
-- Lane Boundary Evidence Gate is covered: each successful architecture-gated worker lane records `boundary.allowed_paths`, optional `boundary.forbidden_paths`, `changed_paths_artifact`, and `Boundary Evidence`; `scripts/record-lane-boundary.py` writes `checks/lane-boundary-<lane-id>.json` with repo-relative POSIX `changed_paths`; QA `Architecture Invariants`, reviewer `Contract Drift`, and final `Boundary Evidence` mention every worker lane id;
+- Lane Boundary Evidence Gate is covered: each successful architecture-gated worker lane records `boundary.allowed_paths`, optional `boundary.forbidden_paths`, `changed_paths_artifact`, and `Boundary Evidence`; `record-lane-boundary.py --run-dir <run-dir> --lane-id <author-lane> --declaration-json <published-declaration-path>` consumes the published declaration and writes boundary v2 with full `changed_paths`, explicit `authored_paths`, own handoff/edit evidence and assignment/candidate bindings. Permissions apply to each author's contribution, forbidden wins; union covers the full delta, shared paths need every contributor's disclosure/evidence/permission. QA `Architecture Invariants`, reviewer `Contract Drift`, and final `Boundary Evidence` mention every worker lane id;
 - Architecture Context Propagation is covered: workers declare selected `matrix_facets`, QA covers selected `risk_gates` and `verification_gates`, and reviewer covers the full selected `architecture_context` plus selected `architecture_capabilities`;
-- Claim Evidence Gate is covered for positive architecture-gated runs: Architecture Contract `QA Gates` and `Reviewer Checklist` list `Claim Evidence` ids, `claim-evidence.json` maps every id to `owner_lane`, reviewer, `supported` status, subjects, evidence paths, and literal `markers`; any `gap` blocks `ship` and `pass-with-risks`;
+- Claim Evidence Gate is covered for positive architecture-gated runs: Architecture Contract `QA Gates` and `Reviewer Checklist` list `Claim Evidence` ids, `claim-evidence.json` maps every local id to `owner_lane`, reviewer, `supported` status, subjects, evidence paths, and literal `markers`; a local `gap` blocks `ship` and `pass-with-risks`, explicitly scoped external gaps remain open;
 - Acceptance Criteria Traceability Gate is covered for positive architecture-gated runs: Architecture Contract `QA Gates` and `Reviewer Checklist` list `Acceptance Criteria` ids, `acceptance-traceability.json` maps every id to source, requirement, subjects, `supported` status, `surface_expectations`, evidence paths, and literal `markers`; any missing id, missing marker, missing `surface`, missing `polarity`, missing `proof_kind`, unmatched surface evidence, or `gap` blocks `ship` and `pass-with-risks`;
 - Surface Evidence Gate is covered: every `surface_expectations` item is closed by marker-backed evidence with matching `surface`, `polarity`, and allowed `proof_kind`; storage/internal evidence cannot satisfy API, UI, logs, history, provider metadata, or external-provider acceptance unless the target surface matches;
 - Contract Negative Fixture Gate is covered for contract-like acceptance items: any `gate`, `cli`, `query`, `storage`, `config`, or `parser` acceptance record has `negative_fixture_evidence` with at least one evidence path and literal marker for a negative or drift fixture, and `negative_fixture_evidence` never uses `polarity=positive`;
-- Verification Readiness Gate is covered before worker lanes: `lane-map.json` records `verification_readiness`, `verification-readiness.json` covers selected `risk_gates` and `verification_gates`, `needs-approval` uses documented safe commands only after user approval, `approval_requests` and `approval_executions` are recorded, `paused-blocked` stops as final `blocked` with `resume_phrase=Готово`, and QA records `Verification Gate Results`;
+- Verification Readiness Gate is covered before worker lanes: `lane-map.json` records `verification_readiness`, `verification-readiness.json` covers selected `risk_gates` and `verification_gates`, `needs-approval` uses documented safe commands only after user approval, `approval_requests` and `approval_executions` are recorded, `paused-blocked` stops as final `blocked` with manual instructions, and QA records `Verification Gate Results`;
 - Continuation Gate is covered for resumed positive runs: `timeline.jsonl` keeps `blocked-checkpoint`, `continuation-summary.json` records the checkpoint snapshot, resolved blockers, `historical_worker_lanes`, `new_worker_lanes`, and `revalidated_lanes`, no new worker timeline event appears before ready Verification Readiness, final includes `Continuation Summary`, QA includes `Continuation Revalidation`, and reviewer includes `Continuation Review`;
 - Harness Evaluation Loop is covered for triggered runs: `harness-evaluation.json` records `learning_triggers`, findings, Evidence Records proposals, source evidence, `requires_human_approval=false`, final `Harness Evaluation`, and reviewer `Harness Evaluation Review` for positive lane-map runs;
 - Mitigation Gate is covered for `pass-with-risks`: `risk-mitigations.json` records at least one `identified` risk, `final.md` includes `Risk Mitigations`, and reviewer `Risk Mitigation Review` covers every risk id when lane-map exists;
@@ -157,11 +198,12 @@ For full `release` trace:
 - Acceptance Criteria Traceability Gate and Surface Evidence Gate blocked `ship` and `pass-with-risks` until every Architecture Contract `Acceptance Criteria` id had `acceptance-traceability.json` evidence paths, literal markers, `surface_expectations`, and matching `surface`/`polarity`/`proof_kind` evidence.
 - Contract Negative Fixture Gate blocked `ship` and `pass-with-risks` until every `gate`, `cli`, `query`, `storage`, `config`, or `parser` acceptance record had negative or drift fixture marker evidence with no `polarity=positive`.
 - Architecture Context Propagation blocked `ship` until worker `matrix_facets`, QA `risk_gates` and `verification_gates`, reviewer selected-context coverage, and selected `architecture_capabilities` coverage were present.
-- Verification Readiness Gate blocked worker start and positive verdicts until selected `risk_gates` and `verification_gates` were ready; user-declined startup stopped immediately as `paused-blocked` with manual instruction and `resume_phrase=Готово`.
+- Verification Readiness Gate blocked worker start and positive verdicts until selected `risk_gates` and `verification_gates` were ready; user-declined startup stopped immediately as `paused-blocked` with manual instruction.
+- Legacy `resume_phrase` — метаданные, а не пароль. Новое `readiness-approval` связывает решение с настоящим root user event и точной цитатой. Прежнее применимое разрешение действует без нового сообщения, точной фразы или NLP-проверки.
 - Continuation Gate blocked positive resumed runs unless `continuation-summary.json`, `blocked-checkpoint`, timeline `lane_id` evidence, `Continuation Summary`, QA `Continuation Revalidation`, reviewer `Continuation Review`, and `revalidated_lanes` proved the resumed order honestly.
 - Harness Evaluation Loop blocked triggered trace learning unless `harness-evaluation.json`, `Harness Evaluation`, reviewer `Harness Evaluation Review`, `learning_triggers`, and project-local Evidence Records proposals were backed by persisted evidence.
 - Mitigation Gate blocked `pass-with-risks` until each risk was identified with evidence and `next_gate=resolution`.
-- Resolution Gate blocked `pass-with-risks` until each identified risk had a concrete resolution record, evidence, verification, QA review, reviewer review, and status `fixed`, `mitigated`, or `contained`; `unresolved` was allowed only for `blocked` or `fail`.
+- Resolution Gate blocked `pass-with-risks` until each identified local risk had a concrete resolution record, evidence, verification, QA review, reviewer review, and status `fixed`, `mitigated`, or `contained`; `unresolved` remains allowed for `blocked`/`fail` or explicitly scoped external follow-up in a local positive final.
 - Blocked Resolution Gate blocked retry work until Senior QA reviewed acceptance criteria and test design, architect approved attempt 2, supervising architect approved attempt 3 when needed, rollback was recorded, and repeated failed approaches were listed in `forbidden_repeat`.
 - Mandatory Independent QA Review Gate требует для `change` два отдельных назначения: `qa-verifier` проверяет результат, `reviewer` проверяет его и доказательства QA. Оба работают как реальные дочерние сессии текущего root; их IDs отличаются от IDs авторов. Модели берутся из действующих файлов ролей через `agent_config`. `reviewer.qa` допустим только как имя назначения канонического `reviewer`; QA под этим именем не заменяет reviewer.
 - Handoff State Gate blocked positive lane-map runs when required lanes had missing state, accepted state on terminal pass lanes, mismatched handoff paths, missing `completed_at`, unknown batch items, or batch items not completed before batch acceptance.
@@ -182,7 +224,7 @@ For full `release` trace:
 - Loop-until-done has max iterations, budget cap, stop condition, failure condition, and handoff state.
 - Tournament has bracket size or max comparisons, stable rubric, tie-breakers, and winner rationale.
 - Fan-out work has deterministic item ownership and synthesis by the orchestrator.
-- Lane Sharding has a valid lane map; no final `ship` while a critical lane is unresolved, failed, blocked, or timed out without replacement.
+- Lane Sharding has a valid lane map; no final `ship` while a local critical lane is unresolved, failed, blocked, or timed out without a verified replacement. Explicit external follow-up remains covered with its actual outcome.
 - Adversarial verification checks evidence against a rubric and records unresolved objections.
 - Quarantined workers that read untrusted content did not perform privileged actions.
 
@@ -219,6 +261,14 @@ For full `release` trace:
 
 ## Evidence Rule
 
-Do not say work is complete, fixed, passing, or ready without evidence that covers the current result. Reuse prior checks only while code, inputs, dependencies, environment, and required external state remain applicable. Repeat affected checks after influencing changes, gaps, or failures. The mandatory fresh final `validate-run.py` for the current run remains required, including after changes to its evidence.
+Остановите product writers → seal → опубликуйте handoffs, edit evidence и
+boundary v2 декларации → hash v5 нового seal → QA → reviewer. Декларация не содержит
+result_hash; её смысловые авторские границы входят в него вместе со scope. Permissions filter общего
+diff не подтверждает авторство. Hash v1–4/boundary v1 читаются для legacy/exact
+accepted replay; новая авторская приёмка при действующем boundary gate требует
+v2, включая единственного автора. Изменение scope, candidate, declaration
+или статусов документов требует нового hash и независимого принятия.
+
+Do not say work is complete, fixed, passing, or ready without evidence that covers the current result. Reuse prior checks only while code, inputs, dependencies, environment, and required external state remain applicable. Repeat affected checks after influencing changes, gaps, or failures. Preserve a fresh full audit and perform fresh product acceptance through delivery, including after changes to required evidence.
 
 Evidence Records do not replace verification. They make repeated decisions auditable and allow local practices to promote, demote, become inactive, or become anti-patterns based on observed outcomes and helpful/harmful reuse counters.

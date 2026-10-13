@@ -28,36 +28,7 @@ DEFAULT_ARCHITECTURE_CAPABILITIES = [
     "go-backend-service-architecture",
     "modular-monolith-architecture",
 ]
-ENGINEERING_SIMPLICITY_CHECKS = [
-    "no-extra-work",
-    "stdlib-native-first",
-    "existing-helper-first",
-    "dependency-justified",
-    "abstraction-justified",
-    "smallest-working-diff",
-    "tests-fit-risk",
-]
-CONTRACT_NEGATIVE_FIXTURE_TYPES = ["gate", "cli", "query", "storage", "config", "parser"]
 AGENT_TODO_PLACEHOLDER = "TODO(agent):"
-EXPECTED_ARCHITECTURE_GATE_FILES = [
-    "delegation-summary.json",
-    "verification-readiness.json",
-    "claim-evidence.json",
-    "acceptance-traceability.json",
-    "handoffs/architecture-design.md",
-    "handoffs/architecture-contract.md",
-    "handoffs/verification-readiness.md",
-    "handoffs/worker-a.md",
-    "handoffs/qa-behavior.md",
-    "handoffs/review-contract.md",
-    "checks/architecture-contract.md",
-    "checks/verification-readiness.md",
-    "checks/engineering-simplicity-scope.md",
-    "checks/worker-a.md",
-    "checks/lane-boundary-worker-a.json",
-    "checks/qa-behavior.md",
-    "checks/review-contract.md",
-]
 
 
 def run_init(args: list[str]) -> subprocess.CompletedProcess[str]:
@@ -87,6 +58,10 @@ def architecture_args(repo: Path, slug: str, *extra: str) -> list[str]:
         ",".join(DEFAULT_ARCHITECTURE_CAPABILITIES),
         "--worker-lane",
         "worker-a:implementation:typescript-worker",
+        "--summary",
+        "Prepare SQLite verification environment before any worker edits",
+        "--plan-summary",
+        "Register planned architecture lanes and execute selected readiness checks",
         *extra,
     ]
 
@@ -125,7 +100,7 @@ def expect_fail(name: str, args: list[str], needle: str) -> None:
         raise AssertionError(f"{name} missing {needle!r}\nOutput:\n{output}")
 
 
-def expect_valid_pending_run(name: str, run_dir: Path) -> None:
+def expect_incomplete_run(name: str, run_dir: Path) -> None:
     result = subprocess.run(
         [
             sys.executable,
@@ -138,9 +113,9 @@ def expect_valid_pending_run(name: str, run_dir: Path) -> None:
         capture_output=True,
         check=False,
     )
-    if result.returncode != 0:
+    if result.returncode == 0 or "verification-readiness" not in result.stdout + result.stderr:
         raise AssertionError(
-            f"{name} expected validate-run --allow-pending pass\n"
+            f"{name} must remain incomplete even with --allow-pending\n"
             f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
         )
 
@@ -152,12 +127,157 @@ def load_lane_map(run_dir: Path) -> dict[str, Any]:
     return lane_map
 
 
+def check_writer_readiness(run_dir: Path, repo: Path, *, continuation=False) -> None:
+    """Public intents and real process proof; no hand-authored service JSON."""
+    capture = repo.parent / "readiness-request.json"
+    from verification_evidence import empty_verification
+    verification = {**empty_verification(), "root_thread_id": "00000000-0000-4000-8000-000000000001",
+                    "task_kind": "analysis" if continuation else "change", "blocker": "Selected environment checks have not yet been executed", "unverified": ["SQLite migration, unit and integration checks"],
+                    "initial_snapshot": {"path": "context.md", "section": "Initial Worktree Snapshot"},
+                    "task_scope": {"path": "run.md", "section": "Task Scope"}}
+    for script, args in (
+        *([] if continuation else [("task-workspace.py", ["prepare", "--source", str(repo), "--destination", str(repo.parent / "readiness-workspace")])]),
+        ("record-agent-trace.py", ["--role", "orchestrator", "--execution-mode", "role-lane", "--stage", "verification",
+                                   "--status", "active", "--summary", "Readiness fixture root and scope registered",
+                                   "--verification-json", json.dumps(verification)]),
+    ):
+        result = subprocess.run([sys.executable, "-B", str(ROOT / "scripts" / script), "--run-dir", str(run_dir), *args],
+                                capture_output=True, text=True)
+        if result.returncode != 0:
+            raise AssertionError(result.stdout + result.stderr)
+    def tree():
+        return {str(path.relative_to(run_dir)): path.read_bytes()
+                for path in run_dir.rglob("*") if path.is_file()}
+    def record(kind: str, request: dict, identifier: str, *, ok=True):
+        capture.write_text(json.dumps(request))
+        result = subprocess.run([sys.executable, "-B", str(ROOT / "scripts/journal.py"),
+                                 "--run-dir", str(run_dir), "record", "--kind", kind,
+                                 "--request-file", str(capture), "--operation-id", identifier],
+                                capture_output=True, text=True)
+        if (result.returncode == 0) != ok:
+            raise AssertionError(result.stdout + result.stderr)
+        return json.loads(result.stdout) if ok else result
+    attempt = {"id": "readiness-first", "lane_id": "verification-readiness-1",
+               "summary": "Selected gates have not yet been executed", "status": "blocked",
+               "blockers": ["Missing selected gate process evidence"]}
+    if not continuation:
+        record("lane", {"id": "worker-a", "summary": "Future src implementation ownership", "status": "planned",
+                        "lane_type": "implementation", "role": "typescript-worker", "execution_mode": "role-lane",
+                        "wave": 3, "critical": True, "allowed_paths": ["src/**"]}, "readiness-worker-boundary")
+    record("lane", {"id": "checkpoint-root", "summary": "Root environment checkpoint owner", "status": "planned", "lane_type": "architecture",
+                    "role": "orchestrator", "execution_mode": "role-lane", "wave": 0, "critical": False}, "declare-checkpoint-root")
+    root_start = subprocess.run([sys.executable, "-B", str(ROOT / "scripts/record-agent-trace.py"), "--run-dir", str(run_dir),
+                                 "--role", "orchestrator", "--execution-mode", "role-lane", "--lane-id", "checkpoint-root",
+                                 "--stage", "spawned", "--status", "active", "--summary", "Own blocked environment checkpoint"], capture_output=True, text=True)
+    if root_start.returncode:
+        raise AssertionError(root_start.stdout + root_start.stderr)
+    record("readiness-attempt", attempt, "readiness-blocked")
+    disposable = repo.parent / ("continuation-copy" if continuation else "readiness-copy")
+    disposable.mkdir()
+    failed = record("check", {"summary": "Environment verification is genuinely incomplete", "status": "pass", "cwd": str(disposable),
+                              "command": [sys.executable, "-B", "-c", "print('selected environment checks not executed'); raise SystemExit(7)"]}, "readiness-incomplete-check")
+    for axis in ("risk_gates", "verification_gates"):
+        for facet in DEFAULT_ARCHITECTURE_CONTEXT[axis]:
+            record("readiness-gate", {"attempt_id": attempt["id"], "axis": axis, "facet": facet, "summary": "Actual environment check remains incomplete",
+                                      "status": "blocked", "check": "Selected environment proof not available", "evidence": [{"path": ref["path"]} for ref in failed["evidence"]]}, "initial-blocked-" + facet)
+    record("harness-evaluation", {"summary": "Learning evaluation remains blocked with actual incomplete verification", "status": "blocked",
+                                  "evidence": [{"path": ref["path"]} for ref in failed["evidence"]]}, "readiness-blocked-learning")
+    if continuation:
+        snapshot = JournalSnapshot.open(run_dir)
+        closed = subprocess.run([sys.executable, "-B", str(ROOT / "scripts/journal.py"), "--run-dir", str(run_dir), "finalize",
+                                 "--expected-run-uuid", snapshot.run_uuid, "--expected-revision", str(snapshot.revision),
+                                 "--expected-generation", str(snapshot.generation), "--operation-id", "readiness-blocked-final",
+                                 "--summary", "Selected environment checks are not yet executed", "--status", "blocked"], capture_output=True, text=True)
+        if closed.returncode:
+            raise AssertionError(closed.stdout + closed.stderr)
+        from journal_recovery import diagnose_recovery, recover
+        diagnosis = diagnose_recovery(run_dir)
+        recover(run_dir, upgrade=False, reopen=True, expected_run_uuid=diagnosis["identity"]["run_uuid"],
+                expected_revision=diagnosis["revision"], expected_generation=diagnosis["generation"], identifier="readiness-native-reopen",
+                reason="Execute actual environment checks", identity=diagnosis["identity"], final_index=diagnosis["final"]["index"], final_sha256=diagnosis["final"]["sha256"])
+        checkpoint = record("event", {"summary": "Preserved actual blocked environment conclusion", "status": "blocked", "stage": "blocked-checkpoint",
+                                      "role": "orchestrator", "lane_id": "checkpoint-root"}, "readiness-checkpoint")
+    before = tree()
+    if not continuation:
+        start = subprocess.run([sys.executable, "-B", str(ROOT / "scripts/record-agent-trace.py"),
+                                "--run-dir", str(run_dir), "--role", "typescript-worker",
+                                "--execution-mode", "role-lane", "--lane-id", "worker-a",
+                                "--stage", "spawned", "--status", "active", "--summary", "Must await readiness"],
+                               capture_output=True, text=True)
+        if start.returncode == 0 or "readiness" not in (start.stdout + start.stderr).lower():
+            raise AssertionError("unfinished readiness must block worker start: " + start.stdout + start.stderr)
+        if tree() != before:
+            raise AssertionError("rejected worker start must not allocate a request")
+    record("readiness-attempt", {**attempt, "status": "pass", "blockers": []}, "readiness-without-proof", ok=False)
+    if tree() != before:
+        raise AssertionError("ready without gates must have zero mutations")
+    for axis in ("risk_gates", "verification_gates"):
+        for facet in DEFAULT_ARCHITECTURE_CONTEXT[axis]:
+            check = record("check", {"summary": "SQLite transaction environment verified for " + facet,
+                                     "status": "pass", "cwd": str(disposable),
+                                     "command": [sys.executable, "-B", "-c", "import sqlite3; c=sqlite3.connect(':memory:'); c.execute('create table readiness(value integer)'); c.execute('insert into readiness values(7)'); c.commit(); assert c.execute('select value from readiness').fetchone() == (7,); print('actual SQLite transaction passed')"]}, "readiness-check-" + facet)
+            record("readiness-gate", {"attempt_id": attempt["id"], "axis": axis, "facet": facet,
+                                      "summary": "Actual SQLite transaction passed", "status": "pass",
+                                      "check": "SQLite schema and committed data can be read",
+                                      "evidence": [{"path": ref["path"]} for ref in check["evidence"]]}, "readiness-gate-" + facet)
+    record("readiness-attempt", {**attempt, "summary": "All selected gate checks executed", "status": "pass", "blockers": []}, "readiness-ready")
+    data = json.loads(JournalSnapshot.open(run_dir).read_text("verification-readiness.json"))
+    if data["status"] != "ready" or data["approval_requests"] or data["approval_executions"]:
+        raise AssertionError("real checks must close readiness without invented approvals")
+    gates = data["attempts"][0]["gates"]
+    if len(gates) != 3 or any(gate["readiness"] != "ready" for gate in gates):
+        raise AssertionError("all three selected gates must have actual process proof")
+    if not continuation:
+        return
+    refs = [{"path": ref["path"]} for ref in check["evidence"]]
+    record("handoff", {"lane_id": attempt["lane_id"], "summary": "Actual selected SQLite environment checks passed", "status": "pass", "evidence": refs,
+                       "sections": [{"section": "Verification Gate Results", "summary": "migrations, unit and integration executed actual SQLite transactions"}]}, "readiness-handoff")
+    for lane_id, role, lane_type in (("continuation-qa", "qa-verifier", "qa"), ("continuation-review", "reviewer", "review")):
+        record("lane", {"id": lane_id, "summary": "Recheck actual environment after checkpoint", "status": "planned", "lane_type": lane_type,
+                        "role": role, "execution_mode": "role-lane", "wave": 4, "critical": False}, "declare-" + lane_id)
+        record("handoff", {"lane_id": lane_id, "summary": "Rechecked actual selected environment process proof", "status": "pass", "evidence": refs}, "conclude-" + lane_id)
+    blocker = {"id": "missing-environment-proof", "summary": "Actual selected environment commands now succeeded", "status": "pass", "evidence": refs}
+    for status in ("blocked", "fail"):
+        before = tree()
+        record("continuation-blocker", {**blocker, "status": status}, "invalid-resolve-" + status, ok=False)
+        if tree() != before:
+            raise AssertionError("negative blocker observation must not become resolved")
+    record("continuation-blocker", blocker, "environment-blocker-resolved")
+    continuation = {"summary": "Resume after actual environment proof and independent rechecks", "status": "pass", "checkpoint": checkpoint["checkpoint"],
+                    "readiness_lane": attempt["lane_id"], "historical_worker_lanes": [], "new_worker_lanes": [], "revalidated_lanes": [],
+                    "qa_recheck_lane": "continuation-qa", "reviewer_recheck_lane": "continuation-review"}
+    before = tree()
+    record("continuation", {**continuation, "checkpoint": {**checkpoint["checkpoint"], "snapshot": "context.md"}}, "forged-checkpoint", ok=False)
+    if tree() != before:
+        raise AssertionError("forged checkpoint must have zero mutations")
+    record("continuation", continuation, "environment-resumed")
+    if json.loads(JournalSnapshot.open(run_dir).read_text("continuation-summary.json"))["status"] != "resumed-ready":
+        raise AssertionError("actual checkpoint and readiness must support public continuation")
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory(prefix="agent-flow-init-run-tests-") as temp_dir:
-        repo = Path(temp_dir) / "repo"
+        repo = Path(temp_dir).resolve() / "repo"
         repo.mkdir()
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
 
         base = architecture_args(repo, "arch-authoring")
+        context_file = Path(temp_dir) / "context.json"
+        context_file.write_text(json.dumps(DEFAULT_ARCHITECTURE_CONTEXT))
+        for index, raw in enumerate((json.dumps(DEFAULT_ARCHITECTURE_CONTEXT, indent=4) + " " * 2048,
+                                     " \n\t" + json.dumps(DEFAULT_ARCHITECTURE_CONTEXT),
+                                     str(context_file))):
+            result = run_init(replace_option(architecture_args(repo, f"json-context-{index}"),
+                                             "--architecture-context-json", [raw]))
+            if result.returncode:
+                raise AssertionError(result.stdout + result.stderr)
+        for index, raw in enumerate(("{broken" + " " * 2048, "[]", "null", "true", '"text"')):
+            slug = f"invalid-json-context-{index}"
+            expect_fail("invalid context rejected before writes",
+                        replace_option(architecture_args(repo, slug), "--architecture-context-json", [raw]),
+                        "JSON")
+            if (repo / ".agent-work" / "runs" / f"2026-06-12-{slug}").exists():
+                raise AssertionError("invalid context created a run")
 
         expect_fail(
             "architecture gate requires lane skeleton",
@@ -212,153 +332,27 @@ def main() -> int:
             )
 
         run_dir = Path(result.stdout.strip())
-        for relative_path in EXPECTED_ARCHITECTURE_GATE_FILES:
-            if not JournalSnapshot.open(run_dir).exists(relative_path):
-                raise AssertionError(f"missing generated file: {relative_path}")
-            if relative_path == "delegation-summary.json":
-                continue
-            if AGENT_TODO_PLACEHOLDER not in JournalSnapshot.open(run_dir).read_text(relative_path):
-                raise AssertionError(f"generated file must contain {AGENT_TODO_PLACEHOLDER}: {relative_path}")
-
+        snapshot = JournalSnapshot.open(run_dir)
+        for name, content in snapshot.documents.items():
+            if content is not None and AGENT_TODO_PLACEHOLDER.encode() in content:
+                raise AssertionError(f"init must not manufacture proof placeholders: {name}")
+        for name in ("claim-evidence.json", "acceptance-traceability.json", "verification-readiness.json"):
+            if snapshot.exists(name):
+                raise AssertionError(f"unknown proof document must not be fabricated: {name}")
         lane_map = load_lane_map(run_dir)
         if lane_map.get("schema_version") != 2:
             raise AssertionError("generated lane-map.json must use schema v2")
         if lane_map.get("handoff_state_required") is not True:
-            raise AssertionError("generated architecture-gate lane-map.json must require handoff_state")
+            raise AssertionError("architecture run must retain Handoff State Gate")
         if lane_map.get("architecture_context") != DEFAULT_ARCHITECTURE_CONTEXT:
-            raise AssertionError("generated lane-map.json must include architecture_context")
+            raise AssertionError("selected architecture context must be retained")
         if lane_map.get("architecture_capabilities", {}).get("selected") != DEFAULT_ARCHITECTURE_CAPABILITIES:
-            raise AssertionError("generated lane-map.json must include architecture_capabilities")
-        simplicity_scope = lane_map.get("engineering_simplicity_scope")
-        if not isinstance(simplicity_scope, dict):
-            raise AssertionError("generated lane-map.json must include engineering_simplicity_scope")
-        if "primary_surfaces" not in simplicity_scope or "secondary_surfaces" not in simplicity_scope:
-            raise AssertionError("generated engineering_simplicity_scope must include surfaces")
-        if simplicity_scope.get("evidence") != ["checks/engineering-simplicity-scope.md"]:
-            raise AssertionError("generated engineering_simplicity_scope must include evidence path")
-        worker_lane = next(
-            (lane for lane in lane_map.get("lanes", []) if lane.get("id") == "worker-a"),
-            None,
-        )
-        if not isinstance(worker_lane, dict):
-            raise AssertionError("generated lane-map.json must include worker-a lane")
-        boundary = worker_lane.get("boundary")
-        if not isinstance(boundary, dict):
-            raise AssertionError("generated worker lane must include boundary skeleton")
-        if "allowed_paths" not in boundary or "forbidden_paths" not in boundary:
-            raise AssertionError("generated boundary skeleton must include path arrays")
-        if boundary.get("changed_paths_artifact") != "checks/lane-boundary-worker-a.json":
-            raise AssertionError("generated boundary skeleton must include artifact path")
-        if "checks/lane-boundary-worker-a.json" not in worker_lane.get("evidence", []):
-            raise AssertionError("generated worker evidence must include boundary artifact")
-        boundary_artifact = json.loads(
-            JournalSnapshot.open(run_dir).read_text("checks/lane-boundary-worker-a.json")
-        )
-        if boundary_artifact.get("version") != 1 or boundary_artifact.get("lane_id") != "worker-a":
-            raise AssertionError("generated boundary artifact must match schema and lane id")
-        if boundary_artifact.get("changed_paths") != []:
-            raise AssertionError("generated boundary artifact must start with empty changed paths")
-
-        worker_handoff = JournalSnapshot.open(run_dir).read_text("handoffs/worker-a.md")
-        if "## Engineering Simplicity" not in worker_handoff:
-            raise AssertionError("worker handoff missing Engineering Simplicity section")
-        if "## Boundary Evidence" not in worker_handoff:
-            raise AssertionError("worker handoff missing Boundary Evidence section")
-        if "## Acceptance Traceability" not in worker_handoff:
-            raise AssertionError("worker handoff missing Acceptance Traceability section")
-        if "acceptance-traceability.json" not in worker_handoff:
-            raise AssertionError("worker handoff missing acceptance traceability artifact")
-        if "Lane Boundary Evidence Gate" not in worker_handoff:
-            raise AssertionError("worker handoff missing Lane Boundary Evidence Gate label")
-        if "record-lane-boundary.py" not in worker_handoff:
-            raise AssertionError("worker handoff missing lane boundary recorder instruction")
-        if "boundary.allowed_paths" not in worker_handoff or "boundary.forbidden_paths" not in worker_handoff:
-            raise AssertionError("worker handoff missing boundary path field instructions")
-        if "scope_coverage" not in worker_handoff:
-            raise AssertionError("worker handoff missing Engineering Simplicity scope_coverage")
-        if "Simplicity Scope Coverage" not in worker_handoff:
-            raise AssertionError("worker handoff missing Simplicity Scope Coverage")
-        if "Primary scope must be audited before peripheral fixes can close the Gate" not in worker_handoff:
-            raise AssertionError("worker handoff missing primary scope closure rule")
-        for check in ENGINEERING_SIMPLICITY_CHECKS:
-            if check not in worker_handoff:
-                raise AssertionError(f"worker handoff missing engineering simplicity check: {check}")
-        if AGENT_TODO_PLACEHOLDER not in worker_handoff:
-            raise AssertionError("worker handoff missing Engineering Simplicity TODO(agent)")
-        if "fix now if fixable" not in worker_handoff:
-            raise AssertionError("worker handoff missing Engineering Simplicity remediation instruction")
-
-        qa_handoff = JournalSnapshot.open(run_dir).read_text("handoffs/qa-behavior.md")
-        if "## Engineering Simplicity Scope" not in qa_handoff:
-            raise AssertionError("QA handoff missing Engineering Simplicity Scope section")
-        if "Boundary Evidence" not in qa_handoff:
-            raise AssertionError("QA handoff missing Boundary Evidence invariant")
-        if "Acceptance Criteria Traceability Gate" not in qa_handoff:
-            raise AssertionError("QA handoff missing Acceptance Criteria Traceability Gate")
-        if "Surface Evidence Gate" not in qa_handoff:
-            raise AssertionError("QA handoff missing Surface Evidence Gate")
-        if "Contract Negative Fixture Gate" not in qa_handoff:
-            raise AssertionError("QA handoff missing Contract Negative Fixture Gate")
-
-        reviewer_handoff = JournalSnapshot.open(run_dir).read_text("handoffs/review-contract.md")
-        if "peripheral-only closure" not in reviewer_handoff:
-            raise AssertionError("reviewer handoff missing peripheral-only closure rule")
-        if "Boundary Evidence" not in reviewer_handoff or "worker-a" not in reviewer_handoff:
-            raise AssertionError("reviewer handoff missing Boundary Evidence worker lane id")
-        if "Acceptance Criteria Traceability" not in reviewer_handoff:
-            raise AssertionError("reviewer handoff missing Acceptance Criteria Traceability")
-        if "Surface Evidence Gate" not in reviewer_handoff:
-            raise AssertionError("reviewer handoff missing Surface Evidence Gate")
-        if "Contract Negative Fixture" not in reviewer_handoff:
-            raise AssertionError("reviewer handoff missing Contract Negative Fixture")
-        if "## Mandatory Independent QA Review" not in reviewer_handoff:
-            raise AssertionError("reviewer handoff missing Mandatory Independent QA Review section")
-        if "qa_handoff_sha256" not in reviewer_handoff:
-            raise AssertionError("reviewer handoff missing QA evidence binding")
-
-        acceptance_traceability = json.loads(
-            JournalSnapshot.open(run_dir).read_text("acceptance-traceability.json")
-        )
-        acceptance_records = acceptance_traceability.get("acceptance")
-        if not isinstance(acceptance_records, list) or not acceptance_records:
-            raise AssertionError("generated acceptance-traceability.json must include records")
-        acceptance_record = acceptance_records[0]
-        if acceptance_record.get("id") != "architecture-contract-acceptance":
-            raise AssertionError("generated acceptance traceability must include default acceptance id")
-        if acceptance_record.get("contract_types") != ["gate"]:
-            raise AssertionError("generated acceptance traceability must include contract_types")
-        surface_expectations = acceptance_record.get("surface_expectations")
-        if not isinstance(surface_expectations, list) or not surface_expectations:
-            raise AssertionError("generated acceptance traceability must include surface_expectations")
-        surface_expectation = surface_expectations[0]
-        for field in ["surface", "polarity", "proof_kinds"]:
-            if field not in surface_expectation:
-                raise AssertionError(f"generated surface expectation missing {field}")
-        if "supported" not in acceptance_record.get("notes", ""):
-            raise AssertionError("generated acceptance traceability must explain supported status")
-        if "markers" not in acceptance_record.get("notes", ""):
-            raise AssertionError("generated acceptance traceability must explain evidence markers")
-        evidence_records = acceptance_record.get("evidence")
-        if not isinstance(evidence_records, list) or not evidence_records:
-            raise AssertionError("generated acceptance traceability must include evidence")
-        for field in ["surface", "polarity", "proof_kind"]:
-            if field not in evidence_records[0]:
-                raise AssertionError(f"generated acceptance evidence missing {field}")
-        if "negative_fixture_evidence" not in acceptance_record:
-            raise AssertionError("generated acceptance traceability must include negative_fixture_evidence")
-        fixture_records = acceptance_record.get("negative_fixture_evidence")
-        if not isinstance(fixture_records, list) or not fixture_records:
-            raise AssertionError("generated acceptance traceability must include negative fixture records")
-        for field in ["surface", "polarity", "proof_kind"]:
-            if field not in fixture_records[0]:
-                raise AssertionError(f"generated negative fixture evidence missing {field}")
-        for contract_type in CONTRACT_NEGATIVE_FIXTURE_TYPES:
-            if contract_type not in JournalSnapshot.open(run_dir).read_text("handoffs/architecture-contract.md"):
-                raise AssertionError(f"architecture contract missing contract fixture type: {contract_type}")
-
-        architecture_contract = JournalSnapshot.open(run_dir).read_text("handoffs/architecture-contract.md")
-        if "Acceptance Criteria: `architecture-contract-acceptance`" not in architecture_contract:
-            raise AssertionError("architecture contract missing default Acceptance Criteria id")
+            raise AssertionError("selected capabilities must be retained")
+        scope = lane_map.get("engineering_simplicity_scope", {})
+        if scope.get("evidence"):
+            raise AssertionError("init must not invent simplicity evidence")
+        if any(lane.get("status") != "planned" for lane in lane_map["lanes"]):
+            raise AssertionError("init must leave planned work unfinished")
 
         delegation_summary = json.loads(JournalSnapshot.open(run_dir).read_text("delegation-summary.json"))
         if delegation_summary.get("subagents_used") is not False:
@@ -367,21 +361,8 @@ def main() -> int:
             raise AssertionError("generated delegation-summary.json must start with role_lanes_used=false")
 
         final_text = JournalSnapshot.open(run_dir).read_text("final.md")
-        for expected_line in [
-            "## Delegation Trace",
-            "Subagents Used: no",
-            "Role Lanes Used: no",
-            "Subagent Trace Evidence: none",
-            "## Mandatory Independent QA Review",
-            "Mandatory Independent QA Review Gate",
-            "terminal handoff artifact",
-            "role-lane",
-            "qa-verifier",
-            "completion_turn_id",
-            "verification.blocker",
-        ]:
-            if expected_line not in final_text:
-                raise AssertionError(f"generated final.md missing delegation trace line: {expected_line}")
+        if "Verdict: ship" in final_text or "Verdict: pass-with-risks" in final_text:
+            raise AssertionError("init must not claim successful final acceptance")
 
         lane_ids = {lane.get("id") for lane in lane_map.get("lanes", []) if isinstance(lane, dict)}
         expected_lane_ids = {
@@ -422,7 +403,12 @@ def main() -> int:
         if not isinstance(summary.get("verification"), dict):
             raise AssertionError("generated summary must include verification independently of lane-map")
 
-        expect_valid_pending_run("generated pending run", run_dir)
+        expect_incomplete_run("generated pending run", run_dir)
+        check_writer_readiness(run_dir, repo)
+        continuation_result = run_init(without_option(architecture_args(repo, "continuation-observations"), "--worker-lane"))
+        if continuation_result.returncode:
+            raise AssertionError(continuation_result.stdout + continuation_result.stderr)
+        check_writer_readiness(Path(continuation_result.stdout.strip()), repo, continuation=True)
 
         plain_result = run_init(
             [

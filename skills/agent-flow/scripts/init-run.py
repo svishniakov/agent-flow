@@ -7,7 +7,7 @@ import argparse
 import json
 import re
 from datetime import datetime
-from journal_io import (now_iso, encode_json, JournalSnapshot,
+from journal_io import (now_iso, encode_json, encode_json_line, JournalSnapshot,
                         initialize_journal, import_legacy, export_snapshot, capture_flat)
 import tempfile
 import sys
@@ -40,11 +40,11 @@ RUN_FILES = {
         "Role Lanes: none\n"
         "Subagent Trace Evidence: none\n\n"
         "## Mandatory Independent QA Review\n\n"
-        "TODO(agent): Mandatory Independent QA Review Gate. Запишите в delegation-summary.json verification два назначения: qa-verifier и reviewer, completion_turn_id, reviewed_result_hash, terminal handoff artifact с SHA-256 и qa_handoff_sha256 из итогового хода reviewer. role-lane не заменяет проверяющего. При недоступных доказательствах запишите verification.blocker и завершите blocked.\n\n"
+        "Mandatory Independent QA Review Gate: pending source-confirmed QA and reviewer conclusions.\n\n"
         "## Boundary Evidence\n\n"
-        "TODO(agent): summarize worker lane boundary artifacts and out-of-bound product-code status.\n\n"
+        "Pending native boundary evidence for product author lanes.\n\n"
         "## Acceptance Traceability\n\n"
-        "TODO(agent): summarize acceptance-traceability.json, Surface Evidence Gate, and contract negative/drift fixture coverage.\n\n"
+        "Pending acceptance evidence and negative/drift fixture coverage.\n\n"
         "## Worktree Hygiene\n\n"
     ),
 }
@@ -52,25 +52,9 @@ LANE_MAP = {
     "schema_version": 1,
     "lanes": [],
 }
-AGENT_TODO_PLACEHOLDER = "TODO(agent):"
-ENGINEERING_SIMPLICITY_CHECKS = [
-    "no-extra-work",
-    "stdlib-native-first",
-    "existing-helper-first",
-    "dependency-justified",
-    "abstraction-justified",
-    "smallest-working-diff",
-    "tests-fit-risk",
-]
 TRACE_BUDGETS = {"standard", "release"}
 WORKER_LANE_TYPES = {"implementation", "integration"}
 VERIFICATION_READINESS_PATH = "verification-readiness.json"
-CLAIM_EVIDENCE_PATH = "claim-evidence.json"
-DEFAULT_CLAIM_ID = "architecture-contract-claim"
-ACCEPTANCE_TRACEABILITY_PATH = "acceptance-traceability.json"
-DEFAULT_ACCEPTANCE_ID = "architecture-contract-acceptance"
-CONTRACT_NEGATIVE_FIXTURE_TYPES = ["gate", "cli", "query", "storage", "config", "parser"]
-ENGINEERING_SIMPLICITY_SCOPE_EVIDENCE = "checks/engineering-simplicity-scope.md"
 LANE_BOUNDARY_NOTES = "Allowed paths come from Architecture Contract Worker Ownership."
 COVERAGE_MATRIX = """# Coverage Matrix
 
@@ -103,60 +87,22 @@ def kebab_id(value: str) -> str:
     return slugify(value).replace("_", "-")
 
 
-def markdown_id_list(values: list[str]) -> str:
-    if not values:
-        return "- none"
-    return "\n".join(f"- `{value}`" for value in values)
-
-
 def lane_boundary_artifact_path(lane_id: str) -> str:
     return f"checks/lane-boundary-{lane_id}.json"
-
-
-def lane_boundary_template(lane_id: str) -> str:
-    return encode_json(
-        {
-            "version": 1,
-            "lane_id": lane_id,
-            "status": "captured",
-            "base_ref": "TODO(agent): base git ref before worker changes.",
-            "head_ref": "working-tree",
-            "changed_paths": [],
-            "tracked_changed_paths": [],
-            "untracked_paths": [],
-            "command": "TODO(agent): run scripts/record-lane-boundary.py for this lane.",
-            "notes": f"Boundary evidence for {lane_id}.",
-        },
-        pretty=True,
-    ) + "\n"
-
-
-def selected_context_facets(context: dict[str, list[str]]) -> list[str]:
-    facets: list[str] = []
-    for axis in ARCHITECTURE_CONTEXT_AXES:
-        facets.extend(context.get(axis, []))
-    return facets
-
-
-def selected_verification_gate_facets(context: dict[str, list[str]]) -> list[str]:
-    return [
-        *context.get("risk_gates", []),
-        *context.get("verification_gates", []),
-    ]
 
 
 def parse_architecture_context(parser: argparse.ArgumentParser, raw_value: str | None) -> dict[str, list[str]]:
     if raw_value is None:
         parser.error("--architecture-gate requires --architecture-context-json")
 
-    source = raw_value
-    candidate_path = Path(raw_value).expanduser()
-    if candidate_path.exists():
-        source = candidate_path.read_text(encoding="utf-8")
-
     try:
-        data = json.loads(source)
-    except json.JSONDecodeError as exc:
+        try:
+            data = json.loads(raw_value)
+        except json.JSONDecodeError:
+            if raw_value.lstrip().startswith(("{", "[", '"')):
+                raise
+            data = json.loads(Path(raw_value).expanduser().read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         parser.error(f"--architecture-context-json invalid JSON: {exc}")
 
     if not isinstance(data, dict):
@@ -218,7 +164,7 @@ def parse_architecture_capabilities(
             }
         },
         capabilities_by_id,
-        selected_context_facets(context),
+        sorted({facet for values in context.values() for facet in values}),
         required=True,
     )
     if capability_errors:
@@ -243,430 +189,6 @@ def parse_worker_lanes(parser: argparse.ArgumentParser, raw_values: list[str]) -
         seen_ids.add(lane_id)
         workers.append({"id": lane_id, "type": lane_type, "role": role})
     return workers
-
-
-def architecture_design_template(
-    context: dict[str, list[str]],
-    capabilities: list[str],
-) -> str:
-    selected_facets = selected_context_facets(context)
-    return f"""# Architecture Design Brief
-
-Selected Architecture Matrix facets:
-{markdown_id_list(selected_facets)}
-
-Selected architecture capabilities:
-{markdown_id_list(capabilities)}
-
-## Problem Shape
-
-{AGENT_TODO_PLACEHOLDER} Describe the product problem, scope, and constraints for this run.
-
-## Selected Matrix Facets
-
-{markdown_id_list(selected_facets)}
-
-{AGENT_TODO_PLACEHOLDER} Explain why these Matrix facets are the active design context.
-
-## System Boundaries
-
-{AGENT_TODO_PLACEHOLDER} Define in-scope systems, out-of-scope systems, and ownership boundaries.
-
-## Data And State Model
-
-{AGENT_TODO_PLACEHOLDER} Describe data ownership, state transitions, persistence, queues, caches, and migrations.
-
-## Public Interfaces
-
-{AGENT_TODO_PLACEHOLDER} List APIs, events, UI contracts, external providers, schemas, and compatibility rules.
-
-## Execution Plan
-
-Architecture capabilities:
-{markdown_id_list(capabilities)}
-
-{AGENT_TODO_PLACEHOLDER} Convert the selected capabilities into implementation lanes and sequencing.
-
-## Risk Model
-
-{AGENT_TODO_PLACEHOLDER} Name security, privacy, data, release, and product risks with mitigations.
-
-## Verification Strategy
-
-{AGENT_TODO_PLACEHOLDER} Map risks and verification gates to concrete checks.
-
-## Open Questions
-
-{AGENT_TODO_PLACEHOLDER} List unresolved decisions, owner, and stop condition for each question.
-
-## Decision
-
-Status: needs-revision
-
-{AGENT_TODO_PLACEHOLDER} Replace with the final design decision before workers start.
-"""
-
-
-def architecture_contract_template(
-    context: dict[str, list[str]],
-    capabilities: list[str],
-    workers: list[dict[str, str]],
-) -> str:
-    selected_facets = selected_context_facets(context)
-    worker_lines = [f"- `{worker['id']}` owns {worker['type']} work as `{worker['role']}`." for worker in workers]
-    return f"""# Architecture Contract
-
-## Selected Architecture
-
-Architecture Matrix facets:
-{markdown_id_list(selected_facets)}
-
-Architecture capabilities:
-{markdown_id_list(capabilities)}
-
-{AGENT_TODO_PLACEHOLDER} State the selected architecture and why it fits this run.
-
-## Rejected Alternatives
-
-{AGENT_TODO_PLACEHOLDER} Record rejected designs and the concrete reason each was rejected.
-
-## Module Boundaries
-
-{AGENT_TODO_PLACEHOLDER} Define module, package, service, UI, and integration boundaries.
-
-## Data And State Flow
-
-{AGENT_TODO_PLACEHOLDER} Define data flow, state ownership, events, queues, persistence, and rollback rules.
-
-## Public Contracts
-
-{AGENT_TODO_PLACEHOLDER} Define API, event, schema, UI, provider, and compatibility contracts.
-
-## Worker Ownership
-
-{chr(10).join(worker_lines) if worker_lines else '- no worker lanes generated'}
-
-{AGENT_TODO_PLACEHOLDER} Assign exact files, modules, and boundaries to each lane.
-
-## Forbidden Changes
-
-{AGENT_TODO_PLACEHOLDER} List changes workers must not make without architect re-check.
-
-## QA Gates
-
-Claim evidence:
-- Claim Evidence: `architecture-contract-claim`
-
-Acceptance criteria:
-- Acceptance Criteria: `architecture-contract-acceptance`
-
-Contract negative/drift fixture types:
-{markdown_id_list(CONTRACT_NEGATIVE_FIXTURE_TYPES)}
-
-{AGENT_TODO_PLACEHOLDER} Define mandatory behavior, architecture, risk, and verification checks.
-
-## Reviewer Checklist
-
-Claim evidence:
-- Claim Evidence: `architecture-contract-claim`
-
-Acceptance criteria:
-- Acceptance Criteria: `architecture-contract-acceptance`
-
-Contract negative/drift fixture types:
-{markdown_id_list(CONTRACT_NEGATIVE_FIXTURE_TYPES)}
-
-{AGENT_TODO_PLACEHOLDER} List architecture invariants the reviewer must confirm.
-
-## Stop Conditions
-
-{AGENT_TODO_PLACEHOLDER} Define drift, ambiguity, failing check, and external-risk conditions that stop ship.
-"""
-
-
-def worker_handoff_template(
-    worker: dict[str, str],
-    context: dict[str, list[str]],
-    capabilities: list[str],
-) -> str:
-    selected_facets = selected_context_facets(context)
-    return f"""# {worker['id']} Handoff
-
-## Architecture Compliance
-
-Selected Matrix facets available to this worker:
-{markdown_id_list(selected_facets)}
-
-Selected architecture capabilities:
-{markdown_id_list(capabilities)}
-
-{AGENT_TODO_PLACEHOLDER} Record actual touched facets, contract sections, compliance status, drift, and evidence.
-
-## Engineering Simplicity
-
-Lane-map field: `architecture_compliance.engineering_simplicity`
-
-Required checks:
-{markdown_id_list(ENGINEERING_SIMPLICITY_CHECKS)}
-
-Selected architecture capabilities:
-{markdown_id_list(capabilities)}
-
-Scope coverage field: `architecture_compliance.engineering_simplicity.scope_coverage`
-
-{AGENT_TODO_PLACEHOLDER} Simplicity Scope Coverage: record primary/secondary surfaces covered by this worker. Primary scope must be audited before peripheral fixes can close the Gate.
-
-{AGENT_TODO_PLACEHOLDER} Record pass, fixed, or drift; fix now if fixable; route as drift only when architect re-check is needed; list findings/actions; cite selected capabilities for retained dependency or abstraction.
-
-## Boundary Evidence
-
-Lane Boundary Evidence Gate
-
-Lane-map field: `boundary`
-
-Artifact: `{lane_boundary_artifact_path(worker['id'])}`
-
-{AGENT_TODO_PLACEHOLDER} Run `python3 scripts/record-lane-boundary.py --run-dir <run-dir> --lane-id {worker['id']}` after this worker's product-code changes, then confirm every changed product path is inside `boundary.allowed_paths` and outside `boundary.forbidden_paths`.
-
-## Acceptance Traceability
-
-Artifact: `{ACCEPTANCE_TRACEABILITY_PATH}`
-
-{AGENT_TODO_PLACEHOLDER} List acceptance ids this worker implemented, their evidence/test markers, and any negative or drift fixtures for gate/CLI/query/storage/config/parser contracts.
-"""
-
-
-def qa_handoff_template(context: dict[str, list[str]]) -> str:
-    gates = [
-        *context.get("risk_gates", []),
-        *context.get("verification_gates", []),
-    ]
-    return f"""# QA Behavior Handoff
-
-## Architecture Invariants
-
-Selected risk and verification gates:
-{markdown_id_list(gates)}
-
-Claim evidence:
-- Claim Evidence: `architecture-contract-claim`
-
-Acceptance criteria:
-- Acceptance Criteria: `architecture-contract-acceptance`
-
-{AGENT_TODO_PLACEHOLDER} Verify behavior plus architecture invariants for the selected gates.
-
-{AGENT_TODO_PLACEHOLDER} Confirm Boundary Evidence for every worker lane and block closure if any product-code change falls outside the allowed paths.
-
-{AGENT_TODO_PLACEHOLDER} Confirm Acceptance Criteria Traceability Gate, Surface Evidence Gate, and Contract Negative Fixture Gate: every required acceptance id has evidence markers, every `surface_expectations` item has matching surface/polarity/proof_kind evidence, and gate/CLI/query/storage/config/parser contracts have negative or drift fixture evidence.
-
-## Engineering Simplicity Scope
-
-{AGENT_TODO_PLACEHOLDER} Verify that every primary surface from `engineering_simplicity_scope.primary_surfaces` was audited or remediated before QA closure.
-
-## Verification Gate Results
-
-Selected risk and verification gates:
-{markdown_id_list(gates)}
-
-{AGENT_TODO_PLACEHOLDER} Record pass or blocked status for every selected gate after workers run.
-"""
-
-
-def verification_readiness_handoff_template(context: dict[str, list[str]]) -> str:
-    gates = selected_verification_gate_facets(context)
-    return f"""# Verification Readiness Handoff
-
-## Verification Gate Results
-
-Selected risk and verification gates:
-{markdown_id_list(gates)}
-
-{AGENT_TODO_PLACEHOLDER} Probe required env, local runtime, service availability, browser/device readiness, and documented safe commands before workers start.
-"""
-
-
-def verification_readiness_template(context: dict[str, list[str]]) -> str:
-    gates = [
-        {
-            "axis": "risk_gates" if facet in context.get("risk_gates", []) else "verification_gates",
-            "facet": facet,
-            "readiness": "needs-approval",
-            "check": "TODO(agent): name the concrete readiness probe or command.",
-            "evidence": ["checks/verification-readiness.md"],
-            "notes": "TODO(agent): record readiness result before workers start.",
-        }
-        for facet in selected_verification_gate_facets(context)
-    ]
-    return encode_json(
-        {
-            "version": 1,
-            "status": "needs-approval",
-            "attempts": [
-                {
-                    "id": "readiness-1",
-                    "lane": "verification-readiness-1",
-                    "status": "needs-approval",
-                    "gates": gates,
-                    "blockers": ["readiness-blocker"],
-                    "approval_requests": ["readiness-approval-request"],
-                }
-            ],
-            "approval_requests": [
-                {
-                    "id": "readiness-approval-request",
-                    "status": "pending",
-                    "reason": "TODO(agent): explain why documented command or manual setup is needed.",
-                    "commands": [
-                        {
-                            "cwd": "TODO(agent): repo-relative or absolute cwd from docs.",
-                            "command": "TODO(agent): documented safe command only.",
-                            "source": "TODO(agent): documentation source path.",
-                            "requires_user_approval": True,
-                        }
-                    ],
-                    "manual_instruction": "TODO(agent): tell the user what to run manually, then reply: Готово.",
-                    "resume_phrase": "Готово",
-                    "affected_gates": selected_verification_gate_facets(context),
-                }
-            ],
-            "approval_executions": [],
-        },
-        pretty=True,
-    ) + "\n"
-
-
-def reviewer_handoff_template(
-    context: dict[str, list[str]],
-    capabilities: list[str],
-    workers: list[dict[str, str]],
-) -> str:
-    selected_facets = selected_context_facets(context)
-    worker_ids = [worker["id"] for worker in workers]
-    return f"""# Review Contract Handoff
-
-## Architecture Matrix Mismatches
-
-Selected Matrix facets:
-{markdown_id_list(selected_facets)}
-
-Selected architecture capabilities:
-{markdown_id_list(capabilities)}
-
-{AGENT_TODO_PLACEHOLDER} Report any implementation mismatch for every selected facet and capability.
-
-## Contract Drift
-
-Selected Matrix facets:
-{markdown_id_list(selected_facets)}
-
-Selected architecture capabilities:
-{markdown_id_list(capabilities)}
-
-Claim evidence:
-- Claim Evidence: `architecture-contract-claim`
-
-Acceptance criteria:
-- Acceptance Criteria: `architecture-contract-acceptance`
-
-Boundary Evidence worker lanes:
-{markdown_id_list(worker_ids)}
-
-## Mandatory Independent QA Review
-
-{AGENT_TODO_PLACEHOLDER} Ревью выполняет отдельный reviewer после QA от qa-verifier. Сверьте result_files, Initial Worktree Snapshot, границы задачи и текущий git status. Вызовите scripts/record-agent-trace.py --prepare-conclusion со своим назначением, статусом и файлами. В собственном завершённом ходе опубликуйте stdout: JSON с verdict, reviewed_result_hash, handoff, handoff_sha256 и qa_handoff_sha256. См. verification в references/traceable-runs.md.
-
-{AGENT_TODO_PLACEHOLDER} Report no drift or name the exact drift and required architect re-check. Mention Boundary Evidence for every worker lane id, mention Acceptance Criteria Traceability, Surface Evidence Gate, and Contract Negative Fixture coverage, mention every primary surface, and reject peripheral-only closure.
-"""
-
-
-def claim_evidence_template() -> str:
-    return encode_json(
-        {
-            "version": 1,
-            "claims": [
-                {
-                    "id": DEFAULT_CLAIM_ID,
-                    "owner_lane": "qa-behavior",
-                    "reviewed_by": "review-contract",
-                    "section": "Architecture Invariants",
-                    "status": "gap",
-                    "claim": "TODO(agent): state the exact QA/reviewer readiness claim.",
-                    "subjects": ["TODO(agent): exact test name, scenario id, API method, UI state, or invariant"],
-                    "evidence": [
-                        {
-                            "path": "checks/qa-behavior.md",
-                            "markers": ["TODO(agent): exact marker from evidence file"],
-                        }
-                    ],
-                }
-            ],
-        },
-        pretty=True,
-    ) + "\n"
-
-
-def acceptance_traceability_template() -> str:
-    return encode_json(
-        {
-            "version": 1,
-            "acceptance": [
-                {
-                    "id": DEFAULT_ACCEPTANCE_ID,
-                    "source": "Architecture Contract QA Gates and Reviewer Checklist",
-                    "requirement": "TODO(agent): state the exact acceptance contract from ADR, implementation plan, or spec.",
-                    "subjects": [
-                        "TODO(agent): exact gate, CLI command, query, storage behavior, config path, or parser behavior"
-                    ],
-                    "contract_types": ["gate"],
-                    "status": "gap",
-                    "surface_expectations": [
-                        {
-                            "surface": "service",
-                            "polarity": "positive",
-                            "proof_kinds": ["unit-test"],
-                        },
-                        {
-                            "surface": "service",
-                            "polarity": "negative",
-                            "proof_kinds": ["unit-test"],
-                        },
-                    ],
-                    "notes": (
-                        "TODO(agent): replace service/unit-test with the exact target surface and proof kinds; "
-                        "change status to supported only after matching surface evidence markers and "
-                        "negative/drift fixture markers are present."
-                    ),
-                    "evidence": [
-                        {
-                            "surface": "service",
-                            "polarity": "positive",
-                            "proof_kind": "unit-test",
-                            "path": "checks/qa-behavior.md",
-                            "markers": ["TODO(agent): exact positive marker for the target surface"],
-                        }
-                    ],
-                    "negative_fixture_evidence": [
-                        {
-                            "surface": "service",
-                            "polarity": "negative",
-                            "proof_kind": "unit-test",
-                            "path": "checks/qa-behavior.md",
-                            "markers": ["TODO(agent): exact negative or drift marker for the target surface"],
-                        }
-                    ],
-                }
-            ],
-        },
-        pretty=True,
-    ) + "\n"
-
-
-def check_template(title: str) -> str:
-    return f"""# {title}
-
-{AGENT_TODO_PLACEHOLDER} Record command, result, artifact path, and owner.
-"""
 
 
 def queued_handoff_state(lane: dict) -> dict:
@@ -782,8 +304,8 @@ def architecture_gate_lane_map(
             "engineering_simplicity_scope": {
                 "primary_surfaces": [],
                 "secondary_surfaces": [],
-                "evidence": [ENGINEERING_SIMPLICITY_SCOPE_EVIDENCE],
-                "notes": "TODO(agent): Simplicity Scope Coverage; choose primary surfaces from task scope and Architecture Contract ownership; secondary surfaces cannot close the gate by themselves.",
+                "evidence": [],
+                "notes": "Pending scope declaration from task scope and Architecture Contract ownership.",
             },
             "verification_readiness": {
                 "artifact": VERIFICATION_READINESS_PATH,
@@ -804,70 +326,18 @@ def write_architecture_gate_artifacts(
     capabilities: list[str],
     workers: list[dict[str, str]],
 ) -> None:
-    write_if_missing(
-        run_dir / "handoffs" / "architecture-design.md",
-        architecture_design_template(context, capabilities),
-    )
-    write_if_missing(
-        run_dir / "handoffs" / "architecture-contract.md",
-        architecture_contract_template(context, capabilities, workers),
-    )
-    write_if_missing(
-        run_dir / "checks" / "architecture-contract.md",
-        check_template("Architecture Contract Evidence"),
-    )
-    write_if_missing(
-        run_dir / "handoffs" / "verification-readiness.md",
-        verification_readiness_handoff_template(context),
-    )
-    write_if_missing(
-        run_dir / "checks" / "verification-readiness.md",
-        check_template("Verification Readiness Evidence"),
-    )
-    write_if_missing(
-        run_dir / ENGINEERING_SIMPLICITY_SCOPE_EVIDENCE,
-        check_template("Engineering Simplicity Scope Evidence"),
-    )
-    write_if_missing(
-        run_dir / VERIFICATION_READINESS_PATH,
-        verification_readiness_template(context),
-    )
-    write_if_missing(
-        run_dir / CLAIM_EVIDENCE_PATH,
-        claim_evidence_template(),
-    )
-    write_if_missing(
-        run_dir / ACCEPTANCE_TRACEABILITY_PATH,
-        acceptance_traceability_template(),
-    )
-    for worker in workers:
-        write_if_missing(
-            run_dir / "handoffs" / f"{worker['id']}.md",
-            worker_handoff_template(worker, context, capabilities),
-        )
-        write_if_missing(
-            run_dir / "checks" / f"{worker['id']}.md",
-            check_template(f"{worker['id']} Evidence"),
-        )
-        write_if_missing(
-            run_dir / lane_boundary_artifact_path(worker["id"]),
-            lane_boundary_template(worker["id"]),
-        )
-    write_if_missing(run_dir / "handoffs" / "qa-behavior.md", qa_handoff_template(context))
-    write_if_missing(run_dir / "checks" / "qa-behavior.md", check_template("QA Behavior Evidence"))
-    write_if_missing(
-        run_dir / "handoffs" / "review-contract.md",
-        reviewer_handoff_template(context, capabilities, workers),
-    )
-    write_if_missing(
-        run_dir / "checks" / "review-contract.md",
-        check_template("Review Contract Evidence"),
-    )
+    from journal_structure import render_document
+    selected = ", ".join(facet for values in context.values() for facet in values)
+    write_if_missing(run_dir / "handoffs" / "architecture-design.md", render_document("architecture design", "Pending architecture design. Selected context: " + selected, "planned"))
+    for name in ["architecture-contract", "verification-readiness", *[worker["id"] for worker in workers], "qa-behavior", "review-contract"]:
+        write_if_missing(run_dir / "handoffs" / (name + ".md"), render_document("handoff", "Pending " + name + ". Record semantic conclusions and actual evidence through the journal writer. Selected context: " + selected, "planned"))
 
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo", required=True, help="Project repo path.")
+    parser.add_argument("--summary", help="Semantic task scope; Python renders the run document.")
+    parser.add_argument("--plan-summary", help="Semantic execution plan.")
     parser.add_argument("--slug", required=True, help="Short task slug.")
     parser.add_argument("--date", help="YYYY-MM-DD. Defaults to local date.")
     parser.add_argument("--reuse", action="store_true", help="Reuse an existing run directory.")
@@ -909,6 +379,13 @@ def main(argv=None) -> int:
         worker_lanes = parse_worker_lanes(parser, args.worker_lane)
 
     repo = Path(args.repo).expanduser().resolve()
+    from journal_structure import validate_request, render_document
+    if args.summary is not None:
+        validate_request("task", {"summary": args.summary, "status": "active"})
+    if args.plan_summary is not None:
+        validate_request("plan", {"summary": args.plan_summary, "status": "planned"})
+    if args.reuse and (args.summary is not None or args.plan_summary is not None):
+        parser.error("reuse is read-only; use journal record to update semantic text")
     date = args.date or datetime.now().astimezone().strftime("%Y-%m-%d")
     run_dir = repo / ".agent-work" / "runs" / f"{date}-{slugify(args.slug)}"
 
@@ -963,6 +440,16 @@ def main(argv=None) -> int:
         if not path.exists():
             path.write_text(content, encoding="utf-8")
 
+    if args.summary is not None:
+        (run_dir / "run.md").write_text(render_document("task", args.summary, "active"), encoding="utf-8")
+        import subprocess
+        observed = subprocess.run(["git", "status", "--porcelain=v1"], cwd=repo, capture_output=True)
+        state = observed.stdout.decode("utf-8", errors="replace") if observed.returncode == 0 else "Git status unavailable; exit code " + str(observed.returncode)
+        context = "# Context\n\n## Initial Worktree Snapshot\n\nCommand: git status --porcelain=v1\nExit code: " + str(observed.returncode) + "\n\n```text\n" + state + "\n```\n"
+        (run_dir / "context.md").write_text(context, encoding="utf-8")
+    if args.plan_summary is not None:
+        (run_dir / "plan.md").write_text(render_document("plan", args.plan_summary, "planned"), encoding="utf-8")
+
     artifacts = run_dir / "artifacts.json"
     if mode == "full" and not artifacts.exists():
         artifacts.write_text("[]\n", encoding="utf-8")
@@ -1009,7 +496,7 @@ def main(argv=None) -> int:
             "artifacts": [],
             "next_step": "route",
         }
-        timeline.write_text(encode_json(event) + "\n", encoding="utf-8")
+        timeline.write_text(encode_json_line(event) + "\n", encoding="utf-8")
 
     documents, _ = capture_flat(run_dir)
     snapshot = initialize_journal(logical_run_dir, documents, source_root=repo)

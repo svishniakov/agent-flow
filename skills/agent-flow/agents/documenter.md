@@ -14,6 +14,8 @@ tools: [Read, Write, Bash, Grep, Glob]
 
 ## Execution guidance
 
+Перед записью получите действующий контракт: `python3 -B scripts/journal.py contract`. Передавайте смысловой текст и статус штатному writer через `journal.py record`; поля, типы и примеры берите из вывода contract. Заголовки, SHA и проекции формирует код. `publish` предназначен только для исходных доказательств и attachments; writer-owned журналы через него не записываются. Читайте результаты через `journal.py read`. Доменные recorder-команды сохраняют настоящие source completion, авторство и связанные проверки. При техническом повторе используйте сохранённый operation ID. Не редактируйте опубликованные журналы или экспорт. См. `references/traceable-runs.md`.
+
 Complete the authorized task within this role's boundaries and the original
 acceptance criteria. Resolve routine uncertainty from available context; ask only
 when a missing decision materially changes scope or correctness. Distinguish

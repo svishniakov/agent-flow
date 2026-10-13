@@ -11,11 +11,30 @@ from pathlib import Path
 import shlex
 import subprocess
 import sys
+import tempfile
 import tomllib
 
 from package_distribution import PackageError, check_package, require
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def check_runtime(root):
+    """Exercise the installed journal in a disposable project, without account access."""
+    with tempfile.TemporaryDirectory(prefix="agent-flow-package-smoke-") as temporary:
+        base = Path(temporary).resolve()
+        project = base / "project"
+        project.mkdir()
+        environment = {"PATH": os.environ.get("PATH", ""), "PYTHONDONTWRITEBYTECODE": "1"}
+        imported = subprocess.run([sys.executable, "-B", "-c", "import journal_structure; import workspace_scope"],
+                                  cwd=root / "scripts", env=environment, capture_output=True, text=True, timeout=30)
+        require(imported.returncode == 0, "installed package runtime smoke failed: " + imported.stderr)
+        command = [sys.executable, "-B", str(root / "scripts/init-run.py"), "--repo", str(project),
+                   "--slug", "package-smoke", "--mode", "compact"]
+        result = subprocess.run(command, cwd=project, env=environment,
+                                capture_output=True, text=True, timeout=30)
+        require(result.returncode == 0, "installed package runtime smoke failed: " +
+                shlex.join(command) + "\n" + result.stdout + result.stderr)
 
 
 def check_role_overrides(project, codex_home, expected):
@@ -43,13 +62,15 @@ def check_role_overrides(project, codex_home, expected):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--package-only", action="store_true", help="Check archive integrity without account or role setup.")
+    parser.add_argument("--package-only", action="store_true", help="Check archive integrity and disposable journal startup without account or role setup.")
     parser.add_argument("--roles-dir", type=Path, help="Selected Codex agents directory; defaults to CODEX_HOME/agents.")
     parser.add_argument("--project", type=Path, default=Path.cwd(), help="Project root whose local role overrides must agree.")
     parser.add_argument("--dependencies", action="store_true", help="Also report core skill dependencies, without installing them.")
     args = parser.parse_args()
     try:
         result = check_package(ROOT)
+        check_runtime(ROOT)
+        result["runtime_smoke"] = "passed"
         if not args.package_only:
             script = ROOT / "scripts/sync-codex-agent-config.py"
             spec = importlib.util.spec_from_file_location("agent_flow_sync", script)
@@ -78,7 +99,7 @@ def main():
             require(completed.returncode == 0, "dependency checker failed: " + shlex.join(command))
             result["dependency_report"] = "reported; resolve missing skills needed by the selected roles before delegation"
         print(json.dumps(result, ensure_ascii=False, indent=2))
-    except (PackageError, OSError, ValueError) as exc:
+    except (PackageError, OSError, ValueError, subprocess.TimeoutExpired) as exc:
         parser.exit(1, f"Agent Flow setup: {exc}\n")
 
 
