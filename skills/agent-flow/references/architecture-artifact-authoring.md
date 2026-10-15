@@ -3,7 +3,7 @@
 Перед записью получите `journal.py contract`. Содержание архитектурного результата
 передавайте через `journal.py record --kind architecture-outcome`; `publish`
 сохраняет только исходные доказательства и attachments. Читайте результат через
-`journal.py read`. Порядок повторов и импорта: [Traceable Runs](traceable-runs.md#публикация-и-чтение-журнала).
+`journal.py read`. Порядок повторов: [Traceable Runs](traceable-runs.md#публикация-и-чтение-журнала).
 
 Architecture Artifact Authoring Automation makes architecture artifacts agent-authored by default. The human does not fill the Architecture Design Brief, Architecture Contract, worker compliance, QA invariants, or reviewer sections by hand.
 

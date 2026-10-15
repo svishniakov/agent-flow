@@ -2,7 +2,7 @@
 
 Для нового `change` сначала подготовьте отдельный workspace, перед QA сохраните полный кандидат через `task-workspace.py seal`, после приёмки выдайте его через `delivery`. Авторы работают в `working_root`, QA/reviewer проверяют один `candidate_root`; пишущие проверки используют расходную копию. Полный порядок: [рабочая копия и выдача результата](traceable-runs.md#полная-рабочая-копия-и-выдача-результата).
 
-Передавайте смысловой текст и статус через `journal.py record`; допустимые поля, типы и примеры получите командой `python3 -B scripts/journal.py contract`. Код формирует заголовки, метаданные, SHA и проекции. Исходные доказательства публикуйте через `journal.py publish`, результаты читайте через `journal.py read`. Опубликованные журналы и экспорт вручную не редактируйте. Порядок записи, повторов и импорта: [Traceable Runs](traceable-runs.md#публикация-и-чтение-журнала).
+Передавайте смысловой текст и статус через `journal.py record`; допустимые поля, типы и примеры получите командой `python3 -B "$AF_PACKAGE/scripts/journal.py" contract`. Код формирует заголовки, метаданные, SHA и проекции. Исходные доказательства публикуйте через `journal.py publish`, результаты читайте через `journal.py read`. Опубликованные журналы и экспорт вручную не редактируйте. Порядок записи и повторов: [Traceable Runs](traceable-runs.md#публикация-и-чтение-журнала).
 
 Document status: done
 
@@ -200,7 +200,7 @@ Union всех авторских деклараций точно покрыва
 Root как автор тоже предъявляет декларацию. Permissions filter общего diff
 не доказывает авторство. Порядок: остановка product writers → seal → handoffs,
 edit evidence и declarations → hash v5 нового seal → QA → reviewer. Декларации не содержат
-result_hash. Boundary v1/hash v1–4 сохраняют legacy reading и exact accepted replay.
+result_hash. Приёмка авторства требует boundary v2 и hash v5.
 Полный формат: [Traceable Runs](traceable-runs.md#декларация-авторства-boundary-v2).
 
 При явном [delivery_scope](traceable-runs.md#локальная-приёмка-и-внешний-follow-up)

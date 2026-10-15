@@ -115,6 +115,11 @@ identify one source, disable the extra form before delegation.
 
 ### Updating the skill installed through npx
 
+Breaking change in 0.3.0: journals created by package versions before 0.3.0 use
+the old storage format and are archival — 0.3.0 does not read or convert them.
+After updating, start a new run; previous journals stay on disk only for
+external reference.
+
 Before updating, back up your entire installed skill, Codex settings and roles
 outside their installation directories. Skills CLI can replace the target;
 keep local additions in the backup and compare them before restoring any files.

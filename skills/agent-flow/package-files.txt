@@ -135,6 +135,7 @@ scripts/test-update-agent-flow-skill.py
 scripts/test-validate-agent-config.py
 scripts/test-validate-architecture-capabilities.py
 scripts/test-validate-role-catalog.py
+scripts/test-validate-rule-consistency.py
 scripts/test-validate-run-lanes.py
 scripts/test-verification-evidence.py
 scripts/testdata/task-status-and-dependency.md
@@ -143,6 +144,7 @@ scripts/validate-agent-config.py
 scripts/validate-agent-skill-registry.py
 scripts/validate-architecture-capabilities.py
 scripts/validate-role-catalog.py
+scripts/validate-rule-consistency.py
 scripts/validate-run.py
 scripts/validation_inputs.py
 scripts/verification_evidence.py

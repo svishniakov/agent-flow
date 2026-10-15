@@ -2,7 +2,7 @@
 
 Для нового `change` сначала подготовьте отдельный workspace, перед QA сохраните полный кандидат через `task-workspace.py seal`, после приёмки выдайте его через `delivery`. Авторы работают в `working_root`, QA/reviewer проверяют один `candidate_root`; пишущие проверки используют расходную копию. Полный порядок: [рабочая копия и выдача результата](traceable-runs.md#полная-рабочая-копия-и-выдача-результата).
 
-Передавайте смысловой текст и статус через `journal.py record`; допустимые поля, типы и примеры получите командой `python3 -B "$AF_PACKAGE/scripts/journal.py" contract`. Код формирует заголовки, метаданные, SHA и проекции. Исходные доказательства публикуйте через `journal.py publish`, результаты читайте через `journal.py read`. Опубликованные журналы и экспорт вручную не редактируйте. Порядок записи, повторов и импорта: [Traceable Runs](traceable-runs.md#публикация-и-чтение-журнала).
+Передавайте смысловой текст и статус через `journal.py record`; допустимые поля, типы и примеры получите командой `python3 -B "$AF_PACKAGE/scripts/journal.py" contract`. Код формирует заголовки, метаданные, SHA и проекции. Исходные доказательства публикуйте через `journal.py publish`, результаты читайте через `journal.py read`. Опубликованные журналы и экспорт вручную не редактируйте. Порядок записи и повторов: [Traceable Runs](traceable-runs.md#публикация-и-чтение-журнала).
 
 Document status: done
 
@@ -264,9 +264,8 @@ For full `release` trace:
 Остановите product writers → seal → опубликуйте handoffs, edit evidence и
 boundary v2 декларации → hash v5 нового seal → QA → reviewer. Декларация не содержит
 result_hash; её смысловые авторские границы входят в него вместе со scope. Permissions filter общего
-diff не подтверждает авторство. Hash v1–4/boundary v1 читаются для legacy/exact
-accepted replay; новая авторская приёмка при действующем boundary gate требует
-v2, включая единственного автора. Изменение scope, candidate, declaration
+diff не подтверждает авторство. Новая авторская приёмка при действующем boundary gate требует
+boundary v2 и hash v5, включая единственного автора. Изменение scope, candidate, declaration
 или статусов документов требует нового hash и независимого принятия.
 
 Do not say work is complete, fixed, passing, or ready without evidence that covers the current result. Reuse prior checks only while code, inputs, dependencies, environment, and required external state remain applicable. Repeat affected checks after influencing changes, gaps, or failures. Preserve a fresh full audit and perform fresh product acceptance through delivery, including after changes to required evidence.

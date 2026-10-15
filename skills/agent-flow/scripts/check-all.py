@@ -460,6 +460,7 @@ def main() -> int:
         ("agent skill registry validation", [sys.executable, "scripts/validate-agent-skill-registry.py"]),
         ("architecture capability registry fixtures", [sys.executable, "scripts/test-validate-architecture-capabilities.py"]),
         ("architecture capability registry validation", [sys.executable, "scripts/validate-architecture-capabilities.py"]),
+        ("rule consistency", [sys.executable, "scripts/validate-rule-consistency.py"]),
         ("validate-run CLI", [sys.executable, "scripts/validate-run.py", "--help"]),
         ("init-run fixtures", [sys.executable, "scripts/test-init-run.py"]),
         ("evidence record analyzer fixtures", [sys.executable, "scripts/test-analyze-evidence-records.py"]),
