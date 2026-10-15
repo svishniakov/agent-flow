@@ -122,9 +122,12 @@ class Distributions(unittest.TestCase):
                 with sqlite3.connect(run / ".journal/state.sqlite3") as connection:
                     before = connection.execute("SELECT version, revision FROM run_state").fetchone()
                 self.assertEqual(before[0], 3)
-                manual = subprocess.run([sys.executable, "-B", str(package / "scripts/append-timeline.py"),
-                                         "--run-dir", str(run), "--role", "orchestrator", "--stage", "final",
-                                         "--status", "pass", "--summary", "Manual final must fail"],
+                manual_request = project / "final-event-request.json"
+                manual_request.write_text(json.dumps({"summary": "Manual final must fail", "status": "pass",
+                                                      "stage": "final", "role": "orchestrator"}))
+                manual = subprocess.run([sys.executable, "-B", str(package / "scripts/journal.py"),
+                                         "--run-dir", str(run), "record", "--kind", "event",
+                                         "--request-file", str(manual_request)],
                                         capture_output=True, text=True)
                 self.assertNotEqual(manual.returncode, 0, manual.stdout + manual.stderr)
                 self.assertIn("finalize", manual.stdout + manual.stderr)

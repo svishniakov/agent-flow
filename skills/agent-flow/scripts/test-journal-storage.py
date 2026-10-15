@@ -151,9 +151,12 @@ os.kill(os.getpid(), signal.SIGKILL)
     def test_jd02_parallel_cli_append_trace_handoff_and_final(self):
         lanes = {"lanes": [{"id": f"worker-{i}", "handoff": f"handoffs/{i}.md"} for i in range(4)]}
         journal.transact(self.run, "lanes", {}, lambda snapshot: ({"lane-map.json": json.dumps(lanes)}, {}))
+        event_request = self.run.parent / "event-request.json"
+        event_request.write_text(json.dumps({"summary": "Identical independent event", "status": "pass",
+                                             "stage": "checks", "role": "orchestrator"}))
         commands = []
         for i in range(4):
-            commands.append(["append-timeline.py", "--role", "orchestrator", "--stage", "checks", "--status", "pass", "--summary", "Identical independent event"])
+            commands.append(["journal.py", "record", "--kind", "event", "--request-file", str(event_request)])
             commands.append(["record-handoff-state.py", "--lane-id", f"worker-{i}", "--status", "planned", "--summary", "Queued work"])
             commands.append(["record-agent-trace.py", "--role", "orchestrator", "--execution-mode", "role-lane", "--stage", "checks", "--status", "pass", "--summary", str(i)])
         processes = [subprocess.Popen([sys.executable, "-B", str(SCRIPTS / command[0]), "--run-dir", str(self.run), *command[1:]], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) for command in commands]
@@ -165,12 +168,16 @@ os.kill(os.getpid(), signal.SIGKILL)
         self.assertEqual(len(events), 8)
         self.assertEqual([event["timestamp"] for event in events], sorted(event["timestamp"] for event in events))
         self.assertTrue(all(lane["handoff_state"]["status"] == "queued" for lane in json.loads(snapshot.read_text("lane-map.json"))["lanes"]))
-        final = [sys.executable, "-B", str(SCRIPTS / "append-timeline.py"), "--run-dir", str(self.run), "--role", "orchestrator", "--stage", "final", "--status", "pass", "--summary", "Done"]
+        final_request = self.run.parent / "final-event-request.json"
+        final_request.write_text(json.dumps({"summary": "Done", "status": "pass", "stage": "final", "role": "orchestrator"}))
+        final = [sys.executable, "-B", str(SCRIPTS / "journal.py"), "--run-dir", str(self.run),
+                 "record", "--kind", "event", "--request-file", str(final_request)]
         result = subprocess.run(final, capture_output=True, text=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("finalize", result.stderr)
         before = dict(journal.JournalSnapshot.open(self.run).documents)
-        late = subprocess.run([*final[:-3], "pass", "--summary", "Late"], capture_output=True, text=True)
+        final_request.write_text(json.dumps({"summary": "Late", "status": "pass", "stage": "final", "role": "orchestrator"}))
+        late = subprocess.run(final, capture_output=True, text=True)
         self.assertNotEqual(late.returncode, 0)
         self.assertIn("final", late.stderr)
         self.unchanged(before)
@@ -394,12 +401,14 @@ class VersionGateTests(unittest.TestCase):
                     journal.JournalSnapshot.open(run)
                 with self.assertRaisesRegex(journal.JournalError, "unsupported journal storage version"):
                     journal.transact(run, "write", {}, lambda snapshot: ({"new.md": b"new"}, {}))
+                request = run.parent / "late-event-request.json"
+                request.write_text(json.dumps({"summary": "late", "status": "pass", "stage": "checks", "role": "orchestrator"}))
                 commands = [
                     [sys.executable, "-B", str(SCRIPTS / "journal.py"), "--run-dir", str(run), "read", "context.md"],
                     [sys.executable, "-B", str(SCRIPTS / "journal.py"), "--run-dir", str(run), "diagnose-recovery"],
                     [sys.executable, "-B", str(SCRIPTS / "validate-run.py"), "--run-dir", str(run), "--allow-pending"],
-                    [sys.executable, "-B", str(SCRIPTS / "append-timeline.py"), "--run-dir", str(run),
-                     "--role", "orchestrator", "--stage", "checks", "--status", "pass", "--summary", "late"],
+                    [sys.executable, "-B", str(SCRIPTS / "journal.py"), "--run-dir", str(run),
+                     "record", "--kind", "event", "--request-file", str(request)],
                 ]
                 for command in commands:
                     with self.subTest(command=Path(command[2]).name):
@@ -418,11 +427,13 @@ class VersionGateTests(unittest.TestCase):
         database.unlink()
         with self.assertRaisesRegex(journal.JournalError, "unsupported journal storage version"):
             journal.JournalSnapshot.open(run)
+        request = self.root / "late-event-request.json"
+        request.write_text(json.dumps({"summary": "late", "status": "pass", "stage": "checks", "role": "orchestrator"}))
         commands = [init + ["--reuse"],
                     [sys.executable, "-B", str(SCRIPTS / "journal.py"), "--run-dir", str(run), "read", "context.md"],
                     [sys.executable, "-B", str(SCRIPTS / "validate-run.py"), "--run-dir", str(run), "--allow-pending"],
-                    [sys.executable, "-B", str(SCRIPTS / "append-timeline.py"), "--run-dir", str(run),
-                     "--role", "orchestrator", "--stage", "checks", "--status", "pass", "--summary", "late"]]
+                    [sys.executable, "-B", str(SCRIPTS / "journal.py"), "--run-dir", str(run),
+                     "record", "--kind", "event", "--request-file", str(request)]]
         for command in commands:
             with self.subTest(command=Path(command[2]).name):
                 result = subprocess.run(command, capture_output=True, text=True)

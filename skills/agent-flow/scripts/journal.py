@@ -35,10 +35,10 @@ def main(argv=None):
     reopen.add_argument("--final-index", type=int, required=True)
     reopen.add_argument("--final-sha256", required=True)
     finalize_parser = commands.add_parser("finalize", help="Validate and atomically close an open generation.")
-    finalize_parser.add_argument("--expected-run-uuid", required=True)
-    finalize_parser.add_argument("--expected-revision", type=int, required=True)
-    finalize_parser.add_argument("--expected-generation", type=int, required=True)
-    finalize_parser.add_argument("--operation-id", required=True)
+    finalize_parser.add_argument("--expected-run-uuid", help="CAS assertion; defaults to the current run identity.")
+    finalize_parser.add_argument("--expected-revision", type=int, help="CAS assertion; defaults to the current revision.")
+    finalize_parser.add_argument("--expected-generation", type=int, help="CAS assertion; defaults to the current generation.")
+    finalize_parser.add_argument("--operation-id", help="Saved machine request ID for a technical retry; a fresh one is generated and printed when omitted.")
     final_input = finalize_parser.add_mutually_exclusive_group(required=True)
     final_input.add_argument("--final-file")
     final_input.add_argument("--summary")
@@ -119,17 +119,24 @@ def main(argv=None):
                                          identifier=args.operation_id)
             print(json.dumps({"operation_id": args.operation_id, **receipt}))
         elif args.command == "finalize":
+            import uuid
             from journal_lifecycle import finalize
-            if args.final_file and JournalSnapshot.open(run_dir).operation_receipt(args.operation_id) is None:
+            snapshot = JournalSnapshot.open(run_dir)
+            identifier = args.operation_id or str(uuid.uuid4())
+            prior = snapshot.operation_receipt(identifier)
+            if args.final_file and prior is None:
                 raise JournalError("new finalization requires --summary; --final-file is available only for exact historical receipt replay")
             verdict = "ship" if args.status == "pass" else args.status or args.verdict
             if not verdict or args.verdict and args.verdict != verdict:
                 raise JournalError("finalize requires matching status/verdict")
-            receipt = finalize(run_dir, expected_run_uuid=args.expected_run_uuid,
-                               expected_revision=args.expected_revision, expected_generation=args.expected_generation,
-                               identifier=args.operation_id, final_bytes=capture_file(Path(args.final_file)) if args.final_file else None,
+            receipt = finalize(run_dir, expected_run_uuid=args.expected_run_uuid or snapshot.run_uuid,
+                               expected_revision=args.expected_revision if args.expected_revision is not None
+                               else prior["result"].get("validated_revision", snapshot.revision) if prior else snapshot.revision,
+                               expected_generation=args.expected_generation if args.expected_generation is not None
+                               else prior["result"].get("generation", snapshot.generation) if prior else snapshot.generation,
+                               identifier=identifier, final_bytes=capture_file(Path(args.final_file)) if args.final_file else None,
                                final_summary=args.summary, verdict=verdict)
-            print(json.dumps({"operation_id": args.operation_id, **receipt}))
+            print(json.dumps({"operation_id": identifier, **receipt}))
         elif args.command == "read":
             snapshot = JournalSnapshot.open(run_dir)
             sys.stdout.buffer.write((snapshot.archive(args.archive) if args.archive else snapshot).read_bytes(args.path))

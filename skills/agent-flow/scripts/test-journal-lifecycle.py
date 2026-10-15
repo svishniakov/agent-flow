@@ -1142,6 +1142,39 @@ class LifecycleTests(unittest.TestCase):
         with self.assertRaisesRegex(JournalError, "payload conflict"):
             self.close(expected_revision=initial.revision, final_bytes=closed.read_bytes('final.md') + b"\n")
 
+    def test_cli_finalize_defaults_identity_and_prints_generated_operation_id(self):
+        initial = JournalSnapshot.open(self.run)
+        codex_home = self.run.parent / "codex-home"
+        sessions = codex_home / "sessions"
+        sessions.mkdir(parents=True)
+        for thread, events in self.source.sessions.items():
+            (sessions / (thread + ".jsonl")).write_text("".join(json.dumps(event) + "\n" for event in events))
+        env = {**os.environ, "CODEX_HOME": str(codex_home)}
+        command = [sys.executable, "-B", str(SCRIPTS / "journal.py"), "--run-dir", str(self.run), "finalize",
+                   "--summary", "Actual product independently accepted", "--status", "pass"]
+        # Explicit CAS flags remain assertions and reject a wrong identity.
+        for flag, value in (("--expected-revision", str(initial.revision + 90)),
+                            ("--expected-generation", str(initial.generation + 90)),
+                            ("--expected-run-uuid", "00000000-0000-0000-0000-000000000000")):
+            with self.subTest(flag=flag):
+                stale = subprocess.run(command + [flag, value], capture_output=True, text=True, env=env)
+                self.assertNotEqual(stale.returncode, 0)
+                self.assertIn("preconditions", stale.stderr)
+                self.assert_unchanged(initial)
+        result = subprocess.run(command, capture_output=True, text=True, env=env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        receipt = json.loads(result.stdout)
+        generated = receipt.pop("operation_id")
+        self.assertTrue(generated)
+        closed = JournalSnapshot.open(self.run)
+        self.assertTrue(closed.closed)
+        self.assertIsNotNone(closed.operation_receipt(generated))
+        # The printed operation ID replays the committed finalize exactly.
+        retry = subprocess.run(command + ["--operation-id", generated], capture_output=True, text=True, env=env)
+        self.assertEqual(retry.returncode, 0, retry.stderr)
+        self.assertEqual({key: value for key, value in json.loads(retry.stdout).items() if key != "operation_id"}, receipt)
+        self.assert_unchanged(closed)
+
     def test_raw_final_requires_committed_historical_receipt_not_saved_request(self):
         from journal_io import operation_id, digest, _transact
         root = self.run.parent

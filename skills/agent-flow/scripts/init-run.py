@@ -56,14 +56,6 @@ TRACE_BUDGETS = {"standard", "release"}
 WORKER_LANE_TYPES = {"implementation", "integration"}
 VERIFICATION_READINESS_PATH = "verification-readiness.json"
 LANE_BOUNDARY_NOTES = "Allowed paths come from Architecture Contract Worker Ownership."
-COVERAGE_MATRIX = """# Coverage Matrix
-
-Use this file as the human-readable coverage summary for Lane Sharding runs.
-The machine-readable source of truth is `lane-map.json`.
-
-| Lane | Acceptance Area | Evidence | Status | Notes |
-| --- | --- | --- | --- | --- |
-"""
 
 
 def empty_delegation_summary() -> dict:
@@ -478,9 +470,6 @@ def main(argv=None) -> int:
                 else LANE_MAP
             )
             lane_map.write_text(encode_json(lane_map_data, pretty=True) + "\n", encoding="utf-8")
-        coverage_matrix = run_dir / "checks" / "coverage-matrix.md"
-        if not coverage_matrix.exists():
-            coverage_matrix.write_text(COVERAGE_MATRIX, encoding="utf-8")
         if args.architecture_gate and architecture_context is not None:
             write_architecture_gate_artifacts(
                 run_dir,

@@ -195,7 +195,7 @@ class SemanticRequestRegressions(unittest.TestCase):
             "readiness-attempt", "readiness-gate", "readiness-approval", "readiness-execution",
             "continuation", "continuation-blocker", "harness-finding", "harness-proposal",
             "harness-evaluation", "lane", "lane-compliance", "lane-simplicity", "lane-scope",
-            "lane-gate", "simplicity-scope", "route", "decision", "dod", "checks", "coverage", "lane-report",
+            "lane-gate", "simplicity-scope", "route", "decision", "dod", "checks", "lane-report",
         }
         self.assertTrue(required_service_kinds <= set(contract["examples"]))
         self.assertEqual(set(contract["statuses"]), CALLER_STATUSES)
@@ -2385,6 +2385,46 @@ class FirstBindingRegressions(unittest.TestCase):
         self.start(base.QA_ID, "--artifact", "context.md", "--operation-id", "planned-metadata")
         self.assertEqual(self.snapshot(), before)
 
+    def test_coverage_matrix_is_writer_regenerated_from_lane_map(self):
+        self.initialize()
+        snapshot = journal_io.JournalSnapshot.open(self.run)
+        self.assertFalse(snapshot.exists("checks/coverage-matrix.md"))
+        before = self.snapshot()
+        with self.assertRaisesRegex(journal_io.JournalError, "unknown journal request kind"):
+            journal_io.write_entry(self.run, "coverage", {"summary": "Manual coverage table", "status": "active"},
+                                   identifier="manual-coverage")
+        self.assertEqual(self.snapshot(), before)
+        self.start(base.QA_ID)
+        snapshot = journal_io.JournalSnapshot.open(self.run)
+        lane_map = json.loads(snapshot.read_text("lane-map.json"))
+        matrix = snapshot.read_text("checks/coverage-matrix.md")
+        self.assertIn("Generated from `lane-map.json`", matrix)
+        for lane in lane_map["lanes"]:
+            self.assertIn("| " + lane["id"] + " |", matrix)
+        started = next(lane for lane in lane_map["lanes"] if lane["id"] == self.lane_id)
+        self.assertEqual(started["status"], "active")
+        row = next(line for line in matrix.splitlines() if line.startswith("| " + self.lane_id + " |"))
+        self.assertIn("active", row)
+        self.assertIn("handoffs/" + self.lane_id + ".md", row)
+
+    def test_event_commit_hash_is_recorded_and_validated(self):
+        self.initialize()
+        commit_hash = "0123456789abcdef0123456789abcdef01234567"
+        journal_io.write_entry(self.run, "event", {"summary": "Recorded the actual product commit", "status": "pass",
+                                                   "stage": "commit", "role": "orchestrator", "commit_hash": commit_hash},
+                               identifier="commit-event")
+        snapshot = journal_io.JournalSnapshot.open(self.run)
+        event = json.loads(snapshot.read_text("timeline.jsonl").splitlines()[-1])
+        self.assertEqual((event["stage"], event["commit_hash"]), ("commit", commit_hash))
+        before = self.snapshot()
+        for bad in ("abc123", "g" * 40, commit_hash + "0", commit_hash[:-1]):
+            with self.subTest(bad=bad):
+                with self.assertRaisesRegex(journal_io.JournalError, "commit_hash"):
+                    journal_io.write_entry(self.run, "event", {"summary": "Invalid hash declaration", "status": "pass",
+                                                               "stage": "commit", "role": "orchestrator", "commit_hash": bad},
+                                           identifier="bad-commit-" + str(len(bad)))
+        self.assertEqual(self.snapshot(), before)
+
     def test_plan_metadata_flags_are_assertions(self):
         self.initialize(1)
         before = self.snapshot()
@@ -3477,7 +3517,6 @@ class JournalRegressions(unittest.TestCase):
 
     def test_four_writers_use_one_injected_utc_clock(self):
         init = load("journal_init", "init-run.py")
-        append = load("journal_append", "append-timeline.py")
         handoff = load("journal_handoff", "record-handoff-state.py")
         stamp = "2026-09-13T12:34:56.123456Z"
         for zone in ("UTC", "Pacific/Honolulu"):
@@ -3485,7 +3524,7 @@ class JournalRegressions(unittest.TestCase):
                 with patch.object(journal_io, "datetime") as clock:
                     clock.now.return_value = datetime(2026, 9, 13, 12, 34, 56, 123456, tzinfo=timezone.utc)
                     self.assertEqual(journal_io.now_iso(), stamp)
-                for module in (init, append, recorder, handoff):
+                for module in (init, recorder, handoff):
                     self.assertIs(module.now_iso, journal_io.now_iso)
                 slug = zone.replace("/", "-").lower()
                 with patch.object(init, "now_iso", return_value=stamp), patch.object(init, "datetime") as local_clock, redirect_stdout(StringIO()) as output:
@@ -3493,8 +3532,9 @@ class JournalRegressions(unittest.TestCase):
                     init.main(["--repo", str(self.root), "--slug", slug, "--mode", "compact"])
                 run = Path(output.getvalue().strip())
                 self.assertEqual(run.name, "2026-09-12-" + slug)
-                with patch.object(journal_io, "now_iso", return_value=stamp), patch.object(sys, "argv", ["append-timeline.py", "--run-dir", str(run), "--stage", "checks", "--role", "orchestrator", "--status", "pass", "--summary", "Checked"]), redirect_stdout(StringIO()):
-                    append.main()
+                with patch.object(journal_io, "now_iso", return_value=stamp):
+                    journal_io.write_entry(run, "event", {"stage": "checks", "role": "orchestrator", "status": "pass",
+                                                          "summary": "Checked"}, identifier="clock-event-" + slug)
                 base.write_json(run / "lane-map.json", {"lanes": [{"id": "worker", "handoff": "handoffs/worker.md"}]})
                 journal_io.transact(run, "fixture-lanes", {}, lambda snapshot: ({"lane-map.json": (run / "lane-map.json").read_bytes()}, {}))
                 with patch.object(journal_io, "now_iso", return_value=stamp), redirect_stdout(StringIO()):

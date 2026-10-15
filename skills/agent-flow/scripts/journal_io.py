@@ -1507,6 +1507,8 @@ def write_entry(run_dir, kind, request, *, identifier=None, mutation=None, repla
                      "stable_agent_name": request["role"], "stable_agent_slug": request["role"],
                      "status": request["status"], "summary": request["summary"],
                      "artifacts": [ref["path"] for ref in evidence], "next_step": request.get("next_step", "")}
+            if request.get("commit_hash"):
+                event["commit_hash"] = request["commit_hash"]
             validate_append(run_dir / "timeline.jsonl", event, snapshot=current)
             return {"timeline.jsonl": current.documents.get("timeline.jsonl", b"") + (encode_json_line(event) + "\n").encode()}, {}
         if kind in {"handoff", "architecture-outcome"} or kind == "event" and request.get("lane_id"):
@@ -1564,6 +1566,7 @@ def write_entry(run_dir, kind, request, *, identifier=None, mutation=None, repla
                 summary=request["summary"], next_step="", execution_mode=lane["execution_mode"],
                 codex_thread_id=lane.get("codex_thread_id"), stable_agent_name=None, stable_agent_slug=None,
                 runtime_nickname=None, wave=None, critical=None, verification_json=None,
+                commit_hash=request.get("commit_hash"),
                 completion_turn_id=completion_turn_id, resolve_session=False, agent_path=None)
             require(kind != "handoff" or lane["execution_mode"] == "role-lane" or lane["role"] not in {"qa-verifier", "reviewer", "reviewer.qa"}, "QA/reviewer subagents require source-completion adapter")
             artifacts = ([path] if kind in {"handoff", "architecture-outcome"} else []) + [ref["path"] for ref in evidence]
@@ -1789,6 +1792,8 @@ def service_observation_projection(snapshot, kind, request, *, source=None):
         lane_map.setdefault("schema_version", 1)
     def store(path, data):
         documents[path] = encode_json(data, pretty=True) + "\n"
+        if path == "lane-map.json":
+            documents["checks/coverage-matrix.md"] = render_coverage_matrix(data)
         return replace(snapshot, documents=MappingProxyType({**snapshot.documents, **{key: value.encode() if type(value) is str else value for key, value in documents.items()}}))
     def lane():
         require(request["lane_id"] in lanes, "unknown observation lane")
@@ -2768,6 +2773,8 @@ def record_event(run_dir, args, artifact_paths, source, snapshot):
     }
     if args.codex_thread_id:
         event["codex_thread_id"] = args.codex_thread_id
+    if getattr(args, "commit_hash", None):
+        event["commit_hash"] = args.commit_hash
     if args.runtime_nickname:
         event["runtime_nickname"] = args.runtime_nickname
     if args.lane_id:
@@ -2825,6 +2832,7 @@ def record_event(run_dir, args, artifact_paths, source, snapshot):
                     f"assignment {args.lane_id}.handoff must match lane handoff")
             lane["handoff"] = artifact_paths[0]
         contents[run_dir / "lane-map.json"] = encode_json(lane_map, pretty=True) + "\n"
+        contents[run_dir / "checks/coverage-matrix.md"] = render_coverage_matrix(lane_map)
     documents = dict(readiness_documents)
     for path, text in contents.items():
         key = snapshot.key(path)
@@ -2861,6 +2869,28 @@ def declared_paths(run_dir, lane_map, verification, *, evidence_path, confined_p
     for path in paths:
         confined_path(root, path, relative=True)
     return paths
+
+
+def render_coverage_matrix(lane_map):
+    """Human-readable projection of lane-map.json; regenerated on every lane mutation."""
+    from journal_structure import literal_label
+
+    def cell(value):
+        return literal_label(str(value)).replace("|", "\\|")
+
+    lines = ["# Coverage Matrix", "",
+             "Generated from `lane-map.json` by the journal writer; do not edit manually.", "",
+             "| Lane | Acceptance Area | Evidence | Status | Notes |",
+             "| --- | --- | --- | --- | --- |"]
+    for lane in lane_map.get("lanes", []):
+        evidence = [ref.get("path") if isinstance(ref, dict) else str(ref) for ref in lane.get("evidence", [])]
+        handoff = lane.get("handoff")
+        paths = ([handoff] if isinstance(handoff, str) else []) + evidence
+        area = " ".join(str(part) for part in (lane.get("type"), lane.get("role")) if part)
+        lines.append("| " + " | ".join((cell(lane.get("id", "")), cell(area or "-"),
+                                        cell(", ".join(paths) or "-"), cell(lane.get("status", "planned")),
+                                        cell(lane.get("purpose") or "-"))) + " |")
+    return "\n".join(lines) + "\n"
 
 
 def render_service_sections(snapshot):

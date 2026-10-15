@@ -1188,7 +1188,7 @@ class JournalCLITests(unittest.TestCase):
             self.assertEqual((claims[0]["status"], acceptance[0]["status"]), ("supported", "supported"))
             self.assertEqual(json.loads(JournalSnapshot.open(run).read_text("risk-resolutions.json"))["resolutions"][0]["status"], "fixed")
             snapshot = JournalSnapshot.open(run)
-            cli("append-timeline.py", "--run-dir", str(run), "--role", "orchestrator", "--stage", "final", "--status", "pass", "--summary", "Complete", wrapper=True, ok=False)
+            semantic("event", {"summary": "Complete", "status": "pass", "stage": "final", "role": "orchestrator"}, "cli-final-event-bypass", ok=False)
             self.assertEqual(snapshot.revision, JournalSnapshot.open(run).revision)
             raw_final = root.parent / "raw-final-bypass.md"
             raw_final.write_text("# Arbitrary caller format\n\nVerdict: ship\n\nCaller-owned metadata.\n")

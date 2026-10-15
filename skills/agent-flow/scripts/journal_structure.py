@@ -32,15 +32,15 @@ TERMINAL_KINDS = {"handoff", "final", "check", "architecture-outcome"}
 DOCUMENT_PATHS = {"task": "run.md", "plan": "plan.md", "progress": "progress.md", "final": "final.md", "lesson": "lesson.md"}
 REQUEST_FIELDS = {
     "event": {"summary": "string", "status": "status", "stage": "string", "role": "string",
-              "lane_id": "string?", "evidence": "references?", "next_step": "string?"},
+              "lane_id": "string?", "evidence": "references?", "next_step": "string?", "commit_hash": "string?"},
     "handoff": {"summary": "string", "status": "status", "lane_id": "string", "evidence": "references?"},
     **{kind: {"summary": "string", "status": "status", "path": "string?", "evidence": "references?"}
        for kind in ("task", "plan", "progress", "final", "lesson")},
     "check": {"summary": "string", "status": "status", "command": "strings", "cwd": "string"},
 }
 
-DOCUMENT_PATHS.update({"route": "route.md", "decision": "decisions.md", "dod": "definition-of-done.md", "checks": "checks.md", "coverage": "checks/coverage-matrix.md", "simplicity-scope": "checks/engineering-simplicity-scope.md"})
-REQUEST_FIELDS.update({kind: {"summary": "string", "status": "status"} for kind in ("route", "decision", "dod", "checks", "coverage")})
+DOCUMENT_PATHS.update({"route": "route.md", "decision": "decisions.md", "dod": "definition-of-done.md", "checks": "checks.md", "simplicity-scope": "checks/engineering-simplicity-scope.md"})
+REQUEST_FIELDS.update({kind: {"summary": "string", "status": "status"} for kind in ("route", "decision", "dod", "checks")})
 SERVICE_FIELDS = {
     "claim": {"id": "string", "subjects": "strings", "owner_lane": "nullable-string?", "reviewed_by": "nullable-string?", "section": "string?", "evidence": "marker-evidence?"},
     "acceptance": {"id": "string", "source": "string", "subjects": "strings", "contract_types": "string-list", "surface_expectations": "expectations", "evidence": "surface-evidence?", "negative_fixture_evidence": "surface-evidence?"},
@@ -256,6 +256,8 @@ def validate_request(kind, request):
     if kind == "event":
         if request["stage"] == "blocked-checkpoint" and (not request.get("lane_id") or request["role"] != "orchestrator" or request["status"] != "blocked"):
             raise ValueError("blocked-checkpoint requires an orchestrator lane and blocked status")
+        if "commit_hash" in request and not re.fullmatch(r"[0-9a-fA-F]{40}", request["commit_hash"]):
+            raise ValueError("commit_hash must be a 40-character hex commit hash")
         if request["stage"] in RESERVED_EVENT_STAGES:
             raise ValueError("stage " + request["stage"] + " requires " + RESERVED_EVENT_COMMANDS[request["stage"]])
         statuses = EVENT_STATUS_RULES
@@ -386,7 +388,7 @@ SERVICE_DOCUMENTS = {"claim-evidence.json", "acceptance-traceability.json", "ris
 
 
 def writer_owned_path(path, *, lane_ids=()):
-    return path in {*DOCUMENT_PATHS.values(), *SERVICE_DOCUMENTS, "timeline.jsonl", "delegation-summary.json", "final.md", "task.md", "context.md", "manifest.md", "artifacts.json", "artifacts/source-references.json"} or (
+    return path in {*DOCUMENT_PATHS.values(), *SERVICE_DOCUMENTS, "timeline.jsonl", "delegation-summary.json", "final.md", "task.md", "context.md", "manifest.md", "artifacts.json", "artifacts/source-references.json", "checks/coverage-matrix.md"} or (
         path.startswith("agents/") and path.endswith("/trace.jsonl")) or path.startswith(("handoffs/", "checks/command-", "checks/lane-boundary-", "artifacts/memory/", "artifacts/workspaces/", "artifacts/lifecycle/", "artifacts/checkpoints/")) or path in {
             "checks/" + lane_id + ".md" for lane_id in lane_ids} or path in {"checks/" + name.replace(".json", ".md") for name in SERVICE_DOCUMENTS}
 
