@@ -2711,10 +2711,72 @@ def test_final_format_regressions(temp: Path) -> None:
     print(f"PASS final format regressions: placeholder{len(positive) + len(negative)} + reviewer{len(scenarios)}; prior substantive negatives retained")
 
 
+def test_canonical_boundary_reference(temp: Path) -> None:
+    from unittest.mock import patch
+    validator = verification_tests.validator
+    root = temp / "canonical-boundary-reference"
+    root.mkdir()
+    (root / "checks").mkdir()
+    pointer = "checks/boundary.json"
+    (root / pointer).write_text('{"notes": "TODO(agent): finish boundary evidence"}')
+    lane_data = {"boundary": {"changed_paths_artifact": pointer}, "evidence": []}
+    assert validator.lane_artifact_references([lane_data]) == [pointer]
+    assert any(pointer in error for error in validator.validate_no_agent_placeholders(root, [lane_data]))
+    lane_data.update(evidence=[pointer], handoff=pointer, architecture_design_brief=pointer)
+    assert validator.lane_artifact_references([lane_data, lane_data]) == [pointer]
+    with patch.object(validator, "journal_read_text", wraps=validator.journal_read_text) as read:
+        assert len(validator.validate_no_agent_placeholders(root, [lane_data, lane_data])) == 1
+        assert read.call_count == 1
+
+
+def test_native_boundary_pointer_without_duplicate_membership() -> None:
+    from copy import deepcopy
+    from dataclasses import replace
+    from journal_io import JournalSnapshot
+    case = verification_tests.EvidenceRegressions()
+    case.setUp()
+    try:
+        timeline = case.run / "timeline.jsonl"
+        timeline.write_text("\n".join(line for line in timeline.read_text().splitlines()
+                                     if json.loads(line).get("stage") != "final") + "\n")
+        verification_tests.workspace_pack(case)
+        snapshot = JournalSnapshot.open(case.run)
+        pointer = "checks/lane-boundary-fixture-root-author.json"
+        proof = json.loads(snapshot.read_bytes(pointer))
+        lane_data = {"id": "fixture-root-author", "evidence": [],
+                     "boundary": {"allowed_paths": ["result.txt"], "changed_paths_artifact": pointer}}
+        validator = verification_tests.validator
+        def errors(current, lane=lane_data):
+            return validator.validate_lane_boundary(case.run, lane, lane["id"], required=True,
+                allow_pending=False, snapshot=current, presentation_required=False)[1]
+        assert errors(snapshot) == []
+        for kind in ("missing", "corrupt", "wronglane", "candidate", "assignment", "sha"):
+            docs = dict(snapshot.documents)
+            changed = deepcopy(proof)
+            if kind == "missing":
+                docs.pop(pointer)
+            elif kind == "corrupt":
+                docs[pointer] = b"{broken"
+            else:
+                if kind == "wronglane": changed["lane_id"] = "other"
+                elif kind == "candidate": changed["candidate_id"] = "stale"
+                elif kind == "assignment": changed["assignment"] = {}
+                else: changed["handoff"]["sha256"] = "0" * 64
+                docs[pointer] = json.dumps(changed).encode()
+            assert errors(replace(snapshot, documents=docs)), kind
+        for boundary in ({"allowed_paths": ["elsewhere.py"], "changed_paths_artifact": pointer},
+                         {"allowed_paths": ["result.txt"], "forbidden_paths": ["result.txt"], "changed_paths_artifact": pointer}):
+            assert errors(snapshot, {**lane_data, "boundary": boundary})
+    finally:
+        case.doCleanups()
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory(prefix="agent-flow-lane-tests-") as temp_dir:
         temp = Path(temp_dir)
         test_final_format_regressions(temp)
+        test_canonical_boundary_reference(temp)
+        test_native_boundary_pointer_without_duplicate_membership()
 
         expect_pass("no lane map keeps old behavior", write_run(temp / "no-lanes"))
 
@@ -8180,8 +8242,8 @@ def main() -> int:
 
         unlisted_artifact_lane = worker_lane()
         unlisted_artifact_lane["evidence"] = ["checks/worker-a.md"]
-        expect_fail(
-            "lane boundary artifact not listed in evidence fails",
+        expect_pass(
+            "canonical lane boundary artifact outside evidence passes",
             write_run(
                 temp / "lane-boundary-artifact-not-evidence",
                 lanes=[
@@ -8192,7 +8254,6 @@ def main() -> int:
                 ],
                 lane_map_extra=architecture_control_extra(),
             ),
-            "boundary.changed_paths_artifact must be listed in lane evidence",
         )
 
         expect_fail(

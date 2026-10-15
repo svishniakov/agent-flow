@@ -261,7 +261,7 @@ be verified. If a documented local command is needed, the gate records
 anything. Approved commands produce `approval_executions` evidence and a later
 ready attempt. A user decline stops the current pass immediately as
 `paused-blocked`, final `blocked`, with a manual instruction and
-the unmet gates. Legacy `resume_phrase` is metadata, not a password. Новое
+the unmet gates. `resume_phrase` — закрытое константное поле артефакта со значением «Готово», а не пароль. Новое
 `readiness-approval` привязывает решение к настоящему root user event и точной
 цитате. Прежнее применимое разрешение действует без нового сообщения,
 точной фразы или NLP-проверки. Do not begin work that actually depends on an unavailable check. The
@@ -408,9 +408,9 @@ machine-readable without adding a runtime queue.
 Use `scripts/record-handoff-state.py` to update only `lane-map.json`:
 
 ```bash
-python3 scripts/record-handoff-state.py --run-dir <run-dir> --lane-id worker-a --status queued --from architecture-contract --task worker-a-implementation --handoff handoffs/worker-a.md
-python3 scripts/record-handoff-state.py --run-dir <run-dir> --lane-id worker-a --status accepted
-python3 scripts/record-handoff-state.py --run-dir <run-dir> --lane-id worker-a --status completed
+python3 "$AF_PACKAGE/scripts/record-handoff-state.py" --run-dir <run-dir> --lane-id worker-a --status planned --from architecture-contract --task worker-a-implementation --handoff handoffs/worker-a.md
+python3 "$AF_PACKAGE/scripts/record-handoff-state.py" --run-dir <run-dir> --lane-id worker-a --status active
+python3 "$AF_PACKAGE/scripts/record-handoff-state.py" --run-dir <run-dir> --lane-id worker-a --status pass
 ```
 
 `handoff_state.mode` is `task` or `batch`. `handoff_state.status` is `queued`,
@@ -426,7 +426,7 @@ Look up stable identities in bundled `agents/agent-identities.json` before launc
 `nickname_candidates` in the same identity entry are for Codex custom-agent display names. They are not trace keys. Sync Codex custom-agent files with:
 
 ```bash
-python3 scripts/sync-codex-agent-config.py --output-dir .codex/agents
+python3 "$AF_PACKAGE/scripts/sync-codex-agent-config.py" --output-dir .codex/agents
 ```
 
 After generation, restart or reload the Codex client if needed. When the current `spawn_agent` schema exposes an Agent Flow role slug as an available `agent_type`, use that role slug so Codex App can show the configured nickname. If the role is not exposed, use the closest built-in type and still record `stable_agent_name` and `stable_agent_slug` in trace metadata.
@@ -444,7 +444,7 @@ select reasoning; do not substitute Astra for Sol or Sol for Astra in the same r
 Resolve role model settings before every `spawn_agent` call:
 
 ```bash
-python3 scripts/resolve-agent-config.py --role <role> --trigger <trigger>
+python3 "$AF_PACKAGE/scripts/resolve-agent-config.py" --role <role> --trigger <trigger>
 ```
 
 Pass one `--trigger` per relevant risk or task shape. Examples: `security`,

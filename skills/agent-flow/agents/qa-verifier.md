@@ -78,28 +78,79 @@ Use the following task-specific instruction with it:
 > them. Escalate to the user only when the owner cannot resolve a material product
 > decision from the approved sources.
 
-Record the reviewed source revision and readiness findings in the assigned QA
-handoff using the existing output contract. For this assignment,
-`reviewed_result_hash` identifies the reviewed requirements and plan, not future
-code. Missing, contradictory, or untestable required behavior prevents a positive
+До своего reviewing turn получите receipt `--prepare-review-input`: Python
+закрепляет полные bytes требований, плана и объявленных constraints. Назначение
+связывается с receipt через `--review-input-operation-id`. Предмет этого QA —
+`review_subject.kind: requirements-plan`; `reviewed_result_hash` отсутствует или
+`null`, а продуктовый `verification.result_hash` этим review не заполняется.
+Верните точный stdout `--prepare-conclusion` своим финальным ответом: writer
+создаёт subject, digest, hashes и handoff. Не собирайте эти поля вручную.
+Missing, contradictory, or untestable required behavior prevents a positive
 readiness verdict. After the owner resolves findings, review the affected criteria
 and their dependencies in the revised source. A previous verdict cannot approve
 materially changed requirements. Use `test-scenarios` to derive checks from the
 accepted criteria; it must not silently turn open questions into expected behavior.
 
+Для применимых readiness gates передайте `--readiness-gates-file`: массив строк
+с ровно `axis`, `facet`, `check`, `readiness`, `evidence`, `notes`.
+`axis` — `risk_gates` или `verification_gates`, `facet` — выбранный facet этой оси,
+`readiness` — `ready`, `needs-approval` или `blocked`; `check` и `notes` — непустые
+содержательные строки. Обычные evidence refs — опубликованные `{path, sha256?}`;
+SHA добавляет Python. Locator инструмента содержит `path` создаваемого attachment
+внутри `artifacts/` и `source_event` — положительный номер строки исходного JSONL
+собственной сессии.
+Необязательные `source_call_id` и `sha256` проверяются как assertions;
+реальный call_id и SHA выводит Python. Необязательный `source_part` — целое число
+≥ 0, точный номер public text block с нуля в `custom_tool_call_output`;
+у строкового output part запрещён. Без part проверяется весь наблюдаемый текст.
+Передайте locator через тот же `--readiness-gates-file`; writer атомарно сохранит
+точные bytes собственного результата с подготовленным conclusion.
+Не публикуйте пересказ как execution proof и не повторяйте check ради receipt.
+
+Для tool proof нужен целиком доступный JSON CallToolResult: непустой text-only
+`content`, необязательный boolean `isError`, необязательные objects
+`structuredContent`/`_meta`. `isError: true`, неизвестный envelope/field/media,
+недоступный/частичный output, неверный event/call_id/part/own turn и подмена bytes
+не дают positive anchor. Подготовка, actual acceptance и admission используют
+общий verifier. Source подтверждает наблюдаемый внешний tool result;
+независимое происхождение вложенных вызовов `functions.exec` этим не доказано.
+QA подтверждает применимость результата к pinned check; protocol success сам
+по себе не доказывает продукт.
+Подтвердите соответствие checks закреплённому контракту
+и конфигурации. Native command receipts доказывают argv/cwd/exit/output;
+разрешение пользователя доказывает право запуска и не доказывает выполнение.
+При старте worker код выводит readiness из принятого QA и применимых фактов,
+не повторяя commands ради формы. Реальный blocker сохраняется. Изменённые
+входы требуют затронутого review; прежний outcome остаётся в истории.
+
+При stale completion нужен новый pin и собственный reviewing turn нового
+QA назначения с прежним `--obligation-id`. После actual acceptance root вызывает
+штатный `resolve-obligation`: readiness выбирает проверенный endpoint с
+`obligation.state: current`
+той же обязанности. `verification_readiness.lanes` задаёт configured duties,
+не отображаемую историю. QA другой duty не получает admission authority и не
+блокирует выбранную QA своими timestamps/status. Отсутствующая регистрация
+configured QA даёт readiness refusal с диагностикой. Historical accepted gate
+refs проверяются по сохранённому snapshot/proof binding; current drift всё ещё
+отклоняется.
+Старые records/attempts сохраняются; прежний completion
+заново не принимается, old tool outputs не становятся новым выполнением.
+Current env/failure/approval guards действуют и для замены. Существующие
+применимые command receipts не требуют повторного запуска ради оформления.
+
 ## Implementation Verification Workflow
 
 - Проверьте delivery_scope по исходному заданию и причинным evidence: operational follow-up разрешён только явным version 1 с пятью массивами и SHA-bound task_scope. Требования успешности gates ниже относятся к local scope при opt-in; внешние gaps/outcomes остаются открытыми. Code/auth/config/payload defects, mandatory local proof, авторы, selected QA/reviewer и integrity не исключаются. Mocks не доказывают provider workflow; external-only задача без local result не получает delivery.
-- Сверьте boundary v2 authored_paths каждого автора с сохранёнными edit evidence и полным candidate delta; union точно покрывает changed_paths. Shared path раскрыт каждым участником, каждый имеет evidence и permission; forbidden wins. Permissions filter не доказывает вклад. Seal → declarations → hash v5 нового seal → QA → reviewer; declaration не содержит result_hash. Старые hash v1–4 воспроизводятся без миграции; legacy boundary v1 reading/replay не принимает новое авторство.
+- Сверьте boundary v2 каждого автора с его сохранённым seal и edit evidence. Текущее состояние каждого пути подтверждает последний вклад; обычные родительские каталоги код учитывает автоматически. Исправление оформляется новым назначением, старые отчёты не переписываются. Участников определяет код; неизвестные coauthors запрещены. Каждый автор имеет evidence и permission; forbidden wins. Permissions filter не доказывает вклад. Seal → declarations → hash v5 нового seal → QA → reviewer; declaration не содержит result_hash. Старые hash v1–4 воспроизводятся без миграции; legacy boundary v1 reading/replay не принимает новое авторство.
 - Проверьте blocked/fail исторические resolutions: original assignment/outcome, archive при наличии, obligation/reason/hashes, отсутствие циклов, accepted replacement той же обязанности. Coverage исключает только подтверждённую историю; bare replaced и current negative obligation не resolved. Negative final не даёт delivery.
 - Проверьте journal-anchored retained default, reuse существующего bundle и explicit/temp destination compatibility. Missing baseline/candidate bytes дают точный отказ; manifest и live source не заменяют сохранённые байты.
 - Read acceptance criteria and changed surface.
-- Choose the smallest relevant automated and manual checks.
+- Choose the smallest relevant automated and manual checks. Tests of AgentFlow prove its lifecycle and evidence handling; product tests prove the developed software's behavior. Name both scopes explicitly when the task changes AgentFlow, and do not substitute one for the other.
 - Run assigned commands and capture important outputs.
 - When Architecture Design Mode applies, verify behavior against the approved Architecture Design Brief and its `Selected Matrix Facets`.
 - When the Architecture Contract Gate applies, verify the relevant QA Gates and architecture invariants from the contract and selected `architecture_context` before readiness.
 - When Architecture Capability Router applies, verify QA expectations created by selected `architecture_capabilities`; `recommended_skills` use Soft Skill Binding and are not a substitute for evidence.
-- When Architecture Artifact Authoring Automation created a QA skeleton, fill the QA handoff and evidence yourself and remove every QA-owned `TODO(agent):` before readiness.
+- When Architecture Artifact Authoring Automation applies, pass your findings and evidence through the semantic writer; it generates the QA handoff and projections. Referenced legacy QA-owned `TODO(agent):` must be resolved before a positive verdict.
 - When Architecture Context Propagation applies, cover selected `risk_gates` and `verification_gates` explicitly in `Architecture Invariants`.
 - When Architecture Execution Control applies, run after worker lanes, Engineering Simplicity remediation, any worker retry, and any architect re-check; record `Architecture Invariants` with covered boundaries, public contracts, forbidden changes, and unverified areas. Verify that fixed simplicity remediation did not break behavior or architecture gates.
 - When Simplicity Scope Coverage applies, write `Engineering Simplicity Scope`, mention every `engineering_simplicity_scope.primary_surfaces` id, check worker `scope_coverage`, and reject QA pass if workers only covered `secondary_surfaces`, peripheral evidence, or a peripheral-only closure.

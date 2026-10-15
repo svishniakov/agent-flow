@@ -878,15 +878,29 @@ class LifecycleTests(unittest.TestCase):
                    "--role", "python-worker", "--execution-mode", "role-lane", "--lane-id", "local-worker",
                    "--obligation-id", "implementation", "--stage", "implementation", "--status", "active",
                    "--summary", "Local implementation assignment"]
-        # Use an analysis-only journal so this public recorder needs no provider fixture injection.
+        # The public recorder now confirms root metadata even without a child UUID.
         run = self.run.parent / "analysis-run"
         summary = {"version": 1, "notes": "Synthetic analysis", "subagents_used": False, "role_lanes_used": False,
                    "subagents": [], "role_lanes": [], "verification": {**fixtures.empty_verification(),
                        "task_kind": "analysis", "root_thread_id": fixtures.ROOT_ID}}
         initialize_journal(run, {"delegation-summary.json": json.dumps(summary).encode()}, source_root=run.parent)
         command[command.index("--run-dir") + 1] = str(run)
-        result = subprocess.run(command, capture_output=True, text=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
+        source = fixtures.SyntheticSource()
+        source.sessions[fixtures.ROOT_ID] = [{"type": "session_meta", "payload": {"id": fixtures.ROOT_ID}}]
+        spec = importlib.util.spec_from_file_location("lifecycle_recorder", SCRIPTS / "record-agent-trace.py")
+        recorder = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(recorder)
+        with self.assertRaisesRegex(SystemExit, "implementation requires task_kind=change"):
+            recorder.main(command[3:], session_source=source)
+        from task_workspace import prepare
+        subprocess.run(["git", "init", "-q", str(run.parent)], check=True)
+        retained = tempfile.TemporaryDirectory()
+        self.addCleanup(retained.cleanup)
+        prepare(run, run.parent, Path(retained.name).resolve() / "bundle")
+        self.assertEqual(recorder.main(["--run-dir", str(run), "--role", "orchestrator", "--execution-mode", "role-lane",
+            "--stage", "verification", "--status", "active", "--summary", "Prepared product ownership",
+            "--verification-json", json.dumps({**summary["verification"], "task_kind": "change"})], session_source=source), 0)
+        self.assertEqual(recorder.main(command[3:], session_source=source), 0)
         snapshot = JournalSnapshot.open(run)
         summary = json.loads(snapshot.read_bytes("delegation-summary.json"))
         self.assertTrue(summary["role_lanes_used"])

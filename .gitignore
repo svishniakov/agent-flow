@@ -28,3 +28,8 @@ env/
 *.swp
 *.swo
 *~
+
+# Local working artifacts
+.agent-work/
+.playwright-mcp/
+brag-output/

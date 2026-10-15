@@ -129,6 +129,30 @@ def load_lane_map(run_dir: Path) -> dict[str, Any]:
 
 def check_writer_readiness(run_dir: Path, repo: Path, *, continuation=False) -> None:
     """Public intents and real process proof; no hand-authored service JSON."""
+    from importlib.util import spec_from_file_location, module_from_spec
+    from contextlib import redirect_stdout, redirect_stderr
+    from io import StringIO
+    spec = spec_from_file_location("readiness_recorder", ROOT / "scripts/record-agent-trace.py")
+    recorder = module_from_spec(spec)
+    spec.loader.exec_module(recorder)
+    from verification_evidence import EvidenceError
+    qa_events = []
+    class SyntheticRootSource:
+        def read(self, thread_id, *, event_indices=()):
+            if thread_id == "00000000-0000-4000-8000-000000000002":
+                return qa_events
+            if thread_id != "00000000-0000-4000-8000-000000000001":
+                raise EvidenceError("synthetic root session missing")
+            return [{"type": "session_meta", "payload": {"id": thread_id}}]
+    def root_trace(args):
+        output = StringIO()
+        with redirect_stdout(output), redirect_stderr(output):
+            try:
+                code = recorder.main(["--run-dir", str(run_dir), *args], session_source=SyntheticRootSource())
+            except SystemExit as exc:
+                code = 1
+                output.write(str(exc))
+        return code, output.getvalue()
     capture = repo.parent / "readiness-request.json"
     from verification_evidence import empty_verification
     verification = {**empty_verification(), "root_thread_id": "00000000-0000-4000-8000-000000000001",
@@ -150,6 +174,11 @@ def check_writer_readiness(run_dir: Path, repo: Path, *, continuation=False) -> 
                 for path in run_dir.rglob("*") if path.is_file()}
     def record(kind: str, request: dict, identifier: str, *, ok=True):
         capture.write_text(json.dumps(request))
+        if kind == "handoff" or kind in {"readiness-gate", "readiness-attempt"} and qa_events and ok:
+            from unittest.mock import patch
+            from journal_io import write_entry
+            with patch("verification_evidence.CodexSessionSource", return_value=SyntheticRootSource()):
+                return write_entry(run_dir, kind, request, identifier=identifier)
         result = subprocess.run([sys.executable, "-B", str(ROOT / "scripts/journal.py"),
                                  "--run-dir", str(run_dir), "record", "--kind", kind,
                                  "--request-file", str(capture), "--operation-id", identifier],
@@ -166,11 +195,11 @@ def check_writer_readiness(run_dir: Path, repo: Path, *, continuation=False) -> 
                         "wave": 3, "critical": True, "allowed_paths": ["src/**"]}, "readiness-worker-boundary")
     record("lane", {"id": "checkpoint-root", "summary": "Root environment checkpoint owner", "status": "planned", "lane_type": "architecture",
                     "role": "orchestrator", "execution_mode": "role-lane", "wave": 0, "critical": False}, "declare-checkpoint-root")
-    root_start = subprocess.run([sys.executable, "-B", str(ROOT / "scripts/record-agent-trace.py"), "--run-dir", str(run_dir),
+    root_code, root_output = root_trace([
                                  "--role", "orchestrator", "--execution-mode", "role-lane", "--lane-id", "checkpoint-root",
-                                 "--stage", "spawned", "--status", "active", "--summary", "Own blocked environment checkpoint"], capture_output=True, text=True)
-    if root_start.returncode:
-        raise AssertionError(root_start.stdout + root_start.stderr)
+                                 "--stage", "spawned", "--status", "active", "--summary", "Own blocked environment checkpoint"])
+    if root_code:
+        raise AssertionError(root_output)
     record("readiness-attempt", attempt, "readiness-blocked")
     disposable = repo.parent / ("continuation-copy" if continuation else "readiness-copy")
     disposable.mkdir()
@@ -199,27 +228,66 @@ def check_writer_readiness(run_dir: Path, repo: Path, *, continuation=False) -> 
                                       "role": "orchestrator", "lane_id": "checkpoint-root"}, "readiness-checkpoint")
     before = tree()
     if not continuation:
-        start = subprocess.run([sys.executable, "-B", str(ROOT / "scripts/record-agent-trace.py"),
-                                "--run-dir", str(run_dir), "--role", "typescript-worker",
+        start_code, start_output = root_trace(["--role", "typescript-worker",
                                 "--execution-mode", "role-lane", "--lane-id", "worker-a",
-                                "--stage", "spawned", "--status", "active", "--summary", "Must await readiness"],
-                               capture_output=True, text=True)
-        if start.returncode == 0 or "readiness" not in (start.stdout + start.stderr).lower():
-            raise AssertionError("unfinished readiness must block worker start: " + start.stdout + start.stderr)
+                                "--stage", "spawned", "--status", "active", "--summary", "Must await readiness"])
+        if start_code == 0 or "readiness" not in start_output.lower():
+            raise AssertionError("unfinished readiness must block worker start: " + start_output)
         if tree() != before:
             raise AssertionError("rejected worker start must not allocate a request")
     record("readiness-attempt", {**attempt, "status": "pass", "blockers": []}, "readiness-without-proof", ok=False)
     if tree() != before:
         raise AssertionError("ready without gates must have zero mutations")
+    endorsed_gates = []
     for axis in ("risk_gates", "verification_gates"):
         for facet in DEFAULT_ARCHITECTURE_CONTEXT[axis]:
             check = record("check", {"summary": "SQLite transaction environment verified for " + facet,
                                      "status": "pass", "cwd": str(disposable),
                                      "command": [sys.executable, "-B", "-c", "import sqlite3; c=sqlite3.connect(':memory:'); c.execute('create table readiness(value integer)'); c.execute('insert into readiness values(7)'); c.commit(); assert c.execute('select value from readiness').fetchone() == (7,); print('actual SQLite transaction passed')"]}, "readiness-check-" + facet)
-            record("readiness-gate", {"attempt_id": attempt["id"], "axis": axis, "facet": facet,
+            endorsed_gates.append({"axis": axis, "facet": facet, "readiness": "ready", "check": "SQLite schema and committed data can be read",
+                                   "notes": "Actual SQLite transaction passed", "evidence": check["evidence"]})
+    # Source double supplies only runtime identity/completion; all writer transitions are public.
+    from journal_io import prepare_review_input
+    from agent_config import default_agents_dir, read_frontmatter, resolve_role_path, role_config
+    snapshot = JournalSnapshot.open(run_dir)
+    mapping = json.loads(snapshot.read_text("lane-map.json"))
+    sources = ["run.md", "context.md", "plan.md"] + list({lane[field] for lane in mapping["lanes"] if lane["type"] == "architecture"
+        for field in ("handoff", "architecture_design_brief") if lane.get(field) and snapshot.exists(lane[field])})
+    pin = prepare_review_input(run_dir, attempt["lane_id"], sources, identifier="readiness-review-pin")
+    qa_id = "00000000-0000-4000-8000-000000000002"
+    root_id = verification["root_thread_id"]
+    turn = qa_id + "-turn"
+    spawn = {"parent_thread_id": root_id, "agent_role": "qa-verifier", "depth": 1}
+    qa_events.extend([
+        {"type": "session_meta", "payload": {"id": qa_id, "session_id": root_id, **spawn, "source": {"subagent": {"thread_spawn": spawn}}}},
+        {"type": "event_msg", "timestamp": "2099-01-01T00:00:01+00:00", "payload": {"type": "task_started", "turn_id": turn}},
+        {"type": "turn_context", "payload": {"turn_id": turn, "model": role_config(read_frontmatter(resolve_role_path(default_agents_dir(), "qa-verifier")), "qa-verifier")["model"]}},
+    ])
+    def qa_trace(args):
+        output = StringIO()
+        with redirect_stdout(output), redirect_stderr(output):
+            result = recorder.main(["--run-dir", str(run_dir), *args], session_source=SyntheticRootSource())
+        if result:
+            raise AssertionError(output.getvalue())
+        return json.loads(output.getvalue()) if "--prepare-conclusion" in args else output.getvalue()
+    qa_trace(["--role", "qa-verifier", "--lane-id", attempt["lane_id"], "--stage", "spawned", "--status", "active", "--summary", "Independent synthetic applicability review",
+              "--codex-thread-id", qa_id, "--review-input-operation-id", pin["operation_id"]])
+    capture.write_text(json.dumps(endorsed_gates))
+    handoff = next(lane for lane in mapping["lanes"] if lane["id"] == attempt["lane_id"])["handoff"]
+    evidence_args = [argument for gate in endorsed_gates for ref in gate["evidence"] for argument in ("--artifact", ref["path"])]
+    answer = qa_trace(["--prepare-conclusion", "--role", "qa-verifier", "--lane-id", attempt["lane_id"], "--status", "pass", "--summary", "Independent synthetic QA endorses selected SQLite checks",
+                       "--artifact", handoff, "--readiness-gates-file", str(capture), *evidence_args])
+    qa_events.extend([
+        {"type": "response_item", "payload": {"type": "message", "role": "assistant", "phase": "final_answer", "content": [{"type": "output_text", "text": json.dumps(answer)}]}},
+        {"type": "event_msg", "timestamp": "2099-01-01T00:00:02+00:00", "payload": {"type": "task_complete", "turn_id": turn, "last_agent_message": json.dumps(answer)}},
+    ])
+    qa_trace(["--role", "qa-verifier", "--lane-id", attempt["lane_id"], "--stage", "handoff", "--status", "pass", "--summary", "Actual source double completed applicability review",
+              "--codex-thread-id", qa_id, "--completion-turn-id", turn, "--artifact", handoff, *evidence_args])
+    for gate in endorsed_gates:
+            record("readiness-gate", {"attempt_id": attempt["id"], "axis": gate["axis"], "facet": gate["facet"],
                                       "summary": "Actual SQLite transaction passed", "status": "pass",
                                       "check": "SQLite schema and committed data can be read",
-                                      "evidence": [{"path": ref["path"]} for ref in check["evidence"]]}, "readiness-gate-" + facet)
+                                      "evidence": [{"path": ref["path"]} for ref in gate["evidence"]]}, "readiness-gate-" + gate["facet"])
     record("readiness-attempt", {**attempt, "summary": "All selected gate checks executed", "status": "pass", "blockers": []}, "readiness-ready")
     data = json.loads(JournalSnapshot.open(run_dir).read_text("verification-readiness.json"))
     if data["status"] != "ready" or data["approval_requests"] or data["approval_executions"]:
@@ -230,8 +298,6 @@ def check_writer_readiness(run_dir: Path, repo: Path, *, continuation=False) -> 
     if not continuation:
         return
     refs = [{"path": ref["path"]} for ref in check["evidence"]]
-    record("handoff", {"lane_id": attempt["lane_id"], "summary": "Actual selected SQLite environment checks passed", "status": "pass", "evidence": refs,
-                       "sections": [{"section": "Verification Gate Results", "summary": "migrations, unit and integration executed actual SQLite transactions"}]}, "readiness-handoff")
     for lane_id, role, lane_type in (("continuation-qa", "qa-verifier", "qa"), ("continuation-review", "reviewer", "review")):
         record("lane", {"id": lane_id, "summary": "Recheck actual environment after checkpoint", "status": "planned", "lane_type": lane_type,
                         "role": role, "execution_mode": "role-lane", "wave": 4, "critical": False}, "declare-" + lane_id)

@@ -257,7 +257,7 @@ If every active task is `clear`, continue and record that the dependency gate
 passed in task memory or trace notes when those artifacts exist.
 
 When `scripts/codegraph.py` is available, the Dependency Gate may call
-`python3 scripts/codegraph.py deps` before warning about overlap. Treat the
+`python3 "$AF_PACKAGE/scripts/codegraph.py" deps` before warning about overlap. Treat the
 result as local evidence: cite shared files, symbols, tests, and gaps when they
 help the user decide, but keep the orchestrator responsible for the final
 classification.

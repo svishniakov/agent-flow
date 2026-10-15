@@ -433,6 +433,67 @@ class OriginalRegressions(unittest.TestCase):
 
 
 class EvidenceRegressions(unittest.TestCase):
+    def test_draft_missing_required_boundary_validates_every_present_proof(self):
+        from dataclasses import replace
+        timeline = self.run / "timeline.jsonl"
+        timeline.write_text("\n".join(line for line in timeline.read_text().splitlines()
+                                     if json.loads(line).get("stage") != "final") + "\n")
+        workspace_pack(self)
+        snapshot = JournalSnapshot.open(self.run)
+        mapping = {"lanes": [{"id": "a-missing", "type": "implementation"},
+                             {"id": "fixture-root-author", "type": "implementation"}]}
+        docs = {**snapshot.documents, "lane-map.json": json.dumps(mapping).encode()}
+        current = replace(snapshot, documents=docs)
+        verification = {**self.summary["verification"], "result_hash": None}
+        self.assertIsNone(result_hash(self.run, verification, snapshot=current, require_ready=False))
+        with self.assertRaisesRegex(EvidenceError, "author boundary artifact missing"):
+            result_hash(self.run, verification, snapshot=current)
+        with self.assertRaisesRegex(EvidenceError, "existing result_hash"):
+            result_hash(self.run, self.summary["verification"], snapshot=current, require_ready=False)
+        name = "checks/lane-boundary-fixture-root-author.json"
+        proof = json.loads(docs[name])
+        mutations = [("json", None, ""), ("version", "version", 1),
+                     ("candidate", "candidate_id", "stale"), ("assignment", "assignment", {}),
+                     ("handoff", "handoff", {**proof["handoff"], "sha256": "0" * 64}),
+                     ("edit", "edit_evidence", [{**proof["edit_evidence"][0], "sha256": "0" * 64}])]
+        for label, field, value in mutations:
+            changed = deepcopy(proof)
+            if field:
+                changed[field] = value
+            malformed = {**docs, name: json.dumps(changed).encode() if field else b"{broken"}
+            with self.subTest(mutation=label), self.assertRaises((EvidenceError, ValueError)):
+                result_hash(self.run, verification, snapshot=replace(snapshot, documents=malformed), require_ready=False)
+        with self.assertRaisesRegex(EvidenceError, "full workspace delta"):
+            result_hash(self.run, {**verification, "result_files": []}, snapshot=current, require_ready=False)
+        from task_workspace import registered_workspace, verify_candidate
+        workspace = registered_workspace(snapshot)
+        sealed = verify_candidate(workspace)
+        with patch("verification_evidence.verify_candidate", return_value={**sealed, "result_hash_version": 99}):
+            with self.assertRaisesRegex(EvidenceError, "unsupported result_hash_version"):
+                result_hash(self.run, verification, snapshot=current, require_ready=False)
+        candidate_file = Path(sealed["candidate_root"]) / "result.txt"
+        candidate_file.chmod(0o644)
+        candidate_file.write_text("Candidate drift after seal\n")
+        with self.assertRaises(EvidenceError):
+            result_hash(self.run, verification, snapshot=current, require_ready=False)
+
+    def test_complete_draft_and_strict_v5_payload_are_identical_without_map(self):
+        from verification_evidence import semantic_result_payload
+        from task_workspace import registered_workspace, verify_candidate
+        timeline = self.run / "timeline.jsonl"
+        timeline.write_text("\n".join(line for line in timeline.read_text().splitlines()
+                                     if json.loads(line).get("stage") != "final") + "\n")
+        workspace_pack(self)
+        snapshot = JournalSnapshot.open(self.run)
+        workspace = registered_workspace(snapshot)
+        sealed = verify_candidate(workspace)
+        self.assertFalse(snapshot.exists("lane-map.json"))
+        verification = self.summary["verification"]
+        self.assertEqual(result_hash(self.run, verification, snapshot=snapshot, require_ready=False),
+                         result_hash(self.run, verification, snapshot=snapshot))
+        self.assertEqual(semantic_result_payload(snapshot, workspace, sealed, None, require_complete=False),
+                         semantic_result_payload(snapshot, workspace, sealed, None))
+
     def test_phase1_compact_three_authors_without_root_and_negative_proof_controls(self):
         from dataclasses import replace
         from verification_evidence import resolve_author_boundaries, validate_verification
@@ -466,7 +527,7 @@ class EvidenceRegressions(unittest.TestCase):
                       self.source, snapshot=snapshot, presentation_required=False)))
         entry = entries[0]
         name, data = entry["artifact"], entry["data"]
-        for mutation, expected in (("missing", "proven native author assignments"), ("candidate", "full registered workspace delta"),
+        for mutation, expected in (("missing", "proven native author assignments"), ("candidate", "retained seal missing"),
                                    ("sha", "sha256 mismatch"), ("assignment", "author assignment mismatch"),
                                    ("trace", "trace identity mismatch"), ("explicit-missing", "artifact missing")):
             docs = dict(snapshot.documents)
@@ -526,15 +587,16 @@ class EvidenceRegressions(unittest.TestCase):
     def test_phase1_author_presentation_product_audit_and_proof_integrity(self):
         from verification_evidence import verify_author_declaration
         record = self.summary["subagents"][0]
+        peer = self.summary["subagents"][1]["lane_id"]
         handoff = self.run / record["handoff"]
         evidence = self.run / "checks.md"
         declaration = {"lane_id": record["lane_id"], "authored_paths": ["result.txt"],
                        "handoff": {"path": record["handoff"], "sha256": ""},
                        "edit_evidence": [{"path": "checks.md", "sha256": sha256(evidence.read_bytes())}],
-                       "coauthors": {"result.txt": ["peer-author"]}}
+                       "coauthors": {"result.txt": [peer]}}
         for text, audit_error in (("Completed implementation.\n", "confirm authored_paths"),
                                   ("Changed result.txt.\n", "coauthors must be disclosed"),
-                                  ("Changed result.txt with peer-author.\n", None)):
+                                  (f"Changed result.txt with {peer}.\n", None)):
             with self.subTest(text=text):
                 handoff.write_text(text)
                 declaration["handoff"]["sha256"] = sha256(handoff.read_bytes())
@@ -566,7 +628,7 @@ class EvidenceRegressions(unittest.TestCase):
         with self.assertRaisesRegex(EvidenceError, "coauthors must be disclosed"):
             verify_author_declaration(JournalSnapshot.open(self.run), declaration, lane_id=record["lane_id"],
                                       presentation_required=False)
-        declaration["coauthors"]["result.txt"] = ["peer-author"]
+        declaration["coauthors"]["result.txt"] = [peer]
         declaration["lane_id"] = "unassigned-author"
         with self.assertRaisesRegex(EvidenceError, "assignment missing"):
             verify_author_declaration(JournalSnapshot.open(self.run), declaration, lane_id="unassigned-author",
@@ -810,8 +872,22 @@ class EvidenceRegressions(unittest.TestCase):
             verification = {**empty_verification(), "task_kind": "change", "root_thread_id": ROOT_ID}
             summary = {"version": 1, "notes": "Neutral halted workflow", "subagents_used": False,
                        "role_lanes_used": False, "subagents": [], "role_lanes": [], "verification": verification}
+            # Historical starts predate prepare-first; this tests their new negative
+            # completion, not admission of a fresh unprepared change assignment.
+            documents = {}
+            starts = []
+            for role, thread in (("qa-verifier", QA_ID), ("reviewer", REVIEWER_ID)):
+                record = {"lane_id": "negative-" + role, "role": role, "codex_thread_id": thread,
+                          "status": "active", "trace": "agents/" + role + "/trace.jsonl"}
+                summary["subagents"].append(record)
+                event = trace_event({**record, "handoff": "handoffs/negative-" + role + ".md"}, "spawned")
+                starts.append(json.dumps(event) + "\n")
+                documents[record["trace"]] = starts[-1].encode()
+            summary["subagents_used"] = True
+            documents["timeline.jsonl"] = "".join(starts).encode()
             initialize_journal(run, {"run.md": b"# Neutral run\n", "checks.md": b"# Unverified\n",
-                "final.md": b"Verdict: pending\n", "delegation-summary.json": json.dumps(summary).encode()}, source_root=run.parent)
+                "final.md": b"Verdict: pending\n", "delegation-summary.json": json.dumps(summary).encode(), **documents},
+                source_root=run.parent)
             class ResolvedNegativeSource(SyntheticSource):
                 def resolve_session(self, agent_path, root_id, role, *, thread_id=None):
                     selected = REVIEWER_ID if role == "reviewer" else QA_ID
@@ -829,9 +905,6 @@ class EvidenceRegressions(unittest.TestCase):
                 transact(run, "publish-" + lane, {}, lambda s: ({evidence: data, handoff: handoff_data}, {}))
                 source.sessions[thread] = session(thread, role, {}, 10 if role == "qa-verifier" else 20)
                 common = ["--run-dir", str(run), "--role", role, "--lane-id", lane]
-                with redirect_stdout(StringIO()):
-                    recorder.main([*common, "--codex-thread-id", thread, "--stage", "spawned", "--status", "active",
-                                   "--summary", "Independent assessment"], session_source=source)
                 with redirect_stdout(StringIO()) as stdout:
                     recorder.main([*common, "--prepare-conclusion", "--status", status, "--reason", "Snapshot unavailable",
                         "--unverified", "Candidate workflow", "--artifact", handoff, "--artifact", evidence], session_source=source)
@@ -1018,6 +1091,23 @@ class EvidenceRegressions(unittest.TestCase):
     def test_source_missing(self):
         del self.source.sessions[QA_ID]
         self.rejected("execution unconfirmed")
+
+    def test_historical_product_source_cannot_hide_subject_tag(self):
+        from verification_evidence import source_bound_record
+        record = self.summary["subagents"][0]
+        original = deepcopy(self.source.sessions[QA_ID])
+        for tag in (None, {"kind": "unknown"}, {"kind": "product-result"}, {"kind": "requirements-plan"}):
+            with self.subTest(tag=tag):
+                events = deepcopy(original)
+                answer = json.loads(events[-1]["payload"]["last_agent_message"])
+                answer["review_subject"] = tag
+                events[-1]["payload"]["last_agent_message"] = json.dumps(answer)
+                events[-2]["payload"]["content"][0]["text"] = json.dumps(answer)
+                self.source.sessions[QA_ID] = events
+                with self.assertRaises(EvidenceError):
+                    source_bound_record(self.run, record, self.summary["verification"], "qa-verifier", self.source, current=False)
+        self.source.sessions[QA_ID] = original
+        source_bound_record(self.run, record, self.summary["verification"], "qa-verifier", self.source, current=False)
 
     def test_mutated_deleted_and_new_result(self):
         path = self.root / "result.txt"
@@ -1389,6 +1479,11 @@ class EvidenceRegressions(unittest.TestCase):
             initialize_open_fixture(self.run)
             with self.assertRaisesRegex(SystemExit, "terminal assignment"):
                 recorder.main(args, session_source=self.source)
+            # Keep the terminal legacy rejection untagged; only the fresh
+            # native assignment's synthetic completion uses its default tag.
+            answer["review_subject"] = {"kind": "product-result"}
+            fresh_session[-1]["payload"]["last_agent_message"] = json.dumps(answer)
+            fresh_session[-2]["payload"]["content"][0]["text"] = json.dumps(answer)
             args[args.index("--lane-id") + 1] = "fresh-qa"
             recorder.main(["--run-dir", str(self.run), "--role", "qa-verifier", "--lane-id", "fresh-qa",
                            "--codex-thread-id", QA_ID, "--stage", "spawned", "--status", "active",

@@ -12,12 +12,13 @@ import os
 import re
 import copy
 import stat
+import fnmatch
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from agent_config import AgentConfigError, default_agents_dir, read_frontmatter, role_config, resolve_role_path
 from journal_io import JournalError, timestamp, event_time, source_time, declared_paths, JournalSnapshot, operation_id, transact
-from task_workspace import registered_workspace, verify_candidate, manifest_digest
+from task_workspace import registered_workspace, verify_candidate, manifest_digest, checked_document, manifest_delta
 
 UUID = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}")
 SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -96,6 +97,12 @@ def reference_bytes(run_dir: Path, ref: dict, *, snapshot=None) -> bytes:
         match = matches[0]
         end = re.search(r"(?m)^#{1,6} +", text[match.end():])
         data = text[match.end():match.end() + end.start() if end else len(text)].encode("utf-8")
+    if len(data) == 0 and section is None:
+        key = snapshot.key(path)
+        if key.startswith("checks/command-") and key.endswith(".output"):
+            from journal_io import require_command_evidence
+            require_command_evidence(snapshot, [key[:-7] + ".json"], successful=False)
+            return data
     require(bool(data.strip()), f"empty evidence: {ref.get('path')}")
     return data
 
@@ -104,6 +111,78 @@ def verify_reference(run_dir: Path, ref: dict, *, snapshot=None) -> str:
     actual = sha256(reference_bytes(run_dir, ref, snapshot=snapshot))
     require(ref.get("sha256") == actual, f"evidence sha256 mismatch: {ref.get('path')}")
     return actual
+
+
+def evidence_assignment(record):
+    """Immutable source/assignment identity, excluding duty resolution metadata."""
+    return {key: record.get(key) for key in ("lane_id", "role", "codex_thread_id", "completion_turn_id",
+        "source_completion_sha256", "handoff", "handoff_sha256", "status") if record.get(key) is not None}
+
+
+def historical_evidence_bytes(snapshot, record, ref):
+    """Resolve preserved input only through its native mutation receipt binding."""
+    from dataclasses import replace
+    from types import MappingProxyType
+    binding = evidence_assignment(record)
+    matches = [row for raw in snapshot.receipts.values()
+        for row in json.loads(raw).get("result", {}).get("preserved_evidence", [])
+        if type(row.get("assignment")) is dict
+        and {"lane_id", "role", "handoff", "status"} <= row["assignment"].keys()
+        and row["assignment"].keys() <= binding.keys()
+        and all(binding.get(key) == value for key, value in row["assignment"].items())
+        and row.get("reference") == ref]
+    if not matches:
+        if review_subject_kind(record) == "requirements-plan":
+            pin = review_input_receipt(snapshot, record, current=False)
+            captures = [capture for capture in pin["captures"] if capture["key"] == "journal:" + ref["path"]]
+            matches = [{"lane_id": record["lane_id"], "capture": {"path": capture["path"],
+                       "sha256": sha256(snapshot.read_bytes(capture["path"]))}} for capture in captures]
+    if not matches:
+        verify_reference(snapshot.logical_root, ref, snapshot=snapshot)
+        return reference_bytes(snapshot.logical_root, ref, snapshot=snapshot)
+    raw_bytes = None
+    for row in matches:
+        capture = row["capture"]
+        require(row.get("lane_id") == record.get("lane_id"), "preserved evidence lane differs")
+        require(isinstance(capture.get("path"), str) and snapshot.exists(capture["path"]),
+                "preserved evidence capture missing: " + str(capture.get("path")))
+        raw = snapshot.read_bytes(capture["path"])
+        require(capture["path"] == "artifacts/source-captures/" + sha256(raw) + ".bin" and
+                capture.get("sha256") == sha256(raw), "preserved evidence capture mismatch")
+        require(raw_bytes is None or raw_bytes == raw, "preserved evidence binding conflict")
+        raw_bytes = raw
+    preserved = replace(snapshot, documents=MappingProxyType({**snapshot.documents, ref["path"]: raw_bytes}))
+    verify_reference(snapshot.logical_root, ref, snapshot=preserved)
+    return reference_bytes(snapshot.logical_root, ref, snapshot=preserved)
+
+
+def require_current_architecture_inputs(snapshot):
+    """Historical proof survives; current architect duties require current inputs."""
+    from dataclasses import replace
+    from types import MappingProxyType
+    summary = json.loads(snapshot.read_text("delegation-summary.json"))
+    records = [row for group in ("subagents", "role_lanes") for row in summary.get(group, []) if row.get("role") == "architect"
+               and row.get("status") in {"pass", "pass-with-risks"}]
+    resolved = [row["lane_id"] for row in records if row.get("obligation", {}).get("state") in {"resolved", "exempt"}]
+    if resolved:
+        _, errors = evaluate_obligations(snapshot, summary, selected_lane_ids=set(resolved))
+        require(not errors, "; ".join(errors))
+    for record in records:
+        if record["lane_id"] in resolved:
+            continue
+        for ref in record.get("evidence", []):
+            historical = historical_evidence_bytes(snapshot, record, ref)
+            section = ref.get("section") or {"run.md": "Task Scope", "plan.md": "Execution Plan"}.get(ref["path"])
+            if section and not ref.get("section"):
+                # Reuse the same strict section reader for both versions.
+                previous = replace(snapshot, documents=MappingProxyType({**snapshot.documents, ref["path"]: historical}))
+                comparison = {"path": ref["path"], "section": section}
+                historical = reference_bytes(snapshot.logical_root, comparison, snapshot=previous)
+                current = reference_bytes(snapshot.logical_root, comparison, snapshot=snapshot)
+            else:
+                current = reference_bytes(snapshot.logical_root, ref, snapshot=snapshot)
+            require((current.rstrip(b"\n") == historical.rstrip(b"\n")) if section and not ref.get("section") else current == historical,
+                    "architecture reviewed input is stale: " + ref["path"] + "; obtain current same-duty review")
 
 
 def historical_result_hash(run_dir: Path, verification: dict, *, snapshot=None) -> str:
@@ -162,7 +241,7 @@ def historical_identity(summary):
     selected = []
     for key in ("qa", "reviewer"):
         record = records.get(verification.get(key))
-        if record is None:
+        if record is None or review_subject_kind(record) != "product-result":
             return None
         fields = {name: record.get(name) for name in ("role", "lane_id", "codex_thread_id", "completion_turn_id",
                   "reviewed_result_hash", "handoff", "handoff_sha256", "qa_handoff_sha256")}
@@ -191,7 +270,7 @@ def require_workspace_or_historical(snapshot, summary):
     return None
 
 
-def semantic_result_payload(snapshot, workspace, sealed, scope):
+def semantic_result_payload(snapshot, workspace, sealed, scope, *, require_complete=True):
     """The closed v5 product contract; presentation and OS observations stay out."""
     task = workspace.get("task_scope", {})
     def fields(item, names):
@@ -209,7 +288,12 @@ def semantic_result_payload(snapshot, workspace, sealed, scope):
         "excluded_relative_path": Path(binding["metadata_root"]).relative_to(binding["source_root"]).as_posix()}
     lanes = json.loads(snapshot.read_text("lane-map.json")) if snapshot.exists("lane-map.json") else {}
     boundaries = []
-    for entry in resolve_author_boundaries(snapshot, workspace):
+    entries = resolve_author_boundaries(snapshot, workspace, require_complete=require_complete)
+    if entries is None:
+        return None
+    if require_complete:
+        require_current_contributions(snapshot, workspace, entries)
+    for entry in entries:
         boundary = entry["boundary"]
         data = entry["data"]
         boundaries.append({"lane_id": entry["lane_id"], "assignment": fields(entry["assignment"], ("codex_thread_id", "role")),
@@ -289,7 +373,10 @@ def result_hash(run_dir: Path, verification: dict, *, snapshot=None, require_rea
         marker = sealed.get("result_hash_version")
         require(marker is None or type(marker) is int and marker == 5, "unsupported result_hash_version")
         if marker == 5:
-            payload = semantic_result_payload(snapshot, workspace, sealed, scope)
+            payload = semantic_result_payload(snapshot, workspace, sealed, scope, require_complete=require_ready)
+            if payload is None:
+                require(verification.get("result_hash") is None, "required author proof missing for existing result_hash")
+                return None
             payload["requirements_sha256"] = refs["task_scope"]["sha256"] if refs["task_scope"] else None
         return sha256(json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode())
     if verification.get("delivery_scope") is not None:
@@ -476,6 +563,8 @@ def verify_author_declaration(snapshot, declaration, *, lane_id, presentation_re
                 (not presentation_required or peer in text) for peer in peers)
                 and len(peers) == len(set(peers)), "author coauthors must be disclosed in own handoff")
     summary = json.loads(snapshot.read_text("delegation-summary.json"))
+    known = {r.get("lane_id") for kind in ("subagents", "role_lanes") for r in summary.get(kind, [])}
+    require(all(peer in known for peers in coauthors.values() for peer in peers), "author coauthorship mismatch: unknown coauthor")
     records = [r for kind in ("subagents", "role_lanes") for r in summary.get(kind, []) if r.get("lane_id") == lane_id]
     require(len(records) == 1, "author declaration assignment missing")
     record = records[0]
@@ -489,6 +578,80 @@ def verify_author_declaration(snapshot, declaration, *, lane_id, presentation_re
     return {"codex_thread_id": thread, "role": record.get("role"), "trace": record["trace"]}
 
 
+def author_seals(snapshot, workspace):
+    """Retained native seals in publication order; no new author registry."""
+    seals = []
+    for name in snapshot.receipts:
+        if name.startswith("workspace-seal-"):
+            receipt = snapshot.operation_receipt(name)
+            sealed = checked_document(snapshot, receipt["result"])
+            if (sealed.get("workspace_id") == workspace["workspace_id"] and
+                    sealed.get("workspace_revision", 0) == workspace.get("workspace_revision", 0)):
+                seals.append((receipt["revision"], sealed))
+    return sorted(seals, key=lambda item: item[0])
+
+
+def author_boundary_seal(snapshot, workspace, data):
+    seals = author_seals(snapshot, workspace)
+    matches = [(index, revision, sealed) for index, (revision, sealed) in enumerate(seals)
+               if sealed["candidate_id"] == data.get("candidate_id")]
+    require(len(matches) == 1, "author boundary retained seal missing")
+    index, revision, sealed = matches[0]
+    verify_candidate({**workspace, "seal": sealed}, inputs=snapshot.external_inputs)
+    expected = {"workspace_id": workspace["workspace_id"], "baseline_digest": workspace["baseline_digest"],
+                "candidate_digest": sealed["candidate_digest"], "changed_paths": sealed["changed_paths"],
+                "tracked_changed_paths": [], "untracked_paths": []}
+    require(all(data.get(key) == value for key, value in expected.items()), "author boundary must match full registered workspace delta")
+    permitted = set(sealed["changed_paths"])
+    for _, previous in seals[:index]:
+        permitted.update(manifest_delta(previous["candidate_manifest"], sealed["candidate_manifest"]))
+    require(set(data.get("authored_paths", [])) <= permitted, "authored_paths outside workspace delta")
+    return revision, sealed
+
+
+def latest_contributions(snapshot, workspace, entries):
+    latest = {}
+    for entry in entries:
+        revision, sealed = author_boundary_seal(snapshot, workspace, entry["data"])
+        for path in entry["data"]["authored_paths"]:
+            if path not in latest or revision >= latest[path][0]:
+                latest[path] = (revision, sealed["candidate_manifest"]["entries"].get(path), sealed, entry.get("boundary"))
+    return latest
+
+
+def require_current_contributions(snapshot, workspace, entries):
+    """The latest recorded contribution must confirm the current state of its path."""
+    latest = latest_contributions(snapshot, workspace, entries)
+    final = workspace["seal"]
+    covered = {path for path, (_, state, _, _) in latest.items()
+               if state == final["candidate_manifest"]["entries"].get(path)}
+    require(set(latest) <= covered, "author declarations must match full registered workspace delta; current state differs from latest contribution")
+    return latest, covered
+
+
+def author_coverage(snapshot, workspace, entries):
+    """Each final state needs the latest recorded contribution for that path."""
+    latest, covered = require_current_contributions(snapshot, workspace, entries)
+    final = workspace["seal"]
+    for path, change in final["delta"].items():
+        before, after = change["before"], change["after"]
+        directory = after if before is None else before if after is None else None
+        if directory is not None and directory.get("type") == "directory":
+            # Only ordinary creation/removal induced by owned descendants. An
+            # empty directory, chmod or type replacement remains explicit work.
+            descendants = [name for name, item in final["delta"].items()
+                           if name.startswith(path + "/") and name in covered and name in latest and
+                           latest[name][2]["candidate_manifest"]["entries"].get(path) == after and
+                           (item["before"] is None if before is None else item["after"] is None)]
+            for name in descendants:
+                boundary = latest[name][3] or {}
+                require(not any(fnmatch.fnmatchcase(path, pattern) for pattern in boundary.get("forbidden_paths", [])),
+                        "author parent directory matches forbidden_paths: " + path)
+            if descendants:
+                covered.add(path)
+    require(set(final["changed_paths"]) <= covered, "author declarations union must equal full registered workspace delta; current state lacks author proof")
+
+
 def boundary_declarations(snapshot, workspace):
     lanes = json.loads(snapshot.read_text("lane-map.json")) if snapshot.exists("lane-map.json") else {}
     bindings = []
@@ -499,12 +662,12 @@ def boundary_declarations(snapshot, workspace):
         raw = snapshot.read_bytes(name)
         data = json.loads(raw)
         if data.get("version") == 2:
-            require(data.get("candidate_id") == workspace["seal"]["candidate_id"] and data.get("workspace_id") == workspace["workspace_id"], "author declaration candidate changed")
+            author_boundary_seal(snapshot, workspace, data)
             bindings.append({"lane_id": lane["id"], "path": name, "sha256": sha256(raw)})
     return sorted(bindings, key=lambda item: item["lane_id"])
 
 
-def resolve_author_boundaries(snapshot, workspace, *, presentation_required=False):
+def resolve_author_boundaries(snapshot, workspace, *, presentation_required=False, require_complete=True):
     """Resolve existing native author proofs from assignments, with an optional map."""
     summary = json.loads(snapshot.read_text("delegation-summary.json"))
     lane_map = json.loads(snapshot.read_text("lane-map.json")) if snapshot.exists("lane-map.json") else {}
@@ -525,6 +688,7 @@ def resolve_author_boundaries(snapshot, workspace, *, presentation_required=Fals
                     "author inventory assignment missing or duplicate")
             assignments[lane_id] = (record, kind == "role_lanes")
     entries = []
+    incomplete = False
     sealed = workspace["seal"]
     for lane_id in sorted(set(assignments) | set(lanes)):
         lane = lanes.get(lane_id)
@@ -536,26 +700,22 @@ def resolve_author_boundaries(snapshot, workspace, *, presentation_required=Fals
         required = boundary is not None or lane is not None and lane.get("type") in {"implementation", "integration"}
         name = explicit if explicit is not None else f"checks/lane-boundary-{lane_id}.json"
         if not snapshot.exists(name):
-            require(not required, "author boundary artifact missing: " + str(name))
+            require(not required or not require_complete, "author boundary artifact missing: " + str(name))
+            incomplete = incomplete or required
             continue
         require(lane_id in assignments, "author declaration assignment missing: " + lane_id)
         data = json.loads(snapshot.read_bytes(name))
         require(isinstance(data, dict) and data.get("version") == 2 and data.get("status") == "captured",
                 "native author boundary requires captured version 2: " + name)
-        expected = {"workspace_id": workspace["workspace_id"], "candidate_id": sealed["candidate_id"],
-                    "baseline_digest": workspace["baseline_digest"], "candidate_digest": sealed["candidate_digest"],
-                    "changed_paths": sealed["changed_paths"], "tracked_changed_paths": [], "untracked_paths": []}
-        require(all(data.get(key) == value for key, value in expected.items()),
-                "author boundary must match full registered workspace delta: " + name)
+        author_boundary_seal(snapshot, workspace, data)
         declaration = {key: data.get(key) for key in ("lane_id", "authored_paths", "handoff", "edit_evidence", "coauthors")}
         assignment = verify_author_declaration(snapshot, declaration, lane_id=lane_id,
                                                presentation_required=presentation_required)
         require(data.get("assignment") == assignment, "author assignment mismatch: " + lane_id)
-        require(set(data["authored_paths"]) <= set(sealed["changed_paths"]), "authored_paths outside workspace delta")
         record, role_lane = assignments[lane_id]
         entries.append({"lane_id": lane_id, "artifact": name, "boundary": boundary, "lane": lane,
                         "record": record, "role_lane": role_lane, "data": data, "assignment": assignment})
-    return entries
+    return None if incomplete else entries
 
 
 def evaluate_obligations(snapshot, summary, *, require_current=True, selected_lane_ids=None):
@@ -989,7 +1149,7 @@ def completed_turn(source, thread_id: str, turn_id: str, root_id: str, role: str
     return completions[0]
 
 
-def resolve_completion(source, thread_id: str, root_id: str, role: str, digest: str, handoffs: list[str]) -> str:
+def resolve_completion(source, thread_id: str, root_id: str, role: str, digest: str, handoffs: list[str], *, review_subject=None, review_input_operation_id=None) -> str:
     events = source.read(thread_id)
     meta_index, _ = session_metadata(events, thread_id, root_id, role, source=source)
     candidates = []
@@ -1007,7 +1167,9 @@ def resolve_completion(source, thread_id: str, root_id: str, role: str, digest: 
             answer = final_json(payload.get("last_agent_message"))
         except EvidenceError:
             continue
-        if answer.get("reviewed_result_hash") == digest and answer.get("handoff") in handoffs:
+        matches_subject = (review_subject_kind(answer) == "product-result" if review_subject is None else
+                           answer.get("review_subject") == review_subject and answer.get("review_input_operation_id") == review_input_operation_id)
+        if matches_subject and answer.get("reviewed_result_hash") == digest and answer.get("handoff") in handoffs:
             candidates.append(payload.get("turn_id"))
     require(len(candidates) == 1, "completion resolution missing or ambiguous; supply --completion-turn-id for the current handoff/result hash")
     completed_turn(source, thread_id, candidates[0], root_id, role)
@@ -1136,27 +1298,362 @@ def require_own_reviewer_handoff(run_dir, handoff, qa_handoff, *, snapshot=None)
             "reviewer must use its own handoff file, distinct from accepted QA handoff")
 
 
+def review_subject_kind(record):
+    """Closed domain classifier shared by product and preliminary consumers."""
+    if "review_subject" not in record:
+        return "product-result"
+    subject = record["review_subject"]
+    require(type(subject) is dict and subject.get("kind") in {"requirements-plan", "product-result"}, "unknown or malformed review subject")
+    kind = subject["kind"]
+    fields = {"kind", "digest", "sources"} if kind == "requirements-plan" else {"kind"}
+    require(set(subject) == fields, "malformed review subject fields")
+    if kind == "requirements-plan":
+        require(type(subject.get("digest")) is str and SHA256.fullmatch(subject["digest"]), "malformed requirements digest")
+        rows = subject["sources"]
+        require(type(rows) is list and bool(rows) and all(type(row) is dict and set(row) == {"key", "sha256"}
+            and type(row["key"]) is str and row["key"].startswith(("journal:", "source:", "context:"))
+            and type(row["sha256"]) is str and SHA256.fullmatch(row["sha256"]) for row in rows), "malformed requirements sources")
+        require(rows == sorted(rows, key=lambda row: row["key"]) and len({row["key"] for row in rows}) == len(rows), "review sources must be canonical and unique")
+        require(subject["digest"] == requirements_digest(rows), "review subject digest mismatch")
+        from journal_io import logical_path
+        for row in rows:
+            logical_path(row["key"].split(":", 1)[1])
+            if row["key"].startswith("context:"):
+                context_source_name(row["key"].split(":", 1)[1])
+    return kind
+
+
+def requirements_digest(rows):
+    return sha256(("agentflow:requirements-plan:v1\n" + json.dumps(rows, ensure_ascii=False, sort_keys=True, separators=(",", ":"))).encode())
+
+
+def context_source_name(name):
+    from journal_io import logical_path
+    name = logical_path(name)
+    parts = name.split("/")
+    require(len(parts) >= 2 and re.fullmatch(r"0|[1-9][0-9]*", parts[0]), "malformed context source slot/name")
+    return name
+
+
+def review_context_sources(snapshot):
+    """Derive keys from the existing declared manifests; no external scan or registry."""
+    from journal_io import logical_path
+    from workspace_scope import previous_roots
+    workspace = registered_workspace(snapshot)
+    if workspace is None:
+        return {}
+    products = previous_roots(workspace)
+    rows = {}
+    for slot, root in enumerate(workspace.get("task_scope", {}).get("context_roots", [])):
+        path = Path(root["canonical_path"])
+        require(path.is_absolute() and path.name not in {"", ".", ".."}, "invalid declared context root")
+        manifest = root.get("manifest")
+        require(type(manifest) is dict, "declared context manifest missing")
+        if root.get("kind") == "file":
+            require(manifest.get("type") == "file", "declared context root kind mismatch")
+            members = {"": manifest}
+        else:
+            require(root.get("kind") == "directory" and type(manifest.get("entries")) is dict, "declared context root kind mismatch")
+            require(all(type(entry) is dict for entry in manifest["entries"].values()), "malformed declared context member")
+            members = {name: entry for name, entry in manifest["entries"].items() if entry.get("type") == "file"}
+        for member, entry in members.items():
+            if member:
+                logical_path(member)
+            require(type(entry.get("sha256")) is str and SHA256.fullmatch(entry["sha256"]), "declared context file hash missing")
+            target = path / member if member else path
+            key = None
+            for journal in (snapshot.artifact_root, snapshot.logical_root):
+                if target.is_relative_to(journal):
+                    key = "journal:" + snapshot.key(target)
+                    break
+            if key is None:
+                selected = [row for row in products if target.is_relative_to(Path(row["source"]))]
+                require(len(selected) <= 1, "ambiguous review source scope")
+                if selected:
+                    key = "source:" + logical_path((Path(selected[0]["relative_path"]) / target.relative_to(selected[0]["source"])).as_posix())
+                elif target.is_relative_to(snapshot.source_root):
+                    key = "source:" + logical_path(target.relative_to(snapshot.source_root).as_posix())
+                else:
+                    key = "context:" + context_source_name(str(slot) + "/" + path.name + ("/" + member if member else ""))
+            value = {"path": target, "sha256": entry["sha256"]}
+            require(key not in rows or rows[key] == value, "ambiguous logical context source")
+            rows[key] = value
+    return rows
+
+
+def review_source_bytes(snapshot, name, *, capture=True, context_sources=None):
+    """Resolve declared scope; capture location never participates in identity."""
+    from journal_io import capture_file, logical_path, validate_directory
+    contexts = review_context_sources(snapshot) if context_sources is None else context_sources
+    if name.startswith("context:"):
+        key = "context:" + context_source_name(name.split(":", 1)[1])
+        raw = current_review_source(snapshot, key, capture=capture, context_sources=contexts)
+        return key, raw if capture else None
+    path = Path(name).expanduser()
+    if not path.is_absolute():
+        logical_path(name)
+        index = json.loads(snapshot.documents.get("artifacts/source-references.json", b"{}"))
+        originals = [original for original, locator in index.items() if locator == name]
+        require(len(originals) <= 1, "ambiguous captured review source")
+        if originals:
+            path = Path(originals[0])
+        elif name in snapshot.documents:
+            return "journal:" + snapshot.key(name), snapshot.read_bytes(name) if capture else None
+        else:
+            path = snapshot.source_root / name
+    require(not path.is_symlink(), "review source must not be a symlink")
+    validate_directory(path.parent)
+    path = path.resolve()
+    for root in (snapshot.artifact_root, snapshot.logical_root):
+        if path.is_relative_to(root):
+            key = snapshot.key(path)
+            return "journal:" + key, snapshot.read_bytes(key) if capture else None
+    workspace = registered_workspace(snapshot)
+    if workspace:
+        from workspace_scope import previous_roots
+        for field in ("working_root", "baseline_root", "candidate_root"):
+            if workspace.get(field) and path.is_relative_to(Path(workspace[field])):
+                relative = path.relative_to(Path(workspace[field])).as_posix()
+                key = "source:" + logical_path(relative)
+                current_review_source(snapshot, key, capture=False, context_sources=contexts)
+                return key, capture_file(path) if capture else None
+        roots = previous_roots(workspace)
+        matches = [row for row in roots if path.is_relative_to(Path(row["source"]))]
+        require(len(matches) <= 1, "ambiguous review source scope")
+        if matches:
+            row = matches[0]
+            relative = (Path(row["relative_path"]) / path.relative_to(Path(row["source"]))).as_posix()
+            return "source:" + logical_path(relative), capture_file(path) if capture else None
+    if not path.is_relative_to(snapshot.source_root):
+        matches = [key for key, row in contexts.items() if row["path"] == path]
+        require(len(matches) <= 1, "ambiguous declared context source; use its explicit context key")
+        require(bool(matches), "review source outside approved source context")
+        key = matches[0]
+        raw = current_review_source(snapshot, key, capture=capture, context_sources=contexts)
+        return key, raw if capture else None
+    key = "source:" + logical_path(path.relative_to(snapshot.source_root).as_posix())
+    current_review_source(snapshot, key, capture=False, context_sources=contexts)
+    if key in contexts:
+        return key, current_review_source(snapshot, key, capture=capture, context_sources=contexts) if capture else None
+    return key, capture_file(path) if capture else None
+
+
+def current_review_source(snapshot, key, *, capture=True, context_sources=None):
+    """Relocated current scope resolves identity; old capture locators are inert."""
+    require(type(key) is str and ":" in key, "malformed review source key")
+    kind, name = key.split(":", 1)
+    require(kind in {"journal", "source", "context"}, "unknown review source key")
+    from journal_io import capture_file, logical_path, validate_directory
+    name = logical_path(name)
+    if kind == "journal":
+        return snapshot.read_bytes(name) if capture else snapshot.logical_root / name
+    contexts = review_context_sources(snapshot) if context_sources is None else context_sources
+    if kind == "context":
+        context_source_name(name)
+        require(key in contexts, "review source outside declared product/context scope: " + key)
+        path = contexts[key]["path"]
+    else:
+        workspace = registered_workspace(snapshot)
+        path = snapshot.source_root / name
+        if workspace:
+            from workspace_scope import previous_roots
+            selected = any(row["relative_path"] == "." or name == row["relative_path"] or
+                           Path(name).is_relative_to(row["relative_path"]) for row in previous_roots(workspace))
+            if selected:
+                path = Path(workspace["working_root"]) / name
+            else:
+                require(key in contexts and contexts[key]["path"] == path, "review source outside declared product/context scope")
+    if key in contexts and contexts[key]["path"] == path:
+        require(not path.is_symlink(), "review source must not be a symlink")
+        validate_directory(path.parent)
+        if not capture:
+            return path
+        try:
+            raw = snapshot.external_inputs.file(path) if snapshot.external_inputs is not None else capture_file(path)
+        except OSError as exc:
+            raise EvidenceError("declared context source unavailable: " + key) from exc
+        require(sha256(raw) == contexts[key]["sha256"], "declared context bytes changed: " + key)
+        return raw
+    return capture_file(path) if capture else path
+
+
+def declared_review_sources(snapshot, *, context_sources=None):
+    summary = json.loads(snapshot.documents.get("delegation-summary.json", b"{}"))
+    verification = summary.get("verification", {})
+    sources = [ref["path"] for field in ("initial_snapshot", "task_scope")
+               if isinstance(ref := verification.get(field), dict) and isinstance(ref.get("path"), str)]
+    if snapshot.exists("run.md"):
+        sources.append("run.md")
+    if snapshot.exists("plan.md"):
+        sources.append("plan.md")
+    lanes = json.loads(snapshot.documents.get("lane-map.json", b"{}"))
+    sources.extend(lane[field] for lane in lanes.get("lanes", []) if lane.get("type") == "architecture"
+                   for field in ("handoff", "architecture_design_brief") if lane.get(field) and snapshot.exists(lane[field]))
+    contexts = review_context_sources(snapshot) if context_sources is None else context_sources
+    return {review_source_bytes(snapshot, name, capture=False, context_sources=contexts)[0] for name in sources} | contexts.keys()
+
+
+def review_input_receipt(snapshot, record, *, current=False):
+    require(review_subject_kind(record) == "requirements-plan", "requirements review subject required")
+    identifier = record.get("review_input_operation_id")
+    require(type(identifier) is str and bool(identifier), "review input operation required")
+    saved = snapshot.operation_receipt(identifier)
+    require(saved is not None, "native review input receipt missing")
+    result = saved["result"]
+    require(result.get("command") == "prepare-review-input" and result.get("run_uuid") == snapshot.run_uuid
+        and (result.get("generation") == snapshot.generation if current else type(result.get("generation")) is int and result["generation"] <= snapshot.generation) and result.get("lane_id") == record.get("lane_id")
+        and result.get("review_subject") == record["review_subject"], "review input receipt binding mismatch")
+    captures = result.get("captures")
+    require(type(captures) is list and len(captures) == len(record["review_subject"]["sources"]), "review captures missing")
+    rows = []
+    contexts = review_context_sources(snapshot) if current else None
+    for capture in captures:
+        raw = snapshot.read_bytes(capture["path"])
+        require(capture["path"] == "artifacts/source-captures/" + sha256(raw) + ".bin", "review capture content address mismatch")
+        rows.append({"key": capture["key"], "sha256": sha256(raw)})
+        if current:
+            require(sha256(current_review_source(snapshot, capture["key"], context_sources=contexts)) == sha256(raw), "current review input drift")
+    require(rows == record["review_subject"]["sources"], "review pinned bytes mismatch")
+    if current:
+        from task_workspace import current_scope_digest
+        workspace = registered_workspace(snapshot)
+        if workspace is not None:
+            current_scope_digest(workspace, inputs=snapshot.external_inputs)
+        missing = declared_review_sources(snapshot, context_sources=contexts) - {row["key"] for row in rows}
+        require(not missing, "review omits declared inputs: " + ", ".join(sorted(missing)))
+    from journal_io import timestamp
+    timestamp(result.get("frozen_at"))
+    return result
+
+
+def readiness_obligation_endpoints(snapshot, summary, lane_ids, *, require_current=True):
+    """Configured duties select only endpoints of already validated resolutions."""
+    validate_summary_shape(summary)
+    records = {row["lane_id"]: row for row in summary["subagents"] + summary["role_lanes"]}
+    require(all(lane_id in records for lane_id in lane_ids), "readiness configured assignment missing")
+    _, errors = evaluate_obligations(snapshot, summary, require_current=require_current, selected_lane_ids=lane_ids)
+    require(not errors, "; ".join(errors))
+    endpoints = set()
+    for lane_id in lane_ids:
+        while records[lane_id].get("obligation", {}).get("state") == "resolved":
+            lane_id = records[lane_id]["obligation"]["resolution"]["replacement"]
+        obligation = records[lane_id].get("obligation", {})
+        require(obligation.get("state") == "current" and obligation.get("required") is True,
+                "readiness requires current mandatory obligation endpoint")
+        endpoints.add(lane_id)
+    return endpoints
+
+
+def readiness_tool_evidence(snapshot, record, ref, source, *, completion=None, capture_required=True, current=True):
+    """Exact observable own tool text, with a finite MCP result shape."""
+    fields = {"path", "sha256", "source_event", "source_call_id", "source_part"}
+    require(type(ref) is dict and set(ref) <= fields and {"path", "source_event"} <= set(ref), "unknown readiness tool evidence fields")
+    from journal_io import logical_path, timestamp, source_time
+    path = logical_path(ref["path"])
+    require(path.startswith("artifacts/"), "readiness tool output requires attachment path")
+    index = ref["source_event"]
+    require(type(index) is int and index > 0, "readiness source_event must be a positive integer")
+    thread = record.get("codex_thread_id")
+    events = source.read(thread, event_indices=(index,))
+    summary = json.loads(snapshot.read_text("delegation-summary.json"))
+    session_metadata(events, thread, summary["verification"].get("root_thread_id"), record["role"], source=source)
+    own = dict(_own_session_events(source, events, thread))
+    require(index in own, "readiness tool output must belong to own session")
+    starts = [i for i, event in own.items() if event.get("type") == "event_msg" and event.get("payload", {}).get("type") == "task_started"]
+    start = completion["task_started_event"] if completion else max(starts, default=0)
+    end = completion["task_complete_event"] if completion else min((i for i, event in own.items() if i > start and event.get("type") == "event_msg" and event.get("payload", {}).get("type") in {"task_complete", "task_started"}), default=len(events) + 1)
+    require(start in own and start < index < end, "readiness tool output must belong to reviewing turn")
+    pin = review_input_receipt(snapshot, record, current=current)
+    require(timestamp(pin["frozen_at"]) < source_time(own[start], "started_at").event_at, "reviewing turn must start strictly after input freeze")
+    payload = own[index].get("payload", {})
+    require(own[index].get("type") == "response_item" and payload.get("type") in {"function_call_output", "custom_tool_call_output"}, "readiness proof requires observed tool output")
+    call_id = payload.get("call_id")
+    require(type(call_id) is str and bool(call_id) and ("source_call_id" not in ref or ref["source_call_id"] == call_id), "readiness source_call_id mismatch")
+    if payload["type"] == "custom_tool_call_output":
+        parts, unavailable = public_content(payload.get("output"))
+        require(bool(parts) and not unavailable and not payload.get("output_unavailable", False), "readiness tool output unavailable")
+        if "source_part" in ref:
+            part = ref["source_part"]
+            require(type(part) is int and 0 <= part < len(parts), "readiness source_part unavailable")
+            text = parts[part]["text"]
+        else:
+            text = "".join(part["text"] for part in parts)
+    else:
+        require("source_part" not in ref, "readiness source_part requires public text blocks")
+        text = payload.get("output")
+        require(type(text) is str and not payload.get("output_unavailable", False), "readiness tool output unavailable")
+    try:
+        result = json.loads(text)
+    except (ValueError, TypeError) as exc:
+        raise EvidenceError("readiness tool output must be one MCP CallToolResult JSON object") from exc
+    require(type(result) is dict and {"content"} <= set(result) <= {"content", "isError", "structuredContent", "_meta"}, "unsupported readiness tool result")
+    require("isError" not in result or type(result["isError"]) is bool and not result["isError"], "readiness tool result reports error")
+    require(all(type(result[key]) is dict for key in ("structuredContent", "_meta") if key in result), "malformed readiness tool metadata")
+    content = result["content"]
+    require(type(content) is list and bool(content) and all(type(part) is dict and set(part) == {"type", "text"} and part["type"] == "text" and type(part["text"]) is str and bool(part["text"].encode()) for part in content), "readiness tool result requires nonempty text content")
+    raw = text.encode()
+    require("sha256" not in ref or ref["sha256"] == sha256(raw), "readiness tool hash assertion mismatch")
+    if capture_required:
+        require(snapshot.read_bytes(path) == raw, "readiness tool source bytes mismatch")
+    derived = {**ref, "path": path, "sha256": sha256(raw), "source_call_id": call_id}
+    return raw, derived
+
+
+def require_review_completion(snapshot, record, completion, source, *, current):
+    """Native pin plus the exact own reviewing turn, without prompt parsing."""
+    pin = review_input_receipt(snapshot, record, current=current)
+    answer = completion["answer"]
+    require(answer.get("review_subject") == record["review_subject"] and
+            answer.get("review_input_operation_id") == record["review_input_operation_id"], "source review subject or operation mismatch")
+    require(answer.get("reviewed_result_hash") is None and record.get("reviewed_result_hash") is None, "preliminary review cannot accept product hash")
+    from journal_io import timestamp, source_time
+    started = source.read(record["codex_thread_id"])[completion["task_started_event"] - 1]
+    require(timestamp(pin["frozen_at"]) < source_time(started, "started_at").event_at, "reviewing turn must start strictly after input freeze")
+    return pin
+
+
 def source_bound_record(run_dir, record, verification, role, source, *, qa_handoff=None, snapshot=None, negative=False,
                         current=True, presentation_required=True):
     """Revalidate one source-bound acceptance, including current evidence bytes."""
+    preliminary = review_subject_kind(record) == "requirements-plan"
+    snapshot = snapshot or JournalSnapshot.open(run_dir)
     thread = record.get("codex_thread_id")
     require(thread not in [verification.get("root_thread_id"), *verification.get("author_thread_ids", [])],
             "QA, reviewer, root and authors must be distinct")
     require(record.get("role") in ({"reviewer", "reviewer.qa"} if role == "reviewer" else {role}), "incorrect canonical role")
-    if role == "reviewer" and not negative and current:
+    if role == "reviewer" and not negative and current and not preliminary:
         require_own_reviewer_handoff(run_dir, record.get("handoff"), qa_handoff, snapshot=snapshot)
     handoff_hash = verify_reference(run_dir, {"path": record.get("handoff"), "sha256": record.get("handoff_sha256")}, snapshot=snapshot)
     text = reference_bytes(run_dir, {"path": record["handoff"]}, snapshot=snapshot).decode()
     refs = record.get("evidence")
     require(isinstance(refs, list) and bool(refs), "evidence references required")
     for ref in refs:
-        verify_reference(run_dir, ref, snapshot=snapshot)
+        if current:
+            verify_reference(run_dir, ref, snapshot=snapshot)
+        else:
+            historical_evidence_bytes(snapshot, record, ref)
         require(not presentation_required or ref["path"] in text and ref["sha256"] in text,
                 "evidence reference and sha256 must appear in source-bound handoff")
-    digest = record.get("reviewed_result_hash") if negative or not current else verification.get("result_hash") or result_hash(run_dir, verification, snapshot=snapshot)
+    digest = None if preliminary else record.get("reviewed_result_hash") if negative or not current else verification.get("result_hash") or result_hash(run_dir, verification, snapshot=snapshot)
     require(record.get("reviewed_result_hash") == digest, "reviewed_result_hash is stale")
     completion = completed_turn(source, thread, record.get("completion_turn_id"), verification.get("root_thread_id"), role, current=current)
     answer = completion["answer"]
+    require(review_subject_kind(answer) == review_subject_kind(record) and
+            answer.get("review_subject") == record.get("review_subject"), "source review subject differs from assignment")
+    if preliminary:
+        pin = require_review_completion(snapshot, record, completion, source, current=current)
+        summary = json.loads(snapshot.read_text("delegation-summary.json"))
+        reviewed_keys = {row["key"] for row in pin["review_subject"]["sources"]}
+        known_authors = {verification.get("root_thread_id"), *verification.get("author_thread_ids", [])}
+        for assignment in summary.get("subagents", []) + summary.get("role_lanes", []):
+            if "journal:" + str(assignment.get("handoff")) in reviewed_keys:
+                known_authors.add(assignment.get("codex_thread_id") or verification.get("root_thread_id"))
+        require(thread not in known_authors, "preliminary QA must be independent from known reviewed source authors")
+        require(record.get("lane_id") not in {verification.get("qa"), verification.get("reviewer")}, "preliminary review cannot be selected as product acceptance")
+        require(record.get("readiness_gates", []) == answer.get("readiness_gates", []), "source readiness gates mismatch")
+        from journal_io import validate_preliminary_gates
+        validate_preliminary_gates(snapshot, answer.get("readiness_gates", []), record=record, source=source, completion=completion, execution_required=current, current=current)
+        require(all(any(item.get("path") == ref.get("path") and item.get("sha256") == ref.get("sha256") for item in refs) for gate in answer.get("readiness_gates", []) for ref in gate["evidence"]), "readiness evidence must be accepted source evidence")
     if negative:
         require(answer.get("verdict") in {"blocked", "fail"} and record.get("status") == answer["verdict"],
                 "negative source verdict/status mismatch")
@@ -1169,7 +1666,7 @@ def source_bound_record(run_dir, record, verification, role, source, *, qa_hando
         require(record.get("lane_id") not in {verification.get("qa"), verification.get("reviewer")},
                 "negative completion cannot be selected as accepted QA/reviewer")
     else:
-        require(isinstance(digest, str) and SHA256.fullmatch(digest), "accepted source result hash required")
+        require(preliminary or isinstance(digest, str) and SHA256.fullmatch(digest), "accepted source result hash required")
         require(isinstance(answer.get("verdict"), str) and answer["verdict"] in ACCEPTED, "source verdict does not accept result")
     for field, value in (("reviewed_result_hash", digest), ("handoff", record.get("handoff")), ("handoff_sha256", handoff_hash)):
         require(answer.get(field) == value, f"source {field} mismatch")
@@ -1180,12 +1677,15 @@ def source_bound_record(run_dir, record, verification, role, source, *, qa_hando
 
 
 def accepted_record(run_dir, record, verification, role, source, *, qa_handoff=None, snapshot=None, presentation_required=True):
+    require(review_subject_kind(record) == "product-result", "preliminary review cannot be product acceptance")
     return source_bound_record(run_dir, record, verification, role, source,
                                qa_handoff=qa_handoff, snapshot=snapshot, presentation_required=presentation_required)
 
 
 def archived_acceptance(snapshot, record):
     """A previously finalized acceptance remains bound to its immutable record."""
+    if review_subject_kind(record) != "product-result":
+        return False
     for identifier in snapshot.archives:
         archived = snapshot.archive(identifier)
         if not archived.closed:
@@ -1286,7 +1786,7 @@ def validate_verification(run_dir: Path, summary: dict, lane_map: dict, verdict:
         if verdict in {"blocked", "fail"} and workspace is None and result_contract(snapshot).get("result_contract_version", 1) >= 2:
             require(verification.get("result_hash") == result_hash(run_dir, verification, snapshot=snapshot, require_ready=False),
                     "verification.result_hash is stale")
-        owned = set() if not positive and workspace is not None and not sealed and kind == "change" else changed_paths(run_dir, lane_map, verification, snapshot=snapshot)
+        owned = set() if not positive and (workspace is not None and not sealed and kind == "change" or kind is None and not files) else changed_paths(run_dir, lane_map, verification, snapshot=snapshot)
         if positive or sealed or workspace is None and verdict not in {"blocked", "fail"}:
             require(owned <= set(files), "result_files omits run-owned paths: " + ", ".join(sorted(owned - set(files))))
         workers = any(isinstance(lane, dict) and lane.get("type") in {"implementation", "integration"} for lane in lane_map.get("lanes", []))
@@ -1313,6 +1813,10 @@ def validate_verification(run_dir: Path, summary: dict, lane_map: dict, verdict:
         for record in records.values():
             if selected_lane_ids is not None and record.get("lane_id") not in selected_lane_ids:
                 continue
+            subject_kind = review_subject_kind(record)
+            if subject_kind == "requirements-plan":
+                review_input_receipt(snapshot, record, current=False)
+                require(record.get("lane_id") not in {verification.get("qa"), verification.get("reviewer")}, "preliminary review cannot be product selector")
             for field in ("reviewed_result_hash", "handoff_sha256"):
                 value = record.get(field)
                 require(value is None or isinstance(value, str) and SHA256.fullmatch(value), f"subagent {field} must be SHA-256")
@@ -1323,8 +1827,14 @@ def validate_verification(run_dir: Path, summary: dict, lane_map: dict, verdict:
             for ref in refs:
                 require(isinstance(ref, dict) and isinstance(ref.get("sha256"), str) and SHA256.fullmatch(ref["sha256"]), "subagent evidence reference must contain SHA-256")
                 evidence_path(run_dir, ref.get("path"), snapshot=snapshot)
-                verify_reference(run_dir, ref, snapshot=snapshot)
-            if turn and record.get("role") not in {"qa-verifier", "reviewer", "reviewer.qa"}:
+                if record.get("status") in {"pass", "pass-with-risks", "blocked", "fail"}:
+                    historical_evidence_bytes(snapshot, record, ref)
+                else:
+                    verify_reference(run_dir, ref, snapshot=snapshot)
+            if turn and subject_kind == "requirements-plan":
+                source_bound_record(run_dir, record, verification, "reviewer" if record.get("role") == "reviewer.qa" else record.get("role"),
+                    source or CodexSessionSource(), snapshot=snapshot, negative=record.get("status") in {"blocked", "fail"}, current=False, presentation_required=presentation_required)
+            elif turn and record.get("role") not in {"qa-verifier", "reviewer", "reviewer.qa"}:
                 require(record.get("lane_id") not in {verification.get("qa"), verification.get("reviewer")},
                         "worker completion cannot be selected as QA/reviewer")
                 require(record.get("status") in {"pass", "pass-with-risks", "blocked", "fail"},

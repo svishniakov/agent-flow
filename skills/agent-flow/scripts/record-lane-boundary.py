@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 from journal_io import operation_id, write_entry, encode_json, JournalError, JournalSnapshot, logical_path
 from task_workspace import registered_workspace, verify_candidate, git_command
-from verification_evidence import result_contract, verify_author_declaration, retained_accepted_boundary_v1
+from verification_evidence import result_contract, verify_author_declaration, retained_accepted_boundary_v1, author_boundary_seal
 
 
 def run_git(repo_root: Path, args: list[str]) -> list[str]:
@@ -79,10 +79,14 @@ def capture_boundary(
                     raise JournalError("legacy boundary replay differs from accepted artifact")
                 return resolved_run_dir / "checks" / f"lane-boundary-{lane_id}.json"
             raise JournalError("registered result requires explicit author declaration version 2")
-        assignment = verify_author_declaration(snapshot, declaration, lane_id=lane_id)
-        if not set(declaration["authored_paths"]) <= set(sealed["changed_paths"]):
-            raise JournalError("authored_paths must be part of full workspace delta")
+        assignment = verify_author_declaration(snapshot, declaration, lane_id=lane_id, presentation_required=False)
         artifact.update(version=2, **declaration, assignment=assignment)
+        author_boundary_seal(snapshot, workspace, artifact)
+        previous_path = f"checks/lane-boundary-{lane_id}.json"
+        if snapshot.exists(previous_path):
+            previous = json.loads(snapshot.read_text(previous_path))
+            if previous != artifact:
+                raise JournalError("author contribution is immutable; use a new assignment for corrections")
     else:
         if result_contract(snapshot).get("result_contract_version", 1) >= 2:
             raise JournalError("prepare and seal workspace before boundary capture")
@@ -120,8 +124,12 @@ def capture_boundary(
         if workspace is not None:
             if registered is None or verify_candidate(registered)["candidate_id"] != artifact["candidate_id"]:
                 raise JournalError("workspace candidate changed before boundary publication")
-            if verify_author_declaration(current, declaration, lane_id=lane_id) != artifact["assignment"]:
+            if verify_author_declaration(current, declaration, lane_id=lane_id, presentation_required=False) != artifact["assignment"]:
                 raise JournalError("author declaration assignment changed before publication")
+            if current.exists(previous_path):
+                previous = json.loads(current.read_text(previous_path))
+                if previous != artifact:
+                    raise JournalError("author contribution is immutable; use a new assignment for corrections")
         elif registered is not None:
             raise JournalError("workspace registered before legacy boundary publication")
         return {output_path.relative_to(resolved_run_dir).as_posix(): encode_json(artifact, pretty=True) + "\n"}, {}

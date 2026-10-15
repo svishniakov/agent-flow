@@ -23,13 +23,13 @@ budget. Они являются прямыми дочерними сессиям
 
 Stable identities and Codex display nicknames live in `agents/agent-identities.json`.
 
-Run `python3 scripts/sync-codex-agent-config.py --output-dir .codex/agents` from a target project to sync project-scoped Codex custom-agent files. Use `--output-dir ~/.codex/agents` only when the same Agent Flow role names should be visible across all local Codex projects. Synced files map Agent Flow role frontmatter to Codex fields: `name`, `description`, `model`, `model_reasoning_effort`, `developer_instructions`, and `nickname_candidates`.
+Run `python3 "$AF_PACKAGE/scripts/sync-codex-agent-config.py" --output-dir .codex/agents` from a target project to sync project-scoped Codex custom-agent files. Use `--output-dir ~/.codex/agents` only when the same Agent Flow role names should be visible across all local Codex projects. Synced files map Agent Flow role frontmatter to Codex fields: `name`, `description`, `model`, `model_reasoning_effort`, `developer_instructions`, and `nickname_candidates`.
 
 Role lifecycle guidance lives in `references/role-catalog.md`: use cases, exclusions, overlap notes, and the rule against one-off roles.
 
 Role frontmatter `skills:` is a dependency demand, not an install command. Use listed skills only when they are available in the current environment. If a listed skill is missing, follow the role instructions directly, record the gap when relevant, and continue within the delegation packet.
 
-Canonical install metadata lives in `registries/agent-skills.json`: tier, role usage, aliases, target paths, prompts, plugin/manual notes, and allowlisted commands. Run `python3 scripts/check-agent-deps.py --post-install` after clone, or `--scope core --install-plan` / `--scope full --install-plan` for a non-interactive audit. The checker never performs silent installs. `--guided-install` requires explicit confirmation and executes only allowlisted `git`/`local` commands; `plugin`, `prompt`, and `manual` entries are printed only.
+Canonical install metadata lives in `registries/agent-skills.json`: tier, role usage, aliases, target paths, prompts, plugin/manual notes, and allowlisted commands. Run `python3 "$AF_PACKAGE/scripts/check-agent-deps.py" --post-install` after clone, or `--scope core --install-plan` / `--scope full --install-plan` for a non-interactive audit. The checker never performs silent installs. `--guided-install` requires explicit confirmation and executes only allowlisted `git`/`local` commands; `plugin`, `prompt`, and `manual` entries are printed only.
 
 Role frontmatter also defines runtime model settings:
 
@@ -38,7 +38,7 @@ Role frontmatter also defines runtime model settings:
 - `escalation_model` must match `model`; `escalation_reasoning_effort` and `escalation_service_tier` retain their existing trigger-based selection.
 - `escalation_triggers`: inline list of task/risk triggers that activate escalation through `resolve-agent-config.py --trigger <trigger>`.
 
-Run `python3 scripts/validate-agent-config.py` and `python3 scripts/validate-role-catalog.py` after editing role files.
+Run `python3 "$AF_PACKAGE/scripts/validate-agent-config.py"` and `python3 "$AF_PACKAGE/scripts/validate-role-catalog.py"` after editing role files.
 
 ## Core orchestration and planning
 

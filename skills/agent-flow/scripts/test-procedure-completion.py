@@ -445,7 +445,7 @@ class ProcedureTests(unittest.TestCase):
         run = Path(result.stdout.strip())
         publish_fixture(run, "context.md", "# Context\n\n## Initial Worktree Snapshot\n\nClean.\n")
         publish_fixture(run, "run.md", "# Run\n\n## Task Scope\n\nChange result.txt.\n")
-        verification = {**evidence.empty_verification(), "root_thread_id": base.ROOT_ID,
+        verification = {**evidence.empty_verification(), "task_kind": "analysis", "root_thread_id": base.ROOT_ID,
                         "initial_snapshot": {"path": "context.md", "section": "Initial Worktree Snapshot"},
                         "task_scope": {"path": "run.md", "section": "Task Scope"}}
         source = evidence.CodexSessionSource()
@@ -496,6 +496,7 @@ class ProcedureTests(unittest.TestCase):
             handoff = f"handoffs/{lane}.md"
             publish_fixture(run, handoff, "checks.md " + evidence.sha256(JournalSnapshot.open(run).read_bytes("checks.md")) + "\n")
             answer = {"verdict": "passed", "reviewed_result_hash": digest, "handoff": handoff,
+                      "review_subject": {"kind": "product-result"},
                       "handoff_sha256": evidence.sha256(JournalSnapshot.open(run).read_bytes(handoff))}
             if qa_hash:
                 answer["qa_handoff_sha256"] = qa_hash
@@ -654,6 +655,81 @@ class AnalysisCompletionTests(unittest.TestCase):
                 self.assertEqual(record["qa_handoff_sha256"], qa["handoff_sha256"])
         self.assertIsNone(workspace.registered_workspace(JournalSnapshot.open(self.run)))
 
+    def test_quiet_native_command_worker_handoff_and_completion(self):
+        from journal_io import write_entry, require_command_evidence
+        disposable = self.root.parent / "quiet-check-copy"
+        shutil.copytree(self.root, disposable)
+        for exit_code in (0, 7):
+            with self.subTest(exit_code=exit_code):
+                lane = "quiet-worker-" + str(exit_code)
+                thread = base.REVIEWER_ID if exit_code else base.QA_ID
+                args = ["--run-dir", str(self.run), "--role", "python-worker", "--lane-id", lane]
+                self.write_session(thread, base.session(thread, "python-worker", {}, 10)[:3])
+                self.cli("record-agent-trace.py", *args, "--codex-thread-id", thread,
+                         "--stage", "spawned", "--status", "active", "--summary", "Assigned quiet check")
+                receipt = write_entry(self.run, "check", {"summary": "Quiet actual command", "status": "pass",
+                    "command": [sys.executable, "-B", "-c", "raise SystemExit(" + str(exit_code) + ")"],
+                    "cwd": str(disposable)}, identifier="quiet-check-" + str(exit_code))
+                refs = receipt["evidence"]
+                output = next(ref for ref in refs if ref["path"].endswith(".output"))
+                report = next(ref["path"] for ref in refs if ref["path"].endswith(".json"))
+                snapshot = JournalSnapshot.open(self.run)
+                self.assertEqual(evidence.reference_bytes(self.run, output, snapshot=snapshot), b"")
+                evidence.verify_reference(self.run, output, snapshot=snapshot)
+                require_command_evidence(snapshot, [report], successful=exit_code == 0)
+                rejected = self.cli("record-agent-trace.py", *args, "--stage", "handoff", "--status", "pass",
+                                    "--summary", "Empty output cannot be handoff", "--artifact", output["path"], ok=False)
+                self.assertIn("handoff artifact missing or empty", rejected.stdout + rejected.stderr)
+                if exit_code:
+                    with self.assertRaisesRegex(JournalError, "successful actual command"):
+                        require_command_evidence(snapshot, [report], successful=True)
+                status = "fail" if exit_code else "pass"
+                request = {"summary": "Quiet check completed", "status": status, "lane_id": lane,
+                           "evidence": [{"path": ref["path"]} for ref in refs]}
+                capture = self.root.parent / "quiet-handoff-request.json"
+                capture.write_text(json.dumps(request))
+                self.cli("journal.py", "--run-dir", str(self.run), "record", "--kind", "handoff",
+                         "--request-file", str(capture), "--operation-id", "quiet-handoff-" + str(exit_code))
+                handoff = "handoffs/" + lane + ".md"
+                artifacts = [item for path in [handoff, *[ref["path"] for ref in refs]] for item in ("--artifact", path)]
+                self.write_session(thread, base.session(thread, "python-worker", "Quiet command completed", 10))
+                self.cli("record-agent-trace.py", *args, "--completion-turn-id", thread + "-turn",
+                         "--stage", "fail" if exit_code else "handoff", "--status", status,
+                         "--summary", "Quiet command source completed", *artifacts)
+                record = next(row for row in self.stored()["subagents"] if row["lane_id"] == lane)
+                self.assertEqual(record["status"], status)
+                self.assertIn(output, record["evidence"])
+
+    def test_empty_evidence_requires_native_command_receipt(self):
+        from journal_io import write_entry
+        disposable = self.root.parent / "quiet-check-copy"
+        shutil.copytree(self.root, disposable)
+        receipt = write_entry(self.run, "check", {"summary": "Quiet command receipt", "status": "pass",
+            "command": [sys.executable, "-B", "-c", "pass"], "cwd": str(disposable)}, identifier="quiet-negative")
+        output = next(ref for ref in receipt["evidence"] if ref["path"].endswith(".output"))
+        report = next(ref["path"] for ref in receipt["evidence"] if ref["path"].endswith(".json"))
+        whitespace = write_entry(self.run, "check", {"summary": "Actual whitespace command", "status": "pass",
+            "command": [sys.executable, "-B", "-c", "print(' ')"], "cwd": str(disposable)}, identifier="whitespace-negative")
+        whitespace_output = next(ref for ref in whitespace["evidence"] if ref["path"].endswith(".output"))
+        with self.assertRaisesRegex(JournalError, "empty evidence"):
+            evidence.reference_bytes(self.run, whitespace_output)
+        for path, data in (("artifacts/empty.txt", b""), ("handoffs/empty.md", b""),
+                           ("checks/command-forged.output", b""), ("checks/whitespace.output", b" \n")):
+            publish_fixture(self.run, path, data)
+            with self.assertRaises(JournalError):
+                evidence.reference_bytes(self.run, {"path": path}, snapshot=JournalSnapshot.open(self.run))
+        with self.assertRaises(JournalError):
+            evidence.reference_bytes(self.run, {**output, "section": "Empty"})
+        publish_fixture(self.run, "artifacts/section.md", b"## Empty\n\n")
+        with self.assertRaises(JournalError):
+            evidence.reference_bytes(self.run, {"path": "artifacts/section.md", "section": "Empty"})
+        publish_fixture(self.run, "checks/command-forged.json", JournalSnapshot.open(self.run).read_bytes(report))
+        with self.assertRaisesRegex(JournalError, "matching native receipt"):
+            evidence.reference_bytes(self.run, {"path": "checks/command-forged.output"})
+        publish_fixture(self.run, report, JournalSnapshot.open(self.run).read_text(report) + " ")
+        with self.assertRaisesRegex(JournalError, "matching native receipt"):
+            evidence.reference_bytes(self.run, output)
+
     def unchanged_failure(self, args, contains=None):
         before = JournalSnapshot.open(self.run)
         result = self.cli("record-agent-trace.py", *args, ok=False)
@@ -751,7 +827,8 @@ class AnalysisCompletionTests(unittest.TestCase):
             self.unchanged_failure([*args, "--verification-json", json.dumps(verification)])
         summary = json.loads(JournalSnapshot.open(self.run).read_text("delegation-summary.json"))
         lanes = [{"id": record["lane_id"], "role": record["role"], "execution_mode": "subagent",
-                  "status": record["status"]} for record in summary["subagents"]]
+                  "status": record["status"], "review_subject": record["review_subject"]}
+                 for record in summary["subagents"]]
         lanes.append({"id": "worker", "type": "implementation", "role": "python-worker",
                       "execution_mode": "subagent", "status": "planned"})
         publish_fixture(self.run, "lane-map.json", json.dumps({"lanes": lanes}))
@@ -896,17 +973,13 @@ class JournalCLITests(unittest.TestCase):
             root = Path(directory).resolve() / "source"
             root.mkdir()
             subprocess.run(["git", "init", "-q", str(root)], check=True)
-            sessions = root.parent / "synthetic-sessions"
-            sessions.mkdir()
-            bootstrap = root.parent / "test-bootstrap"
-            bootstrap.mkdir()
-            # Only this child process imports the test seam. No CODEX_HOME override.
-            (bootstrap / "sitecustomize.py").write_text(
-                "from pathlib import Path\nimport sys\n"
-                f"sys.path.insert(0, {str(SCRIPTS)!r})\n"
-                "from verification_evidence import CodexSessionSource\n"
-                f"CodexSessionSource.session_dir = lambda self: Path({str(sessions)!r})\n")
-            env = {**os.environ, "PYTHONPATH": str(bootstrap), "PYTHONDONTWRITEBYTECODE": "1"}
+            codex_home = root.parent / "synthetic-codex"
+            sessions = codex_home / "sessions"
+            sessions.mkdir(parents=True)
+            # Explicit synthetic source files; production reader and identity validation.
+            (sessions / f"synthetic-{base.ROOT_ID}.jsonl").write_text(json.dumps(
+                {"type": "session_meta", "payload": {"id": base.ROOT_ID}}) + "\n")
+            env = {**os.environ, "CODEX_HOME": str(codex_home), "PYTHONDONTWRITEBYTECODE": "1"}
 
             def cli(name, *args, wrapper=False, ok=True):
                 script = SCRIPTS.parents[2] / "scripts" / name if wrapper else SCRIPTS / name
@@ -920,7 +993,7 @@ class JournalCLITests(unittest.TestCase):
             result = cli("init-run.py", "--repo", str(root), "--slug", "cli", "--mode", "compact", "--summary", "Change result.txt and verify actual output",
                          "--plan-summary", "Implement result.txt, execute checks and obtain independent acceptance", wrapper=True)
             run = Path(result.stdout.strip())
-            preliminary = {**evidence.empty_verification(), "root_thread_id": base.ROOT_ID,
+            preliminary = {**evidence.empty_verification(), "task_kind": "analysis", "root_thread_id": base.ROOT_ID,
                            "initial_snapshot": {"path": "context.md", "section": "Initial Worktree Snapshot"},
                            "task_scope": {"path": "run.md", "section": "Task Scope"}}
             cli("record-agent-trace.py", "--run-dir", str(run), "--role", "orchestrator", "--execution-mode", "role-lane",
@@ -928,6 +1001,36 @@ class JournalCLITests(unittest.TestCase):
                 "--verification-json", json.dumps(preliminary))
             prepared = json.loads(cli("task-workspace.py", "--run-dir", str(run), "prepare", "--source", str(root),
                                       "--destination", str(root.parent / "workspace")).stdout)
+            cli("record-agent-trace.py", "--run-dir", str(run), "--role", "orchestrator", "--execution-mode", "role-lane",
+                "--stage", "verification", "--status", "active", "--summary", "Prepared change scope registered",
+                "--verification-json", json.dumps({**preliminary, "task_kind": "change"}))
+            # A completed author cannot predict the next review correction. Keep
+            # its handoff and boundary unchanged while another assignment fixes it.
+            nested = "tests/browser/server/draft.txt"
+            draft = Path(prepared["working_root"]) / nested
+            draft.parent.mkdir(parents=True)
+            draft.write_text("Draft product\n")
+            cli("record-agent-trace.py", "--run-dir", str(run), "--role", "python-worker", "--execution-mode", "role-lane",
+                "--lane-id", "cli-draft", "--stage", "spawned", "--status", "active", "--summary", "Assigned nested draft")
+            request_capture = root.parent / "semantic-request.json"
+            request_capture.write_text(json.dumps({"summary": "Written " + nested, "status": "pass", "lane_id": "cli-draft"}))
+            cli("journal.py", "--run-dir", str(run), "record", "--kind", "handoff", "--request-file", str(request_capture), "--operation-id", "draft-handoff")
+            proof_capture = root.parent / "draft-edit.json"
+            proof_capture.write_text(json.dumps({"written_paths": [nested], "author_thread_id": base.ROOT_ID}))
+            cli("journal.py", "--run-dir", str(run), "publish", "--file", "artifacts/draft-edit.json", str(proof_capture))
+            first = JournalSnapshot.open(run)
+            old_handoff = first.read_bytes("handoffs/cli-draft.md")
+            declaration_capture = root.parent / "draft-declaration.json"
+            declaration_capture.write_text(json.dumps({"lane_id": "cli-draft", "authored_paths": [nested],
+                "handoff": {"path": "handoffs/cli-draft.md", "sha256": evidence.sha256(old_handoff)},
+                "edit_evidence": [{"path": "artifacts/draft-edit.json", "sha256": evidence.sha256(first.read_bytes("artifacts/draft-edit.json"))}], "coauthors": {}}))
+            cli("journal.py", "--run-dir", str(run), "publish", "--file", "checks/draft-declaration.json", str(declaration_capture))
+            cli("task-workspace.py", "--run-dir", str(run), "seal")
+            cli("record-lane-boundary.py", "--run-dir", str(run), "--lane-id", "cli-draft", "--declaration-json", "checks/draft-declaration.json")
+            old_boundary = JournalSnapshot.open(run).read_bytes("checks/lane-boundary-cli-draft.json")
+            request_capture.write_text(json.dumps({"summary": "Review finding: nested draft must contain corrected product bytes", "status": "active"}))
+            cli("journal.py", "--run-dir", str(run), "record", "--kind", "progress", "--request-file", str(request_capture), "--operation-id", "draft-review-finding")
+            draft.write_text("Corrected product\n")
             cli("record-agent-trace.py", "--run-dir", str(run), "--role", "python-worker", "--execution-mode", "role-lane",
                 "--lane-id", "cli-author", "--stage", "spawned", "--status", "active", "--summary", "Assigned result.txt ownership")
             (Path(prepared["working_root"]) / "result.txt").write_text("Synthetic product\n")
@@ -940,7 +1043,7 @@ class JournalCLITests(unittest.TestCase):
             disposable = root.parent / "check-copy"
             shutil.copytree(Path(prepared["working_root"]), disposable)
             check_receipt = json.loads(semantic("check", {"summary": "Actual result bytes verified", "status": "pass",
-                      "command": [sys.executable, "-B", "-c", "from pathlib import Path; assert Path('result.txt').read_text() == 'Synthetic product\\n'; print('verified result')"],
+                      "command": [sys.executable, "-B", "-c", "from pathlib import Path; assert Path('result.txt').read_text() == 'Synthetic product\\n'; assert Path('tests/browser/server/draft.txt').read_text() == 'Corrected product\\n'; print('verified result')"],
                       "cwd": str(disposable)}, "cli-check").stdout)
             check_snapshot = JournalSnapshot.open(run)
             check_paths = [ref["path"] for ref in check_receipt["evidence"]]
@@ -966,12 +1069,12 @@ class JournalCLITests(unittest.TestCase):
                             "initial_snapshot": {"path": "context.md", "section": "Initial Worktree Snapshot"},
                             "task_scope": {"path": "run.md", "section": "Task Scope"}}
             edit_capture = root.parent / "actual-edit.json"
-            edit_capture.write_text(json.dumps({"written_paths": ["result.txt"], "author_thread_id": base.ROOT_ID}))
+            edit_capture.write_text(json.dumps({"written_paths": ["result.txt", nested], "author_thread_id": base.ROOT_ID}))
             cli("journal.py", "--run-dir", str(run), "publish", "--file", "artifacts/cli-author-edit.json", str(edit_capture))
-            semantic("handoff", {"summary": "Written result.txt; actual edit recorded", "status": "pass", "lane_id": "cli-author",
+            semantic("handoff", {"summary": "Written result.txt and " + nested + "; corrected review finding", "status": "pass", "lane_id": "cli-author",
                                 "evidence": [{"path": "artifacts/cli-author-edit.json"}]}, "cli-author-handoff")
             own = JournalSnapshot.open(run)
-            declaration = {"lane_id": "cli-author", "authored_paths": ["result.txt"],
+            declaration = {"lane_id": "cli-author", "authored_paths": ["result.txt", nested],
                            "handoff": {"path": "handoffs/cli-author.md", "sha256": evidence.sha256(own.read_bytes("handoffs/cli-author.md"))},
                            "edit_evidence": [{"path": "artifacts/cli-author-edit.json", "sha256": evidence.sha256(own.read_bytes("artifacts/cli-author-edit.json"))}],
                            "coauthors": {}}
@@ -981,6 +1084,9 @@ class JournalCLITests(unittest.TestCase):
             sealed = json.loads(cli("task-workspace.py", "--run-dir", str(run), "seal").stdout)
             cli("record-lane-boundary.py", "--run-dir", str(run), "--lane-id", "cli-author",
                 "--declaration-json", "checks/cli-author-declaration.json")
+            verification.update(result_files=sealed["changed_paths"], run_changed_files=sealed["changed_paths"])
+            self.assertEqual(old_handoff, JournalSnapshot.open(run).read_bytes("handoffs/cli-draft.md"))
+            self.assertEqual(old_boundary, JournalSnapshot.open(run).read_bytes("checks/lane-boundary-cli-draft.json"))
             cli("record-agent-trace.py", "--run-dir", str(run), "--role", "orchestrator", "--execution-mode", "role-lane",
                 "--stage", "verification", "--status", "active", "--summary", "Registered result",
                 "--verification-json", json.dumps(verification))

@@ -174,7 +174,7 @@ def upsert_artifacts(
     timestamp: str,
     lane_id: str | None,
     wave: int | None,
-    critical: bool,
+    critical: bool | None,
     snapshot=None,
 ) -> tuple[int, object]:
     if not artifact_paths:
@@ -197,7 +197,7 @@ def upsert_artifacts(
             entry["lane_id"] = lane_id
         if wave is not None:
             entry["wave"] = wave
-        if critical:
+        if critical is not None:
             entry["critical"] = critical
 
         match_index = next(
@@ -835,8 +835,10 @@ def _transact_completion(run_dir, identifier, payload, mutation, *, source, lane
 
 
 def _validate_completion_update(snapshot, documents, old_summary, next_summary, record, updated, context):
-    from verification_evidence import accepted_record, completed_turn, completion_follows, reference_bytes
+    from verification_evidence import accepted_record, completed_turn, completion_follows, reference_bytes, review_subject_kind, source_bound_record
     lane_id, source, inputs = context
+    require(review_subject_kind(record) == review_subject_kind(updated), "completion repair review subject changed")
+    preliminary = review_subject_kind(record) == "requirements-plan"
     if record.get("role") not in {"qa-verifier", "reviewer", "reviewer.qa"}:
         from journal_structure import literal_label
         require(record.get("lane_id") == lane_id and snapshot.storage_version == 2 and not snapshot.closed
@@ -872,8 +874,12 @@ def _validate_completion_update(snapshot, documents, old_summary, next_summary, 
         prepared = replace(snapshot, external_inputs=inputs)
         handoff = reference_bytes(snapshot.artifact_root, {"path": record["handoff"]}, snapshot=prepared)
         require(updated.get("handoff_sha256") == digest(handoff), "source completion handoff hash mismatch")
-        refs = [{"path": p, "sha256": digest(reference_bytes(snapshot.artifact_root, {"path": p}, snapshot=prepared))}
-                for p in terminal[0]["artifacts"][1:]]
+        from verification_evidence import historical_evidence_bytes
+        refs = record.get("evidence") or [{"path": p, "sha256": digest(reference_bytes(snapshot.artifact_root, {"path": p}, snapshot=prepared))}
+                                         for p in terminal[0]["artifacts"][1:]]
+        require([ref["path"] for ref in refs] == terminal[0]["artifacts"][1:], "source completion evidence paths changed")
+        for ref in refs:
+            historical_evidence_bytes(prepared, record, ref)
         require(updated.get("evidence") == refs and all(literal_label(ref["path"]) in handoff.decode() and
                 ref["sha256"] in handoff.decode() for ref in refs), "source completion evidence changed")
         completion = completed_turn(source, record["codex_thread_id"], updated.get("completion_turn_id"),
@@ -895,7 +901,7 @@ def _validate_completion_update(snapshot, documents, old_summary, next_summary, 
             "completion repair requires a current successful spawned assignment")
     completion_fields = {"completion_turn_id", "handoff", "handoff_sha256", "reviewed_result_hash",
                          "evidence", "session_meta_event", "task_started_event", "task_complete_event",
-                         "qa_handoff_sha256", "root_thread_id"}
+                         "qa_handoff_sha256", "root_thread_id", "readiness_gates"}
     require(not any(record.get(k) for k in ("completion_turn_id", "handoff", "handoff_sha256", "task_complete_event", "evidence", "qa_handoff_sha256")),
             "completed assignment is immutable")
     require({k: v for k, v in record.items() if k not in completion_fields} ==
@@ -907,8 +913,9 @@ def _validate_completion_update(snapshot, documents, old_summary, next_summary, 
     expected_summary["subagents"][expected_summary["subagents"].index(record)] = updated
     verification = expected_summary["verification"]
     selected = "qa" if record["role"] == "qa-verifier" else "reviewer"
-    verification[selected] = lane_id
-    if selected == "qa":
+    if not preliminary:
+        verification[selected] = lane_id
+    if selected == "qa" and not preliminary:
         verification["reviewer"] = None
     require(next_summary == expected_summary, "completion repair changed unrelated summary fields or result")
     require(updated.get("root_thread_id", verification.get("root_thread_id")) == verification.get("root_thread_id"),
@@ -943,18 +950,19 @@ def _validate_completion_update(snapshot, documents, old_summary, next_summary, 
     require(event.get("stage") == "handoff" and event.get("execution_mode") == "subagent",
             "completion repair requires a subagent handoff")
     for key in ("lane_id", "role", "codex_thread_id", "status", "completion_turn_id", "handoff", "handoff_sha256",
-                "reviewed_result_hash", "session_meta_event", "task_started_event", "task_complete_event"):
+                "reviewed_result_hash", "session_meta_event", "task_started_event", "task_complete_event", "review_subject", "review_input_operation_id"):
         require(event.get(key) == updated.get(key), "completion repair event mismatch: " + key)
     allowed = {"delegation-summary.json", "timeline.jsonl", trace, "artifacts.json", f"artifacts/agents/{safe_path_segment(record['role'])}"}
     require(set(documents) <= allowed, "completion repair cannot publish other documents")
     prepared = replace(snapshot, external_inputs=inputs)
     qa = next((r for r in next_summary["subagents"] if r.get("lane_id") == verification.get("qa")), {})
     role = "qa-verifier" if selected == "qa" else "reviewer"
-    completion = accepted_record(snapshot.artifact_root, updated, verification, role, source,
+    acceptance = source_bound_record if preliminary else accepted_record
+    completion = acceptance(snapshot.artifact_root, updated, verification, role, source,
                                  qa_handoff=qa.get("handoff") if selected == "reviewer" else None, snapshot=prepared)
     for key in ("session_meta_event", "task_started_event", "task_complete_event"):
         require(updated.get(key) == completion[key], "completion repair source pointer mismatch: " + key)
-    if selected == "reviewer":
+    if selected == "reviewer" and not preliminary:
         qa_completion = accepted_record(snapshot.artifact_root, qa, verification, "qa-verifier", source, snapshot=prepared)
         require(updated.get("qa_handoff_sha256") == qa.get("handoff_sha256") == completion["answer"].get("qa_handoff_sha256"),
                 "completion repair reviewer QA hash mismatch")
@@ -1000,6 +1008,14 @@ def _transact(run_dir, identifier, payload, mutation, *, replay_guard=None, time
             connection.execute("INSERT INTO archives VALUES (?, ?, ?)", (archive_id, archive_bytes, digest(archive_bytes)))
             connection.execute("UPDATE run_state SET version=2 WHERE id=1")
         documents = {name: data.encode() if isinstance(data, str) else data for name, data in documents.items()}
+        pinned_captures = set()
+        for raw in snapshot.receipts.values():
+            saved = json.loads(raw).get("result", {})
+            if saved.get("command") == "prepare-review-input":
+                pinned_captures.update(capture["path"] for capture in saved["captures"])
+            pinned_captures.update(row["capture"]["path"] for row in saved.get("preserved_evidence", []))
+        for name in pinned_captures & documents.keys():
+            require(documents[name] == snapshot.read_bytes(name), "pinned review input capture is immutable")
         for name, data in documents.items():
             old = snapshot.documents.get(name)
             if name == "timeline.jsonl" or name.startswith("agents/") and name.endswith("/trace.jsonl"):
@@ -1050,6 +1066,9 @@ def _transact(run_dir, identifier, payload, mutation, *, replay_guard=None, time
         if snapshot.exists("delegation-summary.json"):
             old_summary = json.loads(snapshot.read_bytes("delegation-summary.json"))
             next_summary = json.loads(documents.get("delegation-summary.json", snapshot.read_bytes("delegation-summary.json")))
+            from journal_structure import DOCUMENT_PATHS, SERVICE_DOCUMENTS
+            from verification_evidence import evidence_assignment, historical_evidence_bytes, reference_bytes, sha256
+            mutable_inputs = (set(DOCUMENT_PATHS.values()) | SERVICE_DOCUMENTS | {"context.md"}) - {"final.md", "lane-map.json"}
             for kind in ("subagents", "role_lanes"):
                 after = {r.get("lane_id"): r for r in next_summary.get(kind, [])}
                 before_ids = {r.get("lane_id") for r in old_summary.get(kind, [])}
@@ -1061,6 +1080,9 @@ def _transact(run_dir, identifier, payload, mutation, *, replay_guard=None, time
                     new_legacy = after[record["lane_id"]].get("legacy")
                     require(old_legacy == new_legacy or old_legacy is None and lifecycle == "classify",
                             "legacy facts require immutable domain classification")
+                    for field in ("review_subject", "review_input_operation_id"):
+                        updated = after[record["lane_id"]]
+                        require((field in record) == (field in updated) and record.get(field) == updated.get(field), "assignment review pin is immutable")
                     obligation = record.get("obligation")
                     if isinstance(obligation, dict):
                         updated_obligation = after[record["lane_id"]].get("obligation", {})
@@ -1078,6 +1100,21 @@ def _transact(run_dir, identifier, payload, mutation, *, replay_guard=None, time
                         handoff = (old_legacy.get("classification", {}).get("handoff", {}).get("path") if old_legacy else None) or record.get("handoff")
                         if handoff in documents and snapshot.exists(handoff):
                             require(documents[handoff] == snapshot.read_bytes(handoff), "terminal handoff is immutable")
+                        for ref in record.get("evidence", []):
+                            key = ref.get("path")
+                            if key not in mutable_inputs or key not in documents or documents[key] == snapshot.documents.get(key):
+                                continue
+                            historical_evidence_bytes(snapshot, record, ref)
+                            old = snapshot.read_bytes(key)
+                            if sha256(reference_bytes(run_dir, ref, snapshot=snapshot)) != ref["sha256"]:
+                                continue  # An earlier receipt already preserves this version.
+                            capture = "artifacts/source-captures/" + digest(old) + ".bin"
+                            require(not snapshot.exists(capture) or snapshot.read_bytes(capture) == old, "preserved input capture conflict")
+                            require(capture not in documents or documents[capture] == old, "preserved input capture conflict")
+                            documents[capture] = old
+                            result.setdefault("preserved_evidence", []).append({"lane_id": record["lane_id"],
+                                "assignment": evidence_assignment(record), "reference": ref,
+                                "capture": {"path": capture, "sha256": digest(old)}})
         if lifecycle is None and "timeline.jsonl" in documents:
             timeline = documents["timeline.jsonl"]
             if isinstance(timeline, str):
@@ -1327,7 +1364,7 @@ def validate_event(event):
 def validate_assignment_event(event):
     """Validate new assignment commands only; historical facts remain readable."""
     allowed = {"spawned": {"active"}, "handoff": {"pass", "pass-with-risks"},
-               "blocked": {"blocked"}, "fail": {"fail"}}
+               "blocked": {"blocked"}, "fail": {"fail"}, "timed-out": {"timed-out"}}
     statuses = allowed.get(event.get("stage"))
     if event.get("lane_id") and statuses is not None:
         require(event.get("status") in statuses,
@@ -1391,6 +1428,21 @@ def write_entry(run_dir, kind, request, *, identifier=None, mutation=None, repla
             verdict="ship" if request["status"] == "pass" else request["status"])
         return {"operation_id": identifier, **receipt}
     payload = payload if payload is not None else {"kind": kind, "request": request}
+    if completion is not None and isinstance(payload.get("artifacts"), dict):
+        from verification_evidence import historical_evidence_bytes
+        summary = json.loads(snapshot.read_text("delegation-summary.json"))
+        previous = next((row for row in summary["subagents"] if row.get("lane_id") == completion["lane_id"]), {})
+        if previous.get("evidence") and previous.get("status") in {"pass", "pass-with-risks", "blocked", "fail"} and previous.get("role") not in {"qa-verifier", "reviewer", "reviewer.qa"}:
+            artifacts = dict(payload["artifacts"])
+            require(set(artifacts) == {previous.get("handoff"), *(ref["path"] for ref in previous.get("evidence", []))},
+                    "source completion evidence paths changed")
+            for ref in previous.get("evidence", []):
+                if ref["path"] in artifacts:
+                    require(artifacts[ref["path"]] in {ref["sha256"], digest(snapshot.read_bytes(ref["path"]))},
+                            "source completion evidence hash assertion differs")
+                    historical_evidence_bytes(snapshot, previous, ref)
+                    artifacts[ref["path"]] = ref["sha256"]
+            payload = {**payload, "artifacts": artifacts}
     if identifier and snapshot.operation_receipt(identifier) is not None:
         # Idempotent retries never launch a second command.
         saved = snapshot.operation_receipt(identifier)
@@ -1412,6 +1464,7 @@ def write_entry(run_dir, kind, request, *, identifier=None, mutation=None, repla
     service_source = CapturedSource(CodexSessionSource())
     if kind == "check":
         import subprocess
+        import shlex
         cwd = Path(request["cwd"])
         require(cwd.is_absolute() and cwd.is_dir() and not cwd.is_symlink(), "check cwd must be an existing absolute directory")
         from task_workspace import registered_workspace
@@ -1422,6 +1475,10 @@ def write_entry(run_dir, kind, request, *, identifier=None, mutation=None, repla
                 protected.append(Path(workspace["seal"]["candidate_root"]).resolve())
             require(not any(cwd.resolve() == root or root in cwd.resolve().parents for root in protected), "writing checks require a disposable workspace copy")
         require(cwd.resolve() != snapshot.source_root.resolve() and snapshot.source_root.resolve() not in cwd.resolve().parents, "checks require an explicit disposable working copy")
+        readiness = json.loads(snapshot.documents.get("verification-readiness.json", b"{}"))
+        for approval in readiness.get("approval_requests", []):
+            if any(command["cwd"] == str(cwd) and shlex.split(command["command"]) == request["command"] for command in approval["commands"]):
+                require_approval_observation(approval, service_source)
         identifier = operation_id(run_dir, "semantic-write", payload, identifier=identifier)
         try:
             completed = subprocess.run(request["command"], cwd=cwd, capture_output=True)
@@ -1469,7 +1526,7 @@ def write_entry(run_dir, kind, request, *, identifier=None, mutation=None, repla
                      "artifacts": [ref["path"] for ref in evidence], "next_step": request.get("next_step", "")}
             validate_append(run_dir / "timeline.jsonl", event, snapshot=current)
             return {"timeline.jsonl": current.documents.get("timeline.jsonl", b"") + (encode_json_line(event) + "\n").encode()}, {}
-        if kind == "handoff" or kind == "event" and request.get("lane_id"):
+        if kind in {"handoff", "architecture-outcome"} or kind == "event" and request.get("lane_id"):
             lane_map = json.loads(current.read_text("lane-map.json")) if current.exists("lane-map.json") else {"lanes": []}
             matches = [lane for lane in lane_map["lanes"] if lane["id"] == request["lane_id"]]
             if not matches:
@@ -1486,9 +1543,33 @@ def write_entry(run_dir, kind, request, *, identifier=None, mutation=None, repla
             logical_path(path)
             require(lane.get("status") not in {"pass", "pass-with-risks", "fail", "blocked"}, "terminal handoff is immutable")
             text = render_document(kind, request["summary"], request["status"], {"evidence": evidence, "sections": request.get("sections", [])})
+            completion_turn_id = None
+            if kind == "architecture-outcome":
+                from journal_structure import render_architecture_outcome
+                from verification_evidence import completed_turn, resolve_completion, final_json
+                require(lane.get("type") == "architecture" and lane.get("role") == "architect", "architecture outcome requires architect architecture lane")
+                require(lane.get("execution_mode") == "subagent" and lane.get("codex_thread_id"), "architecture outcome requires source-bound architect subagent")
+                summary = json.loads(current.read_text("delegation-summary.json"))
+                registered = [row for row in summary["subagents"] if row.get("lane_id") == lane["id"]]
+                require(len(registered) == 1 and registered[0].get("codex_thread_id") == lane["codex_thread_id"] and registered[0].get("role") == "architect", "architecture outcome requires registered architect source")
+                root_thread = summary["verification"]["root_thread_id"]
+                completion_turn_id = request.get("completion_turn_id") or resolve_completion(service_source, lane["codex_thread_id"], root_thread, "architect", None, [])
+                answer = completed_turn(service_source, lane["codex_thread_id"], completion_turn_id, root_thread, "architect")["answer"]
+                source_request = validate_request(kind, final_json(answer))
+                semantic = lambda value: {key: item for key, item in value.items() if key != "completion_turn_id"}
+                require(semantic(source_request) == semantic(request), "architecture outcome differs from source completion")
+                if source_request.get("completion_turn_id"):
+                    require(source_request["completion_turn_id"] == completion_turn_id, "architecture source completion selector differs")
+                if lane_map.get("schema_version") == 2 and lane_map.get("architecture_contract_required"):
+                    require(bool(request.get("claim_evidence_ids")) and bool(request.get("acceptance_criteria_ids")), "architecture outcome requires gate marker IDs")
+                facets = list(dict.fromkeys(value for values in lane_map.get("architecture_context", {}).values() for value in values))
+                capabilities = lane_map.get("architecture_capabilities", {}).get("selected", [])
+                text = render_architecture_outcome(request, evidence, facets, capabilities)
+                lane["handoff"] = lane["architecture_design_brief"] = path
             from types import SimpleNamespace
             from verification_evidence import CodexSessionSource
-            prepared = replace(current, documents=MappingProxyType({**current.documents, path: text.encode()})) if kind == "handoff" else current
+            prepared = replace(current, documents=MappingProxyType({**current.documents, path: text.encode(),
+                **({"lane-map.json": (encode_json(lane_map, pretty=True) + "\n").encode()} if kind == "architecture-outcome" else {})})) if kind in {"handoff", "architecture-outcome"} else current
             checkpoint = None
             if kind == "event" and request["stage"] == "blocked-checkpoint":
                 require(request["role"] == "orchestrator" and request["status"] == "blocked", "blocked checkpoint requires orchestrator blocked observation")
@@ -1499,14 +1580,14 @@ def write_entry(run_dir, kind, request, *, identifier=None, mutation=None, repla
                 stage=request["stage"] if kind == "event" else request["status"] if request["status"] in {"fail", "blocked"} else "handoff",
                 summary=request["summary"], next_step="", execution_mode=lane["execution_mode"],
                 codex_thread_id=lane.get("codex_thread_id"), stable_agent_name=None, stable_agent_slug=None,
-                runtime_nickname=None, wave=None, critical=False, verification_json=None,
-                completion_turn_id=None, resolve_session=False, agent_path=None)
+                runtime_nickname=None, wave=None, critical=None, verification_json=None,
+                completion_turn_id=completion_turn_id, resolve_session=False, agent_path=None)
             require(kind != "handoff" or lane["execution_mode"] == "role-lane" or lane["role"] not in {"qa-verifier", "reviewer", "reviewer.qa"}, "QA/reviewer subagents require source-completion adapter")
-            artifacts = ([path] if kind == "handoff" else []) + [ref["path"] for ref in evidence]
+            artifacts = ([path] if kind in {"handoff", "architecture-outcome"} else []) + [ref["path"] for ref in evidence]
             if checkpoint is not None:
                 artifacts.append(checkpoint_path)
-            documents, result = record_event(run_dir, args, artifacts, CodexSessionSource(), prepared)
-            if kind == "handoff":
+            documents, result = record_event(run_dir, args, artifacts, service_source, prepared)
+            if kind in {"handoff", "architecture-outcome"}:
                 documents[path] = text
                 result["handoff"] = path
             if checkpoint is not None:
@@ -1735,8 +1816,8 @@ def service_observation_projection(snapshot, kind, request, *, source=None):
         lane_map.setdefault("schema_version", 1)
         old = lanes.get(request["id"])
         if old:
-            require(all(old.get(key) == request[field] for key, field in (("role", "role"), ("execution_mode", "execution_mode"), ("type", "lane_type"))), "native lane declaration conflicts with registration")
-            require(old.get("status") == "planned", "registered lane assignment is immutable after start")
+            require(all(old.get(key) == request[field] for key, field in (("role", "role"), ("type", "lane_type"))), "native lane declaration conflicts with registration")
+            require(first_binding_allowed(snapshot, request["id"]), "registered lane assignment is immutable after start")
         row = {**(old or {}), "id": request["id"], "type": request["lane_type"], "role": request["role"], "execution_mode": request["execution_mode"],
                "wave": request["wave"], "critical": request["critical"], "status": "planned", "purpose": summary,
                "handoff": "handoffs/" + request["id"] + ".md", "evidence": old.get("evidence", []) if old else []}
@@ -1827,11 +1908,12 @@ def service_observation_projection(snapshot, kind, request, *, source=None):
 
 
 def require_native_acceptance(snapshot, lane_id, role, *, source=None):
-    from verification_evidence import CodexSessionSource, source_bound_record
+    from verification_evidence import CodexSessionSource, source_bound_record, review_subject_kind
     require(snapshot.exists("delegation-summary.json"), "native source acceptance required")
     summary = json.loads(snapshot.read_text("delegation-summary.json"))
     records = [row for row in summary["subagents"] if row["lane_id"] == lane_id]
     require(len(records) == 1, "source-accepted subagent required")
+    require(review_subject_kind(records[0]) == "product-result", "preliminary review cannot authorize product acceptance")
     source_bound_record(snapshot.logical_root, records[0], summary["verification"], role, source or CodexSessionSource(), snapshot=snapshot, current=False, presentation_required=False)
 
 
@@ -1840,11 +1922,146 @@ def require_command_evidence(snapshot, paths, *, successful):
     reports = [path for path in paths if path.startswith("checks/command-") and path.endswith(".json")]
     require(bool(reports), "gate requires actual command report evidence")
     for path in reports:
-        require(any(path in {ref["path"] for ref in json.loads(raw).get("result", {}).get("evidence", [])} and "exit_code" in json.loads(raw).get("result", {}) for raw in snapshot.receipts.values()), "command evidence requires native receipt")
+        receipts = [json.loads(raw)["result"] for raw in snapshot.receipts.values() if "exit_code" in json.loads(raw).get("result", {}) and
+                    any(ref.get("path") == path and ref.get("sha256") == digest(snapshot.read_bytes(path)) for ref in json.loads(raw)["result"].get("evidence", []))]
+        require(bool(receipts), "command evidence requires matching native receipt")
         report = json.loads(snapshot.read_text(path))
         output = path[:-5] + ".output"
+        require(any(receipt["exit_code"] == report["exit_code"] and receipt["status"] == report["status"] and
+                    {"path": output, "sha256": digest(snapshot.read_bytes(output))} in receipt["evidence"] for receipt in receipts), "command receipt/output/exit mismatch")
         require(digest(snapshot.read_bytes(output)) == report["output_sha256"], "command output changed")
         require(not successful or report["exit_code"] == 0 and report["status"] == "pass", "gate requires successful actual command")
+
+
+def validate_preliminary_gates(snapshot, gates, *, record=None, source=None, completion=None, execution_required=False, current=True):
+    """Finite source facts, using the existing gate vocabulary and evidence reader."""
+    from journal_structure import domain_validator
+    from verification_evidence import verify_reference, historical_evidence_bytes
+    require(type(gates) is list, "readiness_gates must be an array")
+    if not gates:
+        return []
+    rows = []
+    for gate in gates:
+        require(type(gate) is dict and set(gate) == {"axis", "facet", "check", "readiness", "evidence", "notes"}, "unknown readiness gate fields")
+        require(type(gate["evidence"]) is list and bool(gate["evidence"]), "readiness gate evidence required")
+        for ref in gate["evidence"]:
+            require(type(ref) is dict and {"path", "sha256"} <= set(ref) <= {"path", "sha256", "source_event", "source_call_id", "source_part"}, "readiness gate requires hashed evidence references")
+            require(set(ref) == {"path", "sha256"} or {"source_event", "source_call_id"} <= set(ref), "readiness tool locator incomplete")
+            if current:
+                verify_reference(snapshot.logical_root, ref, snapshot=snapshot)
+            else:
+                require(record is not None, "historical readiness evidence requires assignment")
+                historical_evidence_bytes(snapshot, record, {"path": ref["path"], "sha256": ref["sha256"]})
+        tools = [ref for ref in gate["evidence"] if "source_event" in ref]
+        if tools:
+            from verification_evidence import readiness_tool_evidence
+            require(record is not None and source is not None, "readiness tool source required")
+            for ref in tools:
+                readiness_tool_evidence(snapshot, record, ref, source, completion=completion, current=current)
+        if execution_required and gate["readiness"] == "ready":
+            paths = [ref["path"] for ref in gate["evidence"]]
+            reports = [path for path in paths if path.startswith("checks/command-") and path.endswith(".json")]
+            require(bool(tools) or bool(reports), "gate requires actual command or source-bound tool evidence")
+            if reports:
+                require_command_evidence(snapshot, reports, successful=True)
+        rows.append({**gate, "evidence": [ref["path"] for ref in gate["evidence"]]})
+    validator = domain_validator()
+    context = service_lanes(snapshot).get("architecture_context", {})
+    _, errors = validator.validate_verification_gate_records(snapshot.logical_root, rows, "preliminary readiness", validator.selected_verification_gate_pairs(context), status_field="readiness", allowed_statuses=validator.VERIFICATION_GATE_READINESS_STATUSES, snapshot=snapshot)
+    require(not errors, "; ".join(errors))
+    return rows
+
+
+def require_approval_observation(approval, source):
+    observation = approval.get("source_observation")
+    require(approval.get("status") == "approved" and observation is not None and observation.get("decision") == "approved", "approval requires actual scoped user observation")
+    actual = source.read(observation["thread_id"], event_indices=(observation["event"],))[observation["event"] - 1]
+    require(digest(encode_json(actual).encode()) == observation["sha256"] and
+            digest(encode_json(approval["commands"]).encode()) == observation["commands_sha256"], "approval source/command binding changed")
+
+
+def automatic_readiness(snapshot, source):
+    """Materialize existing forms from applicable source facts, without a subprocess."""
+    from verification_evidence import review_subject_kind, source_bound_record, require_current_architecture_inputs, readiness_obligation_endpoints
+    require_current_architecture_inputs(snapshot)
+    from journal_structure import domain_validator, render_document
+    lanes = service_lanes(snapshot)
+    pairs = domain_validator().selected_verification_gate_pairs(lanes.get("architecture_context", {}))
+    summary = json.loads(snapshot.read_text("delegation-summary.json"))
+    obligations = lanes.get("verification_readiness", {}).get("lanes", [])
+    endpoints = readiness_obligation_endpoints(snapshot, summary, obligations) if obligations else set()
+    candidates = [row for row in summary["subagents"] if row.get("role") == "qa-verifier" and
+        row.get("status") in {"pass", "pass-with-risks"} and review_subject_kind(row) == "requirements-plan" and row.get("completion_turn_id") and row.get("readiness_gates") and
+        (not obligations or row.get("lane_id") in endpoints)]
+    require(bool(candidates), "verification_readiness requires source-confirmed preliminary QA gate mapping")
+    record = candidates[-1]
+    require(record.get("obligation", {}).get("state") == "current" and record["obligation"].get("required") is True, "readiness requires current mandatory obligation endpoint")
+    source_bound_record(snapshot.logical_root, record, summary["verification"], "qa-verifier", source, snapshot=snapshot, current=True)
+    gates = validate_preliminary_gates(snapshot, record["readiness_gates"], record=record, source=source, execution_required=True)
+    require({(gate["axis"], gate["facet"]) for gate in gates} == set(pairs) and all(gate["readiness"] == "ready" for gate in gates), "verification readiness requires all applicable gates ready")
+    bindings = set()
+    for gate in gates:
+        for path in gate["evidence"]:
+            if path.startswith("checks/command-") and path.endswith(".json"):
+                report = json.loads(snapshot.read_text(path))
+                bindings.add((tuple(report["command"]), report["cwd"]))
+    receipts = [json.loads(raw) for raw in snapshot.receipts.values()]
+    latest = {}
+    for receipt in receipts:
+        if "exit_code" not in receipt.get("result", {}):
+            continue
+        for ref in receipt["result"].get("evidence", []):
+            path = ref["path"]
+            if path.startswith("checks/command-") and path.endswith(".json"):
+                report = json.loads(snapshot.read_text(path))
+                binding = (tuple(report["command"]), report["cwd"])
+                if binding in bindings and receipt["revision"] > latest.get(binding, (0, ""))[0]:
+                    latest[binding] = (receipt["revision"], path)
+    for _, path in latest.values():
+        require_command_evidence(snapshot, [path], successful=True)
+    data = json.loads(snapshot.read_text("verification-readiness.json")) if snapshot.exists("verification-readiness.json") else {"version": 1, "attempts": [], "approval_requests": [], "approval_executions": []}
+    require(not any(item["status"] in {"pending", "declined"} for item in data["approval_requests"]), "verification readiness retains real approval blocker")
+    endorsed_revision = max((receipt["revision"] for receipt in receipts if
+        receipt.get("result", {}).get("completion_fields", {}).get("completion_turn_id") == record["completion_turn_id"] and
+        receipt["result"]["completion_fields"].get("review_subject") == record["review_subject"]), default=0)
+    observed_revision = max((receipt["revision"] for receipt in receipts if receipt.get("result", {}).get("document") == "verification-readiness.json"), default=0)
+    known_blocker = any((not obligations or attempt["lane"] in endpoints) and
+        (attempt.get("blockers") or any(gate["readiness"] != "ready" for gate in attempt["gates"])) for attempt in data["attempts"])
+    require(not (observed_revision > endorsed_revision and known_blocker), "verification readiness retains newer environment/check blocker")
+    for approval in data["approval_requests"]:
+        require_approval_observation(approval, source)
+    attempt = {"id": record["lane_id"], "lane": record["lane_id"], "status": "ready", "gates": gates, "blockers": [], "approval_requests": [], "notes": "Source-confirmed preliminary QA", "evidence": [ref["path"] for ref in record["evidence"]]}
+    upsert_record(data["attempts"], attempt)
+    data["status"] = "ready"
+    lane = next((row for row in lanes["lanes"] if row["id"] == record["lane_id"]), None)
+    require(lane is not None and lane.get("type") == "qa" and lane.get("critical") is True, "readiness requires critical QA lane")
+    lane["verification_results"] = {"status": "pass", "gates": [{"axis": gate["axis"], "facet": gate["facet"], "status": "pass", "evidence": gate["evidence"], "notes": gate["notes"]} for gate in gates]}
+    lanes["verification_readiness"] = {"artifact": "verification-readiness.json", "lanes": obligations or [record["lane_id"]]}
+    # Handoff headings were generated before source completion and remain immutable.
+    require("\n## Verification Gate Results\n" in snapshot.read_text(record["handoff"]), "preliminary handoff requires generated Verification Gate Results")
+    return {"lane-map.json": encode_json(lanes, pretty=True) + "\n", "verification-readiness.json": encode_json(data, pretty=True) + "\n", "checks/verification-readiness.md": render_document("readiness", attempt["notes"], "pass")}
+
+
+def worker_readiness_snapshot(snapshot, args, source):
+    lanes = service_lanes(snapshot)
+    lane = next((row for row in lanes["lanes"] if row["id"] == args.lane_id), None)
+    if args.stage != "spawned" or lane is None or lane.get("type") not in {"implementation", "integration"} or lanes.get("schema_version") != 2 or not lanes.get("architecture_contract_required"):
+        return snapshot, {}
+    documents = automatic_readiness(snapshot, source)
+    return replace(snapshot, documents=MappingProxyType({**snapshot.documents, **{key: value.encode() if isinstance(value, str) else value for key, value in documents.items()}})), documents
+
+
+def require_source_readiness_gate(snapshot, gate, source):
+    from verification_evidence import review_subject_kind, source_bound_record
+    summary = json.loads(snapshot.read_text("delegation-summary.json"))
+    matches = []
+    for record in summary["subagents"]:
+        if record.get("role") == "qa-verifier" and record.get("status") in {"pass", "pass-with-risks"} and review_subject_kind(record) == "requirements-plan" and record.get("completion_turn_id"):
+            rows = validate_preliminary_gates(snapshot, record.get("readiness_gates", []), record=record, source=source, execution_required=True)
+            if gate in rows:
+                source_bound_record(snapshot.logical_root, record, summary["verification"], "qa-verifier", source, snapshot=snapshot, current=True)
+                matches.append(record)
+    require(bool(matches), "readiness gate requires matching source-confirmed QA applicability")
 
 
 def readiness_projection(snapshot, kind, request, *, source=None):
@@ -1857,6 +2074,9 @@ def readiness_projection(snapshot, kind, request, *, source=None):
     context = lane_map.get("architecture_context", {})
     pairs = validator.selected_verification_gate_pairs(context)
     success = request["status"] in {"pass", "pass-with-risks"}
+    if success and kind in {"readiness-attempt", "readiness-gate"}:
+        from verification_evidence import require_current_architecture_inputs
+        require_current_architecture_inputs(snapshot)
     paths = [ref["path"] for ref in request.get("evidence", [])]
     for evidence_path in paths:
         snapshot.read_bytes(evidence_path)
@@ -1871,6 +2091,7 @@ def readiness_projection(snapshot, kind, request, *, source=None):
             require(not row["blockers"] and not row["approval_requests"], "ready attempt cannot retain blockers or pending approvals")
             require({(gate["axis"], gate["facet"]) for gate in row["gates"]} == set(pairs) and all(gate["readiness"] == "ready" for gate in row["gates"]), "ready attempt requires all selected gates")
             for gate in row["gates"]:
+                require_source_readiness_gate(snapshot, gate, source)
                 require_command_evidence(snapshot, gate["evidence"], successful=True)
             row["status"] = "ready"
         else:
@@ -1887,6 +2108,8 @@ def readiness_projection(snapshot, kind, request, *, source=None):
         if approval_id:
             require(any(item["id"] == approval_id and item["status"] == "pending" and request["facet"] in item["affected_gates"] for item in data["approval_requests"]), "gate approval requires actual pending request")
         gate = {"axis": request["axis"], "facet": request["facet"], "readiness": "ready" if success else "needs-approval" if approval_id else "blocked", "check": request["check"], "evidence": paths, "notes": request["summary"]}
+        if success:
+            require_source_readiness_gate(snapshot, gate, source)
         _, errors = validator.validate_verification_gate_records(snapshot.logical_root, [gate], "readiness gate", [(gate["axis"], gate["facet"])], status_field="readiness", allowed_statuses=validator.VERIFICATION_GATE_READINESS_STATUSES, snapshot=snapshot)
         require(not errors, "; ".join(errors))
         upsert_record(attempt["gates"], gate, "facet")
@@ -1911,16 +2134,14 @@ def readiness_projection(snapshot, kind, request, *, source=None):
             require(request.get("source_quote") and request["source_quote"] in message, "approval quote must occur in actual root user message")
             require(request.get("decision") == ("approve" if success else "decline"), "approval intent/status mismatch")
             row["source_observation"] = {"thread_id": thread, "event": index, "sha256": digest(encode_json(event).encode()), "quote": request["source_quote"], "decision": "approved" if success else "declined", "commands_sha256": digest(encode_json(row["commands"]).encode())}
-            row["status"] = "pending" if success else "declined"
+            row["status"] = "approved" if success else "declined"
         else:
             require(not success and request["status"] != "blocked", "terminal approval requires actual user source event")
         upsert_record(data["approval_requests"], row)
     else:
         approval = next((item for item in data["approval_requests"] if item["id"] == request["request_id"]), None)
         require(approval is not None and approval.get("source_observation", {}).get("decision") == "approved", "execution requires actual approved user observation")
-        observation = approval["source_observation"]
-        actual = source.read(observation["thread_id"], event_indices=(observation["event"],))[observation["event"] - 1]
-        require(digest(encode_json(actual).encode()) == observation["sha256"] and digest(encode_json(approval["commands"]).encode()) == observation["commands_sha256"], "approval source/command binding changed")
+        require_approval_observation(approval, source)
         saved = snapshot.operation_receipt(request["check_id"])
         require(saved is not None and "exit_code" in saved["result"], "approval execution requires actual command receipt")
         result = saved["result"]
@@ -2030,32 +2251,136 @@ def project_memory(snapshot, kind, identifier):
             os.unlink(temporary)
 
 
+def prepare_review_input(run_dir, lane_id, sources, *, identifier=None):
+    """Freeze declared full inputs under the existing writer lock, before dispatch."""
+    from verification_evidence import review_source_bytes, requirements_digest, declared_review_sources, review_context_sources
+    require(type(lane_id) is str and re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", lane_id), "review lane must be kebab-case")
+    require(type(sources) is list and bool(sources) and all(type(name) is str and name.strip() for name in sources), "review requires full declared sources")
+    payload = {"command": "prepare-review-input", "lane_id": lane_id, "sources": sorted(sources)}
+    identifier = operation_id(run_dir, "prepare-review-input", payload, identifier=identifier)
+    def freeze(current):
+        require(first_binding_allowed(current, lane_id), "review input cannot change bound assignment")
+        captures, documents = [], {}
+        contexts = review_context_sources(current)
+        for name in sorted(sources):
+            key, raw = review_source_bytes(current, name, context_sources=contexts)
+            path = "artifacts/source-captures/" + digest(raw) + ".bin"
+            require(path not in current.documents or current.read_bytes(path) == raw, "immutable review capture conflict")
+            documents[path] = raw
+            captures.append({"key": key, "source": name, "path": path})
+        captures.sort(key=lambda row: row["key"])
+        require(len({row["key"] for row in captures}) == len(captures), "duplicate logical review sources")
+        rows = [{"key": row["key"], "sha256": digest(documents[row["path"]])} for row in captures]
+        missing = declared_review_sources(current, context_sources=contexts) - {row["key"] for row in rows}
+        require(not missing, "review omits declared inputs: " + ", ".join(sorted(missing)))
+        from task_workspace import registered_workspace, current_scope_digest
+        workspace = registered_workspace(current)
+        if workspace is not None:
+            current_scope_digest(workspace, inputs=current.external_inputs)
+        subject = {"kind": "requirements-plan", "sources": rows, "digest": requirements_digest(rows)}
+        # This is the instant all bytes are captured, not caller/preflight time.
+        frozen_at = now_iso()
+        marker = {"operation_id": identifier, "run_uuid": current.run_uuid, "generation": current.generation,
+                  "lane_id": lane_id, "kind": subject["kind"], "digest": subject["digest"]}
+        return documents, {"command": "prepare-review-input", "run_uuid": current.run_uuid,
+            "generation": current.generation, "lane_id": lane_id, "review_subject": subject,
+            "captures": captures, "frozen_at": frozen_at,
+            "delegation_input": "AgentFlow-Review-Input: " + encode_json(marker)}
+    return {"operation_id": identifier, **transact(run_dir, identifier, payload, freeze)}
+
+
+def first_binding_allowed(snapshot, lane_id):
+    """A plan is unbound only when the loaded journal has no execution identity."""
+    from journal_structure import assignment_errors, archived_assignment_facts
+    summary = json.loads(snapshot.documents.get("delegation-summary.json", b"{}"))
+    if any(row.get("lane_id") == lane_id for group in ("subagents", "role_lanes") for row in summary.get(group, [])):
+        return False
+    history = archived_assignment_facts(snapshot, include_native=True)
+    require(not assignment_errors(snapshot.documents, history=history), "assignment journal integrity invalid")
+    if lane_id in history:
+        return False
+    lanes = json.loads(snapshot.documents.get("lane-map.json", b"{}"))
+    lane = next((row for row in lanes.get("lanes", []) if row.get("id") == lane_id), None)
+    return lane is None or lane.get("status") == "planned" and not any(lane.get(key) is not None for key in ("codex_thread_id", "trace", "legacy"))
+
+
 def assignment_lane(snapshot, args):
-    from task_workspace import registered_workspace
-    if not args.lane_id or not snapshot.exists("lane-map.json"):
+    from journal_structure import canonical_role, normalized
+    def inherit_metadata(row):
+        for field in ("wave", "critical"):
+            if field in row:
+                supplied = getattr(args, field)
+                require(supplied is None or supplied == row[field], f"assignment {args.lane_id}.{field} differs from assignment")
+                setattr(args, field, row[field])
+    if not args.lane_id:
+        return None, None
+    unbound = first_binding_allowed(snapshot, args.lane_id)
+    summary = json.loads(snapshot.documents.get("delegation-summary.json", b"{}"))
+    registered = False
+    for group, mode in (("subagents", "subagent"), ("role_lanes", "role-lane")):
+        for record in summary.get(group, []):
+            if record.get("lane_id") == args.lane_id:
+                inherit_metadata(record)
+                registered = True
+                require(mode == args.execution_mode and canonical_role(record.get("role")) == canonical_role(args.role),
+                        "assignment identity changed; use a new lane_id")
+                require(not args.codex_thread_id or record.get("codex_thread_id") == args.codex_thread_id,
+                        "assignment identity changed; use a new lane_id")
+    require(unbound or registered, "assignment has prior execution identity; use existing recovery or a new lane_id")
+    for event in snapshot.timeline():
+        if event.get("lane_id") == args.lane_id:
+            inherit_metadata(event)
+            require(event.get("stable_agent_name") == (args.stable_agent_name or args.role)
+                    and event.get("stable_agent_slug") == (args.stable_agent_slug or safe_path_segment(args.role)),
+                    "assignment stable identity changed; use a new lane_id")
+    if not snapshot.exists("lane-map.json"):
         return None, None
     lane_map = json.loads(snapshot.read_text("lane-map.json"))
     matches = [lane for lane in lane_map.get("lanes", [])
                if isinstance(lane, dict) and lane.get("id") == args.lane_id]
     require(len(matches) == 1, f"assignment {args.lane_id}: unknown lane or duplicate id")
     lane = matches[0]
-    from journal_structure import canonical_role, normalized
+    inherit_metadata(lane)
     require(canonical_role(lane.get("role")) == canonical_role(args.role),
             f"assignment {args.lane_id}.role must match lane role {lane.get('role')!r}")
-    require(normalized(lane.get("execution_mode")) == normalized(args.execution_mode),
+    require(unbound or normalized(lane.get("execution_mode")) == normalized(args.execution_mode),
             f"assignment {args.lane_id}.execution_mode must match lane mode {lane.get('execution_mode')!r}")
+    require(args.execution_mode != "role-lane" or not lane_map.get("architecture_contract_independent")
+            or lane.get("type") != "architecture" or lane.get("role") != "architect",
+            "independent architecture contract requires subagent execution")
     return lane_map, lane
 
 
 def worker_start_preflight(snapshot, lane_map, lane, verification, args):
     from task_workspace import registered_workspace
-    starting = args.stage in {"spawned", "implementation", "integration", "fix"} or (
+    summary = json.loads(snapshot.documents.get("delegation-summary.json", b"{}"))
+    bound = any(row.get("lane_id") == args.lane_id and row.get("status") != "planned" for group in ("subagents", "role_lanes") for row in summary.get(group, []))
+    admission = args.stage == "spawned" or bool(args.lane_id and args.status == "active" and not bound)
+    explicit_product = args.stage in {"implementation", "integration", "fix"}
+    starting = admission or explicit_product or (
         lane is not None and lane.get("status") == "planned" and args.status in {"active", "spawned"})
-    if lane is None or lane.get("type") not in {"implementation", "integration"} or not starting:
+    if not starting:
         return
     label = f"assignment {args.lane_id}"
+    mapped_product = lane is not None and lane.get("type") in {"implementation", "integration"}
+    if admission:
+        require(verification.get("task_kind") in {"change", "analysis"}, label + ": admission requires resolved task_kind=change or analysis")
+        if verification["task_kind"] == "change":
+            require(registered_workspace(snapshot) is not None, label + (": implementation requires prepared workspace" if mapped_product else ": change admission requires prepared workspace"))
+    if not explicit_product and not mapped_product:
+        return
+    from verification_evidence import require_current_architecture_inputs
+    require_current_architecture_inputs(snapshot)
     require(verification.get("task_kind") == "change", label + ": implementation requires task_kind=change")
-    require(registered_workspace(snapshot) is not None, label + ": implementation requires prepared workspace")
+    workspace = registered_workspace(snapshot)
+    require(workspace is not None, label + ": implementation requires prepared workspace")
+    author = args.codex_thread_id if args.execution_mode == "subagent" else verification.get("root_thread_id")
+    require(isinstance(author, str) and bool(author), label + ": implementation author identity missing")
+    if not mapped_product:
+        from workspace_scope import previous_roots
+        require(bool(previous_roots(workspace)), label + ": implementation requires declared product scope")
+        verification["author_thread_ids"] = list(dict.fromkeys([*verification.get("author_thread_ids", []), author]))
+        return
     boundary = lane.get("boundary")
     require(isinstance(boundary, dict) and isinstance(boundary.get("allowed_paths"), list)
             and bool(boundary["allowed_paths"]) and all(isinstance(p, str) and p.strip() for p in boundary["allowed_paths"]),
@@ -2084,7 +2409,7 @@ def prepare_summary(run_dir: Path, args, artifact_paths: list[str], source, *, s
     from task_workspace import registered_workspace
     """Validate everything before writing any trace, directory or index."""
     snapshot = snapshot or JournalSnapshot.open(run_dir)
-    if not (args.verification_json or args.completion_turn_id or args.lane_id or args.resolve_session):
+    if not (args.verification_json or args.completion_turn_id or args.lane_id or args.resolve_session or args.stage in {"spawned", "implementation", "integration", "fix"}):
         return None, {}
     path = run_dir / "delegation-summary.json"
     lane_path = run_dir / "lane-map.json"
@@ -2096,6 +2421,7 @@ def prepare_summary(run_dir: Path, args, artifact_paths: list[str], source, *, s
         "verification": empty_verification(),
     }
     validate_summary_shape(data)
+    prior_task_kind = data["verification"].get("task_kind")
     if args.verification_json:
         raw = args.verification_json
         if not raw.lstrip().startswith("{"):
@@ -2107,6 +2433,36 @@ def prepare_summary(run_dir: Path, args, artifact_paths: list[str], source, *, s
     verification = data.get("verification")
     if not isinstance(verification, dict):
         raise EvidenceError("verification must be an object")
+    from verification_evidence import review_subject_kind, review_input_receipt, require_review_completion
+    prior_assignment = next((row for row in data["subagents"] if row.get("lane_id") == args.lane_id), {})
+    pin_operation = getattr(args, "review_input_operation_id", None) or prior_assignment.get("review_input_operation_id")
+    asserted_subject = getattr(args, "review_subject", None)
+    subject = prior_assignment.get("review_subject")
+    if pin_operation:
+        require(args.role in {"qa-verifier", "reviewer", "reviewer.qa"} and args.execution_mode == "subagent", "review input requires independent QA/reviewer")
+        receipt = snapshot.operation_receipt(pin_operation)
+        require(receipt is not None, "native review input receipt missing")
+        pinned = receipt["result"].get("review_subject")
+        require(subject is None or subject == pinned, "assignment review subject changed")
+        require(not prior_assignment or prior_assignment.get("review_input_operation_id") == pin_operation, "cannot add review subject after binding")
+        subject = pinned
+        review_input_receipt(snapshot, {"lane_id": args.lane_id, "review_subject": subject, "review_input_operation_id": pin_operation}, current=not prior_assignment)
+    elif asserted_subject:
+        require(asserted_subject == "product-result", "requirements review requires prepare operation")
+        subject = {"kind": "product-result"}
+    elif (snapshot.storage_version == 2 and args.lane_id and args.execution_mode == "subagent"
+          and args.role in {"qa-verifier", "reviewer", "reviewer.qa"}
+          and first_binding_allowed(snapshot, args.lane_id)):
+        subject = {"kind": "product-result"}
+    preliminary = review_subject_kind({"review_subject": subject} if subject is not None else prior_assignment) == "requirements-plan"
+    require(asserted_subject is None or asserted_subject == (subject or {}).get("kind"), "review subject assertion differs from binding")
+    from verification_evidence import result_contract
+    contract = result_contract(snapshot)
+    initialized = snapshot.operation_receipt("initialize")
+    original_contract = initialized["result"].get("result_contract_version", 1) if initialized else 1
+    historical_change = prior_task_kind == "change" and (original_contract < 2 or contract.get("historical_identity") is not None)
+    if args.verification_json and verification.get("task_kind") == "change" and args.status not in {"blocked", "fail"} and not historical_change:
+        require(registered_workspace(snapshot) is not None, "prepare workspace before initial change verification")
     worker_start_preflight(snapshot, lane_map, assigned_lane, verification, args)
     for field in ("initial_snapshot", "task_scope"):
         ref = verification.get(field)
@@ -2117,7 +2473,7 @@ def prepare_summary(run_dir: Path, args, artifact_paths: list[str], source, *, s
         workspace = registered_workspace(snapshot)
         if workspace is not None and "seal" in workspace:
             verification["result_files"] = workspace["seal"]["changed_paths"]
-        completing = args.role in {"qa-verifier", "reviewer", "reviewer.qa"} and args.status in {"pass", "pass-with-risks"} and bool(args.completion_turn_id or args.resolve_session and args.stage == "handoff")
+        completing = not preliminary and args.role in {"qa-verifier", "reviewer", "reviewer.qa"} and args.status in {"pass", "pass-with-risks"} and bool(args.completion_turn_id or args.resolve_session and args.stage == "handoff")
         if completing and workspace is None and snapshot.operation_receipt("result-contract-v2") is not None:
             verification["result_hash"] = historical_result_hash(run_dir, verification, snapshot=snapshot)
         else:
@@ -2130,6 +2486,12 @@ def prepare_summary(run_dir: Path, args, artifact_paths: list[str], source, *, s
     if args.execution_mode == "subagent" and args.lane_id:
         existing = next((r for r in data["subagents"] if r.get("lane_id") == args.lane_id), None)
         record = dict(existing or {})
+        if subject is not None:
+            record["review_subject"] = subject
+            extra["review_subject"] = subject
+        if pin_operation:
+            record["review_input_operation_id"] = pin_operation
+            extra["review_input_operation_id"] = pin_operation
         thread_id = args.codex_thread_id or record.get("codex_thread_id")
         role = "reviewer" if args.role == "reviewer.qa" else args.role
         if args.resolve_session:
@@ -2155,13 +2517,14 @@ def prepare_summary(run_dir: Path, args, artifact_paths: list[str], source, *, s
             if args.stage == "handoff" and args.status in {"pass", "pass-with-risks"}:
                 require(bool(artifact_paths), "accepted handoff requires artifact")
                 require(bool(snapshot.read_bytes(artifact_paths[0]).strip()), "accepted handoff artifact missing or empty")
-        if args.role == "qa-verifier" and args.stage == "spawned":
+        if not preliminary and args.role == "qa-verifier" and args.stage == "spawned":
             verification["qa"] = verification["reviewer"] = None
-        elif args.role in {"reviewer", "reviewer.qa"} and args.stage == "spawned":
+        elif not preliminary and args.role in {"reviewer", "reviewer.qa"} and args.stage == "spawned":
             verification["reviewer"] = None
         if args.resolve_session and args.stage in {"handoff", "blocked", "fail"} and not args.completion_turn_id:
             args.completion_turn_id = resolve_completion(source, thread_id, verification.get("root_thread_id"),
-                                                         role, verification.get("result_hash"), artifact_paths)
+                                                         role, None if preliminary else verification.get("result_hash"), artifact_paths,
+                                                         review_subject=subject, review_input_operation_id=pin_operation)
         if args.completion_turn_id and role not in {"qa-verifier", "reviewer"}:
             require(args.status in {"pass", "pass-with-risks", "blocked", "fail"} and
                     args.stage == (args.status if args.status in {"blocked", "fail"} else "handoff"),
@@ -2185,8 +2548,15 @@ def prepare_summary(run_dir: Path, args, artifact_paths: list[str], source, *, s
                         "source completion cannot add or replace evidence")
                 artifact_paths = terminal[0]["artifacts"]
             record.update(extra)
-            record["evidence"] = [{"path": p, "sha256": sha256(reference_bytes(run_dir, {"path": p}, snapshot=snapshot))}
-                                  for p in artifact_paths[1:]]
+            if existing and existing.get("evidence") and existing.get("status") in {"pass", "pass-with-risks", "blocked", "fail"}:
+                from verification_evidence import historical_evidence_bytes
+                record["evidence"] = existing.get("evidence", [])
+                require([ref["path"] for ref in record["evidence"]] == artifact_paths[1:], "source completion evidence paths changed")
+                for ref in record["evidence"]:
+                    historical_evidence_bytes(snapshot, existing, ref)
+            else:
+                record["evidence"] = [{"path": p, "sha256": sha256(reference_bytes(run_dir, {"path": p}, snapshot=snapshot))}
+                                      for p in artifact_paths[1:]]
             if existing and record == existing:
                 extra["unchanged"] = True
                 return data, extra
@@ -2210,14 +2580,22 @@ def prepare_summary(run_dir: Path, args, artifact_paths: list[str], source, *, s
             if handoff not in artifact_paths:
                 raise EvidenceError("source handoff must be included in --artifact; pass its exact path relative to the run directory")
             source_hash = answer.get("reviewed_result_hash")
-            require(negative and source_hash is None and verification.get("result_hash") is None or
+            if preliminary:
+                require_review_completion(snapshot, record, completion, source, current=True)
+                extra.update(review_subject=subject, review_input_operation_id=pin_operation)
+                record["readiness_gates"] = answer.get("readiness_gates", [])
+                validate_preliminary_gates(snapshot, record["readiness_gates"], record=record, source=source, completion=completion, execution_required=True)
+            else:
+                require(review_subject_kind(answer) == "product-result", "preliminary source cannot accept product")
+                require(answer.get("review_subject") == subject, "source product tag differs from assignment")
+            require(preliminary and source_hash is None or negative and source_hash is None and verification.get("result_hash") is None or
                     isinstance(source_hash, str) and SHA256.fullmatch(source_hash),
                     "source reviewed_result_hash must be SHA-256")
-            if source_hash != verification.get("result_hash"):
+            if not preliminary and source_hash != verification.get("result_hash"):
                 raise EvidenceError("source reviewed_result_hash does not match current result; recompute with --verification-json and obtain acceptance of that current hash")
             if sha256(reference_bytes(run_dir, {"path": handoff}, snapshot=snapshot)) != answer.get("handoff_sha256"):
                 raise EvidenceError("source handoff_sha256 mismatch")
-            extra.update({k: answer[k] for k in ("reviewed_result_hash", "handoff", "handoff_sha256")})
+            extra.update({k: answer.get(k) for k in ("reviewed_result_hash", "handoff", "handoff_sha256")})
             extra["completion_turn_id"] = args.completion_turn_id
             extra.update({k: completion[k] for k in ("session_meta_event", "task_started_event", "task_complete_event")})
             record.update(extra)
@@ -2231,7 +2609,7 @@ def prepare_summary(run_dir: Path, args, artifact_paths: list[str], source, *, s
                         "evidence reference and sha256 must appear in source-bound handoff")
             require(thread_id not in [verification.get("root_thread_id"), *verification.get("author_thread_ids", [])],
                     "QA, reviewer, root and authors must be distinct")
-            if role == "reviewer" and not negative:
+            if role == "reviewer" and not negative and not preliminary:
                 qa = next((r for r in data["subagents"] if r.get("lane_id") == verification.get("qa")), {})
                 require_own_reviewer_handoff(run_dir, handoff, qa.get("handoff"), snapshot=snapshot)
                 if answer.get("qa_handoff_sha256") != qa.get("handoff_sha256") or not qa.get("handoff_sha256"):
@@ -2240,25 +2618,25 @@ def prepare_summary(run_dir: Path, args, artifact_paths: list[str], source, *, s
                 if not completion_follows(completion, qa_completion):
                     raise EvidenceError("reviewer acceptance must follow QA completion")
                 record["qa_handoff_sha256"] = qa["handoff_sha256"]
-            fields = ("role", "lane_id", "codex_thread_id", "completion_turn_id", "reviewed_result_hash", "handoff", "handoff_sha256")
+            fields = ("role", "lane_id", "codex_thread_id", "completion_turn_id", "reviewed_result_hash", "handoff", "handoff_sha256", "review_subject", "review_input_operation_id", "readiness_gates")
             same = existing and all(existing.get(k) == record.get(k) for k in fields)
             refs_key = lambda refs: sorted(encode_json(r) for r in refs)
             same = same and refs_key(existing.get("evidence", [])) == refs_key(record["evidence"])
             selected_key = "reviewer" if role == "reviewer" else "qa"
-            if same and (negative or verification.get(selected_key) == args.lane_id):
+            if same and (preliminary or negative or verification.get(selected_key) == args.lane_id):
                 errors = validate_verification(run_dir, data, lane_map, "ship" if not negative and verification.get("reviewer") else "pending", source, snapshot=snapshot)
                 if errors:
                     raise EvidenceError("; ".join(errors))
                 extra["unchanged"] = True
                 return data, extra
-            if role == "qa-verifier":
+            if not preliminary and role == "qa-verifier":
                 verification["reviewer"] = None
-            if negative:
+            if negative and not preliminary:
                 if verification.get(selected_key) == args.lane_id:
                     verification[selected_key] = None
                 verification["blocker"] = answer["reason"]
                 verification["unverified"] = answer["unverified"]
-            else:
+            elif not preliminary:
                 verification["reviewer" if role == "reviewer" else "qa"] = args.lane_id
         elif artifact_paths and (args.stage == "handoff" or
                                 role not in {"qa-verifier", "reviewer"} and args.stage in {"blocked", "fail"}):
@@ -2268,7 +2646,7 @@ def prepare_summary(run_dir: Path, args, artifact_paths: list[str], source, *, s
         else:
             data["subagents"].append(record)
         data["subagents_used"] = True
-        if args.completion_turn_id and role in {"qa-verifier", "reviewer"} and args.status in {"pass", "pass-with-risks"} and verification.get("task_kind") != "analysis":
+        if not preliminary and args.completion_turn_id and role in {"qa-verifier", "reviewer"} and args.status in {"pass", "pass-with-risks"} and verification.get("task_kind") != "analysis":
             require_workspace_or_historical(snapshot, data)
     elif args.execution_mode == "role-lane" and args.lane_id and snapshot.storage_version == 2:
         existing = next((r for r in data["role_lanes"] if r.get("lane_id") == args.lane_id), None)
@@ -2280,6 +2658,8 @@ def prepare_summary(run_dir: Path, args, artifact_paths: list[str], source, *, s
                 "obligation identity changed; use a new lane")
         record.update(lane_id=args.lane_id, role=args.role, status=args.status,
                       trace=f"agents/{safe_path_segment(args.role)}/trace.jsonl")
+        if args.codex_thread_id:
+            record["codex_thread_id"] = args.codex_thread_id
         record.setdefault("reason", args.summary)
         if args.stage == "handoff":
             require(bool(artifact_paths), "accepted handoff requires artifact")
@@ -2292,6 +2672,10 @@ def prepare_summary(run_dir: Path, args, artifact_paths: list[str], source, *, s
         data["role_lanes_used"] = True
     elif args.completion_turn_id:
         raise EvidenceError("--completion-turn-id requires subagent and --lane-id")
+    if args.lane_id and args.execution_mode in {"subagent", "role-lane"} and existing is None:
+        record.update({field: getattr(args, field) for field in ("wave", "critical") if getattr(args, field) is not None})
+        if assigned_lane and assigned_lane.get("handoff"):
+            record.setdefault("handoff", assigned_lane["handoff"])
     errors = validate_verification(run_dir, data, lane_map, "pending", source, snapshot=snapshot)
     if errors:
         raise EvidenceError("; ".join(errors))
@@ -2301,6 +2685,19 @@ def prepare_summary(run_dir: Path, args, artifact_paths: list[str], source, *, s
 def require_subagent_identity(snapshot, args, source):
     from task_workspace import registered_workspace
     if args.execution_mode != 'subagent':
+        first_root_binding = args.lane_id and first_binding_allowed(snapshot, args.lane_id)
+        if args.codex_thread_id or first_root_binding:
+            from verification_evidence import own_metadata, child_spawn
+            summary = json.loads(snapshot.documents.get('delegation-summary.json', b'{}'))
+            root = summary.get('verification', {}).get('root_thread_id')
+            thread = args.codex_thread_id or root
+            require(bool(thread), 'role-lane first binding requires registered root identity')
+            require(thread == root, 'role-lane requires root execution metadata')
+            if first_root_binding:
+                _, metadata = own_metadata(source.read(thread), thread)
+                require(not child_spawn(metadata) and not metadata.get('parent_thread_id'),
+                        'role-lane requires root execution metadata')
+                args.codex_thread_id = thread
         return
     from verification_evidence import session_metadata
     data = json.loads(snapshot.read_text('delegation-summary.json')) if snapshot.exists('delegation-summary.json') else {}
@@ -2325,6 +2722,7 @@ def require_subagent_identity(snapshot, args, source):
 
 
 def record_event(run_dir, args, artifact_paths, source, snapshot):
+    from agent_config import AgentConfigError
     from verification_evidence import EvidenceError, evidence_path, reference_bytes, result_hash, sha256, delivery_scope
     from task_workspace import registered_workspace
     from journal_structure import validate_request
@@ -2333,6 +2731,7 @@ def record_event(run_dir, args, artifact_paths, source, snapshot):
         event_request["lane_id"] = args.lane_id
     validate_request("event", event_request)
     validate_assignment_event(vars(args))
+    snapshot, readiness_documents = worker_readiness_snapshot(snapshot, args, source)
     require_subagent_identity(snapshot, args, source)
     role_segment = safe_path_segment(args.role)
     stable_agent_name = args.stable_agent_name or args.role
@@ -2392,7 +2791,7 @@ def record_event(run_dir, args, artifact_paths, source, snapshot):
         event["lane_id"] = args.lane_id
     if args.wave is not None:
         event["wave"] = args.wave
-    if args.critical:
+    if args.critical is not None:
         event["critical"] = args.critical
     if summary_data is not None:
         scope = delivery_scope(snapshot, summary_data["verification"], summary=summary_data)
@@ -2425,6 +2824,7 @@ def record_event(run_dir, args, artifact_paths, source, snapshot):
         contents[run_dir / "delegation-summary.json"] = encode_json(summary_data, pretty=True) + "\n"
     lane_map, lane = assignment_lane(snapshot, args)
     if lane is not None:
+        lane["execution_mode"] = args.execution_mode
         lane["status"] = args.status
         if lane.get("handoff"):
             from journal_io import update_handoff_state
@@ -2433,12 +2833,15 @@ def record_event(run_dir, args, artifact_paths, source, snapshot):
                 from_lane=None, to_lane=None, task=None, handoff=None, batch_id=None, batch_items=[])
         if args.codex_thread_id:
             lane["codex_thread_id"] = args.codex_thread_id
+        for field in ("review_subject", "review_input_operation_id"):
+            if field in completion_fields:
+                lane[field] = completion_fields[field]
         if args.stage == "handoff" and artifact_paths:
             require(not lane.get("handoff") or lane["handoff"] == artifact_paths[0],
                     f"assignment {args.lane_id}.handoff must match lane handoff")
             lane["handoff"] = artifact_paths[0]
         contents[run_dir / "lane-map.json"] = encode_json(lane_map, pretty=True) + "\n"
-    documents = {}
+    documents = dict(readiness_documents)
     for path, text in contents.items():
         key = snapshot.key(path)
         if path in (timeline_path, agent_trace_path) and snapshot.exists(path):

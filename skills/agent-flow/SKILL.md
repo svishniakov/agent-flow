@@ -7,12 +7,17 @@ description: "Use only when the user explicitly asks to perform the task through
 
 Document status: done
 
-Журнал принимает смысловой текст и статус через единый Python writer. Перед записью получите поля, типы, статусы и примеры командой `python3 -B scripts/journal.py contract`; записывайте через `journal.py record` или штатный доменный adapter. Код формирует формат, метаданные и связанные проекции. `publish` сохраняет исходные доказательства и attachments, `read` читает опубликованный результат. Writer-owned журналы и экспорт вручную не редактируйте. Правила повторов, снимков и импорта: [Traceable Runs](references/traceable-runs.md#публикация-и-чтение-журнала).
+Журнал принимает смысловой текст и статус через единый Python writer. Перед записью получите поля, типы, статусы и примеры командой `python3 -B "$AF_PACKAGE/scripts/journal.py" contract`; записывайте через `journal.py record` или штатный доменный adapter. Код формирует формат, метаданные и связанные проекции. `publish` сохраняет исходные доказательства и attachments, `read` читает опубликованный результат. Writer-owned журналы и экспорт вручную не редактируйте. Правила повторов, снимков и импорта: [Traceable Runs](references/traceable-runs.md#публикация-и-чтение-журнала).
 
 Summary и текст sections — буквальное содержимое, включая переносы строк,
 Markdown и HTML. Форматирование этого текста не меняет Verdict, Evidence или
 служебные блоки: их создаёт writer. Имена attachments отображаются безопасно,
 но исходные пути и доказательства сохраняются точно.
+
+`summary` и `sections[].summary` передавайте строками, не числами и не объектами.
+Статусы закрыты: `planned`, `active`, `pass`, `pass-with-risks`, `blocked`, `fail`,
+`timed-out`, `replaced`. Допустимое подмножество для конкретной команды и пары
+stage/status проверяйте по `journal.py contract`; новые значения не придумывайте.
 
 Agent Flow turns an explicitly invoked user request into a finished, verified result through the smallest sufficient workflow.
 
@@ -106,7 +111,20 @@ Agent Flow-invoked work:
 
 Inside Agent Flow, the orchestrator owns the outcome:
 
-Для нового изменения сначала используйте `task-workspace.py prepare`, работайте в `working_root`, перед QA выполните `seal`, а после приёмки выдайте сохранённый `candidate_root` через `delivery`. Полные правила обхода и исторического повтора: `references/traceable-runs.md`.
+Для нового изменения порядок такой: init → `task-workspace.py prepare` → initial
+verification с `task_kind: change` → архитектурное решение, когда оно требуется →
+закрепление входов и предварительный QA новых/изменённых требований и плана → worker в `working_root`
+→ seal и авторские декларации → отдельные QA и reviewer продукта → delivery.
+Предварительный QA не требует будущего candidate или продуктового хеша. Для
+финальной приёмки передайте сохранённый `candidate_root` и текущий `result_hash`.
+Команды и правила исторического повтора: [Traceable Runs](references/traceable-runs.md#запись-и-собственный-итог-проверяющего).
+
+Первый trace связывает реальный mode, identity и thread по исходной сессии;
+planned mode не требует ручного переключения. Начатое назначение неизменно.
+Новый admission требует явного `change` или `analysis`: неизвестный `task_kind`
+оставляет задачу на intake. Read-only analysis допускается без workspace;
+`implementation`, `integration` и `fix` требуют prepared change и подтверждённого
+автора в продуктовых границах, включая compact без lane-map.
 
 Разработчик занимается задачей и проверкой результата; сведения собирает инструмент.
 Сохранённые `st_dev`/`st_ino` не блокируют чтение или приёмку неизменённых байтов:
@@ -133,8 +151,11 @@ code/auth/config defects, mandatory local proof, identity/history, boundary и
 
 Перед result_hash после seal опубликуйте boundary v2 декларации всех авторов:
 полный `changed_paths`, явный вклад `authored_paths`, own handoff и edit evidence.
-Permissions проверяются по вкладу, union покрывает весь delta; shared paths
-раскрывают все соавторы. Hash v5 связывает смысловой scope и авторские границы;
+Permissions проверяются по вкладу. Код собирает участников из деклараций и проверяет
+актуальное состояние каждого изменённого пути по последнему вкладу. Старые декларации
+сохраняют собственный seal; обычные родительские каталоги учитываются автоматически.
+Исправление записывается новым назначением, прежний автор не перечисляет будущих соавторов.
+Hash v5 связывает смысловой scope и авторские границы;
 seal без marker сохраняет прежние алгоритмы v2–4. Hash v1 и boundary v1 сохраняются для legacy reading/exact accepted replay,
 не новой приёмки авторства. [Порядок деклараций](references/traceable-runs.md#декларация-авторства-boundary-v2).
 
@@ -257,7 +278,7 @@ The Architecture Contract Gate is required for release, for `standard` traceable
 
 Architecture Design Mode runs before implementation when `architecture_contract_required=true`. Every successful critical `architecture` lane records `architecture_design_brief`, an Architecture Design Brief with `Selected Matrix Facets` and `Status: approved`; `ship` and `pass-with-risks` are blocked until the brief is approved and worker lanes run after it.
 
-Architecture Artifact Authoring Automation means `init-run.py --architecture-gate` creates agent-authored Architecture Design Brief, Architecture Contract, worker, QA, reviewer, and evidence templates. Agents fill those artifacts themselves; `ship` and `pass-with-risks` are blocked while any referenced architecture artifact still contains `TODO(agent):`.
+Architecture Artifact Authoring Automation means `init-run.py --architecture-gate` declares planned lanes and context. The architect returns one source-bound `architecture-outcome` with the 20 existing brief/contract sections and explicit `decision`; Python creates one document and both references. Agents provide semantic findings and evidence through the writer. Existing two-document runs remain readable; referenced `TODO(agent):` still blocks positive final verdicts. See [Architecture Artifact Authoring](references/architecture-artifact-authoring.md).
 
 Read `references/architecture-matrix.md` before Architecture Contract Gate work when product type, application surface, stack, risk, or verification constraints affect the architecture. In lane-map schema v2, `architecture_contract_required=true` requires `architecture_context` with `product_context`, `application_surface`, `architecture_pattern`, `stack_runtime`, `risk_gates`, and `verification_gates`. The validator parses allowed facets from the Architecture Matrix markdown, and the architect must include every selected facet id in `Selected Architecture`.
 
@@ -267,7 +288,7 @@ Architecture Context Propagation is required when worker lanes exist under the A
 
 Engineering Simplicity Gate is part of Architecture Execution Control, after each successful `implementation` or `integration` worker lane and before QA/reviewer. Simplicity Gate is not a reporting gate: fix now if fixable. Fixable overengineering, duplicated helper, unnecessary abstraction, dependency/stack drift, or wider-than-needed implementation is remediated before QA and reviewer. Simplicity Scope Coverage prevents peripheral-only closure: positive architecture-gated worker runs must record `engineering_simplicity_scope` with non-empty `primary_surfaces`, optional `secondary_surfaces`, evidence, and notes. Workers must record `architecture_compliance.engineering_simplicity` with status `pass`, `fixed`, or `drift`, include all required checks (`no-extra-work`, `stdlib-native-first`, `existing-helper-first`, `dependency-justified`, `abstraction-justified`, `smallest-working-diff`, `tests-fit-risk`), include `scope_coverage` for the primary or secondary surfaces they audited, and write `## Engineering Simplicity` in the worker handoff with those surface ids. `pass` means no concrete simplicity issue was found in the covered primary scope. `fixed` means the issue was corrected inside the approved architecture and requires findings, actions, literal action coverage, and covered surface ids in the worker handoff. `drift` is used only when remediation changes boundaries, public contracts, selected capabilities, or the architecture approach; it requires parent `architecture_compliance.status=drift` plus an architect `recheck_lane`. Unresolved simplicity drift blocks `ship` and `pass-with-risks`. QA writes `Engineering Simplicity Scope`; reviewer `Contract Drift` must reject reporting-only closure, reject peripheral-only closure, mention every primary surface, mention `Engineering Simplicity`, and mention fixed worker lane ids. Final `Engineering Simplicity` must mention every primary surface. Retained dependency or abstraction must cite selected `architecture_capabilities`. This gate is not AI Slop Gate, adds no schema v3, no new lane type, no new subagent, and no new Architecture Matrix or capability registry entry.
 
-Lane Boundary Evidence Gate is the product-code boundary check inside Architecture Execution Control. For schema v2 positive architecture-gated runs, every successful `implementation` or `integration` lane must record `boundary.allowed_paths`, optional `boundary.forbidden_paths`, `boundary.changed_paths_artifact`, and notes. `scripts/record-lane-boundary.py` writes `checks/lane-boundary-<lane-id>.json` with `version=1`, `lane_id`, `changed_paths`, `tracked_changed_paths`, and `untracked_paths`. `changed_paths_artifact` must exist and be listed in the lane `evidence`; every changed path must be repo-relative POSIX, match at least one `allowed_paths` pattern through `fnmatch.fnmatchcase`, and match no `forbidden_paths` pattern. `forbidden_paths` wins over `allowed_paths`; empty `changed_paths` is valid. Worker handoffs write `## Boundary Evidence`; QA `Architecture Invariants`, reviewer `Contract Drift`, and final `Boundary Evidence` mention every worker lane id. This is not a new Matrix facet, role, lane type, schema v3, or worktree-isolation requirement.
+Lane Boundary Evidence Gate is the product-code boundary check inside Architecture Execution Control. For schema v2 positive architecture-gated runs, every successful `implementation` or `integration` lane must record `boundary.allowed_paths`, optional `boundary.forbidden_paths`, `boundary.changed_paths_artifact`, and notes. `python3 "$AF_PACKAGE/scripts/record-lane-boundary.py" --run-dir <run-dir> --lane-id <lane-id> --declaration-json <published-path>` writes boundary `version=2`: full `changed_paths`, explicit `authored_paths`, own handoff/edit evidence references, coauthors, assignment identity and workspace/candidate bindings. Version 1 remains readable for historical diagnosis and exact accepted replay. `boundary.changed_paths_artifact` is the canonical reference to an existing, validated proof; a duplicate entry in lane `evidence` is optional. Every changed path must be repo-relative POSIX, match at least one `allowed_paths` pattern through `fnmatch.fnmatchcase`, and match no `forbidden_paths` pattern. `forbidden_paths` wins over `allowed_paths`; empty `changed_paths` is valid. Worker handoffs write `## Boundary Evidence`; QA `Architecture Invariants`, reviewer `Contract Drift`, and final `Boundary Evidence` mention every worker lane id. This is not a new Matrix facet, role, lane type, schema v3, or worktree-isolation requirement.
 
 Claim Evidence Gate is required for positive architecture-gated runs. The Architecture Contract `QA Gates` and `Reviewer Checklist` sections must include `Claim Evidence` ids. The orchestrator writes `claim-evidence.json`; each claim record names `owner_lane`, reviewer lane, `supported` or `gap`, subjects, evidence paths, and literal `markers`. `ship` and `pass-with-risks` require every required claim to be `supported` and every marker to appear in the referenced evidence file.
 
@@ -454,7 +475,7 @@ sidecars.
 
 Before launching a subagent, read the bundled role file `agents/<role>.md` and resolve `stable_agent_name`, `stable_agent_slug`, and optional `nickname_candidates` from `agents/agent-identities.json`.
 
-Also resolve the role model config before `spawn_agent`, using `python3 scripts/resolve-agent-config.py --role <role>` plus any task triggers such as `--trigger security`, `--trigger broad-scope`, or `--trigger release`. Pass the returned `model` and `reasoning_effort` into `spawn_agent`. Pass `service_tier` only when the resolver returns a non-null value.
+Also resolve the role model config before `spawn_agent`, using `python3 "$AF_PACKAGE/scripts/resolve-agent-config.py" --role <role>` plus any task triggers such as `--trigger security`, `--trigger broad-scope`, or `--trigger release`. Pass the returned `model` and `reasoning_effort` into `spawn_agent`. Pass `service_tier` only when the resolver returns a non-null value.
 
 When Codex custom-agent files have been generated for the current project or user config, and the current `spawn_agent` schema exposes the Agent Flow role as an available `agent_type`, pass that role slug as `agent_type`. This lets Codex App, CLI, and IDE show configured `nickname_candidates` in subagent activity. If the role is not exposed in the current tool schema, use the closest available built-in `agent_type` and keep Agent Flow identity in trace metadata.
 

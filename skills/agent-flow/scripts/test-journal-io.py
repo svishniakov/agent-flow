@@ -30,9 +30,73 @@ import journal_io
 class SemanticRequestRegressions(unittest.TestCase):
     """Caller errors must not allocate even a request envelope."""
 
+    def test_public_noncontract_acceptance_retains_surface_proofs(self):
+        import tempfile
+        journal = load("noncontract_acceptance_public", "journal.py")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            run = root / "run"
+            journal_io.initialize_journal(run, {"run.md": b"# Ordinary service function\n"}, source_root=root)
+            proof = root / "proof.output"
+            proof.write_text("VALUES_OK\nEMPTY_REJECTED\n")
+            with redirect_stdout(StringIO()):
+                self.assertEqual(journal.main(["--run-dir", str(run), "publish", "--file", "checks/service.output", str(proof)]), 0)
+            request_path = root / "request.json"
+            requests = []
+            for polarity, marker in (("positive", "VALUES_OK"), ("negative", "EMPTY_REJECTED")):
+                request = {"id": "service-" + polarity, "summary": "Ordinary service function " + polarity,
+                    "status": "pass", "source": "run.md", "subjects": ["service.go"], "contract_types": [],
+                    "surface_expectations": [{"surface": "service", "polarity": polarity, "proof_kinds": ["unit-test"]}],
+                    "evidence": [{"path": "checks/service.output", "markers": [marker],
+                                  "surface": "service", "polarity": polarity, "proof_kind": "unit-test"}]}
+                requests.append(request)
+                request_path.write_text(json.dumps(request))
+                with redirect_stdout(StringIO()):
+                    self.assertEqual(journal.main(["--run-dir", str(run), "record", "--kind", "acceptance",
+                        "--request-file", str(request_path), "--operation-id", request["id"]]), 0)
+            snapshot = journal_io.JournalSnapshot.open(run)
+            self.assertEqual(base.validator.validate_acceptance_traceability_records(run,
+                required_acceptance_ids=[request["id"] for request in requests], required=True,
+                final_verdict="ship", snapshot=snapshot), [])
+            for index, value in enumerate(("api", ["unknown-contract"], None, [""], [False], {})):
+                request_path.write_text(json.dumps({**requests[0], "contract_types": value}))
+                with self.subTest(value=value), redirect_stderr(StringIO()), self.assertRaises((ValueError, journal_io.JournalError, SystemExit)):
+                    journal.main(["--run-dir", str(run), "record", "--kind", "acceptance",
+                        "--request-file", str(request_path), "--operation-id", "invalid-contract-" + str(index)])
+                current = journal_io.JournalSnapshot.open(run)
+                self.assertEqual((current.revision, current.documents, current.receipts),
+                                 (snapshot.revision, snapshot.documents, snapshot.receipts))
+            from dataclasses import replace
+            for missing in (b"VALUES_OK\n", b"EMPTY_REJECTED\n"):
+                altered = replace(snapshot, documents={**snapshot.documents, "checks/service.output": missing})
+                self.assertTrue(base.validator.validate_acceptance_traceability_records(run,
+                    required_acceptance_ids=[request["id"] for request in requests], required=True,
+                    final_verdict="ship", snapshot=altered))
+
+    def test_architecture_outcome_public_contract(self):
+        journal = load("architecture_public_journal", "journal.py")
+        output = StringIO()
+        with redirect_stdout(output):
+            self.assertEqual(journal.main(["contract"]), 0)
+        contract = json.loads(output.getvalue())
+        self.assertIn("architecture-outcome", contract["fields"])
+        example = contract["examples"]["architecture-outcome"]
+        self.assertEqual(len(example["sections"]), 20)
+        self.assertEqual(contract["semantic_choices"]["architecture-outcome"]["decision"],
+                         ["approved", "needs-revision", "rejected"])
+
     def tree(self, root):
         return {str(path.relative_to(root)): path.read_bytes()
                 for path in root.rglob("*") if path.is_file()}
+
+    def register_synthetic_root(self, run):
+        source = base.SyntheticSource()
+        source.sessions[base.ROOT_ID] = [{"type": "session_meta", "payload": {"id": base.ROOT_ID}}]
+        self.enterContext(patch.object(evidence, "CodexSessionSource", return_value=source))
+        with redirect_stdout(StringIO()):
+            recorder.main(["--run-dir", str(run), "--role", "orchestrator", "--execution-mode", "role-lane",
+                           "--stage", "verification", "--status", "active", "--summary", "Synthetic root metadata fixture",
+                           "--verification-json", json.dumps({**evidence.empty_verification(), "root_thread_id": base.ROOT_ID})], session_source=source)
 
     def invalid_requests(self):
         from journal_structure import request_contract
@@ -244,6 +308,21 @@ class SemanticRequestRegressions(unittest.TestCase):
                 self.assertEqual(self.tree(root), before)
                 synthetic.sessions = saved
                 journal_io.write_entry(run, "readiness-approval", approved, identifier="actual-approval")
+                disposable = root.parent / (root.name + "-approved-command")
+                disposable.mkdir()
+                self.addCleanup(__import__("shutil").rmtree, disposable)
+                command = [sys.executable, "-B", "-c", "from pathlib import Path; Path('executed').write_text('actual execution')"]
+                scoped = {**request, "id": "approval-execution", "commands": [{"cwd": str(disposable), "command": __import__("shlex").join(command), "source": "artifacts/safe-command.md"}]}
+                journal_io.write_entry(run, "readiness-approval", scoped, identifier="scoped-request")
+                check_request = {"summary": "Actual specifically authorized command", "status": "pass", "cwd": str(disposable), "command": command}
+                with self.assertRaisesRegex(journal_io.JournalError, "scoped user observation"):
+                    journal_io.write_entry(run, "check", check_request, identifier="without-permission")
+                self.assertFalse((disposable / "executed").exists())
+                journal_io.write_entry(run, "readiness-approval", {**scoped, "status": "pass", "decision": "approve", "source_event": 1, "source_quote": quote}, identifier="scoped-approved")
+                self.assertEqual(json.loads(journal_io.JournalSnapshot.open(run).read_text("verification-readiness.json"))["approval_executions"], [])
+                checked = journal_io.write_entry(run, "check", check_request, identifier="authorized-execution")
+                self.assertEqual(checked["exit_code"], 0)
+                self.assertTrue((disposable / "executed").exists())
                 second = {**request, "id": "approval-two"}
                 journal_io.write_entry(run, "readiness-approval", second, identifier="second-approval-request")
                 journal_io.write_entry(run, "readiness-approval", {**second, "status": "blocked", "decision": "decline", "source_event": 3,
@@ -254,7 +333,7 @@ class SemanticRequestRegressions(unittest.TestCase):
                              (base.ROOT_ID, 1, quote, "approved"))
             self.assertTrue(observation["sha256"])
             self.assertEqual(data["approval_executions"], [])
-            self.assertEqual(data["approval_requests"][1]["source_observation"]["decision"], "declined")
+            self.assertEqual(data["approval_requests"][-1]["source_observation"]["decision"], "declined")
 
     def test_blocked_resolution_attempt_requires_recovery_before_next_attempt(self):
         import tempfile
@@ -269,6 +348,7 @@ class SemanticRequestRegressions(unittest.TestCase):
             journal_io.write_entry(run, "lane", {"id": "worker", "summary": "Planned local owner",
                                                 "status": "planned", "lane_type": "implementation", "role": "python-worker",
                                                 "execution_mode": "subagent", "wave": 1, "critical": False}, identifier="recovery-owner")
+            self.register_synthetic_root(run)
             check = journal_io.write_entry(run, "check", {"summary": "Actual local test failure", "status": "pass", "cwd": str(disposable),
                                                           "command": [sys.executable, "-B", "-c", "print('actual failure'); raise SystemExit(7)"]}, identifier="recovery-failure")
             refs = [{"path": ref["path"]} for ref in check["evidence"]]
@@ -375,6 +455,7 @@ class SemanticRequestRegressions(unittest.TestCase):
             run = root / "run"
             unusual_path = "checks/actual\n## Evidence\rStatus: fail\u2028<!-- agent-flow:worktree:begin -->.output"
             journal_io.initialize_journal(run, {"checks/actual.output": b"Actual captured evidence\n", unusual_path: b"Exact unusual attachment bytes\n"}, source_root=root)
+            self.register_synthetic_root(run)
             summary = "Quoted observation & meaning.\rStatus: fail\r\nVerdict: blocked\u2028## Evidence\nForged prose evidence.\n<!-- agent-flow:worktree:begin -->\n<script>literal data</script>\n```\n## Task Scope\n```"
             nested = "Nested observation.\r## Evidence\r\nForged nested evidence.\u2029Status: fail\n<!-- agent-flow:delegation:end -->"
             request = {"summary": summary, "status": "active", "evidence": [{"path": "checks/actual.output"}, {"path": unusual_path}]}
@@ -579,6 +660,1910 @@ class SemanticRequestRegressions(unittest.TestCase):
             self.assertIsNotNone(snapshot.operation_receipt("unlocked-check"))
 
 
+class ReviewInputRegressions(unittest.TestCase):
+    def context_pin(self, fixture, sources, identifier="external-context-pin"):
+        args = ["--run-dir", str(fixture.run), "--prepare-review-input", "--lane-id", fixture.lane_id,
+                "--review-subject", "requirements-plan", "--operation-id", identifier]
+        args += [item for name in sources for item in ("--review-source", name)]
+        output = StringIO()
+        with patch.object(journal_io, "now_iso", return_value="2026-09-10T09:59:00+00:00"), redirect_stdout(output):
+            self.assertEqual(recorder.main(args, session_source=fixture.source), 0)
+        return json.loads(output.getvalue())
+    def declared_external_context(self):
+        import tempfile
+        from task_workspace import prepare
+        fixture = self.fixture()
+        external = tempfile.TemporaryDirectory(prefix="declared-context-")
+        self.addCleanup(external.cleanup)
+        root = Path(external.name).resolve()
+        for name in ("one", "two", "rules/nested"):
+            (root / name).mkdir(parents=True)
+        first, second, directory = root / "one/AGENTS.md", root / "two/AGENTS.md", root / "rules"
+        first.write_text("Global declared instructions\n")
+        second.write_text("Separate declared instructions with same basename\n")
+        (directory / "policy.txt").write_text("Explicit directory policy\n")
+        (directory / "nested/worker.md").write_text("Explicit nested member\n")
+        product = fixture.repo / "product"
+        product.mkdir()
+        subprocess.run(["git", "init", "-q", str(product)], check=True)
+        (product / "result.txt").write_text("Product baseline\n")
+        workspace = prepare(fixture.run, [product], fixture.repo / "owned-context-workspace",
+                            context_roots=[first, second, directory], identifier="context-scope")
+        sources = ["run.md", str(first), str(second), str(directory / "policy.txt"), str(directory / "nested/worker.md")]
+        return fixture, root, workspace, sources
+
+    def test_external_declared_context_public_prepare_bind_review(self):
+        fixture, root, workspace, sources = self.declared_external_context()
+        pin = self.context_pin(fixture, sources)
+        keys = {row["key"] for row in pin["review_subject"]["sources"]}
+        self.assertEqual(keys, {"journal:run.md", "context:0/AGENTS.md", "context:1/AGENTS.md",
+                               "context:2/rules/policy.txt", "context:2/rules/nested/worker.md"})
+        snapshot = journal_io.JournalSnapshot.open(fixture.run)
+        for capture in pin["captures"]:
+            self.assertEqual(evidence.current_review_source(snapshot, capture["key"]), snapshot.read_bytes(capture["path"]))
+        self.start(fixture, pin)
+        answer, handoff = self.conclude(fixture)
+        self.accept(fixture, answer, handoff)
+        snapshot = journal_io.JournalSnapshot.open(fixture.run)
+        record = next(row for row in json.loads(snapshot.read_text("delegation-summary.json"))["subagents"]
+                      if row["lane_id"] == fixture.lane_id)
+        evidence.source_bound_record(fixture.run, record, json.loads(snapshot.read_text("delegation-summary.json"))["verification"],
+                                     "qa-verifier", fixture.source, snapshot=snapshot, current=True)
+
+    def test_context_pin_omission_keys_aliases_and_duplicate_reject_atomically(self):
+        fixture, root, workspace, sources = self.declared_external_context()
+        before = fixture.snapshot()
+        malformed = ["context:00/AGENTS.md", "context:-1/AGENTS.md", "context:+1/AGENTS.md", "context:x/AGENTS.md",
+                     "context:999/AGENTS.md", "context:0/wrong.md", "context:0/AGENTS.md/child", "context:2/rules/missing",
+                     "context:2/rules/../escape", "context:2//rules/policy.txt", "context:2/rules//policy.txt"]
+        for index, key in enumerate(malformed):
+            with self.subTest(key=key), self.assertRaises(journal_io.JournalError):
+                self.context_pin(fixture, [*sources, key], identifier="bad-context-key-" + str(index))
+            self.assertEqual(fixture.snapshot(), before)
+        for index, omitted in enumerate((sources[2], sources[3])):
+            with self.subTest(omitted=omitted), self.assertRaisesRegex(journal_io.JournalError, "review omits declared inputs: context:"):
+                self.context_pin(fixture, [name for name in sources if name != omitted], identifier="omitted-context-" + str(index))
+            self.assertEqual(fixture.snapshot(), before)
+        (root / "sibling.txt").write_text("Not declared\n")
+        (root / "alias").symlink_to(root / "one/AGENTS.md")
+        (root / "parent-alias").symlink_to(root / "rules", target_is_directory=True)
+        (root / "rules/member-alias").symlink_to(root / "sibling.txt")
+        (root / "rules/new-member.txt").write_text("Not in captured manifest\n")
+        bad_paths = [root / "sibling.txt", root / "alias", root / "parent-alias/policy.txt",
+                     root / "rules/member-alias", root / "rules/new-member.txt", root / "rules"]
+        for index, path in enumerate(bad_paths):
+            with self.subTest(path=str(path)), self.assertRaises(journal_io.JournalError):
+                self.context_pin(fixture, [*sources, str(path)], identifier="bad-context-path-" + str(index))
+            self.assertEqual(fixture.snapshot(), before)
+        with self.assertRaisesRegex(journal_io.JournalError, "duplicate logical review sources"):
+            self.context_pin(fixture, [*sources, "context:0/AGENTS.md"], identifier="duplicate-context")
+        self.assertEqual(fixture.snapshot(), before)
+
+    def test_context_current_directory_set_drift_history_and_single_scope_scan(self):
+        import workspace_scope
+        fixture, root, workspace, sources = self.declared_external_context()
+        with patch.object(workspace_scope, "context_capture", wraps=workspace_scope.context_capture) as capture:
+            pin = self.context_pin(fixture, sources)
+        self.assertEqual(capture.call_count, 3)  # Once per declared root, not per member.
+        row = {"lane_id": fixture.lane_id, "review_subject": pin["review_subject"], "review_input_operation_id": pin["operation_id"]}
+        snapshot = journal_io.JournalSnapshot.open(fixture.run)
+        with patch.object(workspace_scope, "context_capture", wraps=workspace_scope.context_capture) as capture:
+            evidence.review_input_receipt(snapshot, row, current=True)
+        self.assertEqual(capture.call_count, 3)
+        extra = root / "rules/new-member.txt"
+        extra.write_text("Directory set changed without changing old members\n")
+        with self.assertRaisesRegex(journal_io.JournalError, "canonical context changed"):
+            evidence.review_input_receipt(snapshot, row, current=True)
+        evidence.review_input_receipt(snapshot, row, current=False)
+        extra.unlink()
+        original = (root / "one/AGENTS.md").read_bytes()
+        (root / "one/AGENTS.md").write_text("Changed declared bytes\n")
+        with self.assertRaisesRegex(journal_io.JournalError, "declared context bytes changed"):
+            evidence.review_input_receipt(snapshot, row, current=True)
+        evidence.review_input_receipt(snapshot, row, current=False)
+        (root / "one/AGENTS.md").write_bytes(original)
+        # A frozen incomplete dependency capture must fail, never fall back live.
+        from dataclasses import replace
+        from validation_inputs import ValidationInputs
+        inputs = ValidationInputs()
+        inputs.freeze()
+        with self.assertRaisesRegex(journal_io.JournalError, "validation dependency changed"):
+            evidence.review_input_receipt(replace(snapshot, external_inputs=inputs), row, current=True)
+
+    def test_context_missing_kind_alias_io_and_capture_race_are_typed(self):
+        fixture, root, workspace, sources = self.declared_external_context()
+        pin = self.context_pin(fixture, sources)
+        row = {"lane_id": fixture.lane_id, "review_subject": pin["review_subject"], "review_input_operation_id": pin["operation_id"]}
+        snapshot = journal_io.JournalSnapshot.open(fixture.run)
+        target = root / "one/AGENTS.md"
+        original = target.read_bytes()
+        for defect in ("missing", "directory", "symlink", "parent-symlink"):
+            with self.subTest(defect=defect):
+                target.unlink()
+                if defect == "directory": target.mkdir()
+                if defect == "symlink": target.symlink_to(root / "two/AGENTS.md")
+                if defect == "parent-symlink":
+                    target.parent.rmdir()
+                    target.parent.symlink_to(root / "two", target_is_directory=True)
+                with self.assertRaises(journal_io.JournalError):
+                    evidence.review_input_receipt(snapshot, row, current=True)
+                evidence.review_input_receipt(snapshot, row, current=False)
+                if defect == "directory": target.rmdir()
+                if defect == "symlink": target.unlink()
+                if defect == "parent-symlink":
+                    target.parent.unlink()
+                    target.parent.mkdir()
+                target.write_bytes(original)
+        with patch.object(journal_io, "capture_file", side_effect=PermissionError("context I/O denial")), self.assertRaisesRegex(journal_io.JournalError, "declared context source unavailable"):
+            evidence.review_input_receipt(snapshot, row, current=True)
+        # Deterministic environment race between member capture and final
+        # existing whole-scope verification; real file bytes are changed.
+        capture = journal_io.capture_file
+        def changed_after_read(path):
+            raw = capture(path)
+            if Path(path) == target:
+                target.write_text("Changed after first captured read\n")
+            return raw
+        before = fixture.snapshot()
+        with patch.object(journal_io, "capture_file", side_effect=changed_after_read), self.assertRaisesRegex(journal_io.JournalError, "canonical context changed"):
+            self.context_pin(fixture, sources, identifier="context-capture-race")
+        self.assertEqual(fixture.snapshot(), before)
+
+    def test_context_real_relocation_current_keys_reorder_and_new_set(self):
+        import shutil, tempfile
+        from copy import deepcopy
+        from task_workspace import manifest_digest
+        from workspace_scope import context_capture
+        fixture, root, workspace, sources = self.declared_external_context()
+        pin = self.context_pin(fixture, sources)
+        row = {"lane_id": fixture.lane_id, "review_subject": pin["review_subject"], "review_input_operation_id": pin["operation_id"]}
+        moved = tempfile.TemporaryDirectory(prefix="relocated-declared-context-")
+        self.addCleanup(moved.cleanup)
+        destination = Path(moved.name).resolve() / "external"
+        shutil.copytree(root, destination)
+        roots = [destination / "one/AGENTS.md", destination / "two/AGENTS.md", destination / "rules"]
+        # Existing workspace updates preserve physical context roots add-only.
+        # This is an explicitly approved current-scope input double, not a
+        # claimed public repack; actual old paths are removed below.
+        moved_scope = deepcopy(workspace)
+        for declaration, path in zip(moved_scope["task_scope"]["context_roots"], roots):
+            declaration["canonical_path"] = str(path)
+        moved_scope["task_scope"]["digest"] = manifest_digest({key: value for key, value in moved_scope["task_scope"].items() if key != "digest"})
+        shutil.rmtree(root)
+        self.assertFalse(root.exists())
+        snapshot = journal_io.JournalSnapshot.open(fixture.run)
+        with patch.object(evidence, "registered_workspace", return_value=moved_scope):
+            evidence.review_input_receipt(snapshot, row, current=True)
+            current_rows = [{"key": entry["key"], "sha256": evidence.sha256(evidence.current_review_source(snapshot, entry["key"]))}
+                            for entry in pin["review_subject"]["sources"]]
+            self.assertEqual(evidence.requirements_digest(current_rows), pin["review_subject"]["digest"])
+        reordered = deepcopy(moved_scope)
+        reordered["task_scope"]["context_roots"][:2] = reversed(reordered["task_scope"]["context_roots"][:2])
+        reordered["task_scope"]["digest"] = manifest_digest({key: value for key, value in reordered["task_scope"].items() if key != "digest"})
+        with patch.object(evidence, "registered_workspace", return_value=reordered), self.assertRaisesRegex(journal_io.JournalError, "current review input drift"):
+            evidence.review_input_receipt(snapshot, row, current=True)
+        (roots[2] / "new-member.txt").write_text("Newly declared member\n")
+        changed_set = deepcopy(moved_scope)
+        changed_set["task_scope"]["context_roots"][2] = context_capture(roots[2])
+        changed_set["task_scope"]["digest"] = manifest_digest({key: value for key, value in changed_set["task_scope"].items() if key != "digest"})
+        with patch.object(evidence, "registered_workspace", return_value=changed_set), self.assertRaisesRegex(journal_io.JournalError, "review omits declared inputs"):
+            evidence.review_input_receipt(snapshot, row, current=True)
+        evidence.review_input_receipt(snapshot, row, current=False)
+
+    def test_context_overlap_explicit_identity_and_product_namespace(self):
+        from task_workspace import prepare
+        fixture, root, workspace, sources = self.declared_external_context()
+        prepare(fixture.run, [fixture.repo / "product"], fixture.repo / "owned-context-workspace",
+                context_roots=[root / "one/AGENTS.md", root / "two/AGENTS.md", root / "rules", root / "rules/policy.txt"],
+                identifier="overlapping-context-scope")
+        before = fixture.snapshot()
+        with self.assertRaisesRegex(journal_io.JournalError, "ambiguous declared context source"):
+            self.context_pin(fixture, sources, identifier="ambiguous-context-pin")
+        self.assertEqual(fixture.snapshot(), before)
+        explicit = [name if name != str(root / "rules/policy.txt") else "context:2/rules/policy.txt" for name in sources]
+        explicit += ["context:3/policy.txt"]
+        current = evidence.registered_workspace(journal_io.JournalSnapshot.open(fixture.run))
+        product_file = Path(current["working_root"]) / "context/AGENTS.md"
+        product_file.parent.mkdir()
+        product_file.write_text("Scoped product file, distinct from external context\n")
+        pin = self.context_pin(fixture, [*explicit, str(product_file)])
+        self.assertIn("source:context/AGENTS.md", {row["key"] for row in pin["review_subject"]["sources"]})
+        self.assertIn("context:0/AGENTS.md", {row["key"] for row in pin["review_subject"]["sources"]})
+    """Public prepare-first subject transitions with explicitly synthetic source."""
+
+    def test_new_native_review_defaults_product_subject_and_conclusion_inherits(self):
+        for role, thread in (("qa-verifier", base.QA_ID), ("reviewer", base.REVIEWER_ID)):
+            with self.subTest(role=role):
+                fixture = FirstBindingRegressions()
+                fixture.setUp()
+                self.addCleanup(fixture.doCleanups)
+                fixture.initialize(schema=0)
+                fixture.source.sessions[thread] = base.session(thread, role, {}, 1)
+                lane_id = "default-" + role
+                journal_io.write_entry(fixture.run, "lane", {"id": lane_id, "summary": "Planned independent review",
+                    "status": "planned", "lane_type": "qa", "role": role, "execution_mode": "subagent",
+                    "wave": 1, "critical": True}, identifier="default-lane")
+                args = ["--role", role, "--lane-id", lane_id, "--codex-thread-id", thread,
+                        "--stage", "spawned", "--operation-id", "default-start"]
+                before = fixture.snapshot()
+                for assertion in ("unknown", "null", "requirements-plan"):
+                    with self.subTest(assertion=assertion), self.assertRaises(SystemExit):
+                        fixture.record(*args, "--review-subject", assertion)
+                    self.assertEqual(fixture.snapshot(), before)
+                fixture.record(*args)
+                snapshot = journal_io.JournalSnapshot.open(fixture.run)
+                row = next(row for row in json.loads(snapshot.read_text("delegation-summary.json"))["subagents"] if row["lane_id"] == lane_id)
+                self.assertEqual(row["review_subject"], {"kind": "product-result"})
+                fixture.record(*args)
+                self.assertEqual(fixture.snapshot(), (snapshot.revision, snapshot.documents, snapshot.receipts))
+                fixture.record("--role", role, "--lane-id", lane_id, "--codex-thread-id", thread, "--stage", "checks")
+                capture = fixture.repo / "evidence.output"
+                capture.write_text("Actual fixture limitation observed\n")
+                journal = load("default_subject_journal", "journal.py")
+                with redirect_stdout(StringIO()):
+                    self.assertEqual(journal.main(["--run-dir", str(fixture.run), "publish", "--file", "checks/limitation.output", str(capture)]), 0)
+                output = StringIO()
+                with redirect_stdout(output):
+                    self.assertEqual(recorder.main(["--run-dir", str(fixture.run), "--prepare-conclusion", "--role", role,
+                        "--lane-id", lane_id, "--status", "fail", "--reason", "Fixture limitation", "--unverified", "Product acceptance",
+                        "--summary", "Own negative observation", "--artifact", "handoffs/" + lane_id + ".md",
+                        "--artifact", "checks/limitation.output"], session_source=fixture.source), 0)
+                self.assertEqual(json.loads(output.getvalue())["review_subject"], {"kind": "product-result"})
+
+    def test_started_native_legacy_omission_is_not_retagged(self):
+        fixture = FirstBindingRegressions()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        fixture.run = fixture.repo / "legacy-started"
+        fixture.source.sessions[base.QA_ID] = base.session(base.QA_ID, "qa-verifier", {}, 1)
+        row = {"lane_id": "legacy-qa", "role": "qa-verifier", "codex_thread_id": base.QA_ID,
+               "status": "active", "trace": "agents/qa-verifier/trace.jsonl"}
+        event = base.trace_event({**row, "handoff": "handoffs/legacy-qa.md"}, "spawned")
+        summary = {"version": 1, "notes": "Explicit synthetic prior untagged start", "subagents_used": True,
+            "role_lanes_used": False, "subagents": [row], "role_lanes": [],
+            "verification": {**evidence.empty_verification(), "task_kind": "analysis", "root_thread_id": base.ROOT_ID}}
+        journal_io.initialize_journal(fixture.run, {"delegation-summary.json": json.dumps(summary).encode(),
+            "timeline.jsonl": (json.dumps(event) + "\n").encode(), row["trace"]: (json.dumps(event) + "\n").encode()}, source_root=fixture.repo)
+        args = ["--role", "qa-verifier", "--lane-id", row["lane_id"], "--codex-thread-id", row["codex_thread_id"],
+                "--stage", "checks", "--status", "active", "--summary", "Continue legacy started review", "--operation-id", "legacy-review-continuation"]
+        fixture.record(*args)
+        snapshot = journal_io.JournalSnapshot.open(fixture.run)
+        stored = next(record for record in json.loads(snapshot.read_text("delegation-summary.json"))["subagents"] if record["lane_id"] == row["lane_id"])
+        self.assertNotIn("review_subject", stored)
+        fixture.record(*args)
+        current = journal_io.JournalSnapshot.open(fixture.run)
+        self.assertEqual((current.revision, current.documents, current.receipts), (snapshot.revision, snapshot.documents, snapshot.receipts))
+
+    def test_full_sealed_handoff_precedes_required_author_boundary(self):
+        from task_workspace import registered_workspace, seal
+        fixture = self.fixture(schema=1)
+        self.change_workspace(fixture)
+        snapshot = journal_io.JournalSnapshot.open(fixture.run)
+        working = Path(registered_workspace(snapshot)["working_root"])
+        (working / "module.py").write_text("value = 2\n")
+        seal(fixture.run)
+        journal_io.write_entry(fixture.run, "lane", {"id": "author", "summary": "Own scoped implementation",
+            "status": "planned", "lane_type": "implementation", "role": "python-worker",
+            "execution_mode": "role-lane", "wave": 2, "critical": True,
+            "allowed_paths": ["module.py"]}, identifier="author-lane")
+        journal = load("public_sealed_handoff", "journal.py")
+        request = fixture.repo / "handoff-input.json"
+        request.write_text(json.dumps({"lane_id": "author", "summary": "Changed module.py within own boundary", "status": "pass"}))
+        with redirect_stdout(StringIO()), patch.object(evidence, "CodexSessionSource", return_value=fixture.source):
+            self.assertEqual(journal.main(["--run-dir", str(fixture.run), "record", "--kind", "handoff",
+                "--request-file", str(request), "--operation-id", "author-handoff"]), 0)
+        snapshot = journal_io.JournalSnapshot.open(fixture.run)
+        verification = json.loads(snapshot.read_text("delegation-summary.json"))["verification"]
+        self.assertIsNone(verification["result_hash"])
+        self.assertIn("module.py", snapshot.read_text("handoffs/author.md"))
+        with self.assertRaisesRegex(evidence.EvidenceError, "author boundary artifact missing"):
+            evidence.result_hash(fixture.run, verification, snapshot=snapshot)
+        before = snapshot.revision
+        with redirect_stdout(StringIO()), patch.object(evidence, "CodexSessionSource", return_value=fixture.source):
+            self.assertEqual(journal.main(["--run-dir", str(fixture.run), "record", "--kind", "handoff",
+                "--request-file", str(request), "--operation-id", "author-handoff"]), 0)
+        self.assertEqual(journal_io.JournalSnapshot.open(fixture.run).revision, before)
+        proof = fixture.repo / "edit-proof.json"
+        proof.write_text(json.dumps({"author": base.ROOT_ID, "written_paths": ["module.py"]}))
+        with redirect_stdout(StringIO()):
+            self.assertEqual(journal.main(["--run-dir", str(fixture.run), "publish", "--file", "checks/author-edit.json", str(proof)]), 0)
+        snapshot = journal_io.JournalSnapshot.open(fixture.run)
+        declaration = {"lane_id": "author", "authored_paths": ["module.py"],
+            "handoff": {"path": "handoffs/author.md", "sha256": evidence.sha256(snapshot.read_bytes("handoffs/author.md"))},
+            "edit_evidence": [{"path": "checks/author-edit.json", "sha256": evidence.sha256(proof.read_bytes())}], "coauthors": {}}
+        declared = fixture.repo / "declaration.json"
+        declared.write_text(json.dumps(declaration))
+        boundary = load("public_sealed_boundary", "record-lane-boundary.py")
+        with redirect_stdout(StringIO()):
+            self.assertEqual(journal.main(["--run-dir", str(fixture.run), "publish", "--file", "checks/author-declaration.json", str(declared)]), 0)
+            self.assertEqual(boundary.main(["--run-dir", str(fixture.run), "--lane-id", "author", "--declaration-json", "checks/author-declaration.json"]), 0)
+        snapshot = journal_io.JournalSnapshot.open(fixture.run)
+        digest = evidence.result_hash(fixture.run, verification, snapshot=snapshot)
+        self.assertEqual(len(digest), 64)
+        self.assertEqual(evidence.result_hash(fixture.run, verification, snapshot=snapshot, require_ready=False), digest)
+
+    def test_no_map_phase_admission_and_explicit_product_stages(self):
+        for mode in ("compact", "full"):
+            fixture = FirstBindingRegressions()
+            fixture.setUp()
+            self.addCleanup(fixture.doCleanups)
+            fixture.initialize(schema=0, mode=mode)
+            fixture.source.sessions[base.QA_ID] = base.session(base.QA_ID, "python-worker", {}, 1)
+            verification = {**evidence.empty_verification(), "root_thread_id": base.ROOT_ID}
+            fixture.record("--role", "orchestrator", "--execution-mode", "role-lane", "--stage", "verification", "--verification-json", json.dumps(verification))
+            before = journal_io.JournalSnapshot.open(fixture.run)
+            for stage in ("spawned", "active"):
+                with self.subTest(mode=mode, stage=stage), self.assertRaisesRegex(SystemExit, "task_kind"):
+                    fixture.record("--role", "python-worker", "--lane-id", "readonly-worker", "--stage", stage,
+                                   "--execution-mode", "role-lane" if stage == "active" else "subagent", "--codex-thread-id", base.ROOT_ID if stage == "active" else base.QA_ID)
+                self.assertEqual(journal_io.JournalSnapshot.open(fixture.run).revision, before.revision)
+            verification["task_kind"] = "analysis"
+            fixture.record("--role", "orchestrator", "--execution-mode", "role-lane", "--stage", "verification", "--verification-json", json.dumps(verification))
+            fixture.record("--role", "python-worker", "--lane-id", "readonly-worker", "--stage", "spawned", "--codex-thread-id", base.QA_ID, "--operation-id", "readonly-start")
+            fixture.record("--role", "python-worker", "--lane-id", "readonly-worker", "--stage", "active", "--codex-thread-id", base.QA_ID)
+            before = journal_io.JournalSnapshot.open(fixture.run)
+            for stage in ("implementation", "integration", "fix"):
+                with self.subTest(mode=mode, stage=stage), self.assertRaisesRegex(SystemExit, "task_kind=change"):
+                    fixture.record("--role", "python-worker", "--lane-id", "readonly-worker", "--stage", stage, "--codex-thread-id", base.QA_ID)
+                self.assertEqual(journal_io.JournalSnapshot.open(fixture.run).revision, before.revision)
+            from types import SimpleNamespace
+            def locked_admission(current):
+                journal_io.worker_start_preflight(current, None, None, verification, SimpleNamespace(stage="fix", status="active", lane_id="readonly-worker", role="python-worker", execution_mode="subagent", codex_thread_id=base.QA_ID))
+                return {}, {}
+            with self.assertRaisesRegex(journal_io.JournalError, "task_kind=change"):
+                journal_io.transact(fixture.run, "locked-phase-guard", {}, locked_admission)
+            request = json.loads((fixture.run / ".journal/requests/readonly-start").read_text())["payload"]
+            request.pop("artifact")
+            root_action = SimpleNamespace(**request)
+            root_action.stage = "fix"
+            root_action.lane_id = None
+            root_action.role = "orchestrator"
+            root_action.execution_mode = "role-lane"
+            root_action.codex_thread_id = base.ROOT_ID
+            with self.assertRaisesRegex((journal_io.JournalError, SystemExit), "task_kind=change"):
+                journal_io.transact(fixture.run, "locked-root-product-guard", {}, lambda current: journal_io.record_event(fixture.run, root_action, [], fixture.source, current))
+            self.assertEqual(journal_io.JournalSnapshot.open(fixture.run).revision, before.revision)
+            self.assertFalse(before.exists("lane-map.json"))
+            verification["task_kind"] = None
+            fixture.record("--role", "orchestrator", "--execution-mode", "role-lane", "--stage", "verification", "--verification-json", json.dumps(verification))
+            before = journal_io.JournalSnapshot.open(fixture.run)
+            fixture.record("--role", "python-worker", "--lane-id", "readonly-worker", "--stage", "spawned", "--codex-thread-id", base.QA_ID, "--operation-id", "readonly-start")
+            self.assertEqual(journal_io.JournalSnapshot.open(fixture.run).revision, before.revision)
+            with self.assertRaisesRegex(SystemExit, "payload conflict"):
+                fixture.record("--role", "python-worker", "--lane-id", "readonly-worker", "--stage", "spawned", "--codex-thread-id", base.QA_ID, "--operation-id", "readonly-start", "--summary", "Changed retry payload")
+            verification.update(task_kind="change", blocker="Workspace not yet prepared", unverified=["scoped product action"])
+            fixture.record("--role", "orchestrator", "--execution-mode", "role-lane", "--stage", "blocked", "--status", "blocked", "--verification-json", json.dumps(verification))
+            with self.assertRaisesRegex(SystemExit, "prepared workspace"):
+                fixture.record("--role", "python-worker", "--lane-id", "readonly-worker", "--stage", "implementation", "--codex-thread-id", base.QA_ID)
+            self.change_workspace(fixture)
+            fixture.record("--role", "python-worker", "--lane-id", "readonly-worker", "--stage", "implementation", "--codex-thread-id", base.QA_ID)
+            summary = json.loads(journal_io.JournalSnapshot.open(fixture.run).read_text("delegation-summary.json"))
+            self.assertIn(base.QA_ID, summary["verification"]["author_thread_ids"])
+            self.assertFalse(journal_io.JournalSnapshot.open(fixture.run).exists("lane-map.json"))
+
+    def test_single_source_and_parent_symlink_reject_before_pin(self):
+        fixture = self.fixture()
+        (fixture.repo / "a.md").write_bytes(b"original source\n")
+        (fixture.repo / "b.md").write_bytes(b"other source\n")
+        link = fixture.repo / "link.md"
+        link.symlink_to("a.md")
+        directory = fixture.repo / "alias-directory"
+        directory.symlink_to(fixture.repo, target_is_directory=True)
+        before = journal_io.JournalSnapshot.open(fixture.run)
+        for name in ("link.md", str(link), str(directory / "a.md")):
+            with self.subTest(name=name), self.assertRaisesRegex((evidence.EvidenceError, journal_io.JournalError), "symlink"):
+                journal_io.prepare_review_input(fixture.run, fixture.lane_id, ["run.md", name], identifier="alias-" + str(len(name)))
+            self.assertEqual(journal_io.JournalSnapshot.open(fixture.run).revision, before.revision)
+
+    def test_public_prepare_input_freezes_without_assignment(self):
+        fixture = FirstBindingRegressions()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        fixture.initialize(schema=0)
+        (fixture.repo / "requirements.md").write_text("Actual full requirements\n")
+        before = json.loads(journal_io.JournalSnapshot.open(fixture.run).read_text("delegation-summary.json"))
+        output = StringIO()
+        with redirect_stdout(output):
+            self.assertEqual(recorder.main(["--run-dir", str(fixture.run), "--prepare-review-input",
+                "--lane-id", "qa-requirements", "--review-subject", "requirements-plan",
+                "--review-source", str(fixture.repo / "requirements.md"), "--review-source", "run.md", "--operation-id", "pin-one"], session_source=fixture.source), 0)
+        receipt = json.loads(output.getvalue())
+        snapshot = journal_io.JournalSnapshot.open(fixture.run)
+        self.assertEqual(json.loads(snapshot.read_text("delegation-summary.json")), before)
+        self.assertEqual(receipt["review_subject"]["kind"], "requirements-plan")
+        self.assertIn({"key": "source:requirements.md", "sha256": journal_io.digest(b"Actual full requirements\n")}, receipt["review_subject"]["sources"])
+        self.assertIn("frozen_at", receipt)
+
+    def fixture(self, schema=0):
+        fixture = FirstBindingRegressions()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        fixture.initialize(schema=schema)
+        fixture.lane_id = "qa-requirements" if schema == 0 else "verification-readiness-1"
+        fixture.source.sessions[base.QA_ID] = base.session(base.QA_ID, "qa-verifier", {}, 1)
+        if schema == 0:
+            journal_io.write_entry(fixture.run, "lane", {"id": fixture.lane_id, "summary": "Preliminary QA", "status": "planned",
+                "lane_type": "qa", "role": "qa-verifier", "execution_mode": "subagent", "wave": 1, "critical": True}, identifier="declare-preliminary")
+        return fixture
+
+    def pin(self, fixture, identifier="pin-one"):
+        sources = ["run.md"]
+        snapshot = journal_io.JournalSnapshot.open(fixture.run)
+        if snapshot.exists("plan.md"):
+            sources.append("plan.md")
+        mapping = json.loads(snapshot.documents.get("lane-map.json", b"{}"))
+        verification = json.loads(snapshot.read_text("delegation-summary.json"))["verification"]
+        sources += [ref["path"] for field in ("initial_snapshot", "task_scope") if isinstance(ref := verification.get(field), dict)]
+        sources += list({lane[field] for lane in mapping.get("lanes", []) if lane.get("type") == "architecture"
+                        for field in ("handoff", "architecture_design_brief") if lane.get(field) and snapshot.exists(lane[field])})
+        with patch.object(journal_io, "now_iso", return_value="2026-09-10T09:59:00+00:00"):
+            return journal_io.prepare_review_input(fixture.run, fixture.lane_id, list(dict.fromkeys(sources)), identifier=identifier)
+
+    def start(self, fixture, pin):
+        with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+            return recorder.main(["--run-dir", str(fixture.run), "--role", "qa-verifier", "--lane-id", fixture.lane_id,
+                "--stage", "spawned", "--status", "active", "--summary", "Synthetic preliminary",
+                "--codex-thread-id", base.QA_ID, "--review-input-operation-id", pin["operation_id"],
+                *(["--obligation-id", fixture.obligation_id] if hasattr(fixture, "obligation_id") else [])], session_source=fixture.source)
+
+    def conclude(self, fixture, status="pass", gates=None, identifier=None):
+        capture = fixture.repo / "observation.txt"
+        capture.write_text("Full observed requirements and scoped environment evidence\n")
+        journal = load("preliminary_public_journal", "journal.py")
+        with redirect_stdout(StringIO()):
+            journal.main(["--run-dir", str(fixture.run), "publish", "--file", "artifacts/observation.txt", str(capture), "--operation-id", "preliminary-observation"])
+        snapshot = journal_io.JournalSnapshot.open(fixture.run)
+        lane = next(row for row in json.loads(snapshot.read_text("lane-map.json"))["lanes"] if row["id"] == fixture.lane_id)
+        handoff = lane.get("handoff") or "handoffs/" + fixture.lane_id + ".md"
+        args = ["--run-dir", str(fixture.run), "--prepare-conclusion", "--role", "qa-verifier", "--lane-id", fixture.lane_id,
+                "--status", status, "--summary", "Substantive preliminary review", "--artifact", handoff, "--artifact", "artifacts/observation.txt"]
+        if status in {"blocked", "fail"}:
+            args += ["--reason", "Missing required observation", "--unverified", "dependent check"]
+        if gates is not None:
+            path = fixture.repo / "gates.json"
+            path.write_text(json.dumps(gates))
+            args += ["--readiness-gates-file", str(path)]
+            args += [argument for gate in gates for ref in gate["evidence"] for argument in ("--artifact", ref["path"])]
+        if identifier:
+            args += ["--operation-id", identifier]
+        output = StringIO()
+        with redirect_stdout(output), redirect_stderr(StringIO()):
+            self.assertEqual(recorder.main(args, session_source=fixture.source), 0)
+        return json.loads(output.getvalue()), handoff
+
+    def accept(self, fixture, answer, handoff):
+        events = base.session(base.QA_ID, "qa-verifier", answer, 1)
+        turn = getattr(fixture, "review_turn", base.QA_ID + "-turn")
+        for event in events:
+            if "turn_id" in event["payload"]:
+                event["payload"]["turn_id"] = turn
+        events[3:3] = getattr(fixture, "tool_outputs", [])
+        fixture.source.sessions[base.QA_ID] = fixture.prior_events + events[1:] if hasattr(fixture, "prior_events") else events
+        with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+            return recorder.main(["--run-dir", str(fixture.run), "--role", "qa-verifier", "--lane-id", fixture.lane_id,
+                "--stage", answer["verdict"] if answer["verdict"] in {"blocked", "fail"} else "handoff",
+                "--status", "pass" if answer["verdict"] == "passed" else answer["verdict"], "--summary", "Synthetic completed preliminary",
+                "--codex-thread-id", base.QA_ID, "--completion-turn-id", turn, "--artifact", handoff,
+                "--artifact", "artifacts/observation.txt", *[argument for gate in answer.get("readiness_gates", []) for ref in gate["evidence"] for argument in ("--artifact", ref["path"])]], session_source=fixture.source)
+
+    def mcp_readiness_fixture(self):
+        fixture = self.fixture(schema=2)
+        self.change_workspace(fixture)
+        self.start(fixture, self.pin(fixture))
+        raw = json.dumps({"content": [{"type": "text", "text": "Observed scoped MCP result"}]}, indent=2)
+        fixture.tool_outputs = [{"type": "response_item", "payload": {"type": "custom_tool_call_output",
+            "call_id": "own-mcp", "output": [{"type": "output_text", "text": "unrelated part"},
+                {"type": "output_text", "text": raw}]}}]
+        fixture.source.sessions[base.QA_ID][3:3] = fixture.tool_outputs
+        snapshot = journal_io.JournalSnapshot.open(fixture.run)
+        pairs = __import__("journal_structure").domain_validator().selected_verification_gate_pairs(json.loads(snapshot.read_text("lane-map.json"))["architecture_context"])
+        gates = [{"axis": axis, "facet": facet, "check": "Scoped tool observation", "readiness": "ready",
+            "notes": "Synthetic independent QA applicability", "evidence": [{"path": "artifacts/own-mcp.output",
+                "source_event": 4, "source_call_id": "own-mcp", "source_part": 1}]} for axis, facet in pairs]
+        return fixture, gates, raw
+
+    def test_public_mcp_readiness_output_preparation_acceptance_and_admission(self):
+        fixture, gates, raw = self.mcp_readiness_fixture()
+        answer, handoff = self.conclude(fixture, gates=gates)
+        self.assertEqual(journal_io.JournalSnapshot.open(fixture.run).read_bytes("artifacts/own-mcp.output"), raw.encode())
+        self.assertEqual(answer["readiness_gates"][0]["evidence"][0]["sha256"], evidence.sha256(raw.encode()))
+        self.assertEqual(self.accept(fixture, answer, handoff), 0)
+        result = journal_io.automatic_readiness(journal_io.JournalSnapshot.open(fixture.run), fixture.source)
+        self.assertEqual(json.loads(result["verification-readiness.json"])["status"], "ready")
+
+    def test_mcp_readiness_finite_output_and_locator_atomic_refusals(self):
+        import copy
+        fixture, original, raw = self.mcp_readiness_fixture()
+        # Supplemental narrative is published before the operation under test.
+        observation = fixture.repo / "observation.txt"
+        observation.write_text("Full observed requirements and scoped environment evidence\n")
+        journal = load("mcp_negative_public_journal", "journal.py")
+        with redirect_stdout(StringIO()):
+            journal.main(["--run-dir", str(fixture.run), "publish", "--file", "artifacts/observation.txt", str(observation), "--operation-id", "preliminary-observation"])
+        source_output = fixture.source.sessions[base.QA_ID][3]["payload"]
+        cases = [({"source_event": True}, None), ({"source_event": 1}, None), ({"source_event": 99}, None),
+            ({"source_call_id": "foreign"}, None), ({"source_call_id": ""}, None),
+            ({"source_part": True}, None), ({"source_part": -1}, None), ({"source_part": 9}, None),
+            ({"source_part": 0}, None), ({"sha256": "0" * 64}, None), ({"extra": "unknown"}, None),
+            ({}, {"content": [{"type": "text", "text": "failed"}], "isError": True}),
+            ({}, {"content": [{"type": "text", "text": "unknown"}], "isError": "false"}),
+            ({}, {"status": "pass", "value": "narrative"}), ({}, {"content": []}),
+            ({}, {"content": [{"type": "image", "data": "unsupported"}]}),
+            ({}, {"content": [{"type": "text", "text": ""}]}),
+            ({}, {"content": [{"type": "text", "text": "ok"}], "structuredContent": []})]
+        for mutation, result in cases:
+            with self.subTest(mutation=mutation, result=result):
+                gates = copy.deepcopy(original)
+                for gate in gates:
+                    gate["evidence"][0].update(mutation)
+                source_output["output"][1]["text"] = raw if result is None else json.dumps(result)
+                before = journal_io.JournalSnapshot.open(fixture.run)
+                with self.assertRaises(SystemExit):
+                    self.conclude(fixture, gates=gates)
+                after = journal_io.JournalSnapshot.open(fixture.run)
+                self.assertEqual(before.documents, after.documents)
+                self.assertEqual(before.receipts, after.receipts)
+                self.assertEqual(before.revision, after.revision)
+        source_output["output"][1]["text"] = raw
+        source_output["output"].append({"type": "image", "data": "unavailable part"})
+        with self.assertRaisesRegex(SystemExit, "unavailable"):
+            self.conclude(fixture, gates=original)
+
+    def test_mcp_readiness_raw_string_optional_assertions_replay_and_tamper(self):
+        fixture, gates, raw = self.mcp_readiness_fixture()
+        fixture.tool_outputs[0]["payload"].update(type="function_call_output", output=raw)
+        for gate in gates:
+            del gate["evidence"][0]["source_part"]
+            del gate["evidence"][0]["source_call_id"]
+        answer, handoff = self.conclude(fixture, gates=gates, identifier="own-tool-conclusion")
+        snapshot = journal_io.JournalSnapshot.open(fixture.run)
+        repeated, _ = self.conclude(fixture, gates=gates, identifier="own-tool-conclusion")
+        self.assertEqual(repeated, answer)
+        self.assertEqual(journal_io.JournalSnapshot.open(fixture.run).revision, snapshot.revision)
+        self.assertEqual(self.accept(fixture, answer, handoff), 0)
+        accepted = journal_io.JournalSnapshot.open(fixture.run)
+        record = next(row for row in json.loads(accepted.read_text("delegation-summary.json"))["subagents"] if row["lane_id"] == fixture.lane_id)
+        verification = json.loads(accepted.read_text("delegation-summary.json"))["verification"]
+        fixture.source.sessions[base.QA_ID][3]["payload"]["output"] = raw + " "
+        with self.assertRaisesRegex(journal_io.JournalError, "hash assertion mismatch"):
+            evidence.source_bound_record(fixture.run, record, verification, "qa-verifier", fixture.source, snapshot=accepted)
+
+    def test_mcp_readiness_same_duty_public_replacement_preserves_attempts(self):
+        import copy
+        fixture, gates, raw = self.mcp_readiness_fixture()
+        answer, handoff = self.conclude(fixture, gates=gates)
+        self.assertEqual(self.accept(fixture, answer, handoff), 0)
+        old_lane = fixture.lane_id
+        old_snapshot = journal_io.JournalSnapshot.open(fixture.run)
+        old_record = next(row for row in json.loads(old_snapshot.read_text("delegation-summary.json"))["subagents"] if row["lane_id"] == old_lane)
+        old_trace = old_snapshot.read_bytes(old_record["trace"])
+        old_handoff = old_snapshot.read_bytes(handoff)
+        # First public worker start materializes the old endorsed attempt.
+        fixture.source.sessions[base.REVIEWER_ID] = base.session(base.REVIEWER_ID, "python-worker", {}, 2)
+        for worker in ("worker-before", "worker-after"):
+            journal_io.write_entry(fixture.run, "lane", {"id": worker, "summary": "Scoped dependent worker", "status": "planned",
+                "lane_type": "implementation", "role": "python-worker", "execution_mode": "subagent", "wave": 2,
+                "critical": True, "allowed_paths": ["module.py"]}, identifier="declare-" + worker)
+        def worker_start(lane):
+            with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+                return recorder.main(["--run-dir", str(fixture.run), "--role", "python-worker", "--lane-id", lane,
+                    "--stage", "spawned", "--status", "active", "--summary", "Actual synthetic dependent start",
+                    "--codex-thread-id", base.REVIEWER_ID], session_source=fixture.source)
+        self.assertEqual(worker_start("worker-before"), 0)
+        fixture.prior_events = copy.deepcopy(fixture.source.sessions[base.QA_ID])
+        fixture.review_turn = base.QA_ID + "-replacement-turn"
+        fixture.obligation_id = old_record["obligation"]["id"]
+        fixture.lane_id = "readiness-replacement"
+        journal_io.write_entry(fixture.run, "lane", {"id": fixture.lane_id, "summary": "Fresh same-duty QA", "status": "planned",
+            "lane_type": "qa", "role": "qa-verifier", "execution_mode": "subagent", "wave": 1, "critical": True}, identifier="declare-replacement")
+        pin = self.pin(fixture, identifier="replacement-pin")
+        events = base.session(base.QA_ID, "qa-verifier", {}, 3)
+        for event in events:
+            if "turn_id" in event["payload"]:
+                event["payload"]["turn_id"] = fixture.review_turn
+        fixture.tool_outputs = copy.deepcopy(fixture.tool_outputs)
+        fixture.tool_outputs[0]["payload"]["call_id"] = "fresh-own-mcp"
+        events[3:3] = fixture.tool_outputs
+        fixture.source.sessions[base.QA_ID] = fixture.prior_events + events[1:]
+        self.assertEqual(self.start(fixture, pin), 0)
+        fresh = copy.deepcopy(gates)
+        for gate in fresh:
+            gate["evidence"][0].update(path="artifacts/fresh-mcp.output", source_event=len(fixture.prior_events) + 3, source_call_id="fresh-own-mcp")
+        answer, fresh_handoff = self.conclude(fixture, gates=fresh)
+        self.assertEqual(self.accept(fixture, answer, fresh_handoff), 0)
+        with self.assertRaisesRegex(journal_io.JournalError, "stale"):
+            journal_io.automatic_readiness(journal_io.JournalSnapshot.open(fixture.run), fixture.source)
+        journal = load("mcp_replace_public_journal", "journal.py")
+        with redirect_stdout(StringIO()):
+            self.assertEqual(journal.main(["--run-dir", str(fixture.run), "resolve-obligation", "--lane-id", old_lane,
+                "--replacement", fixture.lane_id, "--reason", "Fresh same-duty source-confirmed check",
+                "--expected-revision", str(journal_io.JournalSnapshot.open(fixture.run).revision), "--operation-id", "mcp-duty-resolution"]), 0)
+        self.assertEqual(worker_start("worker-after"), 0)
+        current = journal_io.JournalSnapshot.open(fixture.run)
+        data = json.loads(current.read_text("verification-readiness.json"))
+        self.assertEqual({row["lane"] for row in data["attempts"]}, {old_lane, fixture.lane_id})
+        self.assertEqual(json.loads(current.read_text("lane-map.json"))["verification_readiness"]["lanes"], [old_lane])
+        # Existing resolve-obligation appends its own resolution event; original bytes remain.
+        self.assertTrue(current.read_bytes(old_record["trace"]).startswith(old_trace))
+        old_current = next(row for row in json.loads(current.read_text("delegation-summary.json"))["subagents"] if row["lane_id"] == old_lane)
+        self.assertEqual({key: value for key, value in old_current.items() if key != "obligation"},
+            {key: value for key, value in old_record.items() if key != "obligation"})
+        self.assertEqual(current.read_bytes(handoff), old_handoff)
+        self.assertEqual(self.readiness_schema_errors(fixture, current), [])
+        verification = json.loads(current.read_text("delegation-summary.json"))["verification"]
+        evidence.source_bound_record(fixture.run, old_current, verification, "qa-verifier", fixture.source, snapshot=current, current=False)
+        from dataclasses import replace
+        from types import MappingProxyType
+        saved_summary = json.loads(current.read_text("delegation-summary.json"))
+        for variant in ("missing", "cycle", "wrong-duty", "negative", "exempt"):
+            with self.subTest(variant=variant):
+                mutated = copy.deepcopy(saved_summary)
+                old = next(row for row in mutated["subagents"] if row["lane_id"] == old_lane)
+                endpoint = next(row for row in mutated["subagents"] if row["lane_id"] == fixture.lane_id)
+                if variant == "missing":
+                    old["obligation"]["resolution"]["replacement"] = "absent"
+                elif variant == "wrong-duty":
+                    endpoint["obligation"]["id"] = "unrelated-duty"
+                elif variant == "negative":
+                    endpoint["status"] = "fail"
+                else:
+                    endpoint["obligation"].update(state="resolved" if variant == "cycle" else "exempt",
+                        resolution={"original_lane": fixture.lane_id, "replacement": old_lane, "reason": "Synthetic invalid endpoint",
+                            "evidence": [{"path": fresh_handoff, "sha256": evidence.sha256(current.read_bytes(fresh_handoff))}]})
+                    if variant == "exempt":
+                        endpoint["obligation"]["required"] = False
+                        endpoint["purpose"] = "consultation"
+                # Explicit malformed snapshot double; committed writer state stays unchanged.
+                altered = replace(current, documents=MappingProxyType({**current.documents,
+                    "delegation-summary.json": json.dumps(mutated).encode()}))
+                with self.assertRaises(journal_io.JournalError):
+                    journal_io.automatic_readiness(altered, fixture.source)
+
+    def test_mcp_readiness_mixed_failure_and_multi_capture_atomicity(self):
+        import copy, tempfile
+        fixture, gates, raw = self.mcp_readiness_fixture()
+        # First valid capture must not publish when a second source locator is invalid.
+        invalid = copy.deepcopy(gates)
+        for gate in invalid:
+            gate["evidence"].append({"path": "artifacts/second-mcp.output", "source_event": 4,
+                "source_call_id": "wrong-call", "source_part": 1})
+        with self.assertRaisesRegex(SystemExit, "call_id mismatch"):
+            self.conclude(fixture, gates=invalid)
+        self.assertFalse(journal_io.JournalSnapshot.open(fixture.run).exists("artifacts/own-mcp.output"))
+        with tempfile.TemporaryDirectory() as directory:
+            failed = journal_io.write_entry(fixture.run, "check", {"summary": "Actual failed native command",
+                "status": "pass", "command": [sys.executable, "-B", "-c", "print('Actual failing execution'); raise SystemExit(7)"], "cwd": directory}, identifier="mcp-mixed-command-fail")
+            mixed = copy.deepcopy(gates)
+            for gate in mixed:
+                gate["evidence"] += [{"path": ref["path"]} for ref in failed["evidence"]]
+            with self.assertRaisesRegex(SystemExit, "successful actual command"):
+                self.conclude(fixture, gates=mixed)
+            self.assertFalse(journal_io.JournalSnapshot.open(fixture.run).exists("artifacts/own-mcp.output"))
+        journal = load("mcp_occupied_public_journal", "journal.py")
+        occupied = fixture.repo / "occupied.output"
+        occupied.write_text("Previously published unrelated immutable bytes")
+        with redirect_stdout(StringIO()):
+            journal.main(["--run-dir", str(fixture.run), "publish", "--file", "artifacts/own-mcp.output", str(occupied), "--operation-id", "mcp-occupied"])
+        before = journal_io.JournalSnapshot.open(fixture.run)
+        with self.assertRaisesRegex(SystemExit, "already differs"):
+            self.conclude(fixture, gates=gates)
+        after = journal_io.JournalSnapshot.open(fixture.run)
+        self.assertEqual(before.documents, after.documents)
+        self.assertEqual(before.receipts, after.receipts)
+
+    def test_mcp_readiness_outputs_outside_turn_and_false_error_flag(self):
+        import copy
+        fixture, gates, raw = self.mcp_readiness_fixture()
+        events = fixture.source.sessions[base.QA_ID]
+        output = copy.deepcopy(events[3])
+        events.append(output)
+        for gate in gates:
+            gate["evidence"][0]["source_event"] = len(events)
+        with self.assertRaisesRegex(SystemExit, "reviewing turn"):
+            self.conclude(fixture, gates=gates)
+        events.pop()
+        for gate in gates:
+            gate["evidence"][0]["source_event"] = 4
+        false_result = {"content": [{"type": "text", "text": "Observed MCP response"}], "isError": False,
+            "structuredContent": {}, "_meta": {}}
+        events[3]["payload"]["output"][1]["text"] = json.dumps(false_result, indent=1)
+        answer, _ = self.conclude(fixture, gates=gates)
+        self.assertEqual(answer["readiness_gates"][0]["evidence"][0]["sha256"], evidence.sha256(json.dumps(false_result, indent=1).encode()))
+
+    def test_mcp_readiness_missing_configured_assignment_is_atomic_refusal(self):
+        fixture = self.fixture(schema=2)
+        self.change_workspace(fixture)
+        journal_io.write_entry(fixture.run, "lane", {"id": "worker-unready", "summary": "Unready dependent worker", "status": "planned",
+            "lane_type": "implementation", "role": "python-worker", "execution_mode": "subagent", "wave": 2,
+            "critical": True, "allowed_paths": ["module.py"]}, identifier="declare-unready-worker")
+        fixture.source.sessions[base.REVIEWER_ID] = base.session(base.REVIEWER_ID, "python-worker", {}, 2)
+        before = journal_io.JournalSnapshot.open(fixture.run)
+        with redirect_stdout(StringIO()), redirect_stderr(StringIO()), self.assertRaisesRegex(SystemExit, "readiness"):
+            recorder.main(["--run-dir", str(fixture.run), "--role", "python-worker", "--lane-id", "worker-unready",
+                "--stage", "spawned", "--status", "active", "--summary", "Attempt without QA assignment",
+                "--codex-thread-id", base.REVIEWER_ID], session_source=fixture.source)
+        after = journal_io.JournalSnapshot.open(fixture.run)
+        self.assertEqual(before.documents, after.documents)
+        self.assertEqual(before.receipts, after.receipts)
+        self.assertEqual(before.revision, after.revision)
+
+    def test_mcp_readiness_newer_endpoint_blocker_before_and_after_materialization(self):
+        import tempfile
+        for materialized in (False, True):
+            with self.subTest(materialized=materialized):
+                class EndpointSetup(ReviewInputRegressions):
+                    def fixture(self, *args, **kwargs):
+                        self.saved = super().fixture(*args, **kwargs)
+                        return self.saved
+                helper = EndpointSetup()
+                self.addCleanup(helper.doCleanups)
+                class EndpointReady(Exception):
+                    pass
+                original_main = recorder.main
+                def stop_at_endpoint(args, *pos, **kwargs):
+                    if not materialized and "worker-after" in args and "spawned" in args:
+                        raise EndpointReady()
+                    return original_main(args, *pos, **kwargs)
+                # Reuse the existing public same-duty setup; do not repair private state.
+                with patch.object(recorder, "main", side_effect=stop_at_endpoint):
+                    try:
+                        helper.test_mcp_readiness_same_duty_public_replacement_preserves_attempts()
+                    except EndpointReady:
+                        pass
+                fixture = helper.saved
+                initial = journal_io.JournalSnapshot.open(fixture.run)
+                summary = json.loads(initial.read_text("delegation-summary.json"))
+                endpoint = next(row for row in summary["subagents"] if row["lane_id"] == fixture.lane_id)
+                with tempfile.TemporaryDirectory() as directory:
+                    failed = journal_io.write_entry(fixture.run, "check", {"summary": "Real required check failed after endpoint endorsement",
+                        "status": "pass", "cwd": directory, "command": [sys.executable, "-B", "-c",
+                            "print('Actual endpoint diagnostic failure'); raise SystemExit(7)"]}, identifier="late-endpoint-command")
+                    self.assertEqual(failed["exit_code"], 7)
+                    refs = [{"path": ref["path"]} for ref in failed["evidence"]]
+                    journal_io.write_entry(fixture.run, "readiness-attempt", {"id": "late-endpoint-blocker", "lane_id": fixture.lane_id,
+                        "summary": "Actual exit7 after accepted endpoint needs fresh review", "status": "blocked",
+                        "blockers": ["Required check failed after current QA endorsement"], "evidence": refs}, identifier="late-endpoint-attempt")
+                    pairs = __import__("journal_structure").domain_validator().selected_verification_gate_pairs(json.loads(initial.read_text("lane-map.json"))["architecture_context"])
+                    for index, (axis, facet) in enumerate(pairs):
+                        journal_io.write_entry(fixture.run, "readiness-gate", {"attempt_id": "late-endpoint-blocker", "axis": axis,
+                            "facet": facet, "check": "Actual newer endpoint failure", "summary": "Fresh applicable readiness required",
+                            "status": "blocked", "evidence": refs}, identifier="late-endpoint-gate-" + str(index))
+                    journal_io.write_entry(fixture.run, "lane", {"id": "worker-late-endpoint", "summary": "Cannot revive older endpoint readiness",
+                        "status": "planned", "lane_type": "implementation", "role": "python-worker", "execution_mode": "subagent",
+                        "wave": 2, "critical": True, "allowed_paths": ["module.py"]}, identifier="declare-late-endpoint-worker")
+                    before = journal_io.JournalSnapshot.open(fixture.run)
+                    with redirect_stdout(StringIO()), redirect_stderr(StringIO()), self.assertRaises(SystemExit) as refusal:
+                        recorder.main(["--run-dir", str(fixture.run), "--role", "python-worker", "--lane-id", "worker-late-endpoint",
+                            "--stage", "spawned", "--status", "active", "--summary", "Expect newer endpoint blocker refusal",
+                            "--codex-thread-id", base.REVIEWER_ID], session_source=fixture.source)
+                    if not materialized:
+                        self.assertIn("newer environment/check blocker", str(refusal.exception))
+                    after = journal_io.JournalSnapshot.open(fixture.run)
+                    self.assertEqual(before.revision, after.revision)
+                    self.assertEqual(before.documents, after.documents)
+                    self.assertEqual(before.receipts, after.receipts)
+                    retained = next(row for row in json.loads(after.read_text("delegation-summary.json"))["subagents"] if row["lane_id"] == fixture.lane_id)
+                    self.assertEqual(retained, endpoint)
+                    self.assertEqual(after.operation_receipt("late-endpoint-command")["result"]["exit_code"], 7)
+
+    def test_mcp_readiness_historical_plain_gate_uses_preserved_bytes(self):
+        fixture, gates, raw = self.mcp_readiness_fixture()
+        for gate in gates:
+            gate["evidence"].append({"path": "run.md"})
+        answer, handoff = self.conclude(fixture, gates=gates)
+        self.assertEqual(self.accept(fixture, answer, handoff), 0)
+        old = journal_io.JournalSnapshot.open(fixture.run)
+        record = next(row for row in json.loads(old.read_text("delegation-summary.json"))["subagents"] if row["lane_id"] == fixture.lane_id)
+        journal_io.write_entry(fixture.run, "task", {"summary": "Lawful meaningful scope update requires fresh review", "status": "active"}, identifier="historical-gate-task-update")
+        current = journal_io.JournalSnapshot.open(fixture.run)
+        verification = json.loads(current.read_text("delegation-summary.json"))["verification"]
+        ref = next(ref for ref in record["evidence"] if ref["path"] == "run.md")
+        self.assertNotEqual(current.read_bytes("run.md"), old.read_bytes("run.md"))
+        self.assertEqual(evidence.historical_evidence_bytes(current, record, ref), old.read_bytes("run.md"))
+        evidence.source_bound_record(fixture.run, record, verification, "qa-verifier", fixture.source, snapshot=current, current=False)
+        with self.assertRaises(journal_io.JournalError):
+            evidence.source_bound_record(fixture.run, record, verification, "qa-verifier", fixture.source, snapshot=current, current=True)
+
+    def readiness_schema_errors(self, fixture, snapshot):
+        validator = __import__("journal_structure").domain_validator()
+        mapping = json.loads(snapshot.read_text("lane-map.json"))
+        by_id = {row["id"]: row for row in mapping["lanes"]}
+        _, errors = validator.validate_verification_readiness(fixture.run, mapping, required=True,
+            architecture_context_by_axis=mapping["architecture_context"], lane_by_id=by_id,
+            normalized_status_by_id={key: validator.normalize_lane_status(row.get("status")) for key, row in by_id.items()},
+            final_verdict=None, snapshot=snapshot)
+        return errors
+
+    def test_mcp_readiness_unrelated_duty_history_never_expands_selector(self):
+        import copy
+        fixture, gates, raw = self.mcp_readiness_fixture()
+        answer, handoff = self.conclude(fixture, gates=gates)
+        self.assertEqual(self.accept(fixture, answer, handoff), 0)
+        original = fixture.lane_id
+        foreign = "unrelated-readiness"
+        thread = "44444444-4444-4444-8444-444444444444"
+        journal_io.write_entry(fixture.run, "lane", {"id": foreign, "summary": "Separate unrelated QA duty", "status": "planned",
+            "lane_type": "qa", "role": "qa-verifier", "execution_mode": "subagent", "wave": 1, "critical": True}, identifier="declare-unrelated-qa")
+        journal_io.write_entry(fixture.run, "readiness-attempt", {"id": "foreign-attempt", "lane_id": foreign,
+            "summary": "Honest unrelated pending review", "status": "blocked", "blockers": ["Separate duty pending"]}, identifier="foreign-attempt")
+        for index, gate in enumerate(gates):
+            journal_io.write_entry(fixture.run, "readiness-gate", {"attempt_id": "foreign-attempt", "axis": gate["axis"],
+                "facet": gate["facet"], "check": "Unrelated pending observation", "summary": "Separate duty not ready",
+                "status": "blocked", "evidence": [{"path": "artifacts/observation.txt"}]}, identifier="foreign-gate-" + str(index))
+        fixture.lane_id = foreign
+        pin = self.pin(fixture, identifier="foreign-pin")
+        events = base.session(thread, "qa-verifier", {}, 3)
+        foreign_output = copy.deepcopy(fixture.tool_outputs[0])
+        foreign_output["payload"]["call_id"] = "foreign-mcp"
+        events[3:3] = [foreign_output]
+        fixture.source.sessions[thread] = events
+        with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+            self.assertEqual(recorder.main(["--run-dir", str(fixture.run), "--role", "qa-verifier", "--lane-id", foreign,
+                "--stage", "spawned", "--status", "active", "--summary", "Separate unconfigured QA",
+                "--codex-thread-id", thread, "--review-input-operation-id", pin["operation_id"]], session_source=fixture.source), 0)
+        other = copy.deepcopy(gates)
+        for gate in other:
+            gate["evidence"][0].update(path="artifacts/foreign-mcp.output", source_call_id="foreign-mcp")
+        answer, foreign_handoff = self.conclude(fixture, gates=other)
+        events = base.session(thread, "qa-verifier", answer, 3)
+        events[3:3] = [foreign_output]
+        fixture.source.sessions[thread] = events
+        with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+            self.assertEqual(recorder.main(["--run-dir", str(fixture.run), "--role", "qa-verifier", "--lane-id", foreign,
+                "--stage", "handoff", "--status", "pass", "--summary", "Separate own completed duty", "--codex-thread-id", thread,
+                "--completion-turn-id", thread + "-turn", "--artifact", foreign_handoff, "--artifact", "artifacts/observation.txt",
+                "--artifact", "artifacts/foreign-mcp.output"], session_source=fixture.source), 0)
+        fixture.source.sessions[base.REVIEWER_ID] = base.session(base.REVIEWER_ID, "python-worker", {}, 5)
+        for worker in ("configured-first", "configured-stale"):
+            journal_io.write_entry(fixture.run, "lane", {"id": worker, "summary": "Scoped dependent worker", "status": "planned",
+                "lane_type": "implementation", "role": "python-worker", "execution_mode": "subagent", "wave": 2,
+                "critical": True, "allowed_paths": ["module.py"]}, identifier="declare-" + worker)
+        def start_worker(lane):
+            with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+                return recorder.main(["--run-dir", str(fixture.run), "--role", "python-worker", "--lane-id", lane,
+                    "--stage", "spawned", "--status", "active", "--summary", "Dependent public admission",
+                    "--codex-thread-id", base.REVIEWER_ID], session_source=fixture.source)
+        self.assertEqual(start_worker("configured-first"), 0)
+        current = journal_io.JournalSnapshot.open(fixture.run)
+        self.assertEqual(json.loads(current.read_text("lane-map.json"))["verification_readiness"]["lanes"], [original])
+        self.assertEqual({row["lane"] for row in json.loads(current.read_text("verification-readiness.json"))["attempts"]}, {original, foreign})
+        self.assertEqual(self.readiness_schema_errors(fixture, current), [])
+        from dataclasses import replace
+        from types import MappingProxyType
+        data = json.loads(current.read_text("verification-readiness.json"))
+        historical = next(row for row in data["attempts"] if row["lane"] == foreign)
+        data["attempts"] = [row for row in data["attempts"] if row["lane"] != foreign] + [historical]
+        # Explicit aggregate snapshot double: unrelated latest blocked display cannot block configured ready.
+        display = replace(current, documents=MappingProxyType({**current.documents,
+            "verification-readiness.json": json.dumps(data).encode()}))
+        self.assertEqual(self.readiness_schema_errors(fixture, display), [])
+        primary = next(row for row in data["attempts"] if row["lane"] == original)
+        primary.update(status="blocked", blockers=["Configured duty blocked"])
+        historical.update(status="ready", blockers=[])
+        for gate in historical["gates"]:
+            gate["readiness"] = "ready"
+        display = replace(current, documents=MappingProxyType({**current.documents,
+            "verification-readiness.json": json.dumps(data).encode()}))
+        self.assertTrue(any("latest ready attempt" in error for error in self.readiness_schema_errors(fixture, display)))
+        # A later own turn makes only the configured QA stale; fresh unrelated PASS cannot replace it.
+        fixture.source.sessions[base.QA_ID].append({"type": "event_msg", "timestamp": "2026-09-10T10:00:06+00:00",
+            "payload": {"type": "task_started", "turn_id": base.QA_ID + "-unfinished"}})
+        before = journal_io.JournalSnapshot.open(fixture.run)
+        with self.assertRaisesRegex(SystemExit, "stale"):
+            start_worker("configured-stale")
+        after = journal_io.JournalSnapshot.open(fixture.run)
+        self.assertEqual(before.documents, after.documents)
+        self.assertEqual(before.receipts, after.receipts)
+
+    def test_public_preliminary_completion_and_historical_drift(self):
+        fixture = self.fixture()
+        pin = self.pin(fixture)
+        self.assertEqual(self.start(fixture, pin), 0)
+        answer, handoff = self.conclude(fixture)
+        self.assertEqual(answer["reviewed_result_hash"], None)
+        self.assertEqual(self.accept(fixture, answer, handoff), 0)
+        snapshot = journal_io.JournalSnapshot.open(fixture.run)
+        summary = json.loads(snapshot.read_text("delegation-summary.json"))
+        row = summary["subagents"][0]
+        self.assertEqual((summary["verification"]["qa"], summary["verification"]["reviewer"]), (None, None))
+        with self.assertRaises(evidence.EvidenceError):
+            evidence.accepted_record(fixture.run, row, summary["verification"], "qa-verifier", fixture.source, snapshot=snapshot)
+        journal_io.write_entry(fixture.run, "progress", {"summary": "Unrelated allowed work", "status": "active"}, identifier="unrelated")
+        journal_io.write_entry(fixture.run, "task", {"summary": "Changed requirements", "status": "active"}, identifier="drift")
+        snapshot = journal_io.JournalSnapshot.open(fixture.run)
+        evidence.source_bound_record(fixture.run, row, summary["verification"], "qa-verifier", fixture.source, snapshot=snapshot, current=False)
+        with self.assertRaises(evidence.EvidenceError):
+            evidence.source_bound_record(fixture.run, row, summary["verification"], "qa-verifier", fixture.source, snapshot=snapshot, current=True)
+
+    def test_public_negative_preliminary_does_not_set_product_blocker(self):
+        fixture = self.fixture()
+        self.start(fixture, self.pin(fixture))
+        answer, handoff = self.conclude(fixture, status="blocked")
+        self.assertEqual(self.accept(fixture, answer, handoff), 0)
+        verification = json.loads(journal_io.JournalSnapshot.open(fixture.run).read_text("delegation-summary.json"))["verification"]
+        self.assertIsNone(verification["qa"])
+        self.assertFalse(verification.get("blocker"))
+
+    def test_prepare_missing_declared_source_and_duplicate_are_atomic(self):
+        fixture = self.fixture()
+        before = SemanticRequestRegressions().tree(fixture.run)
+        for sources in ([], ["run.md", "run.md"], ["artifacts/observation.txt"]):
+            with self.assertRaises((ValueError, OSError)):
+                journal_io.prepare_review_input(fixture.run, fixture.lane_id, sources, identifier="bad-input")
+            after = SemanticRequestRegressions().tree(fixture.run)
+            self.assertEqual({key: val for key, val in after.items() if not key.startswith(".journal/requests/")}, {key: val for key, val in before.items() if not key.startswith(".journal/requests/")})
+
+    def test_causal_pin_and_source_echo_reject_atomic(self):
+        fixture = self.fixture()
+        pin = self.pin(fixture)
+        self.start(fixture, pin)
+        answer, handoff = self.conclude(fixture)
+        before = SemanticRequestRegressions().tree(fixture.run)
+        for change in ({"review_subject": None}, {"review_input_operation_id": "unknown-pin"}, {"reviewed_result_hash": "a" * 64}):
+            with self.subTest(change=change):
+                with self.assertRaises(SystemExit):
+                    self.accept(fixture, {**answer, **change}, handoff)
+                self.assertEqual(SemanticRequestRegressions().tree(fixture.run), before)
+        events = base.session(base.QA_ID, "qa-verifier", answer, 1)
+        events[1]["payload"]["started_at"] = int(datetime.fromisoformat(pin["frozen_at"]).timestamp())
+        fixture.source.sessions[base.QA_ID] = events
+        with self.assertRaises(evidence.EvidenceError):
+            completion = evidence.completed_turn(fixture.source, base.QA_ID, base.QA_ID + "-turn", base.ROOT_ID, "qa-verifier")
+            snapshot = journal_io.JournalSnapshot.open(fixture.run)
+            row = json.loads(snapshot.read_text("delegation-summary.json"))["subagents"][0]
+            evidence.require_review_completion(snapshot, row, completion, fixture.source, current=True)
+        self.assertEqual(SemanticRequestRegressions().tree(fixture.run), before)
+
+    def test_real_external_root_move_uses_current_scope_and_keeps_pin(self):
+        from dataclasses import replace
+        fixture = self.fixture()
+        external = fixture.repo / "declared-contract.txt"
+        external.write_bytes(b"Full contract\n")
+        pin = journal_io.prepare_review_input(fixture.run, fixture.lane_id, ["run.md", str(external)], identifier="external-pin")
+        snapshot = journal_io.JournalSnapshot.open(fixture.run)
+        row = {"lane_id": fixture.lane_id, "review_subject": pin["review_subject"], "review_input_operation_id": "external-pin"}
+        # Explicit approved-context double, with real moved bytes and old root gone.
+        moved = fixture.repo.parent / (fixture.repo.name + "-relocated")
+        fixture.repo.rename(moved)
+        self.addCleanup(__import__("shutil").rmtree, moved)
+        current = replace(snapshot, source_root=moved)
+        evidence.review_input_receipt(current, row, current=True)
+        (moved / "declared-contract.txt").write_bytes(b"Full contract\nchanged")
+        evidence.review_input_receipt(current, row, current=False)
+        with self.assertRaises(evidence.EvidenceError):
+            evidence.review_input_receipt(current, row, current=True)
+
+    def test_capture_finishes_before_frozen_time_and_earlier_review_rejects(self):
+        fixture = self.fixture()
+        external = fixture.repo / "requirements.txt"
+        external.write_bytes(b"Complete delayed capture\n")
+        captured = []
+        original = evidence.review_source_bytes
+        def capture(*args, **kwargs):
+            result = original(*args, **kwargs)
+            if kwargs.get("capture", True):
+                captured.append(result[0])
+            return result
+        def frozen_clock():
+            self.assertEqual(set(captured), {"journal:run.md", "source:requirements.txt"})
+            return "2026-09-10T10:01:00+00:00"
+        with patch.object(evidence, "review_source_bytes", side_effect=capture), patch.object(journal_io, "now_iso", side_effect=frozen_clock):
+            pin = journal_io.prepare_review_input(fixture.run, fixture.lane_id, [str(external), "run.md"], identifier="delayed-pin")
+        self.start(fixture, pin)
+        answer, handoff = self.conclude(fixture)
+        before = SemanticRequestRegressions().tree(fixture.run)
+        with self.assertRaisesRegex(SystemExit, "strictly after input freeze"):
+            self.accept(fixture, answer, handoff)
+        self.assertEqual(SemanticRequestRegressions().tree(fixture.run), before)
+        self.assertEqual(journal_io.prepare_review_input(fixture.run, fixture.lane_id, ["run.md", str(external)], identifier="delayed-pin"), pin)
+
+    def test_own_followup_review_turn_after_pin_preserves_old_session_start(self):
+        fixture = self.fixture()
+        old = base.session(base.QA_ID, "qa-verifier", {}, 1)
+        old[1]["timestamp"] = "2026-09-10T09:00:00+00:00"
+        old[4]["timestamp"] = "2026-09-10T09:00:01+00:00"
+        old[1]["payload"]["turn_id"] = old[2]["payload"]["turn_id"] = old[4]["payload"]["turn_id"] = "unrelated-old-turn"
+        fixture.source.sessions[base.QA_ID] = old
+        self.start(fixture, self.pin(fixture))
+        answer, handoff = self.conclude(fixture)
+        followup = base.session(base.QA_ID, "qa-verifier", answer, 2)
+        fixture.source.sessions[base.QA_ID] = old + followup[1:]
+        with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+            self.assertEqual(recorder.main(["--run-dir", str(fixture.run), "--role", "qa-verifier", "--lane-id", fixture.lane_id,
+                "--stage", "handoff", "--status", "pass", "--summary", "Own reviewing followup", "--codex-thread-id", base.QA_ID,
+                "--completion-turn-id", base.QA_ID + "-turn", "--artifact", handoff, "--artifact", "artifacts/observation.txt"], session_source=fixture.source), 0)
+
+    def test_closed_subject_product_tag_and_pin_immutable(self):
+        self.assertEqual(evidence.review_subject_kind({"review_subject": {"kind": "product-result"}}), "product-result")
+        for subject in (None, {}, {"kind": "invented"}, {"kind": "product-result", "digest": "a" * 64}):
+            with self.assertRaises(evidence.EvidenceError):
+                evidence.review_subject_kind({"review_subject": subject})
+        fixture = self.fixture()
+        self.start(fixture, self.pin(fixture))
+        snapshot = journal_io.JournalSnapshot.open(fixture.run)
+        before = snapshot.revision
+        summary = json.loads(snapshot.read_text("delegation-summary.json"))
+        del summary["subagents"][0]["review_subject"]
+        identifier = journal_io.operation_id(fixture.run, "fault-omission", {}, identifier="fault-omission")
+        with self.assertRaises(journal_io.JournalError):
+            journal_io.transact(fixture.run, identifier, {}, lambda current: ({"delegation-summary.json": journal_io.encode_json(summary)}, {}))
+        self.assertEqual(journal_io.JournalSnapshot.open(fixture.run).revision, before)
+
+    def test_declared_context_only_pin_has_current_resolver_and_unknown_scope_rejects(self):
+        fixture = self.fixture()
+        product = fixture.repo / "product"
+        product.mkdir()
+        working = fixture.repo / "working"
+        working.mkdir()
+        context = fixture.repo / "requirements.txt"
+        context.write_bytes(b"Declared context-only requirements\n")
+        from workspace_scope import context_capture
+        from task_workspace import manifest_digest
+        scoped = {"version": 2, "working_root": str(working), "task_scope": {"product_roots": [{"source": str(product), "relative_path": "product"}],
+                  "context_roots": [context_capture(context)], "context_exclusions": []}}
+        scoped["task_scope"]["digest"] = manifest_digest(scoped["task_scope"])
+        # Approved scope/source double; real context exists only outside working tree.
+        with patch.object(evidence, "registered_workspace", return_value=scoped):
+            pin = journal_io.prepare_review_input(fixture.run, fixture.lane_id, ["run.md", str(context)], identifier="context-only-pin")
+            snapshot = journal_io.JournalSnapshot.open(fixture.run)
+            row = {"lane_id": fixture.lane_id, "review_subject": pin["review_subject"], "review_input_operation_id": "context-only-pin"}
+            evidence.review_input_receipt(snapshot, row, current=True)
+            self.assertFalse((working / "requirements.txt").exists())
+            context.write_bytes(b"Known declared context drift\n")
+            with self.assertRaises(evidence.EvidenceError):
+                evidence.review_input_receipt(snapshot, row, current=True)
+            evidence.review_input_receipt(snapshot, row, current=False)
+        before = journal_io.JournalSnapshot.open(fixture.run)
+        scoped["task_scope"]["context_roots"] = []
+        with patch.object(evidence, "registered_workspace", return_value=scoped), self.assertRaisesRegex(evidence.EvidenceError, "declared product/context scope"):
+            journal_io.prepare_review_input(fixture.run, fixture.lane_id, ["run.md", str(context)], identifier="undeclared-context-pin")
+        (working / "unknown-context.txt").write_bytes(b"Undeclared outside selected product root\n")
+        with patch.object(evidence, "registered_workspace", return_value=scoped), self.assertRaisesRegex(evidence.EvidenceError, "declared product/context scope"):
+            journal_io.prepare_review_input(fixture.run, fixture.lane_id, ["run.md", str(working / "unknown-context.txt")], identifier="undeclared-working-context-pin")
+        self.assertEqual(journal_io.JournalSnapshot.open(fixture.run).revision, before.revision)
+
+    def test_malformed_gate_input_rejects_before_publication(self):
+        fixture = self.fixture(schema=2)
+        self.start(fixture, self.pin(fixture))
+        with __import__("tempfile").TemporaryDirectory() as disposable:
+            receipt = journal_io.write_entry(fixture.run, "check", {"summary": "Real scoped process", "status": "pass", "cwd": disposable,
+                "command": [sys.executable, "-B", "-c", "print('actual command executed')"]}, identifier="gate-input-command")
+        pairs = __import__("journal_structure").domain_validator().selected_verification_gate_pairs(json.loads(journal_io.JournalSnapshot.open(fixture.run).read_text("lane-map.json"))["architecture_context"])
+        gates = [{"axis": axis, "facet": facet, "check": "Actual scoped execution", "readiness": "ready", "notes": "Synthetic independent QA applicability", "evidence": [{"path": ref["path"]} for ref in receipt["evidence"]]} for axis, facet in pairs]
+        _, handoff = self.conclude(fixture, gates=gates)
+        before = SemanticRequestRegressions().tree(fixture.run)
+        bad = [gates[:-1], gates + [gates[0]], [{**gates[0], "readiness": "passed"}, *gates[1:]],
+               [{**gates[0], "extra": True}, *gates[1:]], [{**gates[0], "axis": "stack_runtime"}, *gates[1:]],
+               [{**gates[0], "evidence": [{"path": receipt["evidence"][0]["path"], "extra": True}]}, *gates[1:]]]
+        for rows in bad:
+            gate_file = fixture.repo / "bad-gates.json"
+            gate_file.write_text(json.dumps(rows))
+            with self.assertRaises(SystemExit), redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+                recorder.main(["--run-dir", str(fixture.run), "--prepare-conclusion", "--role", "qa-verifier", "--lane-id", fixture.lane_id,
+                    "--status", "pass", "--summary", "Malformed applicability input", "--artifact", handoff, "--artifact", "artifacts/observation.txt",
+                    "--readiness-gates-file", str(gate_file), *[argument for ref in receipt["evidence"] for argument in ("--artifact", ref["path"])]], session_source=fixture.source)
+            self.assertEqual(SemanticRequestRegressions().tree(fixture.run), before)
+
+    def change_workspace(self, fixture):
+        (fixture.repo / "module.py").write_text("value = 1\n")
+        for command in (["git", "init", "--quiet"], ["git", "config", "user.email", "fixture@example.invalid"],
+                        ["git", "config", "user.name", "Fixture"], ["git", "add", "module.py"], ["git", "commit", "--quiet", "-m", "Fixture baseline"]):
+            subprocess.run(command, cwd=fixture.repo, check=True, capture_output=True)
+        (fixture.repo / ".git/info/exclude").write_text(".agent-work/\n")
+        workspace = load("review_workspace_public", "task-workspace.py")
+        with redirect_stdout(StringIO()):
+            self.assertEqual(workspace.main(["--run-dir", str(fixture.run), "prepare", "--source", str(fixture.repo),
+                "--destination", str(fixture.repo / ".agent-work/workspace")]), 0)
+        verification = {**evidence.empty_verification(), "task_kind": "change", "root_thread_id": base.ROOT_ID,
+            "initial_snapshot": {"path": "context.md", "section": "Initial Worktree Snapshot"}, "task_scope": {"path": "run.md", "section": "Task Scope"}}
+        self.assertEqual(fixture.record("--role", "orchestrator", "--execution-mode", "role-lane", "--stage", "verification", "--verification-json", json.dumps(verification)), 0)
+
+    def test_initial_change_requires_prepare_with_phase_specific_reason(self):
+        fixture = self.fixture()
+        verification = {**evidence.empty_verification(), "task_kind": "change", "root_thread_id": base.ROOT_ID}
+        with self.assertRaisesRegex(SystemExit, "prepare workspace before initial change verification"):
+            fixture.record("--role", "orchestrator", "--execution-mode", "role-lane", "--stage", "verification", "--verification-json", json.dumps(verification))
+        fixture.record("--role", "orchestrator", "--execution-mode", "role-lane", "--stage", "blocked", "--status", "blocked", "--verification-json",
+                       json.dumps({**verification, "blocker": "Workspace not yet prepared", "unverified": ["initial change verification"]}))
+        with self.assertRaisesRegex(SystemExit, "prepare workspace before initial change verification"):
+            fixture.record("--role", "orchestrator", "--execution-mode", "role-lane", "--stage", "verification", "--verification-json", json.dumps(verification))
+        self.change_workspace(fixture)
+        current = json.loads(journal_io.JournalSnapshot.open(fixture.run).read_text("delegation-summary.json"))["verification"]
+        self.assertIsNone(current["result_hash"])
+
+    def test_automatic_readiness_uses_latest_applicable_native_check(self):
+        import tempfile
+        fixture = self.fixture(schema=2)
+        self.change_workspace(fixture)
+        journal_io.write_entry(fixture.run, "lane", {"id": "worker-implementation", "summary": "Scoped worker",
+            "status": "planned", "lane_type": "implementation", "role": "python-worker", "execution_mode": "subagent",
+            "wave": 2, "critical": True, "allowed_paths": ["module.py"]}, identifier="current-worker")
+        self.start(fixture, self.pin(fixture))
+        with tempfile.TemporaryDirectory() as disposable, tempfile.TemporaryDirectory() as other:
+            command = [sys.executable, "-B", "-c", "from pathlib import Path; print('selected check'); raise SystemExit(7 if Path('fail-now').exists() else 0)"]
+            request = {"summary": "Selected scoped check", "status": "pass", "command": command, "cwd": disposable}
+            passed = journal_io.write_entry(fixture.run, "check", request, identifier="endorsed-check")
+            self.assertEqual(passed["exit_code"], 0)
+            snapshot = journal_io.JournalSnapshot.open(fixture.run)
+            from journal_structure import domain_validator
+            pairs = domain_validator().selected_verification_gate_pairs(json.loads(snapshot.read_text("lane-map.json"))["architecture_context"])
+            gates = [{"axis": axis, "facet": facet, "check": "Selected environment check", "readiness": "ready",
+                      "evidence": [{"path": ref["path"]} for ref in passed["evidence"]], "notes": "Actual QA applicability to pinned scope"} for axis, facet in pairs]
+            answer, handoff = self.conclude(fixture, gates=gates)
+            self.accept(fixture, answer, handoff)
+            for identifier, changed in (("unrelated-command", {"command": [sys.executable, "-B", "-c", "raise SystemExit(7)"]}),
+                                        ("unrelated-cwd", {"cwd": other})):
+                (Path(other) / "fail-now").touch()
+                failed = journal_io.write_entry(fixture.run, "check", {**request, **changed}, identifier=identifier)
+                self.assertEqual(failed["exit_code"], 7)
+                observations = journal_io.automatic_readiness(journal_io.JournalSnapshot.open(fixture.run), fixture.source)
+                self.assertEqual(json.loads(observations["verification-readiness.json"])["status"], "ready")
+            (Path(disposable) / "fail-now").touch()
+            failed = journal_io.write_entry(fixture.run, "check", request, identifier="same-check-failure")
+            self.assertEqual(failed["exit_code"], 7)
+            snapshot = journal_io.JournalSnapshot.open(fixture.run)
+            with self.assertRaises(journal_io.JournalError):
+                journal_io.automatic_readiness(snapshot, fixture.source)
+            fixture.source.sessions[base.REVIEWER_ID] = base.session(base.REVIEWER_ID, "python-worker", {}, 2)
+            with self.assertRaises(SystemExit):
+                fixture.record("--role", "python-worker", "--lane-id", "worker-implementation", "--stage", "spawned", "--codex-thread-id", base.REVIEWER_ID)
+            self.assertEqual(fixture.snapshot(), (snapshot.revision, snapshot.documents, snapshot.receipts))
+            # Exact replay is the prior execution, not a fresh success.
+            (Path(disposable) / "fail-now").unlink()
+            self.assertEqual(journal_io.write_entry(fixture.run, "check", request, identifier="same-check-failure")["exit_code"], 7)
+            with self.assertRaises(journal_io.JournalError):
+                journal_io.automatic_readiness(journal_io.JournalSnapshot.open(fixture.run), fixture.source)
+            retried = journal_io.write_entry(fixture.run, "check", request, identifier="same-check-real-retry")
+            self.assertEqual(retried["exit_code"], 0)
+            observations = journal_io.automatic_readiness(journal_io.JournalSnapshot.open(fixture.run), fixture.source)
+            self.assertEqual(json.loads(observations["verification-readiness.json"])["status"], "ready")
+
+    def test_source_facts_automatically_materialize_readiness_without_rerun(self):
+        import tempfile
+        fixture = self.fixture(schema=2)
+        self.change_workspace(fixture)
+        journal_io.write_entry(fixture.run, "lane", {"id": "worker-implementation", "summary": "Scoped worker", "status": "planned",
+            "lane_type": "implementation", "role": "python-worker", "execution_mode": "subagent", "wave": 2, "critical": True, "allowed_paths": ["module.py"]}, identifier="declare-worker")
+        self.start(fixture, self.pin(fixture))
+        with tempfile.TemporaryDirectory() as disposable:
+            counter = Path(disposable) / "executions"
+            command = [sys.executable, "-B", "-c", "from pathlib import Path; p=Path('executions'); p.write_text(str(int(p.read_text())+1) if p.exists() else '1'); print('declared Python config observation')"]
+            receipt = journal_io.write_entry(fixture.run, "check", {"summary": "Native declared environment check", "status": "pass", "command": command, "cwd": disposable}, identifier="native-env")
+            paths = [ref["path"] for ref in receipt["evidence"]]
+            mapping = json.loads(journal_io.JournalSnapshot.open(fixture.run).read_text("lane-map.json"))
+            from journal_structure import domain_validator
+            pairs = domain_validator().selected_verification_gate_pairs(mapping["architecture_context"])
+            gates = [{"axis": axis, "facet": facet, "check": "Declared pinned contract Python observation", "readiness": "ready", "evidence": [{"path": path} for path in paths], "notes": "Independent synthetic QA endorses applicability to declared module/config"} for axis, facet in pairs]
+            # Native exit0 plus a manual mapping cannot grant readiness before source QA.
+            journal_io.write_entry(fixture.run, "readiness-attempt", {"id": fixture.lane_id, "lane_id": fixture.lane_id, "summary": "Pending actual QA", "status": "blocked", "blockers": ["missing source mapping"], "evidence": []}, identifier="pending-readiness")
+            before = journal_io.JournalSnapshot.open(fixture.run)
+            with self.assertRaises(journal_io.JournalError):
+                journal_io.write_entry(fixture.run, "readiness-gate", {"attempt_id": fixture.lane_id, "axis": pairs[0][0], "facet": pairs[0][1], "check": gates[0]["check"], "summary": gates[0]["notes"], "status": "pass", "evidence": [{"path": path} for path in paths]}, identifier="unendorsed-gate")
+            self.assertEqual(journal_io.JournalSnapshot.open(fixture.run).revision, before.revision)
+            answer, handoff = self.conclude(fixture, gates=gates)
+            self.assertEqual(self.accept(fixture, answer, handoff), 0)
+            fixture.source.sessions[base.REVIEWER_ID] = base.session(base.REVIEWER_ID, "python-worker", {}, 2)
+            with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+                self.assertEqual(recorder.main(["--run-dir", str(fixture.run), "--role", "python-worker", "--lane-id", "worker-implementation", "--stage", "spawned", "--status", "active", "--summary", "Start with proven scoped facts", "--codex-thread-id", base.REVIEWER_ID], session_source=fixture.source), 0)
+            snapshot = journal_io.JournalSnapshot.open(fixture.run)
+            self.assertEqual(json.loads(snapshot.read_text("verification-readiness.json"))["status"], "ready")
+            lane_map = json.loads(snapshot.read_text("lane-map.json"))
+            readiness_lane = next(row for row in lane_map["lanes"] if row["id"] == fixture.lane_id)
+            self.assertEqual(readiness_lane["verification_results"]["status"], "pass")
+            self.assertEqual(lane_map["verification_readiness"]["lanes"], [fixture.lane_id])
+            self.assertEqual(counter.read_text(), "1")
+            self.assertEqual(snapshot.operation_receipt("native-env")["result"], {key: value for key, value in receipt.items() if key != "operation_id"})
+            failed = journal_io.write_entry(fixture.run, "check", {"summary": "Known environment drift", "status": "pass", "command": [sys.executable, "-B", "-c", "raise SystemExit(7)"], "cwd": disposable}, identifier="later-failed-environment")
+            journal_io.write_entry(fixture.run, "readiness-gate", {"attempt_id": fixture.lane_id, "axis": pairs[0][0], "facet": pairs[0][1], "check": "Current environment failed", "summary": "Known current check blocker", "status": "blocked", "evidence": [{"path": ref["path"]} for ref in failed["evidence"]]}, identifier="later-failed-gate")
+            blocked = journal_io.JournalSnapshot.open(fixture.run)
+            with self.assertRaisesRegex(journal_io.JournalError, "newer environment/check blocker"):
+                journal_io.automatic_readiness(blocked, fixture.source)
+            self.assertEqual(journal_io.JournalSnapshot.open(fixture.run).revision, blocked.revision)
+
+
+class ArchitectureOutcomeRegressions(unittest.TestCase):
+    """Public writer transitions; Codex session completion is a synthetic double."""
+
+    def setUp(self):
+        self.fixture = FirstBindingRegressions()
+        self.fixture.setUp()
+        self.addCleanup(self.fixture.doCleanups)
+        self.fixture.initialize()
+        self.fixture.start()
+        from journal_structure import request_contract
+        self.request = request_contract()["examples"]["architecture-outcome"]
+        self.request.update(lane_id=self.fixture.lane_id, claim_evidence_ids=["actual-proof"],
+                            acceptance_criteria_ids=["public-transition"])
+        self.journal = load("outcome_public_journal", "journal.py")
+
+    def write(self, request=None, identifier="outcome", source_request=None, mutate_source=None):
+        request = self.request if request is None else request
+        self.fixture.source.sessions[base.QA_ID] = base.session(base.QA_ID, "architect",
+            request if source_request is None else source_request, 1)
+        if mutate_source:
+            mutate_source(self.fixture.source.sessions[base.QA_ID])
+        request_file = self.fixture.repo / "outcome-request.json"
+        request_file.write_text(json.dumps(request))
+        with patch.object(evidence, "CodexSessionSource", return_value=self.fixture.source), redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+            return self.journal.main(["--run-dir", str(self.fixture.run), "record", "--kind", "architecture-outcome",
+                                      "--request-file", str(request_file), "--operation-id", identifier])
+
+    def tree(self):
+        return SemanticRequestRegressions().tree(self.fixture.run)
+
+    def update_input(self, kind, summary, identifier, **extra):
+        request_file = self.fixture.repo / "input-update.json"
+        request_file.write_text(json.dumps({"status": "active", "summary": summary, **extra}))
+        with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+            return self.journal.main(["--run-dir", str(self.fixture.run), "record", "--kind", kind,
+                "--request-file", str(request_file), "--operation-id", identifier])
+
+    def test_mutable_scope_preserved_metadata_registers_and_drift_blocks(self):
+        from verification_evidence import historical_evidence_bytes, require_current_architecture_inputs
+        self.request["evidence"] = [{"path": "run.md"}]
+        self.assertEqual(self.write(), 0)
+        original = journal_io.JournalSnapshot.open(self.fixture.run)
+        record = json.loads(original.read_text("delegation-summary.json"))["subagents"][0]
+        before_bytes = original.read_bytes("run.md")
+        before_source = json.dumps(self.fixture.source.sessions)
+        self.update_input("task", "A substantively changed scope requiring another review.", "scope-change")
+        snapshot = journal_io.JournalSnapshot.open(self.fixture.run)
+        stored = json.loads(snapshot.read_text("delegation-summary.json"))["subagents"][0]
+        self.assertEqual(stored, record)
+        self.assertEqual(json.dumps(self.fixture.source.sessions), before_source)
+        self.assertEqual(historical_evidence_bytes(snapshot, record, record["evidence"][0]), before_bytes)
+        receipt = snapshot.operation_receipt("scope-change")
+        self.assertEqual(len(receipt["result"]["preserved_evidence"]), 1)
+        state = self.fixture.snapshot()
+        self.update_input("task", "A substantively changed scope requiring another review.", "scope-change")
+        self.assertEqual(self.fixture.snapshot(), state)
+        with self.assertRaises(SystemExit):
+            self.update_input("task", "Conflicting retry", "scope-change")
+        self.assertEqual(self.fixture.snapshot(), state)
+        verification = json.loads(snapshot.read_text("delegation-summary.json"))["verification"]
+        verification["task_scope"] = {"path": "run.md", "section": "Task Scope"}
+        self.fixture.record("--role", "orchestrator", "--execution-mode", "role-lane", "--stage", "verification-prepared",
+            "--verification-json", json.dumps(verification), "--operation-id", "new-scope-registration")
+        snapshot = journal_io.JournalSnapshot.open(self.fixture.run)
+        with self.assertRaisesRegex(journal_io.JournalError, "architecture reviewed input is stale"):
+            require_current_architecture_inputs(snapshot)
+        # Admission checks this same predicate before workspace/readiness checks.
+        from types import SimpleNamespace
+        args = SimpleNamespace(stage="implementation", status="active", lane_id="worker", codex_thread_id=base.REVIEWER_ID,
+                               execution_mode="subagent")
+        with self.assertRaisesRegex(journal_io.JournalError, "architecture reviewed input is stale"):
+            journal_io.worker_start_preflight(snapshot, {}, None, verification, args)
+        with self.assertRaisesRegex(journal_io.JournalError, "architecture reviewed input is stale"):
+            journal_io.automatic_readiness(snapshot, self.fixture.source)
+        state = self.fixture.snapshot()
+        with self.assertRaisesRegex(journal_io.JournalError, "architecture reviewed input is stale"):
+            journal_io.write_entry(self.fixture.run, "readiness-attempt", {"id": "stale-ready", "lane_id": "verification-readiness-1",
+                "summary": "Attempt readiness against changed scope", "status": "pass", "blockers": []}, identifier="stale-readiness")
+        self.assertEqual(self.fixture.snapshot(), state)
+        self.assertIn("architecture reviewed input is stale", " ".join(base.validator.validate_product_acceptance(
+            self.fixture.run, snapshot=snapshot, verdict="ship", session_source=self.fixture.source)))
+        self.update_input("task", "A second legitimate scope update.", "second-scope-change")
+        latest = journal_io.JournalSnapshot.open(self.fixture.run)
+        self.assertNotIn("preserved_evidence", latest.operation_receipt("second-scope-change")["result"])
+        self.assertEqual(historical_evidence_bytes(latest, record, record["evidence"][0]), before_bytes)
+        verification["task_scope"] = {"path": "run.md", "section": "Task Scope"}
+        self.fixture.record("--role", "orchestrator", "--execution-mode", "role-lane", "--stage", "verification-prepared",
+            "--verification-json", json.dumps(verification), "--operation-id", "second-scope-registration")
+        # New public same-duty architect outcome restores applicability without
+        # changing old records, source completion, or evidence hashes.
+        old_lane = self.fixture.lane_id
+        journal_io.write_entry(self.fixture.run, "lane", {"id": "architecture-current", "summary": "Review updated scope",
+            "status": "planned", "lane_type": "architecture", "role": "architect", "execution_mode": "subagent",
+            "wave": 1, "critical": True}, identifier="current-architecture-lane")
+        self.fixture.lane_id = "architecture-current"
+        self.fixture.start(base.REVIEWER_ID, "--obligation-id", record["obligation"]["id"])
+        current_request = {**self.request, "lane_id": self.fixture.lane_id}
+        self.fixture.source.sessions[base.REVIEWER_ID] = base.session(base.REVIEWER_ID, "architect", current_request, 2)
+        with patch.object(evidence, "CodexSessionSource", return_value=self.fixture.source):
+            journal_io.write_entry(self.fixture.run, "architecture-outcome", current_request, identifier="current-architecture-outcome")
+        from journal_lifecycle import resolve_obligation
+        snapshot = journal_io.JournalSnapshot.open(self.fixture.run)
+        resolve_obligation(self.fixture.run, lane_id=old_lane, replacement=self.fixture.lane_id,
+            reason="Updated architect review covers the same duty with current scope", expected_revision=snapshot.revision,
+            identifier="resolve-old-architecture")
+        require_current_architecture_inputs(journal_io.JournalSnapshot.open(self.fixture.run))
+
+    def test_presentation_only_scope_update_and_plan_input(self):
+        from verification_evidence import require_current_architecture_inputs, reference_bytes
+        # Use a native plan projection with its existing Execution Plan section.
+        self.update_input("plan", "Review the scoped implementation and its checks.", "plan-input")
+        scope = "Reviewed semantic scope."
+        self.update_input("task", scope, "task-input")
+        self.request["evidence"] = [{"path": "run.md"}, {"path": "plan.md"}]
+        self.write()
+        snapshot = journal_io.JournalSnapshot.open(self.fixture.run)
+        self.update_input("task", scope, "task-presentation", evidence=[{"path": "plan.md"}])
+        require_current_architecture_inputs(journal_io.JournalSnapshot.open(self.fixture.run))
+        self.update_input("task", "    " + scope, "task-indentation")
+        with self.assertRaisesRegex(journal_io.JournalError, "stale: run.md"):
+            require_current_architecture_inputs(journal_io.JournalSnapshot.open(self.fixture.run))
+        self.update_input("task", scope, "restore-reviewed-task")
+        self.update_input("plan", "A changed execution plan.", "changed-plan")
+        with self.assertRaisesRegex(journal_io.JournalError, "stale: plan.md"):
+            require_current_architecture_inputs(journal_io.JournalSnapshot.open(self.fixture.run))
+
+    def test_preserved_input_capture_and_binding_tamper_are_strict(self):
+        from dataclasses import replace
+        from types import MappingProxyType
+        from copy import deepcopy
+        from verification_evidence import historical_evidence_bytes
+        self.request["evidence"] = [{"path": "run.md"}]
+        self.write()
+        self.update_input("task", "A current changed task scope.", "capture-input")
+        snapshot = journal_io.JournalSnapshot.open(self.fixture.run)
+        record = json.loads(snapshot.read_text("delegation-summary.json"))["subagents"][0]
+        capture = snapshot.operation_receipt("capture-input")["result"]["preserved_evidence"][0]["capture"]["path"]
+        before = self.fixture.snapshot()
+        with self.assertRaisesRegex(journal_io.JournalError, "capture is immutable"):
+            journal_io.transact(self.fixture.run, "overwrite-capture", {}, lambda _: ({capture: b"tampered"}, {}))
+        self.assertEqual(self.fixture.snapshot(), before)
+        with self.assertRaisesRegex(journal_io.JournalError, "terminal handoff is immutable"):
+            journal_io.transact(self.fixture.run, "overwrite-handoff", {}, lambda _: ({record["handoff"]: b"tampered"}, {}))
+        self.assertEqual(self.fixture.snapshot(), before)
+        for defect in ("missing", "corrupt", "path", "lane", "assignment", "receipt", "legacy-lost"):
+            with self.subTest(defect=defect):
+                docs, receipts = dict(snapshot.documents), dict(snapshot.receipts)
+                if defect == "missing":
+                    del docs[capture]
+                elif defect == "corrupt":
+                    docs[capture] = b"corrupt capture"
+                elif defect == "legacy-lost":
+                    del receipts["capture-input"]
+                else:
+                    saved = deepcopy(json.loads(receipts["capture-input"]))
+                    row = saved["result"]["preserved_evidence"][0]
+                    if defect == "path": row["reference"]["path"] = "plan.md"
+                    if defect == "lane": row["lane_id"] = "foreign-lane"
+                    if defect == "assignment": row["assignment"]["lane_id"] = "foreign-lane"
+                    if defect == "receipt": row["capture"]["sha256"] = "f" * 64
+                    receipts["capture-input"] = json.dumps(saved).encode()
+                candidate = replace(snapshot, documents=MappingProxyType(docs), receipts=MappingProxyType(receipts))
+                with self.assertRaises((journal_io.JournalError, FileNotFoundError)):
+                    historical_evidence_bytes(candidate, record, record["evidence"][0])
+
+    def test_compact_and_full_historical_completion_reaccept_preserves_old_input(self):
+        from verification_evidence import historical_evidence_bytes
+        for schema in (0, 1):
+            with self.subTest(schema=schema):
+                f = FirstBindingRegressions()
+                f.setUp()
+                try:
+                    f.initialize(schema)
+                    f.start()
+                    text = "Scope analysis completed against the declared original input."
+                    events = base.session(base.QA_ID, "architect", {}, 1)
+                    events[-2]["payload"]["content"][0]["text"] = text
+                    events[-1]["payload"]["last_agent_message"] = text
+                    f.source.sessions[base.QA_ID] = events
+                    with patch.object(evidence, "CodexSessionSource", return_value=f.source):
+                        journal_io.write_entry(f.run, "handoff", {"lane_id": f.lane_id, "status": "pass", "summary": text,
+                            "evidence": [{"path": "run.md"}]}, identifier="compact-original-handoff")
+                    snapshot = journal_io.JournalSnapshot.open(f.run)
+                    old = json.loads(snapshot.read_text("delegation-summary.json"))["subagents"][0]
+                    raw = snapshot.read_bytes("run.md")
+                    # Enrich the accepted handoff before mutation through the genuine
+                    # public source adapter; source itself is an explicit double.
+                    args = ["--role", "architect", "--lane-id", f.lane_id, "--stage", "handoff", "--status", "pass",
+                            "--codex-thread-id", base.QA_ID, "--completion-turn-id", base.QA_ID + "-turn",
+                            "--artifact", old["handoff"], "--artifact", "run.md", "--operation-id", "compact-source-completion"]
+                    f.record(*args)
+                    completed = journal_io.JournalSnapshot.open(f.run)
+                    record = json.loads(completed.read_text("delegation-summary.json"))["subagents"][0]
+                    journal_io.write_entry(f.run, "task", {"status": "active", "summary": "Updated native task scope."},
+                                           identifier="compact-task-update")
+                    journal_io.write_entry(f.run, "task", {"status": "active", "summary": "Second lawful task update."},
+                                           identifier="compact-second-task-update")
+                    completed = journal_io.JournalSnapshot.open(f.run)
+                    self.assertEqual(historical_evidence_bytes(completed, record, record["evidence"][0]), raw)
+                    state = f.snapshot()
+                    f.record(*args)
+                    self.assertEqual(f.snapshot(), state)
+                    args[-1] = "compact-source-reaccept"
+                    f.record(*args)
+                    self.assertEqual(journal_io.JournalSnapshot.open(f.run).revision, completed.revision)
+                    state = f.snapshot()
+                    with self.assertRaises(SystemExit):
+                        f.record(*args, "--artifact", "foreign-proof.md")
+                    self.assertEqual(f.snapshot(), state)
+                    # Adapters compute current hashes; an arbitrary asserted
+                    # third hash must never be silently normalized by writer.
+                    bad_payload = {"artifacts": {old["handoff"]: evidence.sha256(completed.read_bytes(old["handoff"])),
+                                                  "run.md": "f" * 64}}
+                    with self.assertRaisesRegex(journal_io.JournalError, "hash assertion differs"):
+                        journal_io.write_entry(f.run, "event", {"role": "architect", "stage": "handoff", "status": "pass",
+                            "summary": text}, identifier="bad-hash", payload=bad_payload,
+                            completion={"lane_id": f.lane_id}, mutation=lambda current: ({}, {}))
+                    self.assertEqual(f.snapshot(), state)
+                    f.source.sessions[base.QA_ID][-1]["payload"]["last_agent_message"] = "Different own source completion"
+                    with self.assertRaises(SystemExit):
+                        f.record(*args)
+                    self.assertEqual(f.snapshot(), state)
+                finally:
+                    f.doCleanups()
+
+    def test_final_consumer_summary_defects_return_structured_refusal(self):
+        from dataclasses import replace
+        from types import MappingProxyType
+        snapshot = journal_io.JournalSnapshot.open(self.fixture.run)
+        state = self.fixture.snapshot()
+        for defect, content in (("missing", None), ("malformed", b"{invalid"), ("null", b"null"), ("list", b"[]")):
+            with self.subTest(defect=defect):
+                docs = dict(snapshot.documents)
+                if content is None:
+                    del docs["delegation-summary.json"]
+                else:
+                    docs["delegation-summary.json"] = content
+                candidate = replace(snapshot, documents=MappingProxyType(docs))
+                errors = base.validator.validate_product_acceptance(self.fixture.run, snapshot=candidate,
+                    verdict="ship", session_source=self.fixture.source)
+                self.assertIsInstance(errors, list)
+                self.assertTrue(errors)
+                self.assertTrue(all(isinstance(error, str) for error in errors))
+        self.assertEqual(self.fixture.snapshot(), state)
+
+    def test_final_consumer_missing_and_mixed_captures_return_typed_refusal(self):
+        from dataclasses import replace
+        from types import MappingProxyType
+        self.update_input("plan", "Original reviewed execution plan.", "typed-plan-input")
+        self.update_input("task", "Reviewed current scope.", "typed-task-input")
+        self.request["evidence"] = [{"path": "run.md"}, {"path": "plan.md"}]
+        self.write()
+        self.update_input("task", "Reviewed current scope.", "typed-task-update", evidence=[{"path": "plan.md"}])
+        self.update_input("plan", "Original reviewed execution plan.", "typed-plan-update", evidence=[{"path": "run.md"}])
+        snapshot = journal_io.JournalSnapshot.open(self.fixture.run)
+        captures = [snapshot.operation_receipt(key)["result"]["preserved_evidence"][0]["capture"]["path"]
+                    for key in ("typed-task-update", "typed-plan-update")]
+        state = self.fixture.snapshot()
+        for defect in ("missing", "corrupt", "mixed"):
+            with self.subTest(defect=defect):
+                docs = dict(snapshot.documents)
+                if defect in {"missing", "mixed"}:
+                    del docs[captures[0]]
+                if defect in {"corrupt", "mixed"}:
+                    docs[captures[1]] = b"corrupt receipt-bound bytes"
+                candidate = replace(snapshot, documents=MappingProxyType(docs))
+                errors = base.validator.validate_product_acceptance(self.fixture.run, snapshot=candidate,
+                    verdict="ship", session_source=self.fixture.source)
+                self.assertIsInstance(errors, list)
+                self.assertTrue(errors)
+                self.assertTrue(all(isinstance(error, str) for error in errors))
+                self.assertIn("capture", " ".join(errors))
+        self.assertEqual(self.fixture.snapshot(), state)
+
+    def test_source_bound_outcome_dual_pointers_readers_and_replay(self):
+        self.request["decision"] = "needs-revision"
+        self.request["sections"][0]["summary"] = "Actual boundary\n## Decision\nStatus: approved\n- Claim Evidence: `forged`"
+        self.assertEqual(self.write(), 0)
+        snapshot = journal_io.JournalSnapshot.open(self.fixture.run)
+        lane = next(row for row in json.loads(snapshot.read_text("lane-map.json"))["lanes"] if row["id"] == self.fixture.lane_id)
+        self.assertEqual(lane["handoff"], lane["architecture_design_brief"])
+        from journal_structure import domain_validator, architecture_sections
+        validator = domain_validator()
+        path = self.fixture.run / lane["handoff"]
+        self.assertEqual(validator.missing_markdown_headings(path, architecture_sections(), snapshot=snapshot), [])
+        self.assertEqual(validator.parse_architecture_design_decision(path, snapshot=snapshot), ("needs-revision", []))
+        self.assertEqual(validator.validate_architecture_contract_handoff(path, snapshot=snapshot), [])
+        self.assertEqual(validator.claim_evidence_ids_from_contract(path, snapshot=snapshot), (["actual-proof"], []))
+        self.assertEqual(validator.acceptance_criteria_ids_from_contract(path, snapshot=snapshot), (["public-transition"], []))
+        mapping = json.loads(snapshot.read_text("lane-map.json"))
+        facets = [value for values in mapping["architecture_context"].values() for value in values]
+        selected_capabilities = mapping["architecture_capabilities"]["selected"]
+        self.assertEqual(selected_capabilities, ["saas-platform-architecture", "go-backend-service-architecture", "modular-monolith-architecture"])
+        self.assertEqual(validator.validate_architecture_design_brief(path, facets, selected_capabilities, snapshot=snapshot), ("needs-revision", []))
+        self.assertEqual(validator.validate_selected_architecture_capabilities(path, selected_capabilities, snapshot=snapshot), [])
+        text = snapshot.read_text(lane["handoff"])
+        for capability in selected_capabilities:
+            self.assertIn("- Capability: `" + capability + "`", text)
+        self.assertNotIn("- Capability: `selected`", text)
+        self.assertNotIn("- Capability: `notes`", text)
+        row = json.loads(snapshot.read_text("delegation-summary.json"))["subagents"][0]
+        self.assertEqual(row["completion_turn_id"], base.QA_ID + "-turn")
+        self.assertEqual(row["handoff"], lane["handoff"])
+        output = subprocess.run([sys.executable, "-B", str(Path(__file__).with_name("journal.py")),
+            "--run-dir", str(self.fixture.run), "read", lane["handoff"]], capture_output=True, text=True)
+        self.assertEqual(output.returncode, 0, output.stderr)
+        self.assertIn("Status: needs-revision", output.stdout)
+        before = self.tree()
+        self.assertEqual(self.write(), 0)
+        self.assertEqual(self.tree(), before)
+
+    def test_source_identity_model_and_current_completion_reject_atomically(self):
+        def wrong_parent(events):
+            events[0]["payload"]["parent_thread_id"] = base.REVIEWER_ID
+            events[0]["payload"]["source"]["subagent"]["thread_spawn"]["parent_thread_id"] = base.REVIEWER_ID
+        def wrong_role(events):
+            events[0]["payload"]["agent_role"] = "python-worker"
+            events[0]["payload"]["source"]["subagent"]["thread_spawn"]["agent_role"] = "python-worker"
+        def wrong_model(events):
+            events[2]["payload"]["model"] = "invented-model"
+        def stale_completion(events):
+            events.append({"type": "event_msg", "payload": {"type": "task_started", "turn_id": "later-turn"}})
+        for mutate in (wrong_parent, wrong_role, wrong_model, stale_completion, lambda events: events.clear()):
+            with self.subTest(source=mutate.__name__):
+                before = self.tree()
+                with self.assertRaises(SystemExit):
+                    self.write(mutate_source=mutate)
+                self.assertEqual(self.tree(), before)
+
+    def test_negative_terminal_decision_and_explicit_selector(self):
+        self.request.update(status="blocked", decision="rejected", completion_turn_id=base.QA_ID + "-turn")
+        self.assertEqual(self.write(), 0)
+        snapshot = journal_io.JournalSnapshot.open(self.fixture.run)
+        event = snapshot.timeline()[-1]
+        self.assertEqual((event["stage"], event["status"]), ("blocked", "blocked"))
+        self.assertEqual(event["completion_turn_id"], self.request["completion_turn_id"])
+        before = self.tree()
+        with self.assertRaises(SystemExit):
+            self.write(identifier="terminal-rewrite")
+        self.assertEqual(self.tree(), before)
+
+    def test_concurrent_terminal_writers_publish_one_outcome(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Barrier
+        self.fixture.source.sessions[base.QA_ID] = base.session(base.QA_ID, "architect", self.request, 1)
+        barrier = Barrier(2)
+        def write(identifier):
+            barrier.wait()
+            try:
+                journal_io.write_entry(self.fixture.run, "architecture-outcome", self.request, identifier=identifier)
+                return "committed"
+            except journal_io.JournalError:
+                return "rejected"
+        with patch.object(evidence, "CodexSessionSource", return_value=self.fixture.source), ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(write, ["race-one", "race-two"]))
+        self.assertEqual(sorted(results), ["committed", "rejected"])
+        snapshot = journal_io.JournalSnapshot.open(self.fixture.run)
+        self.assertEqual(len([row for row in snapshot.timeline() if row.get("stage") == "handoff"]), 1)
+
+    def test_schema1_outcome_without_optional_gate_ids(self):
+        fixture = FirstBindingRegressions()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        fixture.initialize(schema=1)
+        fixture.start()
+        self.fixture = fixture
+        del self.request["claim_evidence_ids"]
+        del self.request["acceptance_criteria_ids"]
+        self.request["decision"] = "rejected"
+        self.assertEqual(self.write(), 0)
+
+    def test_root_assignment_cannot_supply_architect_authority(self):
+        fixture = FirstBindingRegressions()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        fixture.initialize(schema=1)
+        fixture.start(base.ROOT_ID, "--execution-mode", "role-lane")
+        self.fixture = fixture
+        before = self.tree()
+        with self.assertRaises(SystemExit):
+            self.write()
+        self.assertEqual(self.tree(), before)
+
+    def test_malformed_and_source_mismatch_are_atomic(self):
+        import copy
+        bad = []
+        for field in ("sections", "decision", "lane_id"):
+            value = copy.deepcopy(self.request)
+            del value[field]
+            bad.append(value)
+        for sections in (self.request["sections"][:-1], self.request["sections"] + [self.request["sections"][0]],
+                         [{**row, "summary": " "} for row in self.request["sections"]]):
+            bad.append({**self.request, "sections": sections})
+        for extra in ({"decision": "invented"}, {"decision": "approved", "status": "blocked"},
+                      {"path": "handoffs/fake.md"}, {"lane_id": "unrelated-lane"}, {"completion_turn_id": "unrelated-turn"},
+                      {"claim_evidence_ids": ["duplicate", "duplicate"]},
+                      {"acceptance_criteria_ids": ["not an id"]}, {"claim_evidence_ids": []}):
+            bad.append({**self.request, **extra})
+        for index, request in enumerate(bad):
+            with self.subTest(index=index):
+                before = self.tree()
+                with self.assertRaises(SystemExit):
+                    self.write(request, identifier="bad-" + str(index))
+                self.assertEqual(self.tree(), before)
+        before = self.tree()
+        with self.assertRaises(SystemExit):
+            self.write(source_request={**self.request, "decision": "rejected"})
+        self.assertEqual(self.tree(), before)
+        for change in ({"summary": "Different source boundary"}, {"claim_evidence_ids": ["different-proof"]},
+                       {"evidence": [{"path": "artifacts/source-only.txt"}]}):
+            with self.subTest(source_change=change):
+                with self.assertRaises(SystemExit):
+                    self.write(source_request={**self.request, **change})
+                self.assertEqual(self.tree(), before)
+
+
+class FirstBindingRegressions(unittest.TestCase):
+    """Public initializer/recorder transitions with explicitly synthetic sources."""
+
+    def setUp(self):
+        import tempfile
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.repo = Path(self.temp.name).resolve()
+        self.source = base.SyntheticSource()
+        self.source.sessions[base.ROOT_ID] = [{"type": "session_meta", "payload": {"id": base.ROOT_ID}}]
+        self.source.sessions[base.QA_ID] = base.session(base.QA_ID, "architect", {}, 1)
+        self.source.sessions[base.REVIEWER_ID] = base.session(base.REVIEWER_ID, "architect", {}, 2)
+
+    def initialize(self, schema=2, mode="compact"):
+        initializer = load("first_binding_initializer", "init-run.py")
+        args = ["--repo", str(self.repo), "--slug", "binding", "--date", "2026-10-13", "--summary", "Binding regression"]
+        if schema == 0:
+            args += ["--mode", mode]
+        else:
+            args += ["--with-lanes"]
+        if schema == 2:
+            args += ["--architecture-gate", "--budget", "standard", "--architecture-context-json",
+                     json.dumps({"product_context": ["saas-service"], "application_surface": ["backend-service"],
+                                 "architecture_pattern": ["monolith"], "stack_runtime": ["go"],
+                                 "risk_gates": ["migrations"], "verification_gates": ["unit", "integration"]}),
+                     "--architecture-capabilities", "saas-platform-architecture,go-backend-service-architecture,modular-monolith-architecture"]
+        with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+            self.assertEqual(initializer.main(args), 0)
+        self.run = self.repo / ".agent-work/runs/2026-10-13-binding"
+        self.lane_id = "architecture-contract"
+        if schema == 1:
+            self.declare("role-lane")
+        self.record("--role", "orchestrator", "--execution-mode", "role-lane", "--stage", "verification",
+                    "--verification-json", json.dumps({**evidence.empty_verification(), "task_kind": "analysis", "root_thread_id": base.ROOT_ID}))
+
+    def declare(self, mode, **extra):
+        return journal_io.write_entry(self.run, "lane", {"id": self.lane_id, "summary": "Planned architecture",
+            "status": "planned", "lane_type": "architecture", "role": "architect", "execution_mode": mode,
+            "wave": 1, "critical": True, **extra}, identifier="declare-" + mode)
+
+    def record(self, *args):
+        with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+            return recorder.main(["--run-dir", str(self.run), "--status", "active", "--summary", "Binding regression", *args], session_source=self.source)
+
+    def start(self, thread=base.QA_ID, *extra):
+        return self.record("--role", "architect", "--lane-id", self.lane_id, "--stage", "spawned", "--codex-thread-id", thread, *extra)
+
+    def snapshot(self):
+        snapshot = journal_io.JournalSnapshot.open(self.run)
+        return snapshot.revision, snapshot.documents, snapshot.receipts
+
+    def test_generated_plan_binds_actual_child_and_replays(self):
+        self.initialize()
+        self.start(base.QA_ID, "--operation-id", "first-binding")
+        snapshot = journal_io.JournalSnapshot.open(self.run)
+        lane = json.loads(snapshot.read_text("lane-map.json"))["lanes"][0]
+        record = json.loads(snapshot.read_text("delegation-summary.json"))["subagents"][0]
+        self.assertEqual((lane["execution_mode"], lane["codex_thread_id"], lane["status"]), ("subagent", base.QA_ID, "active"))
+        self.assertEqual(record["codex_thread_id"], base.QA_ID)
+        self.assertIn('"execution_mode": "subagent"', snapshot.read_text(record["trace"]))
+        before = self.snapshot()
+        self.start(base.QA_ID, "--operation-id", "first-binding")
+        self.assertEqual(self.snapshot(), before)
+        with self.assertRaises(SystemExit):
+            self.start(base.REVIEWER_ID, "--operation-id", "first-binding")
+        self.assertEqual(self.snapshot(), before)
+
+    def test_schema_one_and_compact_bind_child(self):
+        for schema in (1, 0):
+            with self.subTest(schema=schema):
+                # Each public journey owns a fresh repository and journal.
+                self.repo = Path(self.temp.name).resolve() / str(schema)
+                self.repo.mkdir()
+                self.initialize(schema)
+                self.start()
+                snapshot = journal_io.JournalSnapshot.open(self.run)
+                self.assertEqual(snapshot.exists("lane-map.json"), schema == 1)
+                self.assertEqual(json.loads(snapshot.read_text("delegation-summary.json"))["subagents"][0]["codex_thread_id"], base.QA_ID)
+
+    def test_generated_nonworker_roles_bind_without_configure(self):
+        self.initialize()
+        for index, (lane_id, role) in enumerate((("architecture-contract", "architect"),
+                    ("verification-readiness-1", "qa-verifier"), ("qa-behavior", "qa-verifier"),
+                    ("review-contract", "reviewer")), 1):
+            with self.subTest(lane_id=lane_id):
+                thread = f"00000000-0000-4000-8000-{index + 10:012d}"
+                self.source.sessions[thread] = base.session(thread, role, {}, index)
+                self.record("--role", role, "--lane-id", lane_id, "--stage", "spawned", "--codex-thread-id", thread)
+        snapshot = journal_io.JournalSnapshot.open(self.run)
+        records = json.loads(snapshot.read_text("delegation-summary.json"))["subagents"]
+        self.assertEqual(len(records), 4)
+        self.assertTrue(all(row["status"] == "active" for row in records))
+
+    def test_planned_wave_critical_and_handoff_project_without_cli_flags(self):
+        self.initialize()
+        self.start(base.QA_ID, "--artifact", "context.md", "--operation-id", "planned-metadata")
+        snapshot = journal_io.JournalSnapshot.open(self.run)
+        record = json.loads(snapshot.read_text("delegation-summary.json"))["subagents"][0]
+        self.assertEqual((record["wave"], record["critical"], record["handoff"]),
+                         (1, True, "handoffs/architecture-contract.md"))
+        event = next(e for e in snapshot.timeline() if e.get("lane_id") == self.lane_id)
+        index = next(e for e in json.loads(snapshot.read_text("artifacts.json")) if e.get("lane_id") == self.lane_id)
+        for row in (event, index):
+            self.assertEqual((row["wave"], row["critical"]), (1, True))
+        before = self.snapshot()
+        self.start(base.QA_ID, "--artifact", "context.md", "--operation-id", "planned-metadata")
+        self.assertEqual(self.snapshot(), before)
+
+    def test_plan_metadata_flags_are_assertions(self):
+        self.initialize(1)
+        before = self.snapshot()
+        with self.assertRaisesRegex(SystemExit, "wave"):
+            self.start(base.QA_ID, "--wave", "99")
+        self.assertEqual(self.snapshot(), before)
+        self.start(base.QA_ID, "--wave", "1", "--critical", "--artifact", "context.md")
+        before = self.snapshot()
+        with self.assertRaisesRegex(SystemExit, "wave"):
+            self.start(base.QA_ID, "--wave", "2")
+        self.assertEqual(self.snapshot(), before)
+        journal_io.write_entry(self.run, "lane", {"id": "noncritical", "summary": "Noncritical source assignment", "status": "planned",
+            "lane_type": "architecture", "role": "architect", "execution_mode": "role-lane", "wave": 2, "critical": False}, identifier="noncritical-declaration")
+        self.lane_id = "noncritical"
+        before = self.snapshot()
+        with self.assertRaisesRegex(SystemExit, "critical"):
+            self.start(base.REVIEWER_ID, "--critical")
+        self.assertEqual(self.snapshot(), before)
+        self.start(base.REVIEWER_ID, "--artifact", "context.md")
+        snapshot = journal_io.JournalSnapshot.open(self.run)
+        event = next(e for e in snapshot.timeline() if e.get("lane_id") == "noncritical")
+        self.assertEqual((event["wave"], event["critical"]), (2, False))
+        index = next(e for e in json.loads(snapshot.read_text("artifacts.json")) if e.get("path") == "context.md")
+        self.assertEqual((index["lane_id"], index["wave"], index["critical"]), ("noncritical", 2, False))
+
+    def test_schema_one_subagent_plan_binds_allowed_root(self):
+        self.initialize(1)
+        self.declare("subagent")
+        self.source.sessions[base.ROOT_ID] = [{"type": "session_meta", "payload": {"id": base.ROOT_ID}}]
+        self.start(base.ROOT_ID)
+        lane = json.loads(journal_io.JournalSnapshot.open(self.run).read_text("lane-map.json"))["lanes"][0]
+        self.assertEqual(lane["execution_mode"], "role-lane")
+
+    def test_root_first_binding_without_uuid_still_requires_source(self):
+        self.initialize(1)
+        before = self.snapshot()
+        del self.source.sessions[base.ROOT_ID]
+        with self.assertRaisesRegex(SystemExit, "session missing"):
+            self.record("--role", "architect", "--lane-id", self.lane_id,
+                        "--execution-mode", "role-lane", "--stage", "spawned")
+        self.assertEqual(self.snapshot(), before)
+        self.source.sessions[base.ROOT_ID] = [{"type": "session_meta", "payload": {"id": base.ROOT_ID}}]
+        self.record("--role", "architect", "--lane-id", self.lane_id,
+                    "--execution-mode", "role-lane", "--stage", "spawned", "--operation-id", "root-first-binding")
+        snapshot = journal_io.JournalSnapshot.open(self.run)
+        record = json.loads(snapshot.read_text("delegation-summary.json"))["role_lanes"][0]
+        self.assertEqual(record["codex_thread_id"], base.ROOT_ID)
+        lane = json.loads(snapshot.read_text("lane-map.json"))["lanes"][0]
+        self.assertEqual(lane["codex_thread_id"], base.ROOT_ID)
+        before = self.snapshot()
+        self.record("--role", "architect", "--lane-id", self.lane_id,
+                    "--execution-mode", "role-lane", "--stage", "spawned", "--operation-id", "root-first-binding")
+        self.assertEqual(self.snapshot(), before)
+
+    def test_planned_declaration_refines_mode_without_spawn(self):
+        self.initialize()
+        self.declare("subagent")
+        snapshot = journal_io.JournalSnapshot.open(self.run)
+        self.assertFalse(json.loads(snapshot.read_text("delegation-summary.json"))["subagents_used"])
+        self.assertFalse(any(e.get("lane_id") == self.lane_id for e in snapshot.timeline()))
+        self.start()
+
+    def test_registered_mode_identity_and_scope_are_immutable(self):
+        self.initialize()
+        self.start(base.QA_ID, "--stable-agent-name", "Architect", "--stable-agent-slug", "architecture-owner")
+        self.record("--role", "architect", "--lane-id", self.lane_id, "--stage", "checks")
+        before = self.snapshot()
+        for extra in (("--execution-mode", "role-lane"), ("--role", "reviewer"),
+                      ("--stable-agent-slug", "replacement"), ("--stable-agent-name", "Replacement"),
+                      ("--codex-thread-id", base.REVIEWER_ID)):
+            with self.subTest(extra=extra), self.assertRaises(SystemExit):
+                self.start(base.QA_ID, *extra)
+            self.assertEqual(self.snapshot(), before)
+        with self.assertRaises(journal_io.JournalError):
+            self.declare("subagent", allowed_paths=["new/**"])
+        self.assertEqual(self.snapshot(), before)
+
+    def test_source_negatives_leave_no_partial_publication(self):
+        from copy import deepcopy
+        self.initialize()
+        before = self.snapshot()
+        for invalid in ("missing", "parent", "role", "uuid", "child-as-root"):
+            with self.subTest(invalid=invalid):
+                self.source.sessions[base.QA_ID] = base.session(base.QA_ID, "architect", {}, 1)
+                thread = base.QA_ID
+                extra = []
+                if invalid == "missing":
+                    del self.source.sessions[thread]
+                elif invalid in {"parent", "role"}:
+                    meta = self.source.sessions[thread][0]["payload"]
+                    field = "parent_thread_id" if invalid == "parent" else "agent_role"
+                    value = base.REVIEWER_ID if invalid == "parent" else "reviewer"
+                    meta[field] = value
+                    meta["source"]["subagent"]["thread_spawn"][field] = value
+                elif invalid == "uuid":
+                    thread = "not-a-uuid"
+                    self.source.sessions[thread] = deepcopy(self.source.sessions[base.QA_ID])
+                else:
+                    extra = ["--execution-mode", "role-lane"]
+                with self.assertRaises(SystemExit):
+                    self.start(thread, *extra)
+                self.assertEqual(self.snapshot(), before)
+
+    def test_root_mode_is_source_inferred_and_registered_mode_is_reused(self):
+        self.initialize()
+        self.source.sessions[base.ROOT_ID] = [{"type": "session_meta", "payload": {"id": base.ROOT_ID}}]
+        self.start(base.ROOT_ID)
+        self.record("--role", "architect", "--lane-id", self.lane_id, "--stage", "checks")
+        snapshot = journal_io.JournalSnapshot.open(self.run)
+        lane = json.loads(snapshot.read_text("lane-map.json"))["lanes"][0]
+        self.assertEqual(lane["execution_mode"], "role-lane")
+        self.assertEqual(len(json.loads(snapshot.read_text("delegation-summary.json"))["role_lanes"]), 1)
+
+    def test_independent_architecture_policy_rejects_root(self):
+        self.initialize()
+        snapshot = journal_io.JournalSnapshot.open(self.run)
+        lanes = json.loads(snapshot.read_text("lane-map.json"))
+        lanes["architecture_contract_independent"] = True
+        journal_io.transact(self.run, "independent-policy", {}, lambda current: ({"lane-map.json": json.dumps(lanes)}, {}))
+        self.source.sessions[base.ROOT_ID] = [{"type": "session_meta", "payload": {"id": base.ROOT_ID}}]
+        before = self.snapshot()
+        with self.assertRaisesRegex(SystemExit, "requires subagent"):
+            self.start(base.ROOT_ID)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_orphan_history_and_planned_registration_are_not_virgin(self):
+        from dataclasses import replace
+        from types import MappingProxyType
+        self.initialize()
+        snapshot = journal_io.JournalSnapshot.open(self.run)
+        event = {"lane_id": self.lane_id, "role": "architect", "execution_mode": "subagent",
+                 "stage": "spawned", "status": "active", "codex_thread_id": base.QA_ID}
+        # Malformed/history snapshots are input doubles, never published repairs.
+        for path in ("timeline.jsonl", "agents/architect/trace.jsonl"):
+            with self.subTest(path=path):
+                candidate = replace(snapshot, documents=MappingProxyType({**snapshot.documents,
+                    path: snapshot.documents.get(path, b"") + (json.dumps(event) + "\n").encode()}))
+                with self.assertRaisesRegex(journal_io.JournalError, "integrity"):
+                    journal_io.first_binding_allowed(candidate, self.lane_id)
+        summary = json.loads(snapshot.read_text("delegation-summary.json"))
+        summary["role_lanes"].append({"lane_id": self.lane_id, "role": "architect", "status": "planned"})
+        candidate = replace(snapshot, documents=MappingProxyType({**snapshot.documents, "delegation-summary.json": json.dumps(summary).encode()}))
+        self.assertFalse(journal_io.first_binding_allowed(candidate, self.lane_id))
+        archived = candidate
+        candidate = replace(snapshot, archives=MappingProxyType({"old-binding": {}}))
+        with patch.object(journal_io.JournalSnapshot, "archive", return_value=archived):
+            self.assertFalse(journal_io.first_binding_allowed(candidate, self.lane_id))
+
+    def test_two_first_binding_writers_commit_one_identity(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Barrier
+        self.initialize()
+        barrier = Barrier(2)
+        writer = journal_io.write_entry
+        def simultaneous(*args, **kwargs):
+            if args[1] == "event":
+                barrier.wait(timeout=10)
+            return writer(*args, **kwargs)
+        def attempt(thread):
+            try:
+                self.start(thread, "--operation-id", "race-" + thread)
+                return True
+            except SystemExit:
+                return False
+        with patch.object(journal_io, "write_entry", simultaneous), ThreadPoolExecutor(max_workers=2) as pool:
+            outcomes = list(pool.map(attempt, [base.QA_ID, base.REVIEWER_ID]))
+        self.assertEqual(sorted(outcomes), [False, True])
+        snapshot = journal_io.JournalSnapshot.open(self.run)
+        summary = json.loads(snapshot.read_text("delegation-summary.json"))
+        lane = json.loads(snapshot.read_text("lane-map.json"))["lanes"][0]
+        self.assertEqual(len(summary["subagents"]), 1)
+        winner = summary["subagents"][0]["codex_thread_id"]
+        self.assertEqual(lane["codex_thread_id"], winner)
+        events = [e for e in snapshot.timeline() if e.get("lane_id") == self.lane_id]
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["codex_thread_id"], winner)
+        self.assertEqual(len([key for key in snapshot.receipts if key.startswith("race-")]), 1)
+
+
 class AssignmentStructureRegressions(unittest.TestCase):
     def test_malformed_current_field_types_have_concrete_diagnostics(self):
         from journal_structure import assignment_errors
@@ -743,6 +2728,16 @@ class JournalRegressions(unittest.TestCase):
 
     def test_recorder_updates_map_summary_trace_atomically_and_replays(self):
         base.write_json(self.run / "lane-map.json", self.assignment_map())
+        base.initialize_open_fixture(self.run)
+        from task_workspace import prepare
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True)
+        temporary = base.tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        prepare(self.run, self.root, Path(temporary.name).resolve() / "bundle")
+        verification = json.loads(journal_io.JournalSnapshot.open(self.run).read_text("delegation-summary.json"))["verification"]
+        verification.update(result_files=[], result_hash=None, qa=None, reviewer=None)
+        self.record("--role", "orchestrator", "--execution-mode", "role-lane", "--stage", "verification", "--status", "active",
+                    "--summary", "Prepared fresh change admission", "--verification-json", json.dumps(verification))
         args = ["--role", "python-worker", "--lane-id", "new", "--execution-mode", "role-lane",
                 "--stage", "spawned", "--status", "active", "--summary", "Planning",
                 "--operation-id", "atomic-start"]
@@ -975,6 +2970,7 @@ class JournalRegressions(unittest.TestCase):
 
     def setUp(self):
         base.EvidenceRegressions.setUp(self)
+        self.source.sessions[base.ROOT_ID] = [{"type": "session_meta", "payload": {"id": base.ROOT_ID}}]
         self.open_timeline()
 
     def snapshot(self):
@@ -1006,11 +3002,11 @@ class JournalRegressions(unittest.TestCase):
 
     def test_assignment_stage_status_commands(self):
         allowed = {"spawned": {"active"}, "handoff": {"pass", "pass-with-risks"},
-                   "blocked": {"blocked"}, "fail": {"fail"}}
-        base.initialize_open_fixture(self.run)
+                   "blocked": {"blocked"}, "fail": {"fail"}, "timed-out": {"timed-out"}}
+        base.workspace_pack(self)
         for mode in ("subagent", "role-lane"):
             for stage, statuses in allowed.items():
-                for status in ("active", "pass", "pass-with-risks", "blocked", "fail", "done"):
+                for status in ("active", "pass", "pass-with-risks", "blocked", "fail", "done", "timed-out"):
                     with self.subTest(mode=mode, stage=stage, status=status):
                         lane = f"{mode}-{stage}-{status}"
                         args = ["--role", "qa-verifier", "--execution-mode", mode, "--lane-id", lane,
@@ -1112,6 +3108,12 @@ class JournalRegressions(unittest.TestCase):
         args[args.index("--completion-turn-id") + 1] = "new-qa-turn"
         with self.assertRaisesRegex(SystemExit, "terminal assignment"):
             self.record(*args)
+        # The fresh native assignment defaults to a typed product review;
+        # preserve the untagged terminal fixture used by the rejection above.
+        answer = json.loads(events[-1]["payload"]["last_agent_message"])
+        answer["review_subject"] = {"kind": "product-result"}
+        events[-1]["payload"]["last_agent_message"] = json.dumps(answer)
+        events[-2]["payload"]["content"][0]["text"] = json.dumps(answer)
         args[args.index("--lane-id") + 1] = "fresh-qa"
         args.extend(["--codex-thread-id", base.QA_ID])
         self.record("--role", "qa-verifier", "--lane-id", "fresh-qa", "--codex-thread-id", base.QA_ID,
@@ -1136,13 +3138,11 @@ class JournalRegressions(unittest.TestCase):
         self.assertEqual(before, self.snapshot())
 
     def test_semantic_conclusion_rechecks_evidence_changed_before_writer_transaction(self):
+        base.workspace_pack(self)
         self.summary["verification"]["result_hash"] = evidence.result_hash(self.run, self.summary["verification"])
         base.write_json(self.run / "delegation-summary.json", self.summary)
         self.record("--role", "qa-verifier", "--lane-id", "race-qa", "--codex-thread-id", base.QA_ID,
                     "--stage", "spawned", "--status", "active", "--summary", "Assigned race check")
-        pending = json.loads(journal_io.JournalSnapshot.open(self.run).read_text("delegation-summary.json"))
-        pending["verification"]["result_hash"] = None
-        journal_io.transact(self.run, "race-unsealed-result", {}, lambda current: ({"delegation-summary.json": json.dumps(pending)}, {}))
         # This new attachment is not referenced by any earlier acceptance.
         journal_io.transact(self.run, "race-evidence", {}, lambda current: ({"checks/race.output": b"original output"}, {}))
         before = journal_io.JournalSnapshot.open(self.run)

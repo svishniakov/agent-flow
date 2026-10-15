@@ -10,9 +10,9 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-from verification_evidence import validate_verification, external_followup, verify_author_declaration, retained_accepted_boundary_v1
+from verification_evidence import validate_verification, external_followup, verify_author_declaration, retained_accepted_boundary_v1, author_boundary_seal, author_coverage, resolve_author_boundaries
 from task_workspace import registered_workspace, verify_candidate
-from journal_io import timestamp as journal_timestamp, validate_event, JournalError, JournalSnapshot
+from journal_io import timestamp as journal_timestamp, validate_event, JournalError, JournalSnapshot, digest, encode_json
 from journal_io import (journal_read_text, journal_read_bytes, journal_exists, journal_is_file,
                         journal_is_dir, journal_iterdir, journal_glob)
 
@@ -1026,6 +1026,11 @@ def lane_artifact_references(lanes: list[object]) -> list[str]:
         if isinstance(design_brief, str) and design_brief and design_brief not in seen:
             references.append(design_brief)
             seen.add(design_brief)
+        boundary = lane.get("boundary")
+        pointer = boundary.get("changed_paths_artifact") if isinstance(boundary, dict) else None
+        if isinstance(pointer, str) and pointer and pointer not in seen:
+            references.append(pointer)
+            seen.add(pointer)
     return references
 
 
@@ -4007,6 +4012,20 @@ def validate_verification_readiness(
     status = data.get("status")
     if status not in VERIFICATION_READINESS_STATUSES:
         errors.append(f"{artifact} status invalid")
+    applicable_lane_ids = set(readiness_lane_ids)
+    if snapshot is not None and snapshot.durable:
+        from verification_evidence import readiness_obligation_endpoints, EvidenceError
+        summary, summary_errors = load_json(run_dir / "delegation-summary.json", "delegation-summary.json", snapshot=snapshot)
+        errors.extend(summary_errors)
+        groups = [summary.get(field, []) for field in ("subagents", "role_lanes")] if isinstance(summary, dict) else []
+        records = [row for group in groups if isinstance(group, list) for row in group]
+        registered = {row.get("lane_id") for row in records if isinstance(row, dict)}
+        if status == "ready" or all(lane_id in registered for lane_id in readiness_lane_ids):
+            try:
+                applicable_lane_ids = readiness_obligation_endpoints(snapshot, summary, readiness_lane_ids, require_current=status == "ready")
+            except EvidenceError as exc:
+                errors.append(f"{artifact}: {exc}")
+                applicable_lane_ids = set()
 
     attempts = data.get("attempts")
     if not isinstance(attempts, list) or not attempts:
@@ -4097,12 +4116,13 @@ def validate_verification_readiness(
             continue
         validate_string(attempt.get("id"), f"{label}.id", errors)
         lane_id = validate_string(attempt.get("lane"), f"{label}.lane", errors)
-        if lane_id and lane_id not in readiness_lane_ids:
-            errors.append(f"{label}.lane must be listed in lane-map verification_readiness.lanes: {lane_id}")
+        attempt_lane = lane_by_id.get(lane_id)
+        if lane_id and (attempt_lane is None or attempt_lane.get("type") != "qa" or attempt_lane.get("role") != "qa-verifier"):
+            errors.append(f"{label}.lane must exist as QA qa-verifier: {lane_id}")
         attempt_status = attempt.get("status")
         if attempt_status not in VERIFICATION_READINESS_ATTEMPT_STATUSES:
             errors.append(f"{label}.status invalid")
-        else:
+        elif lane_id in applicable_lane_ids:
             latest_attempt_status = attempt_status
             if attempt_status == "ready" and lane_id:
                 ready_lane_ids.append(lane_id)
@@ -4151,7 +4171,10 @@ def validate_verification_readiness(
             errors.append(f"{label}.blockers must be non-empty when status=blocked")
 
     for request_id, request in request_by_id.items():
-        if request.get("status") == "approved" and request_id not in successful_execution_request_ids:
+        if request.get("status") == "approved" and request_id not in successful_execution_request_ids and not (
+            isinstance(request.get("source_observation"), dict) and request["source_observation"].get("decision") == "approved"
+            and isinstance(request["source_observation"].get("commands_sha256"), str)
+            and request["source_observation"]["commands_sha256"] == digest(encode_json(request.get("commands")).encode())):
             errors.append(f"{artifact} approval request {request_id} approved without execution evidence")
 
     if status == "ready":
@@ -4554,20 +4577,19 @@ def validate_lane_boundary_artifact(
     if workspace is not None:
         try:
             sealed = verify_candidate(workspace, inputs=snapshot.external_inputs)
-            expected = {"workspace_id": workspace["workspace_id"], "candidate_id": sealed["candidate_id"],
+            expected = {} if data.get("version") == 2 else {"workspace_id": workspace["workspace_id"], "candidate_id": sealed["candidate_id"],
                         "baseline_digest": workspace["baseline_digest"], "candidate_digest": sealed["candidate_digest"],
                         "changed_paths": sealed["changed_paths"], "tracked_changed_paths": [], "untracked_paths": []}
             for key, value in expected.items():
                 if data.get(key) != value:
                     errors.append(f"lane-map.json: {artifact_name} {key} must match the full registered workspace delta")
             if data.get("version") == 2:
+                author_boundary_seal(snapshot, workspace, data)
                 declaration = {key: data.get(key) for key in ("lane_id", "authored_paths", "handoff", "edit_evidence", "coauthors")}
                 assignment = verify_author_declaration(snapshot, declaration, lane_id=lane_id,
                     presentation_required=presentation_required)
                 if data.get("assignment") != assignment:
                     errors.append(f"lane-map.json: {artifact_name} author assignment mismatch")
-                if not set(declaration["authored_paths"]) <= set(sealed["changed_paths"]):
-                    errors.append(f"lane-map.json: {artifact_name} authored_paths outside workspace delta")
                 return declaration["authored_paths"], errors
             return sealed["changed_paths"], errors
         except (JournalError, OSError, TypeError, ValueError, KeyError) as exc:
@@ -4653,12 +4675,6 @@ def validate_lane_boundary(
         )
     else:
         artifact_name = changed_paths_artifact
-        evidence = lane.get("evidence")
-        if isinstance(evidence, list) and changed_paths_artifact not in evidence:
-            errors.append(
-                f"lane-map.json: lane {label} boundary.changed_paths_artifact "
-                "must be listed in lane evidence"
-            )
         artifact_path = resolve_run_path(run_dir, changed_paths_artifact)
         if not journal_exists(artifact_path, snapshot=snapshot):
             if strict_required:
@@ -4706,7 +4722,8 @@ def validate_author_coverage(snapshot, boundary_artifact_by_lane):
     """Check complete authorship independently of handoff presentation."""
     errors = []
     try:
-        sealed = verify_candidate(registered_workspace(snapshot), inputs=snapshot.external_inputs)
+        workspace = registered_workspace(snapshot)
+        sealed = verify_candidate(workspace, inputs=snapshot.external_inputs)
         contributors = {}
         declarations = {}
         for lane_id, name in boundary_artifact_by_lane.items():
@@ -4721,14 +4738,10 @@ def validate_author_coverage(snapshot, boundary_artifact_by_lane):
             declarations[lane_id] = boundary
             for path in boundary.get("authored_paths", []):
                 contributors.setdefault(path, set()).add(lane_id)
-        if set(contributors) != set(sealed["changed_paths"]):
+        if declarations:
+            author_coverage(snapshot, workspace, resolve_author_boundaries(snapshot, workspace))
+        elif set(contributors) != set(sealed["changed_paths"]):
             errors.append("author declarations union must equal full workspace delta")
-        for path, authors in contributors.items():
-            for author in authors:
-                if author in declarations:
-                    disclosed = set(declarations[author].get("coauthors", {}).get(path, []))
-                    if disclosed != authors - {author}:
-                        errors.append("author coauthorship mismatch: " + path + ": " + author)
     except (JournalError, OSError, ValueError, TypeError, KeyError) as exc:
         errors.append("author coverage: " + str(exc))
     return errors
@@ -5802,11 +5815,20 @@ def validate_lane_map(
     errors.extend(readiness_errors)
 
     ready_readiness_waves: list[int] = []
+    applicable_readiness_lane_ids = verification_readiness_lane_ids
+    if snapshot is not None and snapshot.durable and isinstance(verification_readiness_data, dict):
+        from verification_evidence import readiness_obligation_endpoints, EvidenceError
+        readiness_summary, _ = load_json(run_dir / "delegation-summary.json", "delegation-summary.json", snapshot=snapshot)
+        try:
+            applicable_readiness_lane_ids = readiness_obligation_endpoints(snapshot, readiness_summary, list(verification_readiness_lane_ids))
+        except EvidenceError:
+            # The readiness validator above reports the typed refusal.
+            applicable_readiness_lane_ids = set()
     if isinstance(verification_readiness_data, dict):
         ready_attempt_lanes = [
             attempt.get("lane")
             for attempt in verification_readiness_data.get("attempts", [])
-            if isinstance(attempt, dict) and attempt.get("status") == "ready"
+            if isinstance(attempt, dict) and attempt.get("status") == "ready" and attempt.get("lane") in applicable_readiness_lane_ids
         ]
         for readiness_lane_id in ready_attempt_lanes:
             if not isinstance(readiness_lane_id, str):
@@ -6438,6 +6460,11 @@ def validate_product_acceptance(run_dir: Path, *, session_source=None, snapshot=
     verification = summary.get("verification")
     if not isinstance(verification, dict):
         return [*errors, "product acceptance requires verification"]
+    from verification_evidence import require_current_architecture_inputs, EvidenceError
+    try:
+        require_current_architecture_inputs(snapshot)
+    except EvidenceError as exc:
+        return [*errors, str(exc)]
     lane_map = {}
     if snapshot.exists("lane-map.json"):
         lane_map, map_errors = load_json(run_dir / "lane-map.json", "lane-map.json", snapshot=snapshot)

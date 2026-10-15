@@ -23,10 +23,10 @@ STATUS_MEANINGS = {
     "replaced": "Another assignment replaces this execution; responsibility requires explicit resolution.",
 }
 CALLER_STATUSES = frozenset(STATUS_MEANINGS)
-EVENT_STATUS_RULES = {"spawned": {"active"}, "handoff": {"pass", "pass-with-risks"}, "blocked": {"blocked"}, "fail": {"fail"}}
+EVENT_STATUS_RULES = {"spawned": {"active"}, "handoff": {"pass", "pass-with-risks"}, "blocked": {"blocked"}, "fail": {"fail"}, "timed-out": {"timed-out"}}
 RESERVED_EVENT_COMMANDS = {"final": "journal finalize", "reopen": "journal reopen", "upgrade": "journal upgrade", "spawn": "stage spawned"}
 RESERVED_EVENT_STAGES = frozenset(RESERVED_EVENT_COMMANDS)
-TERMINAL_KINDS = {"handoff", "final", "check"}
+TERMINAL_KINDS = {"handoff", "final", "check", "architecture-outcome"}
 DOCUMENT_PATHS = {"task": "run.md", "plan": "plan.md", "progress": "progress.md", "final": "final.md", "lesson": "lesson.md"}
 REQUEST_FIELDS = {
     "event": {"summary": "string", "status": "status", "stage": "string", "role": "string",
@@ -41,7 +41,7 @@ DOCUMENT_PATHS.update({"route": "route.md", "decision": "decisions.md", "dod": "
 REQUEST_FIELDS.update({kind: {"summary": "string", "status": "status"} for kind in ("route", "decision", "dod", "checks", "coverage")})
 SERVICE_FIELDS = {
     "claim": {"id": "string", "subjects": "strings", "owner_lane": "nullable-string?", "reviewed_by": "nullable-string?", "section": "string?", "evidence": "marker-evidence?"},
-    "acceptance": {"id": "string", "source": "string", "subjects": "strings", "contract_types": "strings", "surface_expectations": "expectations", "evidence": "surface-evidence?", "negative_fixture_evidence": "surface-evidence?"},
+    "acceptance": {"id": "string", "source": "string", "subjects": "strings", "contract_types": "string-list", "surface_expectations": "expectations", "evidence": "surface-evidence?", "negative_fixture_evidence": "surface-evidence?"},
     "risk": {"id": "string", "category": "string", "impact": "string", "affected_scope": "string", "owner_lane": "string", "detected_by": "string", "evidence": "references"},
     "resolution": {"risk_id": "string", "resolution_type": "string", "effect": "string", "verification": "string", "owner_lane": "string", "verified_by": "nullable-string?", "reviewed_by": "nullable-string?", "evidence": "references?"},
     "resolution-attempt": {"risk_id": "string", "id": "string", "resolution_type": "string", "effect": "string", "verification": "string", "owner_lane": "string", "verified_by": "nullable-string?", "reviewed_by": "nullable-string?", "evidence": "references?", "blocked_reason": "string?", "rollback": "rollback?", "lesson": "lesson-observation?"},
@@ -66,6 +66,9 @@ SERVICE_FIELDS = {
 }
 REQUEST_FIELDS.update({kind: {"summary": "string", "status": "status", **fields} for kind, fields in SERVICE_FIELDS.items()})
 REQUEST_FIELDS["handoff"]["sections"] = "sections?"
+REQUEST_FIELDS["architecture-outcome"] = {"summary": "string", "status": "status", "lane_id": "string",
+    "decision": "string", "sections": "sections", "claim_evidence_ids": "string-list?",
+    "acceptance_criteria_ids": "string-list?", "evidence": "references?", "completion_turn_id": "string?"}
 SERVICE_KINDS = frozenset(SERVICE_FIELDS) - {"lane-report", "simplicity-scope"}
 SERVICE_STATUS_RULES = {"lane": {"planned"}, "readiness-approval": {"planned", "active", "pass", "blocked"},
     "continuation-blocker": {"pass", "pass-with-risks"},
@@ -110,7 +113,8 @@ def domain_validator():
 
 def semantic_enums():
     validator = domain_validator()
-    return {"risk": {"category": sorted(validator.RISK_MITIGATION_CATEGORIES)},
+    return {"architecture-outcome": {"decision": sorted(validator.ARCHITECTURE_DESIGN_DECISION_STATUSES)},
+            "risk": {"category": sorted(validator.RISK_MITIGATION_CATEGORIES)},
             "resolution": {"resolution_type": sorted(validator.RISK_RESOLUTION_TYPES), "effect": ["fix", "mitigate", "contain"]},
             "resolution-attempt": {"resolution_type": sorted(validator.RISK_RESOLUTION_TYPES), "effect": ["fix", "mitigate", "contain"], "blocked_reason": sorted(validator.BLOCKED_RESOLUTION_REASONS)},
             "senior-qa-recovery": {"decision": sorted(validator.SENIOR_QA_REVIEW_STATUSES), "recheck": sorted(validator.SENIOR_QA_RECHECK_RESULTS)},
@@ -130,6 +134,7 @@ def nested_choices():
     surfaces = {"surface": sorted(validator.ACCEPTANCE_TRACEABILITY_SURFACES), "polarity": sorted(validator.ACCEPTANCE_TRACEABILITY_POLARITIES)}
     sections = {value for key, value in vars(validator).items() if key.endswith("_SECTION") and type(value) is str}
     sections.update(validator.ARCHITECTURE_CONTRACT_SECTIONS)
+    sections.update(validator.ARCHITECTURE_DESIGN_BRIEF_SECTIONS)
     sections.update({"Architecture Invariants", "Boundary Evidence", "Engineering Simplicity", "Architecture Compliance", "DoD", "Risks", "Commands", "Files Changed"})
     return {
         "surface-evidence": {**surfaces, "proof_kind": sorted(validator.ACCEPTANCE_TRACEABILITY_PROOF_KINDS)},
@@ -203,6 +208,20 @@ def validate_request(kind, request):
     if type(kind) is not str or kind not in REQUEST_FIELDS:
         raise ValueError("unknown journal request kind")
     validate_fields(request, REQUEST_FIELDS[kind])
+    if kind == "architecture-outcome":
+        if request["decision"] not in semantic_enums()[kind]["decision"]:
+            raise ValueError("unknown architecture decision")
+        if request["status"] in {"blocked", "fail"} and request["decision"] == "approved":
+            raise ValueError("negative architecture outcome cannot approve")
+        headings = [row["section"] for row in request["sections"]]
+        if len(headings) != len(architecture_sections()) or set(headings) != set(architecture_sections()):
+            raise ValueError("architecture outcome requires every section exactly once")
+        for name in ("claim_evidence_ids", "acceptance_criteria_ids"):
+            values = request.get(name, [])
+            if len(set(values)) != len(values) or any(not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", value) for value in values):
+                raise ValueError(name + " requires unique kebab-case IDs")
+        if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", request["lane_id"]):
+            raise ValueError("lane_id must be kebab-case")
     if kind == "lane":
         from agent_config import default_agents_dir, resolve_role_path, read_frontmatter, role_config
         path = resolve_role_path(default_agents_dir(), request["role"])
@@ -248,11 +267,26 @@ def validate_request(kind, request):
 
 
 def request_contract():
+    validator = domain_validator()
     return {"statuses": sorted(CALLER_STATUSES), "status_meanings": STATUS_MEANINGS,
+            "review_subjects": {"product-result": {"kind": "product-result"}, "requirements-plan": {
+                "kind": "requirements-plan", "sources": [{"key": "journal:plan.md", "sha256": "writer-generated"}], "digest": "writer-generated"}},
+            "preliminary_readiness_gate_fields": ["axis", "facet", "check", "readiness", "evidence", "notes"],
+            "preliminary_readiness_gates": {"input": "--readiness-gates-file: JSON array; every row has exactly these fields",
+                "axis": ["risk_gates", "verification_gates"], "facet": "selected facet of the named lane-map architecture_context axis",
+                "readiness": sorted(validator.VERIFICATION_GATE_READINESS_STATUSES),
+                "check": "nonempty substantive string", "notes": "nonempty substantive string",
+                "evidence": "nonempty array: plain {path, sha256?: assertion}, or tool {path: artifacts/attachment, source_event: positive integer, source_call_id?: nonempty exact assertion, source_part?: zero-based nonnegative integer for public text blocks, sha256?: assertion}. Python captures exact own raw text and adds SHA/call_id; requires accepted source evidence",
+                "tool_result": {"content": "nonempty array of exactly {type: text, text: nonempty string}", "isError": "optional boolean; true rejects positive proof", "structuredContent": "optional object", "_meta": "optional object", "constraints": "selected text must be one JSON CallToolResult with only these keys; no wrappers/media/substrings. Own reviewing turn after input freeze; source_part forbidden for string function output. Source proves outer observed bytes; QA confirms applicability."},
+                "example": [{"axis": "verification_gates", "facet": "unit", "check": "Selected unit command executed in disposable copy", "readiness": "ready",
+                    "evidence": [{"path": "checks/command-example.json"}, {"path": "checks/command-example.output"}], "notes": "QA confirms applicability to pinned contract and config"}]},
             "constraints": {kind: {"statuses": sorted(SERVICE_STATUS_RULES.get(kind, TERMINAL if kind in TERMINAL_KINDS else CALLER_STATUSES)),
                                     "path": DOCUMENT_PATHS.get(kind),
                                     "route": "source-checked finalize" if kind == "final" else "semantic writer",
                                     **({"decision_by_status": {status: sorted(recovery_decisions(kind, status)) for status in SERVICE_STATUS_RULES[kind]}} if kind in RECOVERY_NEGATIVE_DECISIONS else {}),
+                                    **({"required_sections": architecture_sections(), "decision_by_status": {
+                                        status: sorted(semantic_enums()[kind]["decision"] if status in {"pass", "pass-with-risks"} else {"needs-revision", "rejected"})
+                                        for status in TERMINAL}} if kind == "architecture-outcome" else {}),
                                     **({"stage_status": {stage: sorted(values) for stage, values in EVENT_STATUS_RULES.items()}, "reserved_stages": sorted(RESERVED_EVENT_STAGES)} if kind == "event" else {})}
                             for kind in REQUEST_FIELDS},
             "fields": REQUEST_FIELDS,
@@ -289,7 +323,31 @@ def request_example(kind):
         result["command"] = ["python3", "-V"]
     if kind in RECOVERY_NEGATIVE_DECISIONS:
         result["decision"] = sorted(recovery_decisions(kind, result["status"]))[0]
+    if kind == "architecture-outcome":
+        result["sections"] = [{"section": heading, "summary": "Meaningful " + heading + " outcome"} for heading in architecture_sections()]
     return result
+
+
+def architecture_sections():
+    validator = domain_validator()
+    return list(dict.fromkeys([*validator.ARCHITECTURE_DESIGN_BRIEF_SECTIONS, *validator.ARCHITECTURE_CONTRACT_SECTIONS]))
+
+
+def render_architecture_outcome(request, evidence, facets, capabilities):
+    text = render_document("architecture-outcome", request["summary"], request["status"], {"evidence": evidence})
+    summaries = {row["section"]: row["summary"] for row in request["sections"]}
+    for heading in architecture_sections():
+        text += "\n## " + heading + "\n\n" + literal_content(summaries[heading]) + "\n"
+        if heading == "Decision":
+            text += "\nStatus: " + request["decision"] + "\n"
+        if heading in {"Selected Matrix Facets", "Selected Architecture"}:
+            text += "".join("- Matrix Facet: `" + literal_label(value) + "`\n" for value in facets)
+        if heading in {"Execution Plan", "Selected Architecture"}:
+            text += "".join("- Capability: `" + literal_label(value) + "`\n" for value in capabilities)
+        if heading in {"QA Gates", "Reviewer Checklist"}:
+            for field, label in (("claim_evidence_ids", "Claim Evidence"), ("acceptance_criteria_ids", "Acceptance Criteria")):
+                text += "".join("- " + label + ": `" + value + "`\n" for value in request.get(field, []))
+    return text
 
 
 def literal_content(text):
@@ -339,19 +397,22 @@ def canonical_role(value):
     return "reviewer" if value == "reviewer.qa" else value
 
 
-def archived_assignment_facts(snapshot):
+def archived_assignment_facts(snapshot, *, include_native=False):
     """Read immutable legacy inventories, never trust a record's legacy flag."""
     from journal_recovery import assignments
     facts = {}
     for identifier in snapshot.archives:
         archived = snapshot.archive(identifier)
-        if archived.storage_version != 1:
+        if archived.storage_version != 1 and not include_native:
             continue
         summary = json.loads(archived.documents.get("delegation-summary.json", b"{}"))
         modes = {row["lane_id"]: mode for group, mode in (("subagents", "subagent"), ("role_lanes", "role-lane"))
                  for row in summary.get(group, [])}
         for lane_id, original in assignments(archived).items():
             lane = original["lane"] or {}
+            if archived.storage_version != 1 and not original["summary"] and not original["events"] and lane.get("status") == "planned" and not any(
+                    lane.get(key) is not None for key in ("codex_thread_id", "trace", "legacy")):
+                continue
             first = original["events"][0]["event"] if original["events"] else {}
             facts[lane_id] = {**original, "mode": modes.get(lane_id, lane.get("execution_mode", first.get("execution_mode")))}
     return facts
@@ -432,6 +493,11 @@ def assignment_errors(documents, *, history=None):
             if lane_id in records:
                 errors.append(f"delegation-summary.json duplicate lane_id: {lane_id}")
             records[lane_id] = (record, mode)
+            from verification_evidence import review_subject_kind
+            try:
+                review_subject_kind(record)
+            except ValueError as exc:
+                errors.append(f"assignment {lane_id}: {exc}")
             old_record = historical_identity(lane_id, record, mode)
             if "status" in record and normalized(record["status"]) not in STATUSES and not (old_record and historical_status(lane_id, record["status"])):
                 errors.append(f"assignment {lane_id}.status invalid: {record['status']!r}")
@@ -443,6 +509,9 @@ def assignment_errors(documents, *, history=None):
                               f"(role={record.get('role')!r}, mode={mode!r}, "
                               f"thread={record.get('codex_thread_id')!r}, status={record.get('status')!r})")
             if lane is not None:
+                for field in ("review_subject", "review_input_operation_id"):
+                    if record.get(field) != lane.get(field) or (field in record) != (field in lane):
+                        errors.append(f"assignment {lane_id}.{field} differs from lane")
                 if canonical_role(lane.get("role")) != canonical_role(record.get("role")):
                     errors.append(f"assignment {lane_id}.role {record.get('role')!r} differs from lane {lane.get('role')!r}")
                 if normalized(lane.get("execution_mode")) != mode:
@@ -496,6 +565,9 @@ def assignment_errors(documents, *, history=None):
             if mode is None:
                 errors.append(f"{path}:{number}: assignment {lane_id} is unregistered")
                 continue
+            for field in ("review_subject", "review_input_operation_id"):
+                if record.get(field) != event.get(field) or (field in record) != (field in event):
+                    errors.append(f"{path}:{number}: assignment {lane_id}.{field} differs from registration")
             for field, expected in (("role", record.get("role")), ("execution_mode", mode)):
                 normalize = canonical_role if field == "role" else normalized
                 if normalize(event.get(field)) != normalize(expected):

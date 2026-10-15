@@ -9,9 +9,9 @@ import sys
 import importlib.util
 import tempfile
 from pathlib import Path
-from journal_io import JournalSnapshot, initialize_journal, transact
-from verification_evidence import sha256, result_hash, empty_verification
-from task_workspace import prepare, seal
+from journal_io import JournalError, JournalSnapshot, initialize_journal, transact
+from verification_evidence import sha256, result_hash, empty_verification, author_coverage, resolve_author_boundaries, EvidenceError
+from task_workspace import prepare, seal, registered_workspace
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -68,7 +68,7 @@ def native_author_fixtures():
             transact(run_dir, "wrong-" + lane_id, {}, lambda current: ({declaration_path: json.dumps(wrong)}, {}))
             rejected = subprocess.run([sys.executable, str(RECORDER), "--run-dir", str(run_dir), "--lane-id", lane_id,
                 "--declaration-json", declaration_path], text=True, capture_output=True)
-            assert rejected.returncode != 0 and "handoff must confirm" in rejected.stderr, rejected.stderr
+            assert rejected.returncode != 0 and "outside workspace delta" in rejected.stderr, rejected.stderr
         snapshot = JournalSnapshot.open(run_dir)
         declarations = [json.loads(snapshot.read_text(lane["boundary"]["changed_paths_artifact"])) for lane in lanes]
         assert set().union(*(set(d["authored_paths"]) for d in declarations)) == set(sealed["changed_paths"])
@@ -79,11 +79,10 @@ def native_author_fixtures():
         original = declarations[0]
         for operation, replacement, marker in [
             ("uncovered", {**original, "authored_paths": []}, "union must equal"),
-            ("overlap", {**original, "authored_paths": ["a", "b"]}, "coauthorship mismatch"),
             ("fresh-v1", {key: value for key, value in original.items() if key not in {"authored_paths", "handoff", "edit_evidence", "coauthors", "assignment"}} | {"version": 1}, "boundary version 2")]:
             transact(run_dir, operation, {}, lambda current: ({first_path: json.dumps(replacement)}, {}))
             assert any(marker in error for error in author_errors()), (operation, author_errors())
-        # Shared file requires both independently disclosed authors; extra peers fail.
+        # Registered contributions derive shared authors; disclosure is optional.
         overlap_a = {**original, "authored_paths": ["a", "b"], "coauthors": {"b": ["author-b"]}}
         overlap_b = {**declarations[1], "coauthors": {"b": ["author-a"]}}
         shared_documents = {}
@@ -104,6 +103,8 @@ def native_author_fixtures():
         overlap_b["coauthors"]["b"].append("unknown-author")
         transact(run_dir, "extra-coauthor", {}, lambda current: ({lanes[1]["boundary"]["changed_paths_artifact"]: json.dumps(overlap_b)}, {}))
         assert any("coauthorship mismatch" in error for error in author_errors())
+        overlap_b["coauthors"]["b"].remove("unknown-author")
+        transact(run_dir, "restore-known-coauthor", {}, lambda current: ({lanes[1]["boundary"]["changed_paths_artifact"]: json.dumps(overlap_b)}, {}))
         root_handoff = b"Root authored a\n"
         root_proof = b"--- a/a\n+++ b/a\n+root own edit\n"
         root_declaration = {"lane_id": "root-author", "authored_paths": ["a"], "handoff": {"path": "handoffs/root-author.md", "sha256": sha256(root_handoff)},
@@ -115,6 +116,146 @@ def native_author_fixtures():
         assert result.returncode == 0, result.stderr
         assert json.loads(JournalSnapshot.open(run_dir).read_text("checks/lane-boundary-root-author.json"))["assignment"]["codex_thread_id"] == root_id
         print("PASS impl018 native boundary v2 disjoint author permissions full delta forbidden and forged handoff controls")
+
+
+def correction_state_fixtures():
+    """Synthetic author records; actual retained trees and native boundary CLI."""
+    with tempfile.TemporaryDirectory(prefix="author-correction-") as temporary:
+        root = Path(temporary).resolve(); source = root / "source"; source.mkdir()
+        subprocess.run(["git", "init", "-q", str(source)], check=True)
+        (source / "existing").write_text("baseline\n")
+        (source / "existing-dir").mkdir()
+        records = [{"lane_id": lane, "role": "python-worker", "codex_thread_id": f"00000000-0000-4000-8000-{index:012d}",
+                    "trace": f"agents/{lane}/trace.jsonl"} for index, lane in enumerate(("first", "fix", "cancel"), 21)]
+        summary = {"version": 1, "subagents": records, "role_lanes": [], "verification": empty_verification()}
+        documents = {"delegation-summary.json": json.dumps(summary).encode()}
+        for record in records:
+            documents[record["trace"]] = (json.dumps({**record, "execution_mode": "subagent", "status": "pass"}) + "\n").encode()
+        run_dir = root / "run"
+        initialize_journal(run_dir, documents, source_root=source)
+        prepared = prepare(run_dir, source, root / "bundle")
+        working = Path(prepared["working_root"])
+        nested = working / "tests/browser/server/result"
+        nested.parent.mkdir(parents=True); nested.write_text("first\n")
+        (working / "existing").write_text("first\n")
+        def record(lane, paths):
+            handoff = ("Own paths: " + " ".join(paths) + "\n").encode()
+            proof = json.dumps({"written_paths": paths, "actor": lane}).encode()
+            declaration = {"lane_id": lane, "authored_paths": paths,
+                "handoff": {"path": f"handoffs/{lane}.md", "sha256": sha256(handoff)},
+                "edit_evidence": [{"path": f"checks/{lane}-edit.json", "sha256": sha256(proof)}], "coauthors": {}}
+            name = f"artifacts/{lane}-declaration.json"
+            transact(run_dir, "declare-" + lane, {}, lambda current: ({declaration["handoff"]["path"]: handoff,
+                     declaration["edit_evidence"][0]["path"]: proof, name: json.dumps(declaration)}, {}))
+            result = subprocess.run([sys.executable, "-B", str(RECORDER), "--run-dir", str(run_dir), "--lane-id", lane,
+                    "--declaration-json", name], capture_output=True, text=True)
+            assert result.returncode == 0, result.stderr
+        def coverage():
+            snapshot = JournalSnapshot.open(run_dir); workspace = registered_workspace(snapshot)
+            author_coverage(snapshot, workspace, resolve_author_boundaries(snapshot, workspace))
+        def rejected(marker):
+            try:
+                coverage()
+            except EvidenceError as exc:
+                assert marker in str(exc), str(exc)
+            else:
+                raise AssertionError("unowned state accepted: " + marker)
+        seal(run_dir); record("first", ["existing", "tests/browser/server/result"]); coverage()
+        snapshot = JournalSnapshot.open(run_dir); workspace = registered_workspace(snapshot)
+        entries = resolve_author_boundaries(snapshot, workspace)
+        with_forbidden_parent = [{**entry, "boundary": {"forbidden_paths": ["tests/browser"]}} for entry in entries]
+        try:
+            author_coverage(snapshot, workspace, with_forbidden_parent)
+        except EvidenceError as exc:
+            assert "forbidden_paths" in str(exc), str(exc)
+        else:
+            raise AssertionError("forbidden parent directory accepted")
+        first_snapshot = JournalSnapshot.open(run_dir)
+        originals = {name: first_snapshot.read_bytes(name) for name in ("handoffs/first.md", "checks/lane-boundary-first.json")}
+        nested.write_text("unregistered\n"); seal(run_dir)
+        rejected("current state differs")
+        replay = subprocess.run([sys.executable, "-B", str(RECORDER), "--run-dir", str(run_dir), "--lane-id", "first",
+                "--declaration-json", "artifacts/first-declaration.json"], capture_output=True, text=True)
+        assert replay.returncode != 0 and "immutable" in replay.stderr
+        record("fix", ["tests/browser/server/result"]); coverage()
+        # A subsequent directory chmod is independent work, even with owned files.
+        nested.parent.chmod(0o700); seal(run_dir); rejected("union must equal")
+        nested.parent.chmod(0o755); seal(run_dir); coverage()
+        empty = working / "empty"; empty.mkdir(); seal(run_dir); rejected("union must equal")
+        empty.rmdir(); seal(run_dir); coverage()
+        replaced = working / "existing-dir"
+        replaced.rmdir(); replaced.symlink_to("existing"); seal(run_dir); rejected("union must equal")
+        replaced.unlink(); replaced.mkdir(); seal(run_dir); coverage()
+        # Unrecorded restore cannot erase an earlier contribution from history.
+        (working / "existing").write_text("baseline\n"); seal(run_dir); rejected("current state differs")
+        nested.unlink()
+        for path in (nested.parent, nested.parent.parent, working / "tests"):
+            path.rmdir()
+        seal(run_dir); record("cancel", ["existing", "tests/browser/server/result"]); coverage()
+        final = JournalSnapshot.open(run_dir)
+        assert originals == {name: final.read_bytes(name) for name in originals}
+        print("PASS sequential corrections, immutable proof, inferred parents, unowned bytes, chmod/empty directories and cancelled contributions")
+
+
+def concurrent_boundary_fixture():
+    """Interleave stale preflight reads while using the real transactional writer."""
+    spec = importlib.util.spec_from_file_location("boundary_recorder", RECORDER)
+    recorder = importlib.util.module_from_spec(spec); spec.loader.exec_module(recorder)
+    with tempfile.TemporaryDirectory(prefix="author-boundary-race-") as temporary:
+        root = Path(temporary).resolve(); source = root / "source"; source.mkdir()
+        subprocess.run(["git", "init", "-q", str(source)], check=True)
+        for path in ("a", "b"):
+            (source / path).write_text("baseline\n")
+        assignment = {"lane_id": "author", "role": "python-worker", "status": "pass",
+                      "codex_thread_id": "00000000-0000-4000-8000-000000000021",
+                      "trace": "agents/author/trace.jsonl", "handoff": "handoffs/author.md"}
+        handoff = b"Done.\n"; proof = b"Actual edit a b\n"
+        run_dir = root / "run"
+        initialize_journal(run_dir, {
+            "delegation-summary.json": json.dumps({"version": 1, "subagents": [assignment], "role_lanes": []}).encode(),
+            assignment["trace"]: (json.dumps({**assignment, "execution_mode": "subagent"}) + "\n").encode(),
+            assignment["handoff"]: handoff, "artifacts/edit.txt": proof}, source_root=source)
+        prepared = prepare(run_dir, source, root / "bundle")
+        for path in ("a", "b"):
+            (Path(prepared["working_root"]) / path).write_text("changed\n")
+        seal(run_dir)
+        declaration = {"lane_id": "author", "authored_paths": ["a"],
+                       "handoff": {"path": assignment["handoff"], "sha256": sha256(handoff)},
+                       "edit_evidence": [{"path": "artifacts/edit.txt", "sha256": sha256(proof)}], "coauthors": {}}
+        args = {"run_dir": run_dir, "lane_id": "author", "repo_root": None,
+                "base_ref": "HEAD", "head_ref": "working-tree"}
+        from verification_evidence import verify_author_declaration
+        try:
+            verify_author_declaration(JournalSnapshot.open(run_dir), declaration, lane_id="author")
+        except EvidenceError as exc:
+            assert "handoff must confirm authored_paths" in str(exc), str(exc)
+        else:
+            raise AssertionError("full author audit accepted shortened prose")
+        original_writer = recorder.write_entry
+        saved = {}
+        def interleave(*writer_args, **writer_kwargs):
+            recorder.write_entry = original_writer
+            recorder.capture_boundary(**args, identifier="concurrent-first", declaration=declaration)
+            saved["boundary"] = JournalSnapshot.open(run_dir).read_bytes("checks/lane-boundary-author.json")
+            return original_writer(*writer_args, **writer_kwargs)
+        recorder.write_entry = interleave
+        try:
+            recorder.capture_boundary(**args, identifier="concurrent-second",
+                                      declaration={**declaration, "authored_paths": ["a", "b"]})
+        except JournalError as exc:
+            assert "immutable" in str(exc), str(exc)
+        else:
+            raise AssertionError("concurrent publication overwrote immutable author contribution")
+        finally:
+            recorder.write_entry = original_writer
+        snapshot = JournalSnapshot.open(run_dir)
+        assert snapshot.read_bytes("checks/lane-boundary-author.json") == saved["boundary"]
+        assert snapshot.read_bytes(assignment["handoff"]) == handoff
+        assert snapshot.operation_receipt("concurrent-second") is None
+        recorder.capture_boundary(**args, identifier="concurrent-first", declaration=declaration)
+        recorder.capture_boundary(**args, identifier="exact-replay", declaration=declaration)
+        assert JournalSnapshot.open(run_dir).read_bytes("checks/lane-boundary-author.json") == saved["boundary"]
+        print("PASS concurrent author publication rejects overwrite and preserves exact replay")
 
 
 def run(
@@ -218,6 +359,8 @@ def main() -> int:
             raise AssertionError("artifact notes must identify lane")
 
     native_author_fixtures()
+    correction_state_fixtures()
+    concurrent_boundary_fixture()
     print("PASS record-lane-boundary fixtures")
     return 0
 
