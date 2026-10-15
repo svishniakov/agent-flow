@@ -15,7 +15,7 @@ import unittest
 from unittest.mock import patch
 from dataclasses import replace
 
-from journal_io import JournalSnapshot, JournalError, initialize_journal, transact, encode_json
+from journal_io import JournalSnapshot, JournalError, initialize_journal, transact, encode_json, UNSUPPORTED_STORAGE_VERSION
 from journal_lifecycle import finalize, load_validator
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -220,36 +220,6 @@ class LifecycleTests(unittest.TestCase):
                 self.assertEqual(validator.validate_run(self.run, mode=mode, snapshot=closed, session_source=self.source), audit_presentation_errors)
         for path, content in retained.items():
             self.assertEqual(closed.read_bytes(path), content)
-
-    def test_impl018_legacy_negative_guard_requires_exact_archived_record_trace_and_nonreplacement(self):
-        from dataclasses import replace
-        from journal_io import capture_archive
-        from verification_evidence import evaluate_obligations
-        snapshot = JournalSnapshot.open(self.run)
-        summary = json.loads(snapshot.read_text("delegation-summary.json"))
-        for record in summary["subagents"]:
-            record.pop("obligation", None)
-        documents = {**snapshot.documents, "delegation-summary.json": json.dumps(summary).encode()}
-        original = replace(snapshot, storage_version=1, documents=documents)
-        archive_id, archived = capture_archive(original)
-        current = replace(snapshot, documents=documents, archives={archive_id: archived})
-        self.assertEqual(evaluate_obligations(current, summary, require_current=False)[1], [])
-        self.assertTrue(evaluate_obligations(current, summary)[1])
-        changed = json.loads(json.dumps(summary)); changed["subagents"][0]["purpose"] = "Changed current task"
-        self.assertTrue(any("unresolved obligation" in error for error in evaluate_obligations(current, changed, require_current=False)[1]))
-        trace = summary["subagents"][0]["trace"]
-        mutated = replace(current, documents={**documents, trace: documents[trace] + b"\n"})
-        self.assertTrue(any("unresolved obligation" in error for error in evaluate_obligations(mutated, summary, require_current=False)[1]))
-        # An unchanged old record may be read, but cannot serve as an accepted replacement.
-        pending = {"lane_id": "new-duty", "role": "orchestrator", "status": "blocked", "trace": "agents/new-duty/trace.jsonl",
-            "obligation": {"id": "qa-verifier", "required": True, "state": "resolved", "resolution": {
-                "original_lane": "new-duty", "reason": "Attempted legacy replacement", "replacement": summary["subagents"][0]["lane_id"],
-                "evidence": [fixtures.reference(self.run, "checks.md")]}}}
-        proposed = json.loads(json.dumps(summary)); proposed["role_lanes"].append(pending)
-        event = {"lane_id": "new-duty", "role": "orchestrator", "stage": "blocked", "status": "blocked"}
-        future = replace(current, documents={**documents, pending["trace"]: (json.dumps(event) + "\n").encode()})
-        self.assertTrue(any("unresolved obligation" in error for error in evaluate_obligations(future, proposed, require_current=False)[1]))
-        self.assertEqual(current.archives[archive_id], archived)
 
     def test_impl018_negative_final_preserves_resolved_history_and_denies_delivery(self):
         from journal_lifecycle import resolve_obligation
@@ -483,12 +453,12 @@ class LifecycleTests(unittest.TestCase):
                         flags += ['--expected-run-uuid', snapshot.run_uuid, '--expected-generation',
                                   str(snapshot.generation), '--final-file', str(capture), '--verdict', 'blocked']
                         invoke = lambda: finalize(run, **common, final_summary='Existing unresolved duty prevents acceptance', verdict='blocked')
-                        message = 'flat legacy requires explicit import before finalization'
+                        message = UNSUPPORTED_STORAGE_VERSION
                     else:
                         flags += ['--lane-id', 'old', '--replacement', 'new', '--reason', 'Same duty replacement']
                         invoke = lambda: resolve_obligation(run, lane_id='old', replacement='new',
                             reason='Same duty replacement', expected_revision=snapshot.revision, identifier=identifier)
-                        message = 'flat legacy requires explicit import before obligation resolution' 
+                        message = UNSUPPORTED_STORAGE_VERSION
                     with self.assertRaises(JournalError) as failure:
                         invoke()
                     self.assertEqual(tree(run), before)
@@ -1299,16 +1269,15 @@ class LifecycleTests(unittest.TestCase):
         self.close(expected_revision=before.revision)
         self.assert_unchanged(closed)
 
-    def test_version_one_is_read_only(self):
+    def test_pre_0_3_journal_is_unreadable(self):
         import sqlite3
         database = self.run / ".journal/state.sqlite3"
         with sqlite3.connect(database) as connection:
             connection.execute("UPDATE run_state SET version=1")
-        before = JournalSnapshot.open(self.run)
-        self.assertEqual(before.storage_version, 1)
-        with self.assertRaisesRegex(JournalError, "read-only"):
+        with self.assertRaisesRegex(JournalError, "unsupported journal storage version"):
+            JournalSnapshot.open(self.run)
+        with self.assertRaisesRegex(JournalError, "unsupported journal storage version"):
             transact(self.run, "v1", {}, lambda s: ({"final.md": b"changed"}, {}))
-        self.assert_unchanged(before)
 
 
 if __name__ == "__main__":

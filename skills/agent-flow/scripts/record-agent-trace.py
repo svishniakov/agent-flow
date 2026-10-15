@@ -18,7 +18,7 @@ from pathlib import Path
 from agent_config import AgentConfigError
 from journal_io import (load_artifact_index, upsert_artifacts, validate_directory, JournalSnapshot,
                         transact, operation_id, digest, capture_file, capture_external_references,
-                        validate_assignment_event, _transact_completion)
+                        validate_assignment_event, _transact_completion, UNSUPPORTED_STORAGE_VERSION)
 from journal_io import (now_iso, encode_json, encode_json_line, validate_append,
                         render_final, safe_path_segment, display_path, unique_paths)
 
@@ -170,7 +170,7 @@ def record_mode_correction(run_dir, correction, *, identifier, session_source=No
     from journal_lifecycle import capture_validation, freeze_validation
     from verification_evidence import verify_trace_mode_correction, effective_trace_modes
     snapshot = JournalSnapshot.open(run_dir)
-    require(snapshot.durable, 'flat legacy requires explicit import before trace mode correction')
+    require(snapshot.durable, UNSUPPORTED_STORAGE_VERSION)
     require(isinstance(correction, dict) and identifier == correction.get('operation_id'), 'mode correction operation ID mismatch')
     payload = {'command': 'trace-mode-correction', 'correction': correction}
     # Persist the exact request before any transaction; receipt replay precedes mutable guards.
@@ -180,7 +180,6 @@ def record_mode_correction(run_dir, correction, *, identifier, session_source=No
         require(prior['payload_sha256'] == digest(encode_json(payload).encode()), 'operation ID payload conflict')
         return prior['result']
     require(not snapshot.closed, 'journal generation is closed')
-    require(snapshot.storage_version == 2, 'trace mode correction requires storage version 2')
     snapshot, source = capture_validation(snapshot, session_source=session_source)
     def verify(current):
         require((current.run_uuid, current.generation, current.revision) ==
@@ -393,7 +392,7 @@ def main(argv=None, *, session_source=None) -> int:
         from journal_structure import validate_request
         validate_request("event", {"summary": args.summary, "status": args.status, "stage": args.stage, "role": args.role})
         snapshot = JournalSnapshot.open(run_dir)
-        require(snapshot.durable, 'flat legacy requires explicit import before trace registration')
+        require(snapshot.durable, UNSUPPORTED_STORAGE_VERSION)
         if args.operation_id and snapshot.operation_receipt(args.operation_id) is not None and (
             args.execution_mode == 'subagent' and not args.codex_thread_id and not args.lane_id
             and not args.resolve_session and args.role == 'orchestrator'

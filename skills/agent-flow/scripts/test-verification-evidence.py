@@ -3,7 +3,7 @@
 
 import importlib.util
 import json
-from journal_io import JournalSnapshot, import_legacy, transact
+from journal_io import JournalSnapshot, transact
 import subprocess
 import sys
 import tempfile
@@ -688,7 +688,7 @@ class EvidenceRegressions(unittest.TestCase):
             with self.assertRaisesRegex(EvidenceError, "unsupported result_hash_version"):
                 result_hash(self.run, verification, snapshot=snapshot)
 
-    def test_phase1_v5_presentation_invariant_permissions_stale_and_legacy_exact(self):
+    def test_phase1_v5_presentation_invariant_permissions_stale_and_unmarked_seal(self):
         from unittest.mock import patch
         from task_workspace import registered_workspace
         timeline = self.run / "timeline.jsonl"
@@ -717,18 +717,10 @@ class EvidenceRegressions(unittest.TestCase):
         snapshot = JournalSnapshot.open(self.run)
         retained = registered_workspace(snapshot)
         retained["seal"].pop("result_hash_version")
+        # Only the semantic v5 contract is supported; unmarked seals are archival.
         with patch("verification_evidence.registered_workspace", return_value=retained):
-            legacy = result_hash(self.run, verification, snapshot=snapshot)
-            refs = {name: {"path": verification[name]["path"], "section": verification[name].get("section"),
-                          "sha256": sha256(reference_bytes(self.run, verification[name], snapshot=snapshot))}
-                    for name in ("initial_snapshot", "task_scope")}
-            payload = {"hash_version": 4, "workspace_id": retained["workspace_id"],
-                       "candidate_id": retained["seal"]["candidate_id"], "baseline_manifest_digest": retained["baseline_digest"],
-                       "candidate_manifest_digest": retained["seal"]["candidate_digest"], "delta": retained["seal"]["delta"],
-                       "metadata_scope": retained.get("metadata_scope"), **refs, "delivery_scope": None,
-                       "boundary_declarations": [{"lane_id": "fixture-root-author", "path": "checks/author.json",
-                                                 "sha256": sha256(snapshot.read_bytes("checks/author.json"))}]}
-            self.assertEqual(legacy, sha256(json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode()))
+            with self.assertRaisesRegex(EvidenceError, "unsupported result_hash_version"):
+                result_hash(self.run, verification, snapshot=snapshot)
 
     def test_negative_gaps_keep_declared_evidence_integrity(self):
         claim = {"id": "workflow", "claim": "Workflow complete", "subjects": ["candidate"],
@@ -951,36 +943,25 @@ class EvidenceRegressions(unittest.TestCase):
         write_json(self.run / "delegation-summary.json", self.summary)
         return validator.validate_run(self.run, session_source=self.source, **kwargs)
 
-    def test_impl018_exact_accepted_registered_v1_reader_recorder_and_delivery_replay(self):
+    def test_impl018_exact_accepted_finalize_and_delivery_replay(self):
         from journal_lifecycle import finalize
-        from task_workspace import verify_candidate, delivery, registered_workspace
-        from journal_io import encode_json
+        from task_workspace import delivery, registered_workspace
         timeline = self.run / "timeline.jsonl"
         historical_final_event = next(json.loads(line) for line in timeline.read_text().splitlines() if json.loads(line).get("stage") == "final")
         timeline.write_text("\n".join(line for line in timeline.read_text().splitlines() if json.loads(line).get("stage") != "final") + "\n")
         workspace_pack(self)
-        workspace = registered_workspace(JournalSnapshot.open(self.run))
-        sealed = verify_candidate(workspace)
         for record in self.summary["subagents"]:
             record["status"] = "pass"
             record["obligation"] = {"id": record["role"], "required": True, "state": "current"}
-        transact(self.run, "legacy-current-accepted", {}, lambda current: ({"delegation-summary.json": json.dumps(self.summary)}, {}))
-        lane_id = "historical-author"
-        artifact = {"version": 1, "lane_id": lane_id, "status": "captured", "base_ref": "workspace-baseline",
-            "head_ref": sealed["candidate_id"], "changed_paths": sealed["changed_paths"], "tracked_changed_paths": [], "untracked_paths": [],
-            "command": "task-workspace full baseline-to-candidate inventory", "workspace_id": workspace["workspace_id"],
-            "candidate_id": sealed["candidate_id"], "baseline_digest": workspace["baseline_digest"], "candidate_digest": sealed["candidate_digest"],
-            "notes": "Full workspace boundary evidence for historical-author."}
-        path = "checks/lane-boundary-historical-author.json"
-        # Historical recorder receipt retained byte-for-byte; new v1 captures remain forbidden.
-        transact(self.run, "old-boundary-operation", artifact, lambda current: ({path: encode_json(artifact, pretty=True) + "\n"}, {}))
-        recorder = module("legacy_boundary_replay", "record-lane-boundary.py")
+        transact(self.run, "current-accepted", {}, lambda current: ({"delegation-summary.json": json.dumps(self.summary)}, {}))
+        recorder = module("boundary_recorder", "record-lane-boundary.py")
+        # Undeclared boundary captures remain forbidden, receipt replay included.
         with self.assertRaisesRegex(EvidenceError, "requires explicit author declaration"):
-            recorder.capture_boundary(run_dir=self.run, lane_id=lane_id, repo_root=None, base_ref="HEAD", head_ref="working-tree", identifier="old-boundary-operation")
+            recorder.capture_boundary(run_dir=self.run, lane_id="historical-author", repo_root=None, base_ref="HEAD", head_ref="working-tree", identifier="old-boundary-operation")
         snapshot = JournalSnapshot.open(self.run)
-        # Explicit historical accepted receipt, with actual validation and
-        # captured source inputs. Fresh byte-based finalization is not used.
-        from journal_io import _transact, digest
+        # Explicit accepted receipt, with actual validation and captured source
+        # inputs. Fresh byte-based finalization is not used.
+        from journal_io import _transact, digest, encode_json
         from journal_lifecycle import capture_validation, freeze_validation, load_validator
         from dataclasses import replace
         documents = {"final.md": snapshot.read_bytes("final.md"),
@@ -996,32 +977,14 @@ class EvidenceRegressions(unittest.TestCase):
         receipt = {"command": "finalize", "generation": snapshot.generation, "validated_revision": snapshot.revision,
                    "validator_version": 2, "validator_sha256": digest(validator_bytes), "input_hashes": captured.external_inputs.hashes(),
                    "final_sha256": payload["final_sha256"], "verdict": "ship"}
-        historical = _transact(self.run, "legacy-accepted-final", payload, lambda current: (documents, receipt), lifecycle="finalize")
+        historical = _transact(self.run, "accepted-final", payload, lambda current: (documents, receipt), lifecycle="finalize")
         self.assertEqual(finalize(self.run, expected_run_uuid=snapshot.run_uuid, expected_revision=snapshot.revision, expected_generation=snapshot.generation,
-                                 identifier="legacy-accepted-final", final_bytes=documents["final.md"], verdict="ship"), historical)
-        accepted = JournalSnapshot.open(self.run)
-        revision = accepted.revision
-        self.assertEqual(recorder.capture_boundary(run_dir=self.run, lane_id=lane_id, repo_root=None, base_ref="HEAD", head_ref="working-tree", identifier="old-boundary-operation"), self.run / path)
-        self.assertEqual(JournalSnapshot.open(self.run).revision, revision)
-        lane = {"id": lane_id, "type": "implementation", "status": "pass", "wave": 1,
-            "boundary": {"allowed_paths": sealed["changed_paths"], "forbidden_paths": [], "changed_paths_artifact": path, "notes": "Historical accepted full boundary"}, "evidence": [path]}
-        self.assertEqual(validator.validate_lane_boundary(self.run, lane, lane_id, required=True, allow_pending=False, snapshot=accepted)[1], [])
-        from dataclasses import replace
-        from types import MappingProxyType
-        full_gate = json.dumps({"schema_version": 2, "architecture_contract_required": True, "lanes": [lane]}).encode()
-        projected = replace(accepted, documents=MappingProxyType({**accepted.documents, "lane-map.json": full_gate}))
-        def author_gate_errors(snapshot):
-            return [error for error in validator.validate_lane_map(self.run, snapshot=snapshot) if error.startswith("author ") or "boundary version 2" in error]
-        self.assertEqual(author_gate_errors(projected), [])
-        # Exact accepted generation author gate differs from a new open v1 result.
-        open_timeline = b"\n".join(line for line in projected.documents["timeline.jsonl"].splitlines() if json.loads(line).get("stage") != "final") + b"\n"
-        reopened = replace(projected, documents=MappingProxyType({**projected.documents, "timeline.jsonl": open_timeline}))
-        self.assertTrue(any("boundary version 2" in error for error in author_gate_errors(reopened)))
+                                 identifier="accepted-final", final_bytes=documents["final.md"], verdict="ship"), historical)
         self.assertEqual(validator.validate_run(self.run, session_source=self.source), [])
         supplied = delivery(self.run, session_source=self.source)
         self.assertEqual(delivery(self.run, session_source=self.source), supplied)
         with self.assertRaisesRegex(EvidenceError, "requires explicit author declaration"):
-            recorder.capture_boundary(run_dir=self.run, lane_id=lane_id, repo_root=None, base_ref="HEAD", head_ref="working-tree", identifier="new-v1-operation")
+            recorder.capture_boundary(run_dir=self.run, lane_id="historical-author", repo_root=None, base_ref="HEAD", head_ref="working-tree", identifier="new-v1-operation")
 
     def clear_assignment_history(self):
         import shutil

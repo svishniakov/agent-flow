@@ -725,8 +725,7 @@ def prepare(run_dir, source, destination=None, *, context_roots=(), identifier=N
 
 def _prepare_single(run_dir, source, destination, *, identifier=None, metadata_scope=None, session_source=None, barrier=None):
     snapshot = JournalSnapshot.open(run_dir)
-    require(snapshot.storage_version == 2 and not snapshot.closed, "workspace prepare requires open version 2 journal")
-    require(snapshot.durable, "import journal before workspace prepare")
+    require(snapshot.durable and not snapshot.closed, "workspace prepare requires an open durable journal")
     source, destination = Path(source).absolute(), Path(destination).absolute()
     payload = {"source": str(source), "destination": str(destination)}
     existing = registered_workspace(snapshot)
@@ -822,7 +821,7 @@ def _prepare_single(run_dir, source, destination, *, identifier=None, metadata_s
 
 def seal(run_dir, *, identifier=None, barrier=None):
     snapshot = JournalSnapshot.open(run_dir)
-    require(snapshot.storage_version == 2 and not snapshot.closed, "workspace seal requires open version 2 journal")
+    require(snapshot.durable and not snapshot.closed, "workspace seal requires an open durable journal")
     workspace = registered_workspace(snapshot)
     require(workspace is not None, "prepare workspace before seal")
     current_scope_digest(workspace)
@@ -894,7 +893,7 @@ def verify_candidate(workspace, *, barrier=None, inputs=None):
     sealed = workspace.get("seal")
     require(sealed is not None, "workspace has no sealed candidate")
     marker = sealed.get("result_hash_version")
-    require(marker is None or type(marker) is int and marker == 5, "unsupported result_hash_version")
+    require(type(marker) is int and marker == 5, "unsupported result_hash_version")
     if workspace.get("version") == 2:
         require(sealed.get("workspace_revision") == workspace["workspace_revision"], "sealed candidate belongs to stale workspace revision")
         require(sealed.get("task_scope_digest") == current_scope_digest(workspace, inputs=inputs), "sealed candidate scope changed")

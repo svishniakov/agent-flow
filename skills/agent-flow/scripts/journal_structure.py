@@ -26,7 +26,7 @@ CALLER_STATUSES = frozenset(STATUS_MEANINGS)
 HANDOFF_STATE_BY_CALLER_STATUS = {"planned": "queued", "active": "accepted", "pass": "completed", "pass-with-risks": "completed", "blocked": "blocked", "fail": "failed", "timed-out": "blocked", "replaced": "blocked"}
 HANDOFF_DOMAIN_STATUSES = frozenset(HANDOFF_STATE_BY_CALLER_STATUS.values())
 EVENT_STATUS_RULES = {"spawned": {"active"}, "handoff": {"pass", "pass-with-risks"}, "blocked": {"blocked"}, "fail": {"fail"}, "timed-out": {"timed-out"}}
-RESERVED_EVENT_COMMANDS = {"final": "journal finalize", "reopen": "journal reopen", "upgrade": "journal upgrade", "spawn": "stage spawned"}
+RESERVED_EVENT_COMMANDS = {"final": "journal finalize", "reopen": "journal reopen", "spawn": "stage spawned"}
 RESERVED_EVENT_STAGES = frozenset(RESERVED_EVENT_COMMANDS)
 TERMINAL_KINDS = {"handoff", "final", "check", "architecture-outcome"}
 DOCUMENT_PATHS = {"task": "run.md", "plan": "plan.md", "progress": "progress.md", "final": "final.md", "lesson": "lesson.md"}
@@ -400,20 +400,20 @@ def canonical_role(value):
 
 
 def archived_assignment_facts(snapshot, *, include_native=False):
-    """Read immutable legacy inventories, never trust a record's legacy flag."""
+    """Read immutable archived inventories, never trust a record's own claims."""
     from journal_recovery import assignments
+    if not include_native:
+        return {}
     facts = {}
     for identifier in snapshot.archives:
         archived = snapshot.archive(identifier)
-        if archived.storage_version != 1 and not include_native:
-            continue
         summary = json.loads(archived.documents.get("delegation-summary.json", b"{}"))
         modes = {row["lane_id"]: mode for group, mode in (("subagents", "subagent"), ("role_lanes", "role-lane"))
                  for row in summary.get(group, [])}
         for lane_id, original in assignments(archived).items():
             lane = original["lane"] or {}
-            if archived.storage_version != 1 and not original["summary"] and not original["events"] and lane.get("status") == "planned" and not any(
-                    lane.get(key) is not None for key in ("codex_thread_id", "trace", "legacy")):
+            if not original["summary"] and not original["events"] and lane.get("status") == "planned" and not any(
+                    lane.get(key) is not None for key in ("codex_thread_id", "trace")):
                 continue
             first = original["events"][0]["event"] if original["events"] else {}
             facts[lane_id] = {**original, "mode": modes.get(lane_id, lane.get("execution_mode", first.get("execution_mode")))}

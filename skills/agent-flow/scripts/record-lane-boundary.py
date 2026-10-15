@@ -2,44 +2,17 @@
 """Capture changed-path evidence for a worker lane boundary.
 
 Registered workspaces use the complete baseline-to-candidate delta.
-Historical diagnostic runs retain the record-lane-boundary.py Git format:
-`git diff --name-only` and `git ls-files --others --exclude-standard`.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import subprocess
 import sys
 from pathlib import Path
-from journal_io import operation_id, write_entry, encode_json, JournalError, JournalSnapshot, logical_path
-from task_workspace import registered_workspace, verify_candidate, git_command
-from verification_evidence import result_contract, verify_author_declaration, retained_accepted_boundary_v1, author_boundary_seal
-
-
-def run_git(repo_root: Path, args: list[str]) -> list[str]:
-    result = git_command(repo_root, *args, check=False)
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"git {' '.join(args)} failed\n"
-            f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
-        )
-    return [line for line in result.stdout.decode().splitlines() if line]
-
-
-def find_git_root(start: Path) -> Path:
-    current = start.resolve()
-    if current.is_file():
-        current = current.parent
-    for candidate in [current, *current.parents]:
-        if (candidate / ".git").exists():
-            return candidate
-    raise RuntimeError(f"no git root found above {start}")
-
-
-def unique_preserving_order(paths: list[str]) -> list[str]:
-    return list(dict.fromkeys(paths))
+from journal_io import write_entry, encode_json, JournalError, JournalSnapshot, logical_path
+from task_workspace import registered_workspace, verify_candidate
+from verification_evidence import verify_author_declaration, author_boundary_seal
 
 
 def capture_boundary(
@@ -58,80 +31,42 @@ def capture_boundary(
     logical_path("checks/lane-boundary-" + lane_id + ".json")
     snapshot = JournalSnapshot.open(resolved_run_dir)
     workspace = registered_workspace(snapshot)
-    if workspace is not None:
-        sealed = verify_candidate(workspace)
-        if repo_root is not None and repo_root.absolute() != Path(workspace["working_root"]):
-            raise JournalError("boundary root must be the registered working root")
-        if base_ref != "HEAD" or head_ref != "working-tree":
-            raise JournalError("workspace boundary uses the full baseline-to-candidate delta")
-        artifact = {"version": 1, "lane_id": lane_id, "status": "captured", "base_ref": "workspace-baseline",
-                    "head_ref": sealed["candidate_id"], "changed_paths": sealed["changed_paths"],
-                    "tracked_changed_paths": [], "untracked_paths": [],
-                    "command": "task-workspace full baseline-to-candidate inventory",
-                    "workspace_id": workspace["workspace_id"], "candidate_id": sealed["candidate_id"],
-                    "baseline_digest": workspace["baseline_digest"], "candidate_digest": sealed["candidate_digest"],
-                    "notes": f"Full workspace boundary evidence for {lane_id}."}
-        if declaration is None:
-            if identifier and snapshot.operation_receipt(identifier) is not None and retained_accepted_boundary_v1(snapshot):
-                operation_id(resolved_run_dir, "lane-boundary", artifact, identifier=identifier)
-                previous = json.loads(snapshot.read_text(f"checks/lane-boundary-{lane_id}.json"))
-                if previous != artifact:
-                    raise JournalError("legacy boundary replay differs from accepted artifact")
-                return resolved_run_dir / "checks" / f"lane-boundary-{lane_id}.json"
-            raise JournalError("registered result requires explicit author declaration version 2")
-        assignment = verify_author_declaration(snapshot, declaration, lane_id=lane_id, presentation_required=False)
-        artifact.update(version=2, **declaration, assignment=assignment)
-        author_boundary_seal(snapshot, workspace, artifact)
-        previous_path = f"checks/lane-boundary-{lane_id}.json"
-        if snapshot.exists(previous_path):
-            previous = json.loads(snapshot.read_text(previous_path))
-            if previous != artifact:
-                raise JournalError("author contribution is immutable; use a new assignment for corrections")
-    else:
-        if result_contract(snapshot).get("result_contract_version", 1) >= 2:
-            raise JournalError("prepare and seal workspace before boundary capture")
-        resolved_repo_root = repo_root.resolve() if repo_root else find_git_root(resolved_run_dir)
-
-        if head_ref == "working-tree":
-            diff_args = ["diff", "--name-only", base_ref, "--"]
-            untracked_args = ["ls-files", "--others", "--exclude-standard"]
-            tracked_changed_paths = run_git(resolved_repo_root, diff_args)
-            untracked_paths = run_git(resolved_repo_root, untracked_args)
-            command = f"git {' '.join(diff_args)}; git {' '.join(untracked_args)}"
-        else:
-            diff_args = ["diff", "--name-only", base_ref, head_ref, "--"]
-            tracked_changed_paths = run_git(resolved_repo_root, diff_args)
-            untracked_paths = []
-            command = f"git {' '.join(diff_args)}"
-
-        changed_paths = unique_preserving_order([*tracked_changed_paths, *untracked_paths])
-        artifact = {
-            "version": 1,
-            "lane_id": lane_id,
-            "status": "captured",
-            "base_ref": base_ref,
-            "head_ref": head_ref,
-            "changed_paths": changed_paths,
-            "tracked_changed_paths": tracked_changed_paths,
-            "untracked_paths": untracked_paths,
-            "command": command,
-            "notes": f"Boundary evidence for {lane_id}.",
-        }
+    if workspace is None:
+        raise JournalError("prepare and seal workspace before boundary capture")
+    sealed = verify_candidate(workspace)
+    if repo_root is not None and repo_root.absolute() != Path(workspace["working_root"]):
+        raise JournalError("boundary root must be the registered working root")
+    if base_ref != "HEAD" or head_ref != "working-tree":
+        raise JournalError("workspace boundary uses the full baseline-to-candidate delta")
+    artifact = {"version": 1, "lane_id": lane_id, "status": "captured", "base_ref": "workspace-baseline",
+                "head_ref": sealed["candidate_id"], "changed_paths": sealed["changed_paths"],
+                "tracked_changed_paths": [], "untracked_paths": [],
+                "command": "task-workspace full baseline-to-candidate inventory",
+                "workspace_id": workspace["workspace_id"], "candidate_id": sealed["candidate_id"],
+                "baseline_digest": workspace["baseline_digest"], "candidate_digest": sealed["candidate_digest"],
+                "notes": f"Full workspace boundary evidence for {lane_id}."}
+    if declaration is None:
+        raise JournalError("registered result requires explicit author declaration version 2")
+    assignment = verify_author_declaration(snapshot, declaration, lane_id=lane_id, presentation_required=False)
+    artifact.update(version=2, **declaration, assignment=assignment)
+    author_boundary_seal(snapshot, workspace, artifact)
+    previous_path = f"checks/lane-boundary-{lane_id}.json"
+    if snapshot.exists(previous_path):
+        previous = json.loads(snapshot.read_text(previous_path))
+        if previous != artifact:
+            raise JournalError("author contribution is immutable; use a new assignment for corrections")
 
     output_path = resolved_run_dir / "checks" / f"lane-boundary-{lane_id}.json"
     def publish(current):
         registered = registered_workspace(current)
-        if workspace is not None:
-            if registered is None or verify_candidate(registered)["candidate_id"] != artifact["candidate_id"]:
-                raise JournalError("workspace candidate changed before boundary publication")
-            if verify_author_declaration(current, declaration, lane_id=lane_id, presentation_required=False) != artifact["assignment"]:
-                raise JournalError("author declaration assignment changed before publication")
-            if current.exists(previous_path):
-                previous = json.loads(current.read_text(previous_path))
-                if previous != artifact:
-                    raise JournalError("author contribution is immutable; use a new assignment for corrections")
-        elif registered is not None:
-            raise JournalError("workspace registered before legacy boundary publication")
+        if registered is None or verify_candidate(registered)["candidate_id"] != artifact["candidate_id"]:
+            raise JournalError("workspace candidate changed before boundary publication")
+        if verify_author_declaration(current, declaration, lane_id=lane_id, presentation_required=False) != artifact["assignment"]:
+            raise JournalError("author declaration assignment changed before publication")
+        if current.exists(previous_path):
+            previous = json.loads(current.read_text(previous_path))
+            if previous != artifact:
+                raise JournalError("author contribution is immutable; use a new assignment for corrections")
         return {output_path.relative_to(resolved_run_dir).as_posix(): encode_json(artifact, pretty=True) + "\n"}, {}
     write_entry(resolved_run_dir, "event", {"summary": artifact["notes"], "status": "active", "stage": "boundary-captured", "role": "orchestrator"},
                 identifier=identifier, payload=artifact, mutation=publish, replay_guard=publish)
@@ -144,9 +79,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--lane-id", required=True, help="Worker lane id.")
     parser.add_argument("--operation-id", help="Saved machine request ID for retry.")
     parser.add_argument("--declaration-json", help="Published author declaration path in this journal.")
-    parser.add_argument("--repo-root", help="Git repository root. Defaults to nearest git root above run-dir.")
-    parser.add_argument("--base-ref", default="HEAD", help="Base git ref for diff. Defaults to HEAD.")
-    parser.add_argument("--head-ref", default="working-tree", help="Head ref. Defaults to working-tree.")
+    parser.add_argument("--repo-root", help="Git repository root. Defaults to the registered working root.")
+    parser.add_argument("--base-ref", default="HEAD", help="Accepted only as HEAD; workspace boundaries use the full delta.")
+    parser.add_argument("--head-ref", default="working-tree", help="Accepted only as working-tree; workspace boundaries use the full delta.")
     return parser
 
 

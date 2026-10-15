@@ -12,8 +12,9 @@ import unittest
 from unittest.mock import patch
 
 from journal_io import (JournalSnapshot, JournalError, initialize_journal, encode_json,
-                        digest, transact, export_snapshot, append_event, now_iso)
-from journal_recovery import diagnose_recovery, recover, classify_legacy
+                        digest, transact, export_snapshot, append_event, now_iso,
+                        UNSUPPORTED_STORAGE_VERSION)
+from journal_recovery import diagnose_recovery, recover
 
 SCRIPTS = Path(__file__).resolve().parent
 
@@ -84,8 +85,6 @@ class ProvenCompletionTests(unittest.TestCase):
                          'generation': archived.generation + 1}
                 documents['timeline.jsonl'] += (json.dumps(event) + '\n').encode()
             journal_cases.journal_io._put_documents(db, documents)
-            if defect == 'v1':
-                db.execute('UPDATE run_state SET version=1')
         return record
 
     def state(self):
@@ -129,7 +128,7 @@ class ProvenCompletionTests(unittest.TestCase):
                 self.assertEqual(before_conflict, self.state())
 
     def test_proven_completion_rejects_ineligible_assignments_atomically(self):
-        for defect in ('legacy', 'resolved', 'finished', 'history', 'identity', 'closed', 'v1', 'old-generation'):
+        for defect in ('legacy', 'resolved', 'finished', 'history', 'identity', 'closed', 'old-generation'):
             with self.subTest(defect=defect):
                 if defect != 'legacy':
                     self.setUp()
@@ -299,29 +298,27 @@ class RecoveryTests(unittest.TestCase):
                           stable_agent_name='Orchestrator', stable_agent_slug='orchestrator', status='blocked',
                           summary='Synthetic blocked acceptance', artifacts=['final.md'], next_step='')
 
-    def fixture(self, *, version=1, status='blocked', closed=True):
+    def fixture(self, *, status='blocked', closed=True):
         self.event['status'] = status
         summary = {'version': 1, 'subagents': [], 'role_lanes': [], 'subagents_used': False,
                    'role_lanes_used': False, 'notes': 'Synthetic analysis',
                    'verification': {'task_kind': 'analysis', 'root_thread_id': 'root', 'qa': 'old-qa',
                                     'reviewer': 'old-review', 'behavioral_checks': [], 'result_files': []}}
         documents = {'final.md': b'# Result\nVerdict: blocked\n', 'empty': None,
-                     'timeline.jsonl': (encode_json(self.event)+'\n').encode() if closed else b'',
+                     'timeline.jsonl': b'',
                      'delegation-summary.json': encode_json(summary).encode()}
-        # Construct the old-format fixture directly; production writers never receive this fixture seam.
-        initialize_journal(self.run, documents, source_root=self.root, storage_version=1)
-        with sqlite3.connect(self.run / '.journal/state.sqlite3') as db:
-            db.execute('UPDATE run_state SET version=?', (version,))
-            if closed:
-                payload = digest(encode_json({k:v for k,v in self.event.items() if k != 'timestamp'}).encode())
-                db.execute('INSERT INTO operations VALUES (?,?,?,?)', ('legacy-final', payload, 1, '{"revision":1}'))
+        initialize_journal(self.run, documents, source_root=self.root)
+        if closed:
+            # Fixture-only close; production writers close generations through journal finalize.
+            raw = (encode_json(self.event) + '\n').encode()
+            with sqlite3.connect(self.run / '.journal/state.sqlite3') as db:
+                journal_cases.journal_io._put_documents(db, {'timeline.jsonl': raw})
         return JournalSnapshot.open(self.run)
 
     def args(self):
         diagnosis = diagnose_recovery(self.run)
         snapshot = JournalSnapshot.open(self.run)
-        return dict(upgrade=snapshot.storage_version == 1, reopen=snapshot.closed,
-                    expected_run_uuid=snapshot.run_uuid, expected_revision=snapshot.revision,
+        return dict(expected_run_uuid=snapshot.run_uuid, expected_revision=snapshot.revision,
                     expected_generation=snapshot.generation, identifier='recover', reason='Repair acceptance',
                     identity=diagnosis['identity'], final_index=diagnosis['final']['index'] if diagnosis['final'] else None,
                     final_sha256=diagnosis['final']['sha256'] if diagnosis['final'] else None)
@@ -340,63 +337,54 @@ class RecoveryTests(unittest.TestCase):
                         ('link', str(p.readlink())) if p.is_symlink() else
                         ('directory', None) if p.is_dir() else ('file', p.read_bytes())
                         for p in run.rglob('*')}
-            for route in ('upgrade', 'reopen', 'classify-legacy'):
-                with self.subTest(route=route):
-                    run = root / route
-                    run.mkdir()
-                    (run / 'run.md').write_text('# Flat legacy run\n')
-                    (run / 'empty').mkdir()
-                    (run / 'binary').write_bytes(b'\x00\xff')
-                    (run / 'timeline.jsonl').write_text(encode_json(self.event) + '\n' if route == 'reopen' else '')
-                    (run / 'final.md').write_text('Verdict: blocked\n')
-                    snapshot = JournalSnapshot.open(run)
-                    self.assertFalse(snapshot.durable)
-                    before = tree(run)
-                    identifier = 'flat-' + route
-                    common = dict(expected_run_uuid=snapshot.run_uuid, expected_revision=snapshot.revision,
-                                  expected_generation=snapshot.generation, identifier=identifier)
-                    command = [sys.executable, '-B', str(SCRIPTS / 'journal.py'), '--run-dir', str(run), route]
-                    flags = ['--expected-revision', str(snapshot.revision), '--operation-id', identifier]
-                    if route == 'classify-legacy':
-                        classification = {'archive_id': 'revision-1', 'assignments': []}
-                        capture = root / 'classification.json'
-                        capture.write_text(json.dumps(classification))
-                        flags += ['--classification-file', str(capture)]
-                        invoke = lambda: classify_legacy(run, classification,
-                            expected_revision=snapshot.revision, identifier=identifier)
-                        message = 'flat legacy requires explicit import before classification'
-                    else:
-                        identity = root / 'identity.json'
-                        identity.write_text('{}')
-                        flags += ['--expected-run-uuid', snapshot.run_uuid, '--expected-generation',
-                                  str(snapshot.generation), '--reason', 'Repair acceptance', '--identity-file', str(identity)]
-                        if route == 'reopen':
-                            flags += ['--upgrade', '--final-index', '1', '--final-sha256', digest(b'Verdict: blocked\n')]
-                        invoke = lambda: recover(run, **common, upgrade=True, reopen=route == 'reopen',
-                                                 reason='Repair acceptance', identity={})
-                        message = 'flat legacy requires explicit import before upgrade' 
-                    with self.assertRaises(JournalError) as failure:
-                        invoke()
-                    self.assertEqual(tree(run), before)
-                    self.assertFalse((run / '.journal').exists())
-                    self.assertIn(message, str(failure.exception))
-                    result = subprocess.run(command + flags, capture_output=True, text=True)
+            run = root / 'reopen'
+            run.mkdir()
+            (run / 'run.md').write_text('# Flat archival run\n')
+            (run / 'empty').mkdir()
+            (run / 'binary').write_bytes(b'\x00\xff')
+            (run / 'timeline.jsonl').write_text(encode_json(self.event) + '\n')
+            (run / 'final.md').write_text('Verdict: blocked\n')
+            snapshot = JournalSnapshot.open(run)
+            self.assertFalse(snapshot.durable)
+            before = tree(run)
+            identity = root / 'identity.json'
+            identity.write_text('{}')
+            with self.assertRaises(JournalError) as failure:
+                recover(run, expected_run_uuid=snapshot.run_uuid, expected_revision=snapshot.revision,
+                        expected_generation=snapshot.generation, identifier='flat-reopen',
+                        reason='Repair acceptance', identity={}, final_index=1,
+                        final_sha256=digest(b'Verdict: blocked\n'))
+            self.assertIn(UNSUPPORTED_STORAGE_VERSION, str(failure.exception))
+            self.assertEqual(tree(run), before)
+            self.assertFalse((run / '.journal').exists())
+            command = [sys.executable, '-B', str(SCRIPTS / 'journal.py'), '--run-dir', str(run), 'reopen',
+                       '--expected-run-uuid', snapshot.run_uuid, '--expected-revision', str(snapshot.revision),
+                       '--expected-generation', str(snapshot.generation), '--operation-id', 'flat-reopen',
+                       '--reason', 'Repair acceptance', '--identity-file', str(identity),
+                       '--final-index', '1', '--final-sha256', digest(b'Verdict: blocked\n')]
+            result = subprocess.run(command, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('unsupported journal storage version', result.stderr)
+            self.assertEqual(tree(run), before)
+            self.assertFalse((run / '.journal').exists())
+            for removed in ('upgrade', 'import-legacy', 'classify-legacy'):
+                with self.subTest(removed=removed):
+                    result = subprocess.run([sys.executable, '-B', str(SCRIPTS / 'journal.py'),
+                                             '--run-dir', str(run), removed], capture_output=True, text=True)
                     self.assertNotEqual(result.returncode, 0)
-                    self.assertIn(message, result.stderr)
                     self.assertEqual(tree(run), before)
                     self.assertFalse((run / '.journal').exists())
 
-    def test_v1_readonly_then_atomic_upgrade_reopen_and_archive_export(self):
+    def test_reopen_archives_generation_and_exports(self):
         old = self.fixture()
-        with self.assertRaisesRegex(JournalError, 'read-only'):
-            transact(self.run, 'write', {}, lambda s: ({'new.md': b'new'}, {}))
         result = recover(self.run, **self.args())
         new = JournalSnapshot.open(self.run)
-        self.assertEqual((new.storage_version, new.generation, new.closed), (2, 2, False))
+        self.assertEqual((new.storage_version, new.generation, new.closed), (3, 2, False))
         archived = new.archive(result['archive_id'])
         self.assertEqual(dict(archived.documents), dict(old.documents))
         self.assertEqual(dict(archived.receipts), dict(old.receipts))
         self.assertEqual(archived.revision, old.revision)
+        self.assertEqual(archived.package_version, new.package_version)
         self.assertTrue(new.read_bytes('timeline.jsonl').startswith(old.read_bytes('timeline.jsonl')))
         self.assertIsNone(json.loads(new.read_bytes('delegation-summary.json'))['verification']['qa'])
         view = export_snapshot(archived)
@@ -406,98 +394,54 @@ class RecoveryTests(unittest.TestCase):
         append_event(self.run / 'timeline.jsonl', event, identifier='new-check')
         self.assertFalse(JournalSnapshot.open(self.run).closed)
 
-    def test_upgrade_open_does_not_create_generation(self):
+    def test_reopen_requires_closed_generation(self):
         self.fixture(closed=False)
-        result = recover(self.run, **self.args())
-        snapshot = JournalSnapshot.open(self.run)
-        self.assertEqual(snapshot.generation, 1)
-        self.assertEqual(snapshot.archive(result['archive_id']).storage_version, 1)
+        with self.assertRaisesRegex(JournalError, 'reopen requires closed generation'):
+            recover(self.run, **self.args())
 
-    def test_upgrade_and_reopen_persist_request_before_sql_and_retry(self):
+    def test_reopen_persists_request_before_sql_and_retries(self):
         import journal_recovery
-        for closed in (False,True):
-            with self.subTest(closed=closed):
-                self.run=self.root/('closed' if closed else 'open')
-                self.fixture(closed=closed);args=self.args()
-                initial=JournalSnapshot.open(self.run);captured={}
-                with self.assertRaisesRegex(JournalError,'invalid operation ID'):
-                    recover(self.run,**{**args,'identifier':'../invalid'})
-                original=journal_recovery._transact
-                def lost_response(run_dir,identifier,payload,mutation,**kwargs):
-                    request=Path(run_dir)/'.journal/requests'/identifier
-                    self.assertEqual(json.loads(request.read_bytes()),{'run_uuid':initial.run_uuid,
-                        'operation_id':identifier,'command':'reopen' if closed else 'upgrade','payload':payload})
-                    self.assertIsNone(JournalSnapshot.open(run_dir).operation_receipt(identifier))
-                    captured['request']=request.read_bytes()
-                    if not captured.get('precommit_seen'):
-                        captured['precommit_seen']=True
-                        raise OSError('synthetic before SQL')
-                    captured['result']=original(run_dir,identifier,payload,mutation,**kwargs)
-                    raise OSError('synthetic lost response')
-                with patch.object(journal_recovery,'_transact',side_effect=lost_response),self.assertRaisesRegex(OSError,'before SQL'):
-                    recover(self.run,**args)
-                self.assertEqual(JournalSnapshot.open(self.run).revision,initial.revision)
-                self.assertIsNone(JournalSnapshot.open(self.run).operation_receipt(args['identifier']))
-                with patch.object(journal_recovery,'_transact',side_effect=lost_response),self.assertRaisesRegex(OSError,'lost response'):
-                    recover(self.run,**args)
-                committed=self.raw_state()
-                self.assertEqual(recover(self.run,**args),captured['result'])
-                identity=self.root/('identity-'+str(closed)+'.json');identity.write_text(json.dumps(args['identity']))
-                command=[sys.executable,'-B',str(SCRIPTS/'journal.py'),'--run-dir',str(self.run),
-                    'reopen' if closed else 'upgrade','--expected-run-uuid',initial.run_uuid,
-                    '--expected-revision',str(initial.revision),'--expected-generation','1',
-                    '--operation-id',args['identifier'],'--reason',args['reason'],'--identity-file',str(identity)]
-                if closed: command+=['--upgrade','--final-index',str(args['final_index']),'--final-sha256',args['final_sha256']]
-                cli=subprocess.run(command,capture_output=True,text=True)
-                self.assertEqual(cli.returncode,0,cli.stderr)
-                self.assertEqual({k:v for k,v in json.loads(cli.stdout).items() if k!='operation_id'},captured['result'])
-                self.assertEqual(committed,self.raw_state())
-                self.assertEqual((self.run/'.journal/requests'/args['identifier']).read_bytes(),captured['request'])
-                with self.assertRaisesRegex(JournalError,'payload conflict'):
-                    recover(self.run,**{**args,'reason':'different request'})
-                self.assertEqual(committed,self.raw_state())
-
-    def test_classification_request_before_sql_and_lost_response_retry(self):
-        import journal_recovery,copy
-        request=self.legacy_lane_fixture();initial=JournalSnapshot.open(self.run);captured={}
-        with self.assertRaisesRegex(JournalError,'invalid operation ID'):
-            classify_legacy(self.run,request,expected_revision=initial.revision,identifier='../invalid')
-        with self.assertRaisesRegex(JournalError,'preconditions'):
-            classify_legacy(self.run,request,expected_revision=initial.revision+1,identifier='stale-classify')
-        self.assertTrue((self.run/'.journal/requests/stale-classify').is_file())
-        self.assertIsNone(JournalSnapshot.open(self.run).operation_receipt('stale-classify'))
-        original=journal_recovery._transact
-        def lost_response(run_dir,identifier,payload,mutation,**kwargs):
-            path=Path(run_dir)/'.journal/requests'/identifier
-            self.assertEqual(json.loads(path.read_bytes()),{'run_uuid':initial.run_uuid,'operation_id':identifier,
-                'command':'classify-legacy','payload':payload})
+        self.fixture(closed=True)
+        args = self.args()
+        initial = JournalSnapshot.open(self.run)
+        captured = {}
+        with self.assertRaisesRegex(JournalError, 'invalid operation ID'):
+            recover(self.run, **{**args, 'identifier': '../invalid'})
+        original = journal_recovery._transact
+        def lost_response(run_dir, identifier, payload, mutation, **kwargs):
+            request = Path(run_dir) / '.journal/requests' / identifier
+            self.assertEqual(json.loads(request.read_bytes()), {'run_uuid': initial.run_uuid,
+                'operation_id': identifier, 'command': 'reopen', 'payload': payload})
             self.assertIsNone(JournalSnapshot.open(run_dir).operation_receipt(identifier))
-            captured['request']=path.read_bytes()
+            captured['request'] = request.read_bytes()
             if not captured.get('precommit_seen'):
-                captured['precommit_seen']=True
+                captured['precommit_seen'] = True
                 raise OSError('synthetic before SQL')
-            captured['result']=original(run_dir,identifier,payload,mutation,**kwargs)
+            captured['result'] = original(run_dir, identifier, payload, mutation, **kwargs)
             raise OSError('synthetic lost response')
-        with patch.object(journal_recovery,'_transact',side_effect=lost_response),self.assertRaisesRegex(OSError,'before SQL'):
-            classify_legacy(self.run,request,expected_revision=initial.revision,identifier='classify')
-        self.assertEqual(JournalSnapshot.open(self.run).revision,initial.revision)
-        self.assertIsNone(JournalSnapshot.open(self.run).operation_receipt('classify'))
-        with patch.object(journal_recovery,'_transact',side_effect=lost_response),self.assertRaisesRegex(OSError,'lost response'):
-            classify_legacy(self.run,request,expected_revision=initial.revision,identifier='classify')
-        committed=self.raw_state()
-        self.assertEqual(classify_legacy(self.run,request,expected_revision=initial.revision,identifier='classify'),captured['result'])
-        request_file=self.root/'classification.json';request_file.write_text(json.dumps(request))
-        cli=subprocess.run([sys.executable,'-B',str(SCRIPTS/'journal.py'),'--run-dir',str(self.run),'classify-legacy',
-            '--classification-file',str(request_file),'--expected-revision',str(initial.revision),'--operation-id','classify'],
-            capture_output=True,text=True)
-        self.assertEqual(cli.returncode,0,cli.stderr)
-        self.assertEqual({k:v for k,v in json.loads(cli.stdout).items() if k!='operation_id'},captured['result'])
-        self.assertEqual(committed,self.raw_state())
-        self.assertEqual((self.run/'.journal/requests/classify').read_bytes(),captured['request'])
-        altered=copy.deepcopy(request);altered['assignments'][0]['reason']='Different request'
-        with self.assertRaisesRegex(JournalError,'payload conflict'):
-            classify_legacy(self.run,altered,expected_revision=initial.revision,identifier='classify')
-        self.assertEqual(committed,self.raw_state())
+        with patch.object(journal_recovery, '_transact', side_effect=lost_response), self.assertRaisesRegex(OSError, 'before SQL'):
+            recover(self.run, **args)
+        self.assertEqual(JournalSnapshot.open(self.run).revision, initial.revision)
+        self.assertIsNone(JournalSnapshot.open(self.run).operation_receipt(args['identifier']))
+        with patch.object(journal_recovery, '_transact', side_effect=lost_response), self.assertRaisesRegex(OSError, 'lost response'):
+            recover(self.run, **args)
+        committed = self.raw_state()
+        self.assertEqual(recover(self.run, **args), captured['result'])
+        identity = self.root / 'identity.json'
+        identity.write_text(json.dumps(args['identity']))
+        command = [sys.executable, '-B', str(SCRIPTS / 'journal.py'), '--run-dir', str(self.run),
+            'reopen', '--expected-run-uuid', initial.run_uuid,
+            '--expected-revision', str(initial.revision), '--expected-generation', '1',
+            '--operation-id', args['identifier'], '--reason', args['reason'], '--identity-file', str(identity),
+            '--final-index', str(args['final_index']), '--final-sha256', args['final_sha256']]
+        cli = subprocess.run(command, capture_output=True, text=True)
+        self.assertEqual(cli.returncode, 0, cli.stderr)
+        self.assertEqual({k: v for k, v in json.loads(cli.stdout).items() if k != 'operation_id'}, captured['result'])
+        self.assertEqual(committed, self.raw_state())
+        self.assertEqual((self.run / '.journal/requests' / args['identifier']).read_bytes(), captured['request'])
+        with self.assertRaisesRegex(JournalError, 'payload conflict'):
+            recover(self.run, **{**args, 'reason': 'different request'})
+        self.assertEqual(committed, self.raw_state())
 
     def test_exact_replay_conflict_and_stale_preconditions(self):
         self.fixture()
@@ -523,27 +467,18 @@ class RecoveryTests(unittest.TestCase):
             self.assertIsNone(JournalSnapshot.open(self.run).operation_receipt('precondition-'+key))
             self.assertEqual(before, self.raw_state())
 
-    def test_closed_upgrade_and_positive_v2_rejected(self):
-        self.fixture(version=2,status='pass')
-        with self.assertRaisesRegex(JournalError, 'positive version 2'):
+    def test_positive_final_cannot_reopen(self):
+        self.fixture(status='pass')
+        with self.assertRaisesRegex(JournalError, 'positive final cannot reopen'):
             recover(self.run, **self.args())
 
-    def test_legacy_pass_needs_failure_bound_to_exact_attempt(self):
-        self.fixture(status='pass')
-        args = self.args()
-        with self.assertRaisesRegex(JournalError, 'failed validation'):
-            recover(self.run, **args)
-        for revision in (9,1):
-            raw = encode_json({'exit_code':1,'revision':revision,'stdout':'FAIL original evidence missing\n','stderr':''}).encode()
-            with sqlite3.connect(self.run / '.journal/state.sqlite3') as db:
-                db.execute('INSERT OR REPLACE INTO documents VALUES (?,?,?,?)', ('checks/failed.json','file',raw,digest(raw)))
-                db.execute("INSERT OR IGNORE INTO documents VALUES ('checks','directory',NULL,NULL)")
-            if revision == 9:
-                with self.assertRaisesRegex(JournalError, 'bound'):
-                    recover(self.run, **{**args,'failed_validation_path':'checks/failed.json','identifier':'recover-with-report'})
-            else:
-                recover(self.run, **{**args,'failed_validation_path':'checks/failed.json','identifier':'recover-with-report'})
-        self.assertFalse(JournalSnapshot.open(self.run).closed)
+    def test_positive_verdict_text_cannot_reopen(self):
+        self.fixture()
+        raw = b'# Result\nVerdict: ship\n'
+        with sqlite3.connect(self.run / '.journal/state.sqlite3') as db:
+            db.execute("UPDATE documents SET content=?, sha256=? WHERE path='final.md'", (raw, digest(raw)))
+        with self.assertRaisesRegex(JournalError, 'negative current final'):
+            recover(self.run, **self.args())
 
     def test_arbitrary_receipt_id_blocks_delivery_without_file(self):
         self.fixture()
@@ -602,193 +537,169 @@ class RecoveryTests(unittest.TestCase):
             transact(self.run,'different-root',{},lambda s:({'delegation-summary.json':encode_json(summary)},{}))
         self.assertEqual(before,self.raw_state())
 
-    def legacy_lane_fixture(self, *, hidden=False, outcome='fail', terminal_status='done', extra_verdict='', lane_rows=None):
-        old = self.fixture()
-        summary = json.loads(old.read_text('delegation-summary.json'))
-        record = {'lane_id':'old-preparation','role':'python-worker','trace':'agents/python-worker/trace.jsonl',
-                  'handoff':'handoffs/old.md','reason':'Original preparation scope'}
-        if not hidden:
-            summary['role_lanes']=[record]
-            summary['role_lanes_used']=True
-        event={**self.event,'stage':'handoff','status':terminal_status,'role':'python-worker','lane_id':record['lane_id'],
-               'execution_mode':'role-lane','artifacts':['handoffs/old.md']}
-        docs={'delegation-summary.json':encode_json(summary).encode(),
-              'timeline.jsonl':(encode_json(event)+'\n'+encode_json(self.event)+'\n').encode(),
-              'agents/python-worker/trace.jsonl':(encode_json(event)+'\n').encode(),
-              'handoffs/old.md':('Verdict: '+outcome+'\n'+extra_verdict+'Only preparation; runtime acceptance remains blocked.\n').encode(),
-              'scope.md':b'Original obligation: prepare commands, not execute acceptance.\n'}
-        if lane_rows is not None:
-            docs['lane-map.json'] = encode_json({'schema_version': 2, 'lanes': lane_rows}).encode()
-        with sqlite3.connect(self.run/'.journal/state.sqlite3') as db:
-            for directory in ('agents','agents/python-worker','handoffs'):
-                db.execute('INSERT INTO documents VALUES (?,"directory",NULL,NULL)',(directory,))
-            for path,raw in docs.items():
-                db.execute('INSERT OR REPLACE INTO documents VALUES (?,"file",?,?)',(path,raw,digest(raw)))
-        args=self.args();result=recover(self.run,**args)
-        archive=JournalSnapshot.open(self.run).archive(result['archive_id'])
-        def ref(path,quote):
-            return {'path':path,'sha256':digest(archive.read_bytes(path)),'quote':quote}
-        entry={'lane_id':'old-preparation','obligation_id':'prepare-commands','reason':'Explicit original limited scope',
-               'scope':ref('scope.md','prepare commands'),
-               'handoff':ref('handoffs/old.md','Only preparation'),'outcome':outcome}
-        return {'archive_id':result['archive_id'],'assignments':[entry]}
-
-    def summary_only_replacement(self, *, hidden=False, current_old=True, lane_rows=None, continued=False):
-        request = self.legacy_lane_fixture(hidden=hidden, outcome='unresolved',
-                                           lane_rows=[] if lane_rows is None else lane_rows)
-        if continued:
-            event = {**self.event, 'lane_id': 'old-preparation', 'role': 'python-worker',
-                     'execution_mode': 'role-lane', 'timestamp': now_iso(),
-                     'stage': 'blocked', 'status': 'blocked', 'artifacts': ['handoffs/old.md']}
-            self.append_assignment_event(event, identifier='continued-terminal')
-        snapshot = JournalSnapshot.open(self.run)
-        classify_legacy(self.run, request, expected_revision=snapshot.revision, identifier='classify')
-        def add(snapshot):
-            summary = json.loads(snapshot.read_text('delegation-summary.json'))
-            replacement = {'lane_id': 'replacement', 'role': 'python-worker', 'status': 'pass',
-                           'handoff': 'replacement.md', 'trace': 'replacement.jsonl',
-                           'obligation': {'id': 'prepare-commands', 'required': True, 'state': 'current'}}
-            summary['role_lanes'].append(replacement)
-            event = {**self.event, 'lane_id': 'replacement', 'stage': 'handoff', 'status': 'pass',
-                     'role': 'python-worker', 'artifacts': ['replacement.md']}
-            rows = [{'id': 'replacement', 'status': 'pass', 'role': 'python-worker',
-                     'execution_mode': 'role-lane'}]
-            if current_old:
-                rows.append({'id': 'old-preparation', 'status': 'done', 'role': 'python-worker',
-                             'execution_mode': 'role-lane'})
-            return {'delegation-summary.json': encode_json(summary).encode(),
-                    'lane-map.json': encode_json({'schema_version': 2, 'lanes': rows}).encode(),
-                    'replacement.md': b'Verdict: pass\nSame preparation duty verified.\n',
-                    'replacement.jsonl': (encode_json(event) + '\n').encode()}, {}
-        transact(self.run, 'replacement', {}, add)
-        return dict(lane_id='old-preparation', replacement='replacement', reason='Same duty verified',
+    def plain_obligation_fixture(self, *, wrong_duty=False):
+        """Open journal with a failed duty and a verified same-duty replacement; no archives involved."""
+        records = [{'lane_id': 'old-duty', 'role': 'python-worker', 'status': 'fail',
+                    'trace': 'agents/python-worker/trace.jsonl', 'handoff': 'handoffs/old.md',
+                    'reason': 'Original failed attempt',
+                    'obligation': {'id': 'duty', 'required': True, 'state': 'current'}},
+                   {'lane_id': 'replacement', 'role': 'python-worker', 'status': 'pass',
+                    'trace': 'agents/replacement/trace.jsonl', 'handoff': 'replacement.md',
+                    'reason': 'Verified same duty completion',
+                    'obligation': {'id': 'duty', 'required': True, 'state': 'current'}}]
+        lanes = [{'id': 'old-duty', 'status': 'fail', 'role': 'python-worker', 'execution_mode': 'role-lane'},
+                 {'id': 'replacement', 'status': 'pass', 'role': 'python-worker', 'execution_mode': 'role-lane'}]
+        if wrong_duty:
+            records.append({'lane_id': 'wrong', 'role': 'python-worker', 'status': 'pass',
+                            'trace': 'agents/wrong/trace.jsonl', 'handoff': 'wrong.md',
+                            'reason': 'Different duty completion',
+                            'obligation': {'id': 'other-duty', 'required': True, 'state': 'current'}})
+            lanes.append({'id': 'wrong', 'status': 'pass', 'role': 'python-worker', 'execution_mode': 'role-lane'})
+        summary = {'version': 1, 'subagents': [], 'role_lanes': records, 'subagents_used': False,
+                   'role_lanes_used': True, 'notes': 'Synthetic obligation fixture',
+                   'verification': {'task_kind': 'analysis', 'root_thread_id': 'root', 'qa': None,
+                                    'reviewer': None, 'behavioral_checks': [], 'result_files': []}}
+        def terminal(record, stage, status):
+            return {'timestamp': '2026-01-01T00:00:00Z', 'stage': stage, 'role': record['role'],
+                    'stable_agent_name': 'Python Worker', 'stable_agent_slug': 'python-worker',
+                    'status': status, 'summary': 'Synthetic duty outcome', 'artifacts': [record['handoff']],
+                    'next_step': '', 'execution_mode': 'role-lane', 'lane_id': record['lane_id']}
+        events = [terminal(records[0], 'fail', 'fail'), terminal(records[1], 'handoff', 'pass')]
+        documents = {'delegation-summary.json': encode_json(summary).encode(),
+                     'lane-map.json': encode_json({'schema_version': 2, 'lanes': lanes}).encode(),
+                     'timeline.jsonl': ''.join(encode_json(event) + '\n' for event in events).encode(),
+                     'agents': None, 'agents/python-worker': None, 'agents/replacement': None,
+                     'handoffs': None,
+                     'agents/python-worker/trace.jsonl': (encode_json(events[0]) + '\n').encode(),
+                     'agents/replacement/trace.jsonl': (encode_json(events[1]) + '\n').encode(),
+                     'handoffs/old.md': b'Verdict: fail\nOriginal attempt failed.\n',
+                     'replacement.md': b'Verdict: pass\nSame duty verified.\n'}
+        if wrong_duty:
+            event = terminal(records[2], 'handoff', 'pass')
+            documents['timeline.jsonl'] += (encode_json(event) + '\n').encode()
+            documents['agents/wrong'] = None
+            documents['agents/wrong/trace.jsonl'] = (encode_json(event) + '\n').encode()
+            documents['wrong.md'] = b'Verdict: pass\nOther duty verified.\n'
+        initialize_journal(self.run, documents, source_root=self.root)
+        return dict(lane_id='old-duty', replacement='replacement', reason='Same duty verified',
                     expected_revision=JournalSnapshot.open(self.run).revision, identifier='resolve')
 
-    def test_summary_and_trace_only_resolution_domain_cli_and_retry(self):
+    def test_resolve_obligation_domain_cli_and_retry(self):
         from journal_lifecycle import resolve_obligation
         from verification_evidence import evaluate_obligations
         import journal_io
-        for hidden in (False, True):
-            for current_old in (False, True):
-                for route in ('domain', 'cli'):
-                    with self.subTest(hidden=hidden, current_old=current_old, route=route):
-                        self.run = self.root / f'run-{hidden}-{current_old}-{route}'
-                        args = self.summary_only_replacement(hidden=hidden, current_old=current_old)
-                        before = JournalSnapshot.open(self.run)
-                        old = json.loads(before.read_text('delegation-summary.json'))['role_lanes'][0]
-                        argv = [sys.executable, '-B', str(SCRIPTS / 'journal.py'), '--run-dir', str(self.run),
-                                'resolve-obligation', '--lane-id', args['lane_id'], '--replacement', args['replacement'],
-                                '--reason', args['reason'], '--expected-revision', str(args['expected_revision']),
-                                '--operation-id', args['identifier']]
-                        if route == 'domain':
-                            original = journal_io.transact
-                            def lose_response(*a, **kw):
-                                original(*a, **kw)
-                                raise OSError('synthetic lost response')
-                            with patch.object(journal_io, 'transact', side_effect=lose_response):
-                                with self.assertRaisesRegex(OSError, 'lost response'):
-                                    resolve_obligation(self.run, **args)
+        for route in ('domain', 'cli'):
+            with self.subTest(route=route):
+                self.run = self.root / f'run-{route}'
+                args = self.plain_obligation_fixture()
+                before = JournalSnapshot.open(self.run)
+                old = next(record for record in json.loads(before.read_text('delegation-summary.json'))['role_lanes']
+                           if record['lane_id'] == 'old-duty')
+                argv = [sys.executable, '-B', str(SCRIPTS / 'journal.py'), '--run-dir', str(self.run),
+                        'resolve-obligation', '--lane-id', args['lane_id'], '--replacement', args['replacement'],
+                        '--reason', args['reason'], '--expected-revision', str(args['expected_revision']),
+                        '--operation-id', args['identifier']]
+                if route == 'domain':
+                    original = journal_io.transact
+                    def lose_response(*a, **kw):
+                        original(*a, **kw)
+                        raise OSError('synthetic lost response')
+                    with patch.object(journal_io, 'transact', side_effect=lose_response):
+                        with self.assertRaisesRegex(OSError, 'lost response'):
                             resolve_obligation(self.run, **args)
-                        else:
-                            result = subprocess.run(argv, capture_output=True, text=True)
-                            self.assertEqual(result.returncode, 0, result.stderr)
-                        committed = self.raw_state()
-                        result = subprocess.run(argv, capture_output=True, text=True)
-                        self.assertEqual(result.returncode, 0, result.stderr)
-                        self.assertEqual(self.raw_state(), committed)
-                        after = JournalSnapshot.open(self.run)
-                        self.assertEqual(after.revision, before.revision + 1)
-                        self.assertEqual(dict(after.archives), dict(before.archives))
-                        summary = json.loads(after.read_text('delegation-summary.json'))
-                        resolved = summary['role_lanes'][0]
-                        self.assertEqual({k: v for k, v in old.items() if k != 'obligation'},
-                                         {k: v for k, v in resolved.items() if k != 'obligation'})
-                        self.assertEqual(resolved['obligation']['id'], old['obligation']['id'])
-                        self.assertTrue(resolved['obligation']['required'])
-                        self.assertEqual(evaluate_obligations(after, summary)[1], [])
-                        for path, raw in before.documents.items():
-                            if path not in {'delegation-summary.json', 'lane-map.json'}:
-                                self.assertEqual(after.documents[path], raw, path)
-                        rows = json.loads(after.read_text('lane-map.json'))['lanes']
-                        old_rows = [row for row in rows if row['id'] == args['lane_id']]
-                        self.assertEqual(len(old_rows), int(current_old))
-                        if current_old:
-                            self.assertEqual(old_rows[0]['status'], 'replaced')
-
-    def test_summary_only_conflicting_current_rows_are_atomic(self):
-        from journal_lifecycle import resolve_obligation
-        for fields in ({'status': 'pass'}, {'role': 'reviewer'}, {'codex_thread_id': 'foreign'},
-                       {'trace': 'replacement.jsonl'}):
-            with self.subTest(fields=fields):
-                self.run = self.root / next(iter(fields))
-                args = self.summary_only_replacement()
-                def conflict(snapshot):
-                    lane_map = json.loads(snapshot.read_text('lane-map.json'))
-                    lane_map['lanes'][1].update(fields)
-                    return {'lane-map.json': encode_json(lane_map).encode()}, {}
-                if next(iter(fields)) in {'role', 'codex_thread_id', 'trace'}:
-                    before = self.raw_state()
-                    with self.assertRaises(JournalError):
-                        transact(self.run, 'conflict', {}, conflict)
-                    self.assertEqual(self.raw_state(), before)
                     resolve_obligation(self.run, **args)
-                    continue
-                transact(self.run, 'conflict', {}, conflict)
-                args['expected_revision'] = JournalSnapshot.open(self.run).revision
-                before = self.raw_state()
-                with self.assertRaisesRegex(JournalError, 'conflict'):
-                    resolve_obligation(self.run, **args)
-                self.assertEqual(self.raw_state(), before)
-                self.assertTrue((self.run / '.journal/requests/resolve').is_file())
-
-    def test_summary_only_continued_terminal_and_newer_work(self):
-        from journal_lifecycle import resolve_obligation
-        for newer in (False, True):
-            with self.subTest(newer=newer):
-                self.run = self.root / str(newer)
-                args = self.summary_only_replacement(continued=True, current_old=False)
-                snapshot = JournalSnapshot.open(self.run)
-                old = json.loads(snapshot.read_text('delegation-summary.json'))['role_lanes'][0]
-                self.assertTrue(old['legacy']['continued'])
-                if newer:
-                    event = {**old['legacy']['terminal']['event'], 'timestamp': now_iso(),
-                             'stage': 'checks', 'status': 'active'}
-                    with self.assertRaisesRegex(JournalError, 'terminal assignment history is immutable'):
-                        self.append_assignment_event(event, identifier='newer-work')
-                    # Seed invalid historical bytes that current writers correctly reject.
-                    raw = snapshot.read_bytes('timeline.jsonl') + (encode_json(event) + '\n').encode()
-                    with sqlite3.connect(self.run / '.journal/state.sqlite3') as db:
-                        db.execute('UPDATE documents SET content=?, sha256=? WHERE path=?',
-                                   (raw, digest(raw), 'timeline.jsonl'))
-                    args['expected_revision'] = JournalSnapshot.open(self.run).revision
-                    before = self.raw_state()
-                    with self.assertRaisesRegex(JournalError, 'newer unresolved work'):
-                        resolve_obligation(self.run, **args)
-                    self.assertEqual(self.raw_state(), before)
                 else:
-                    resolve_obligation(self.run, **args)
-                    after = JournalSnapshot.open(self.run)
-                    self.assertEqual(dict(snapshot.archives), dict(after.archives))
-                    record = json.loads(after.read_text('delegation-summary.json'))['role_lanes'][0]
-                    self.assertEqual(record['legacy'], old['legacy'])
-                    self.assertEqual(record['obligation']['state'], 'resolved')
-                self.assertTrue((self.run / '.journal/requests/resolve').is_file())
+                    result = subprocess.run(argv, capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                committed = self.raw_state()
+                result = subprocess.run(argv, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.raw_state(), committed)
+                after = JournalSnapshot.open(self.run)
+                self.assertEqual(after.revision, before.revision + 1)
+                self.assertEqual(dict(after.archives), dict(before.archives))
+                summary = json.loads(after.read_text('delegation-summary.json'))
+                resolved = next(record for record in summary['role_lanes'] if record['lane_id'] == 'old-duty')
+                self.assertEqual({k: v for k, v in old.items() if k != 'obligation'},
+                                 {k: v for k, v in resolved.items() if k != 'obligation'})
+                self.assertEqual(resolved['obligation']['id'], old['obligation']['id'])
+                self.assertTrue(resolved['obligation']['required'])
+                self.assertEqual(resolved['obligation']['state'], 'resolved')
+                self.assertEqual(evaluate_obligations(after, summary)[1], [])
+                for path, raw in before.documents.items():
+                    if path not in {'delegation-summary.json', 'lane-map.json'}:
+                        self.assertEqual(after.documents[path], raw, path)
+                rows = json.loads(after.read_text('lane-map.json'))['lanes']
+                old_row = next(row for row in rows if row['id'] == 'old-duty')
+                self.assertEqual(old_row['status'], 'replaced')
+                self.assertEqual(old_row['replacement'], 'replacement')
+                with self.assertRaisesRegex(JournalError, 'payload conflict'):
+                    resolve_obligation(self.run, **{**args, 'reason': 'Different request'})
+                self.assertEqual(self.raw_state(), committed)
 
-    def test_archived_old_row_still_requires_current_row_and_original_status(self):
+    def test_resolve_obligation_conflicting_rows_and_stale_preconditions_are_atomic(self):
         from journal_lifecycle import resolve_obligation
-        for current_old in (False, True):
-            with self.subTest(current_old=current_old):
-                self.run = self.root / str(current_old)
-                args = self.summary_only_replacement(current_old=current_old,
-                    lane_rows=[{'id': 'old-preparation', 'status': 'fail'}])
-                before = self.raw_state()
-                with self.assertRaises(JournalError):
-                    resolve_obligation(self.run, **args)
-                self.assertEqual(self.raw_state(), before)
+        # The checked writer rejects a conflicting lane row before resolution runs.
+        self.run = self.root / 'identity'
+        args = self.plain_obligation_fixture()
+        def conflict(snapshot):
+            lane_map = json.loads(snapshot.read_text('lane-map.json'))
+            lane_map['lanes'][1]['role'] = 'reviewer'
+            return {'lane-map.json': encode_json(lane_map).encode()}, {}
+        before = self.raw_state()
+        with self.assertRaises(JournalError):
+            transact(self.run, 'conflict', {}, conflict)
+        self.assertEqual(self.raw_state(), before)
+        resolve_obligation(self.run, **args)
+        # A damaged lane-map row blocks resolution without writes.
+        self.run = self.root / 'conflict'
+        args = self.plain_obligation_fixture()
+        snapshot = JournalSnapshot.open(self.run)
+        lane_map = json.loads(snapshot.read_text('lane-map.json'))
+        lane_map['lanes'][0]['status'] = 'pass'
+        raw = encode_json(lane_map).encode()
+        with sqlite3.connect(self.run / '.journal/state.sqlite3') as db:
+            db.execute("UPDATE documents SET content=?, sha256=? WHERE path='lane-map.json'", (raw, digest(raw)))
+        before = self.raw_state()
+        with self.assertRaisesRegex(JournalError, 'conflict'):
+            resolve_obligation(self.run, **args)
+        self.assertEqual(self.raw_state(), before)
+        self.assertTrue((self.run / '.journal/requests/resolve').is_file())
+        # Stale preconditions persist the request but never reach SQL.
+        self.run = self.root / 'stale'
+        args = self.plain_obligation_fixture()
+        with self.assertRaisesRegex(JournalError, 'invalid operation ID'):
+            resolve_obligation(self.run, **{**args, 'identifier': '../invalid'})
+        with self.assertRaisesRegex(JournalError, 'preconditions'):
+            resolve_obligation(self.run, **{**args, 'identifier': 'stale-resolve',
+                                            'expected_revision': args['expected_revision'] + 1})
+        self.assertTrue((self.run / '.journal/requests/stale-resolve').is_file())
+        self.assertIsNone(JournalSnapshot.open(self.run).operation_receipt('stale-resolve'))
 
-    def test_summary_only_resolution_refuses_closed_generation(self):
+    def test_resolve_obligation_requires_same_duty_and_no_cycle(self):
         from journal_lifecycle import resolve_obligation
-        args = self.summary_only_replacement(current_old=False)
+        from verification_evidence import evaluate_obligations
+        args = self.plain_obligation_fixture(wrong_duty=True)
+        snapshot = JournalSnapshot.open(self.run)
+        with self.assertRaisesRegex(JournalError, 'different obligation'):
+            resolve_obligation(self.run, lane_id='old-duty', replacement='wrong', reason='Wrong duty',
+                               expected_revision=snapshot.revision, identifier='wrong-resolution')
+        self.assertEqual(snapshot.revision, JournalSnapshot.open(self.run).revision)
+        resolve_obligation(self.run, **args)
+        current = JournalSnapshot.open(self.run)
+        summary = json.loads(current.read_text('delegation-summary.json'))
+        self.assertEqual(evaluate_obligations(current, summary)[1], [])
+        replacement = next(record for record in summary['role_lanes'] if record['lane_id'] == 'replacement')
+        replacement['obligation'].update(state='resolved', resolution={'original_lane': 'replacement',
+            'replacement': 'old-duty', 'reason': 'Invalid cycle',
+            'evidence': [{'path': 'replacement.md', 'sha256': digest(current.read_bytes('replacement.md'))}]})
+        self.assertTrue(any('cyclic' in e for e in evaluate_obligations(current, summary)[1]))
+        with self.assertRaisesRegex(JournalError, 'terminal handoff'):
+            transact(self.run, 'rewrite-old', {}, lambda s: ({'handoffs/old.md': b'Verdict: pass'}, {}))
+
+    def test_resolve_obligation_refuses_closed_generation(self):
+        from journal_lifecycle import resolve_obligation
+        args = self.plain_obligation_fixture()
         snapshot = JournalSnapshot.open(self.run)
         final = {**self.event, 'timestamp': now_iso()}
         raw = snapshot.read_bytes('timeline.jsonl') + (encode_json(final) + '\n').encode()
@@ -800,222 +711,6 @@ class RecoveryTests(unittest.TestCase):
         with self.assertRaisesRegex(JournalError, 'closed'):
             resolve_obligation(self.run, **args)
         self.assertEqual(self.raw_state(), before)
-
-    def test_missing_status_done_fail_preserved_and_current_replacement_required(self):
-        request=self.legacy_lane_fixture()
-        snapshot=JournalSnapshot.open(self.run)
-        classify_legacy(self.run,request,expected_revision=snapshot.revision,identifier='classify')
-        current=JournalSnapshot.open(self.run)
-        record=json.loads(current.read_text('delegation-summary.json'))['role_lanes'][0]
-        self.assertNotIn('status',record)
-        self.assertEqual(record['legacy']['outcome'],'fail')
-        self.assertEqual(record['legacy']['terminal']['event']['status'],'done')
-        from verification_evidence import evaluate_obligations
-        self.assertTrue(evaluate_obligations(current,json.loads(current.read_text('delegation-summary.json')))[1])
-        self.assertEqual(current.archive(request['archive_id']).read_bytes('agents/python-worker/trace.jsonl'),
-                         current.read_bytes('agents/python-worker/trace.jsonl'))
-
-    def test_hidden_role_lane_inventory_is_not_lost(self):
-        request=self.legacy_lane_fixture(hidden=True)
-        snapshot=JournalSnapshot.open(self.run)
-        from verification_evidence import evaluate_obligations
-        self.assertTrue(any('uncovered legacy' in e for e in evaluate_obligations(snapshot,json.loads(snapshot.read_text('delegation-summary.json')))[1]))
-        classify_legacy(self.run,request,expected_revision=snapshot.revision,identifier='classify')
-        current=JournalSnapshot.open(self.run)
-        self.assertEqual(json.loads(current.read_text('delegation-summary.json'))['role_lanes'][0]['lane_id'],'old-preparation')
-
-    def test_classification_cannot_invent_pass_or_drop_an_assignment(self):
-        request=self.legacy_lane_fixture()
-        before=self.raw_state()
-        request['assignments'][0]['outcome']='pass'
-        with self.assertRaisesRegex(JournalError,'original handoff verdict'):
-            classify_legacy(self.run,request,expected_revision=before[0],identifier='classify')
-        self.assertEqual(before,self.raw_state())
-        request['assignments']=[]
-        with self.assertRaisesRegex(JournalError,'all legacy assignments'):
-            classify_legacy(self.run,request,expected_revision=before[0],identifier='classify-drop')
-
-    def test_preparation_done_does_not_become_acceptance_pass(self):
-        request=self.legacy_lane_fixture(outcome='pass')
-        before=JournalSnapshot.open(self.run)
-        classify_legacy(self.run,request,expected_revision=before.revision,identifier='classify')
-        current=JournalSnapshot.open(self.run)
-        from verification_evidence import evaluate_obligations
-        errors=evaluate_obligations(current,json.loads(current.read_text('delegation-summary.json')))[1]
-        self.assertEqual(errors,[])
-        summary=json.loads(current.read_text('delegation-summary.json'))
-        self.assertEqual(summary['role_lanes'][0]['obligation']['id'],'prepare-commands')
-        self.assertIsNone(summary['verification']['qa'])
-        self.assertIsNone(summary['verification']['reviewer'])
-
-    def test_planned_required_lane_waits_for_real_execution(self):
-        self.fixture(closed=False)
-        raw=encode_json({'lanes':[{'id':'future-qa','status':'planned'}]}).encode()
-        with sqlite3.connect(self.run/'.journal/state.sqlite3') as db:
-            db.execute('INSERT INTO documents VALUES (?,"file",?,?)',('lane-map.json',raw,digest(raw)))
-        result=recover(self.run,**self.args())
-        request={'archive_id':result['archive_id'],'assignments':[{
-            'lane_id':'future-qa','obligation_id':'final-qa','reason':'Required future verification',
-            'scope':{'path':'lane-map.json','sha256':digest(raw),'quote':'future-qa'},'planned':True}]}
-        snapshot=JournalSnapshot.open(self.run)
-        classify_legacy(self.run,request,expected_revision=snapshot.revision,identifier='classify')
-        current=JournalSnapshot.open(self.run)
-        summary=json.loads(current.read_text('delegation-summary.json'))
-        self.assertEqual(summary['subagents'],[])
-        self.assertEqual(summary['role_lanes'],[])
-        from verification_evidence import evaluate_obligations
-        self.assertTrue(any('uncovered legacy' in e for e in evaluate_obligations(current,summary)[1]))
-        self.assertEqual(json.loads(current.read_text('artifacts/lifecycle/legacy-classification.json'))['planned']['future-qa'],request['assignments'][0])
-
-    def test_new_active_work_cannot_hide_behind_old_terminal(self):
-        request=self.legacy_lane_fixture(outcome='pass')
-        event={**self.event,'timestamp':'2026-12-01T00:00:00Z','stage':'checks','status':'active',
-               'lane_id':'old-preparation','role':'python-worker','execution_mode':'role-lane'}
-        self.append_assignment_event(event, identifier='active')
-        before=self.raw_state()
-        with self.assertRaisesRegex(JournalError,'explicit completion'):
-            classify_legacy(self.run,request,expected_revision=before[0],identifier='classify')
-        self.assertEqual(before,self.raw_state())
-
-    def test_active_legacy_lane_can_finish_after_upgrade(self):
-        self.fixture(closed=False)
-        summary=json.loads(JournalSnapshot.open(self.run).read_text('delegation-summary.json'))
-        summary['role_lanes']=[{'lane_id':'active','role':'python-worker','trace':'timeline.jsonl','status':'active'}]
-        event={**self.event,'stage':'checks','status':'active','lane_id':'active','role':'python-worker','execution_mode':'role-lane'}
-        docs={'delegation-summary.json':encode_json(summary).encode(),'timeline.jsonl':(encode_json(event)+'\n').encode(),
-              'scope.md':b'Original implementation scope'}
-        with sqlite3.connect(self.run/'.journal/state.sqlite3') as db:
-            for path,raw in docs.items():
-                db.execute('INSERT OR REPLACE INTO documents VALUES (?,"file",?,?)',(path,raw,digest(raw)))
-        result=recover(self.run,**self.args())
-        raw=b'Verdict: pass\nImplementation completed.'
-        transact(self.run,'handoff',{},lambda s:({'completed.md':raw},{}))
-        event={**event,'timestamp':'2026-12-01T00:00:00Z','stage':'handoff','status':'pass','artifacts':['completed.md']}
-        def complete(current):
-            summary = json.loads(current.read_text('delegation-summary.json'))
-            summary['role_lanes'][0]['status'] = 'pass'
-            return {'delegation-summary.json': encode_json(summary),
-                    'timeline.jsonl': current.read_bytes('timeline.jsonl') + (encode_json(event) + '\n').encode()}, {}
-        transact(self.run, 'terminal', {}, complete)
-        request={'archive_id':result['archive_id'],'assignments':[{'lane_id':'active','obligation_id':'implementation',
-            'reason':'Actual completion after explicit upgrade','outcome':'pass',
-            'scope':{'path':'scope.md','sha256':digest(docs['scope.md']),'quote':'Original implementation'},
-            'handoff':{'path':'completed.md','sha256':digest(raw),'quote':'Implementation completed'}}]}
-        current=JournalSnapshot.open(self.run)
-        classify_legacy(self.run,request,expected_revision=current.revision,identifier='classify')
-        current=JournalSnapshot.open(self.run)
-        record=json.loads(current.read_text('delegation-summary.json'))['role_lanes'][0]
-        self.assertEqual(record['status'],'pass')
-        self.assertTrue(record['legacy']['continued'])
-        self.assertNotIn('completed.md',current.archive(result['archive_id']).documents)
-
-    def test_classified_failure_requires_same_duty_replacement_without_cycle(self):
-        from journal_lifecycle import resolve_obligation
-        from verification_evidence import evaluate_obligations
-        request=self.legacy_lane_fixture()
-        snapshot=JournalSnapshot.open(self.run)
-        classify_legacy(self.run,request,expected_revision=snapshot.revision,identifier='classify')
-        def add(snapshot):
-            summary=json.loads(snapshot.read_text('delegation-summary.json'))
-            docs={}
-            for lane,duty in [('replacement','prepare-commands'),('wrong','other-duty')]:
-                handoff=lane+'.md';trace=lane+'.jsonl'
-                event={**self.event,'stage':'handoff','status':'pass','lane_id':lane,'artifacts':[handoff]}
-                summary['role_lanes'].append({'lane_id':lane,'role':'python-worker','reason':'Actual fixture completion',
-                    'status':'pass','handoff':handoff,'trace':trace,'obligation':{'id':duty,'required':True,'state':'current'}})
-                docs[handoff]=b'Verdict: pass\nPreparation verified.'
-                docs[trace]=(encode_json(event)+'\n').encode()
-            docs['delegation-summary.json']=encode_json(summary).encode()
-            return docs,{}
-        transact(self.run,'add-replacements',{},add)
-        snapshot=JournalSnapshot.open(self.run)
-        with self.assertRaisesRegex(JournalError,'different obligation'):
-            resolve_obligation(self.run,lane_id='old-preparation',replacement='wrong',reason='Wrong duty',
-                               expected_revision=snapshot.revision,identifier='wrong-resolution')
-        self.assertEqual(snapshot.revision,JournalSnapshot.open(self.run).revision)
-        import journal_io
-        args=dict(lane_id='old-preparation',replacement='replacement',reason='Same original duty verified',
-                  expected_revision=snapshot.revision,identifier='resolve')
-        with self.assertRaisesRegex(JournalError,'invalid operation ID'):
-            resolve_obligation(self.run,**{**args,'identifier':'../invalid'})
-        with self.assertRaisesRegex(JournalError,'preconditions'):
-            resolve_obligation(self.run,**{**args,'identifier':'stale-resolve','expected_revision':snapshot.revision+1})
-        self.assertTrue((self.run/'.journal/requests/stale-resolve').is_file())
-        self.assertIsNone(JournalSnapshot.open(self.run).operation_receipt('stale-resolve'))
-        captured={};original=journal_io.transact
-        def lost_response(run_dir,identifier,payload,mutation,**kwargs):
-            path=Path(run_dir)/'.journal/requests'/identifier
-            self.assertEqual(json.loads(path.read_bytes()),{'run_uuid':snapshot.run_uuid,'operation_id':identifier,
-                'command':'resolve-obligation','payload':payload})
-            self.assertIsNone(JournalSnapshot.open(run_dir).operation_receipt(identifier))
-            captured['request']=path.read_bytes()
-            if not captured.get('precommit_seen'):
-                captured['precommit_seen']=True
-                raise OSError('synthetic before SQL')
-            captured['result']=original(run_dir,identifier,payload,mutation,**kwargs)
-            raise OSError('synthetic lost response')
-        with patch.object(journal_io,'transact',side_effect=lost_response),self.assertRaisesRegex(OSError,'before SQL'):
-            resolve_obligation(self.run,**args)
-        self.assertEqual(JournalSnapshot.open(self.run).revision,snapshot.revision)
-        self.assertIsNone(JournalSnapshot.open(self.run).operation_receipt('resolve'))
-        with patch.object(journal_io,'transact',side_effect=lost_response),self.assertRaisesRegex(OSError,'lost response'):
-            resolve_obligation(self.run,**args)
-        committed=self.raw_state()
-        self.assertEqual(resolve_obligation(self.run,**args),captured['result'])
-        cli=subprocess.run([sys.executable,'-B',str(SCRIPTS/'journal.py'),'--run-dir',str(self.run),'resolve-obligation',
-            '--lane-id',args['lane_id'],'--replacement',args['replacement'],'--reason',args['reason'],
-            '--expected-revision',str(args['expected_revision']),'--operation-id','resolve'],capture_output=True,text=True)
-        self.assertEqual(cli.returncode,0,cli.stderr)
-        self.assertEqual({k:v for k,v in json.loads(cli.stdout).items() if k!='operation_id'},captured['result'])
-        self.assertEqual(committed,self.raw_state())
-        self.assertEqual((self.run/'.journal/requests/resolve').read_bytes(),captured['request'])
-        with self.assertRaisesRegex(JournalError,'payload conflict'):
-            resolve_obligation(self.run,**{**args,'reason':'Different request'})
-        self.assertEqual(committed,self.raw_state())
-        current=JournalSnapshot.open(self.run);summary=json.loads(current.read_text('delegation-summary.json'))
-        self.assertEqual(evaluate_obligations(current,summary)[1],[])
-        old=summary['role_lanes'][0]
-        self.assertEqual(old['legacy']['outcome'],'fail')
-        self.assertNotIn('status',old)
-        replacement=summary['role_lanes'][1]
-        replacement['obligation'].update(state='resolved',resolution={'original_lane':'replacement','replacement':'old-preparation',
-            'reason':'Invalid cycle','evidence':[{'path':'replacement.md','sha256':digest(current.read_bytes('replacement.md'))}]})
-        self.assertTrue(any('cyclic' in e for e in evaluate_obligations(current,summary)[1]))
-        with self.assertRaisesRegex(JournalError,'terminal handoff'):
-            transact(self.run,'rewrite-old',{},lambda s:({'handoffs/old.md':b'Verdict: pass'},{}))
-
-    def test_classification_binds_original_assignment_identity(self):
-        request=self.legacy_lane_fixture(outcome='pass')
-        def change(snapshot):
-            summary=json.loads(snapshot.read_text('delegation-summary.json'))
-            summary['role_lanes'][0]['role']='reviewer'
-            return {'delegation-summary.json':encode_json(summary).encode()},{}
-        with self.assertRaisesRegex(JournalError, "role.*differs"):
-            transact(self.run,'wrong-role',{},change)
-        # Imported corruption remains diagnosable by the classification guard.
-        docs, _ = change(JournalSnapshot.open(self.run))
-        with sqlite3.connect(self.run/'.journal/state.sqlite3') as db:
-            raw = docs['delegation-summary.json']
-            db.execute('UPDATE documents SET content=?,sha256=? WHERE path=?',
-                       (raw, digest(raw), 'delegation-summary.json'))
-        before=self.raw_state()
-        with self.assertRaisesRegex(JournalError,'original assignment identity'):
-            classify_legacy(self.run,request,expected_revision=before[0],identifier='classify')
-        self.assertEqual(before,self.raw_state())
-
-    def test_positive_classification_cannot_override_explicit_failure(self):
-        request=self.legacy_lane_fixture(outcome='pass',terminal_status='fail')
-        before=self.raw_state()
-        with self.assertRaisesRegex(JournalError,'terminal failure'):
-            classify_legacy(self.run,request,expected_revision=before[0],identifier='classify')
-        self.assertEqual(before,self.raw_state())
-
-    def test_conflicting_handoff_verdicts_do_not_confirm_pass(self):
-        request=self.legacy_lane_fixture(outcome='pass',extra_verdict='Verdict: fail\n')
-        before=self.raw_state()
-        with self.assertRaisesRegex(JournalError,'original handoff verdict'):
-            classify_legacy(self.run,request,expected_revision=before[0],identifier='classify')
-        self.assertEqual(before,self.raw_state())
 
     def test_fresh_behavioral_attestation_preserves_original_inputs(self):
         import copy
@@ -1051,76 +746,6 @@ class RecoveryTests(unittest.TestCase):
                 transact(self.run,'mutate-'+name,{},lambda s:({'delegation-summary.json':encode_json(candidate).encode()},{}))
             self.assertEqual(snapshot.revision,JournalSnapshot.open(self.run).revision)
 
-    def test_optional_flag_needs_original_consultation_scope(self):
-        request=self.legacy_lane_fixture(outcome='pass')
-        request['assignments'][0]['optional']=True
-        with self.assertRaisesRegex(JournalError,'original scope'):
-            classify_legacy(self.run,request,expected_revision=JournalSnapshot.open(self.run).revision,identifier='optional')
-
-    def test_source_uuid_model_and_own_turn_are_required_for_claimed_outcome(self):
-        self.fixture()
-        spec=importlib.util.spec_from_file_location('recovery_sources',SCRIPTS/'test-verification-evidence.py')
-        fixtures=importlib.util.module_from_spec(spec);spec.loader.exec_module(fixtures)
-        thread=fixtures.QA_ID
-        snapshot=JournalSnapshot.open(self.run)
-        summary=json.loads(snapshot.read_text('delegation-summary.json'))
-        summary['verification']['root_thread_id']=fixtures.ROOT_ID
-        record={'lane_id':'historical-qa','role':'qa-verifier','codex_thread_id':thread,
-                'trace':'agents/qa-verifier/trace.jsonl','handoff':'handoffs/qa.md'}
-        summary['subagents']=[record];summary['subagents_used']=True
-        event={**self.event,'stage':'handoff','status':'done','role':'qa-verifier','lane_id':'historical-qa',
-               'codex_thread_id':thread,'execution_mode':'subagent','artifacts':['handoffs/qa.md']}
-        docs={'delegation-summary.json':encode_json(summary).encode(),
-              'timeline.jsonl':(encode_json(event)+'\n'+encode_json(self.event)+'\n').encode(),
-              'agents/qa-verifier/trace.jsonl':(encode_json(event)+'\n').encode(),
-              'scope.md':b'Original QA duty', 'handoffs/qa.md':b'Verdict: fail\nOriginal QA finding'}
-        with sqlite3.connect(self.run/'.journal/state.sqlite3') as db:
-            for p in ('agents','agents/qa-verifier','handoffs'): db.execute('INSERT INTO documents VALUES (?,"directory",NULL,NULL)',(p,))
-            for p,raw in docs.items(): db.execute('INSERT OR REPLACE INTO documents VALUES (?,"file",?,?)',(p,raw,digest(raw)))
-        result=recover(self.run,**self.args());archive=JournalSnapshot.open(self.run).archive(result['archive_id'])
-        entry={'lane_id':'historical-qa','obligation_id':'qa-duty','reason':'Preserve finding','outcome':'fail',
-               'scope':{'path':'scope.md','sha256':digest(docs['scope.md']),'quote':'QA duty'},
-               'handoff':{'path':'handoffs/qa.md','sha256':digest(docs['handoffs/qa.md']),'quote':'Original QA finding'},
-               'source':{'thread_id':thread,'turn_id':thread+'-turn','quote':'Original QA finding'}}
-        request={'archive_id':result['archive_id'],'assignments':[entry]}
-        source=fixtures.SyntheticSource();source.sessions[thread]=fixtures.session(thread,'qa-verifier',{'verdict':'fail','finding':'Original QA finding'},1)
-        before=self.raw_state()
-        missing_source = {'archive_id': result['archive_id'],
-                          'assignments': [{key: value for key, value in entry.items() if key != 'source'}]}
-        with self.assertRaisesRegex(JournalError, 'missing historical source'):
-            classify_legacy(self.run, missing_source, expected_revision=before[0],
-                            identifier='classify-missing-source', session_source=source)
-        self.assertEqual(before, self.raw_state())
-        source.sessions[thread][2]['payload']['model']='wrong-model'
-        with self.assertRaisesRegex(JournalError,'model mismatch'):
-            classify_legacy(self.run,request,expected_revision=before[0],identifier='classify',session_source=source)
-        self.assertEqual(before,self.raw_state())
-        source.sessions[thread]=fixtures.session(thread,'qa-verifier',{'verdict':'fail','finding':'Original QA finding'},1)
-        entry['source']['thread_id']='wrong-thread'
-        with self.assertRaisesRegex(JournalError,'UUID mismatch'):
-            classify_legacy(self.run,request,expected_revision=before[0],identifier='classify-wrong-uuid',session_source=source)
-        entry['source']['thread_id']=thread
-        classify_legacy(self.run,request,expected_revision=before[0],identifier='classify',session_source=source)
-        self.assertEqual(JournalSnapshot.open(self.run).archive(result['archive_id']).read_bytes('handoffs/qa.md'),docs['handoffs/qa.md'])
-
-    def test_registration_correction_requires_original_evidence(self):
-        self.fixture()
-        wrong='00000000-0000-4000-8000-000000000000'
-        event={**self.event,'stage':'spawned','lane_id':'wrong-registration','codex_thread_id':wrong,'execution_mode':'subagent'}
-        text=('Incorrect UUID '+wrong+'; registration error, no actual assignment.').encode()
-        with sqlite3.connect(self.run/'.journal/state.sqlite3') as db:
-            raw=(encode_json(event)+'\n'+encode_json(self.event)+'\n').encode()
-            db.execute("UPDATE documents SET content=?,sha256=? WHERE path='timeline.jsonl'",(raw,digest(raw)))
-            db.execute('INSERT INTO documents VALUES (?,"file",?,?)',('correction.md',text,digest(text)))
-        result=recover(self.run,**self.args());before=self.raw_state()
-        entry={'lane_id':'wrong-registration','reason':'Original registration error',
-               'correction':{'path':'correction.md','sha256':digest(text),'quote':'registration error'}}
-        request={'archive_id':result['archive_id'],'assignments':[entry]}
-        classify_legacy(self.run,request,expected_revision=before[0],identifier='correct')
-        current=JournalSnapshot.open(self.run)
-        self.assertEqual(json.loads(current.read_text('delegation-summary.json'))['subagents'],[])
-        self.assertIn('wrong-registration',json.loads(current.read_text('artifacts/lifecycle/legacy-classification.json'))['corrections'])
-
     def test_damaged_database_never_falls_back_to_flat_files(self):
         self.fixture()
         (self.run/'final.md').write_text('Tempting flat fallback')
@@ -1138,10 +763,16 @@ class RecoveryTests(unittest.TestCase):
         with self.assertRaisesRegex(JournalError,'manifest'):
             JournalSnapshot.open(self.run)
 
-    def test_generic_writer_cannot_forge_legacy_classification(self):
+    def test_generic_writer_cannot_forge_lifecycle_artifacts(self):
         self.fixture();recover(self.run,**self.args())
-        with self.assertRaisesRegex(JournalError,'domain command'):
-            transact(self.run,'fake',{},lambda s:({'artifacts/lifecycle/legacy-classification.json':b'{}'},{}))
+        capture = self.root / 'forged.json'
+        capture.write_text('{}')
+        result = subprocess.run([sys.executable, '-B', str(SCRIPTS / 'journal.py'), '--run-dir', str(self.run),
+                                 'publish', '--file', 'artifacts/lifecycle/legacy-classification.json', str(capture)],
+                                capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('writer-owned', result.stderr)
+        self.assertFalse(JournalSnapshot.open(self.run).exists('artifacts/lifecycle/legacy-classification.json'))
 
     def test_two_archives_are_not_recursive_and_generation_links_hold(self):
         self.fixture();recover(self.run,**self.args())
@@ -1272,56 +903,62 @@ recover(sys.argv[1],**args,barrier=stop)
         with self.assertRaisesRegex(JournalError,'stale|unfinished'):
             delivery(case.run,session_source=case.source)
 
-    def test_flat_import_is_explicit_and_closed_upgrade_refuses(self):
-        from journal_io import import_legacy
-        self.run.mkdir();(self.run/'run.md').write_text('# Legacy flat run')
-        (self.run/'timeline.jsonl').write_text(encode_json(self.event)+'\n')
-        (self.run/'final.md').write_text('Verdict: blocked\n')
-        before=JournalSnapshot.open(self.run,legacy_source_root=self.root)
-        self.assertFalse(before.durable)
-        imported=import_legacy(self.run,source_root=self.root)
-        self.assertEqual(imported.storage_version,1)
-        args=self.args()
-        with self.assertRaisesRegex(JournalError,'atomic reopen'):
-            recover(self.run,**{**args,'reopen':False})
-
     def test_full_harness_consumer_accepts_reclosed_negative_generation(self):
-        spec=importlib.util.spec_from_file_location('recovery_promotion',SCRIPTS/'test-promote-harness-evaluation.py')
-        fixtures=importlib.util.module_from_spec(spec);spec.loader.exec_module(fixtures)
-        run=fixtures.copy_run(self.root,fixtures.VALID_BLOCKED_RUN,'harness-run')
-        from journal_io import import_legacy,now_iso
+        spec=importlib.util.spec_from_file_location('recovery_evidence',SCRIPTS/'test-verification-evidence.py')
+        evidence=importlib.util.module_from_spec(spec);spec.loader.exec_module(evidence)
         from journal_lifecycle import finalize
         from harness_promotion import validate_run,PromotionError
-        # The generic golden pack uses pass for every final; model an ordinary negative closure here.
-        events=[json.loads(line) for line in (run/'timeline.jsonl').read_text().splitlines()]
-        events[-1]['status']='blocked'
-        (run/'timeline.jsonl').write_text(''.join(encode_json(event)+'\n' for event in events))
-        snapshot=import_legacy(run,source_root=self.root)
+        run=self.root/'harness-run';run.mkdir()
+        (run/'run.md').write_text('# Synthetic compact change\n')
+        (run/'checks.md').write_text('# Checks\n\nFixture assertions.\n')
+        summary,source=evidence.acceptance_pack(run)
+        for record in summary['subagents']:
+            record['status']='pass'
+            record['obligation']={'id':record['role'],'required':True,'state':'current'}
+        summary['verification']['blocker']='Synthetic unresolved local check'
+        evidence.write_json(run/'delegation-summary.json',summary)
+        # Full-mode document set for the harness consumer, which forces mode=full.
+        for name in ('manifest.md','route.md','definition-of-done.md','decisions.md'):
+            (run/name).write_text('# Full fixture\n\nVerdict: blocked\n')
+        (run/'artifacts').mkdir(exist_ok=True)
+        (run/'checks').mkdir(exist_ok=True)
+        (run/'checks'/'smoke.md').write_text('# Synthetic checks\n')
+        (run/'artifacts.json').write_text('[]\n')
+        timeline=run/'timeline.jsonl'
+        lines=timeline.read_bytes().splitlines(keepends=True)
+        timeline.write_bytes(b''.join(line for line in lines if json.loads(line).get('stage')!='final'))
+        (run/'final.md').unlink()
+        documents,identities=journal_cases.journal_io.capture_flat(run)
+        snapshot=initialize_journal(run,documents,source_root=self.root,identities=identities,result_contract_version=1)
+        finalize(run,expected_run_uuid=snapshot.run_uuid,expected_revision=snapshot.revision,
+                 expected_generation=1,identifier='gen1',final_summary='Unresolved local checks remain blocked',
+                 verdict='blocked',session_source=source)
         oldrun=self.run;self.run=run
         try: recover(run,**self.args())
         finally: self.run=oldrun
-        current=JournalSnapshot.open(run)
-        with self.assertRaises(PromotionError): validate_run(run)
-        check={**self.event,'stage':'checks','status':'pass','summary':'Current negative report checked','timestamp':now_iso()}
+        with patch('verification_evidence.CodexSessionSource',return_value=source):
+            with self.assertRaises(PromotionError): validate_run(run)
+        check={'timestamp':now_iso(),'stage':'checks','status':'pass','summary':'Current negative report checked',
+               'role':'orchestrator','stable_agent_name':'Orchestrator','stable_agent_slug':'orchestrator','artifacts':[],'next_step':''}
         append_event(run/'timeline.jsonl',check,identifier='fresh-check')
         current=JournalSnapshot.open(run)
         finalize(run,expected_run_uuid=current.run_uuid,expected_revision=current.revision,expected_generation=2,
-                 identifier='negative-generation',final_summary='Current unresolved local checks remain blocked',verdict='blocked',
-                 session_source=fixtures.SESSION_SOURCES[run.resolve()])
-        with patch('verification_evidence.CodexSessionSource', return_value=fixtures.SESSION_SOURCES[run.resolve()]):
+                 identifier='gen2',final_summary='Current unresolved local checks remain blocked',verdict='blocked',
+                 session_source=source)
+        with patch('verification_evidence.CodexSessionSource',return_value=source):
             _,output=validate_run(run)
         self.assertIn('PASS revision',output)
 
-    def test_public_diagnosis_upgrade_reopen_and_archive_read(self):
+    def test_public_diagnosis_reopen_and_archive_read(self):
         old=self.fixture()
         command=[sys.executable,'-B',str(SCRIPTS/'journal.py'),'--run-dir',str(self.run)]
         diagnosis=subprocess.run(command+['diagnose-recovery'],capture_output=True,text=True,check=True)
         report=json.loads(diagnosis.stdout)
         identity=self.root/'identity.json';identity.write_text(json.dumps(report['identity']))
-        reason='Repair same result\u0085Preserve caller meaning\u2028Verdict: ship\u2029## Evidence'
-        result=subprocess.run(command+['reopen','--upgrade','--expected-run-uuid',old.run_uuid,
+        reason='Repair same resultPreserve caller meaning¨Verdict: ship©## Evidence'
+        result=subprocess.run(command+['reopen','--expected-run-uuid',old.run_uuid,
             '--expected-revision','1','--expected-generation','1','--operation-id','cli-recover',
-            '--reason',reason,'--identity-file',str(identity),'--final-index','1',
+            '--reason',reason,'--identity-file',str(identity),'--final-index',str(report['final']['index']),
             '--final-sha256',report['final']['sha256']],capture_output=True,text=True)
         self.assertEqual(result.returncode,0,result.stderr)
         current=JournalSnapshot.open(self.run)
@@ -1331,8 +968,6 @@ recover(sys.argv[1],**args,barrier=stop)
         archive=json.loads(result.stdout)['archive_id']
         read=subprocess.run(command+['read','final.md','--archive',archive],capture_output=True,check=True)
         self.assertEqual(read.stdout,old.read_bytes('final.md'))
-
-
 
 class TraceModeCorrectionTests(unittest.TestCase):
     def setUp(self):
@@ -1482,12 +1117,12 @@ class TraceModeCorrectionTests(unittest.TestCase):
             return {str(p.relative_to(flat)):('link',str(p.readlink())) if p.is_symlink() else
                     ('dir',None) if p.is_dir() else ('file',p.read_bytes()) for p in flat.rglob('*')}
         before=tree()
-        with self.assertRaisesRegex(JournalError,'explicit import'):
+        with self.assertRaisesRegex(JournalError,'unsupported journal storage version'):
             self.recorder.record_mode_correction(flat,self.proof,identifier='correct-mode',session_source=self.source)
         capture=self.root/'correction.json';capture.write_text(json.dumps(self.proof))
         result=subprocess.run([sys.executable,'-B',str(SCRIPTS/'record-agent-trace.py'),'--run-dir',str(flat),
             '--correction-file',str(capture),'--operation-id','correct-mode'],capture_output=True,text=True)
-        self.assertNotEqual(result.returncode,0);self.assertIn('explicit import',result.stderr)
+        self.assertNotEqual(result.returncode,0);self.assertIn('unsupported journal storage version',result.stderr)
         self.assertEqual(tree(),before);self.assertFalse((flat/'.journal').exists())
 
     def test_orphan_not_hidden_by_unrelated_spawn(self):
@@ -1634,16 +1269,16 @@ class TraceModeCorrectionTests(unittest.TestCase):
         self.assertNotEqual(selected[1]['source_sha256'],digest(raw.replace(b'\r\n',b'\n')))
         self.assertEqual(selected[1]['payload']['input'],self.events[1]['payload']['input'])
 
-    def test_v1_diagnostic_retains_old_spawn_interpretation(self):
+    def test_flat_diagnostic_retains_old_spawn_interpretation(self):
         from dataclasses import replace
-        spec=importlib.util.spec_from_file_location('legacy_mode_validator',SCRIPTS/'validate-run.py')
+        spec=importlib.util.spec_from_file_location('flat_mode_validator',SCRIPTS/'validate-run.py')
         validator=importlib.util.module_from_spec(spec);spec.loader.exec_module(validator)
         s=JournalSnapshot.open(self.run);documents=dict(s.documents)
         event=json.loads(s.read_bytes('timeline.jsonl'));event.update(stage='spawned',codex_thread_id=self.root_id)
         for path in ('timeline.jsonl','agents/orchestrator/trace.jsonl'):
             documents[path]+=(encode_json(event)+'\n').encode()
-        legacy=replace(s,storage_version=1,documents=documents)
-        self.assertEqual(validator.validate_agent_traces(self.run,snapshot=legacy,session_source=self.source),[])
+        flat=replace(s,durable=False,documents=documents)
+        self.assertEqual(validator.validate_agent_traces(self.run,snapshot=flat,session_source=self.source),[])
         current=replace(s,documents=documents)
         self.assertTrue(any('own spawned identity' in e for e in validator.validate_agent_traces(self.run,snapshot=current,session_source=self.source)))
 

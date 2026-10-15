@@ -221,7 +221,7 @@ def check_writer_readiness(run_dir: Path, repo: Path, *, continuation=False) -> 
             raise AssertionError(closed.stdout + closed.stderr)
         from journal_recovery import diagnose_recovery, recover
         diagnosis = diagnose_recovery(run_dir)
-        recover(run_dir, upgrade=False, reopen=True, expected_run_uuid=diagnosis["identity"]["run_uuid"],
+        recover(run_dir, expected_run_uuid=diagnosis["identity"]["run_uuid"],
                 expected_revision=diagnosis["revision"], expected_generation=diagnosis["generation"], identifier="readiness-native-reopen",
                 reason="Execute actual environment checks", identity=diagnosis["identity"], final_index=diagnosis["final"]["index"], final_sha256=diagnosis["final"]["sha256"])
         checkpoint = record("event", {"summary": "Preserved actual blocked environment conclusion", "status": "blocked", "stage": "blocked-checkpoint",

@@ -337,110 +337,87 @@ journal.main(['--run-dir', sys.argv[1], 'publish', '--file', 'accepted', sys.arg
         self.assertEqual(journal.JournalSnapshot.open(self.run).read_bytes(other_source), b"other reference")
 
 
-class MigrationTests(unittest.TestCase):
+class VersionGateTests(unittest.TestCase):
+    """Storage version 3 is the only journal format; pre-0.3 journals are archival."""
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name).resolve()
-        self.run = self.root / "legacy"
-        self.run.mkdir()
-        (self.run / "context.md").write_bytes(b"exact\r\nbytes\n")
-        (self.run / "data.json").write_bytes(b'{ "preserve" : true }\n')
+        self.run = self.root / "run"
+        journal.initialize_journal(self.run, {"context.md": b"exact\r\nbytes\n", "data.json": b'{ "preserve" : true }\n'},
+                                   source_root=self.root)
 
-    def test_jd06_read_does_not_import_and_reuse_preserves_bytes(self):
-        old = journal.JournalSnapshot.open(self.run)
-        self.assertFalse(old.durable)
-        self.assertFalse((self.run / ".journal").exists())
-        migrated = journal.import_legacy(self.run)
-        self.assertEqual(dict(old.documents), dict(migrated.documents))
-        again = journal.import_legacy(self.run)
-        self.assertEqual((again.run_uuid, again.revision), (migrated.run_uuid, migrated.revision))
-        self.assertEqual((self.run / "context.md").read_bytes(), b"exact\r\nbytes\n")
+    def init_flat(self, run):
+        documents, identities = journal.capture_flat(run)
+        return journal.initialize_journal(run, documents, source_root=self.root, identities=identities)
 
-    def test_jd07_absolute_declared_refs_ignore_diagnostic_paths(self):
-        target = self.run.parent / "scope.md"
-        target.write_bytes(b"original scope")
-        summary = {"verification": {"task_scope": {"path": str(target)}}}
-        (self.run / "delegation-summary.json").write_text(json.dumps(summary))
-        (self.run / "diagnostics.json").write_text(json.dumps({"path": "/missing/unrelated"}))
-        old = journal.JournalSnapshot.open(self.run)
-        self.assertEqual(old.read_bytes(target), b"original scope")
-        self.assertFalse((self.run / ".journal").exists())
-        migrated = journal.import_legacy(self.run)
-        self.assertEqual(dict(old.documents), dict(migrated.documents))
-        target.write_bytes(b"later change")
-        self.assertEqual(journal.JournalSnapshot.open(self.run).read_bytes(target), b"original scope")
+    def downgrade(self, run, version):
+        # Construct the pre-0.3 schema fixture directly; production writers never receive this seam.
+        with sqlite3.connect(run / ".journal/state.sqlite3") as connection:
+            connection.execute("ALTER TABLE run_state RENAME TO old_state")
+            connection.execute("CREATE TABLE run_state (id INTEGER PRIMARY KEY CHECK(id=1), version INTEGER NOT NULL, run_uuid TEXT NOT NULL, revision INTEGER NOT NULL, logical_root TEXT NOT NULL, source_root TEXT NOT NULL, identities TEXT NOT NULL)")
+            connection.execute("INSERT INTO run_state SELECT id, ?, run_uuid, revision, logical_root, source_root, identities FROM old_state", (version,))
+            connection.execute("DROP TABLE old_state")
 
-    def test_jd06_malformed_and_concurrent_import_refuse(self):
-        (self.run / "data.json").write_bytes(b"{broken")
-        with self.assertRaises(json.JSONDecodeError):
-            journal.import_legacy(self.run)
-        self.assertFalse((self.run / ".journal/state.sqlite3").exists())
-        (self.run / "data.json").write_bytes(b"{}")
-        original = journal._put_documents
-        def change(connection, documents):
-            original(connection, documents)
-            (self.run / "context.md").write_bytes(b"changed")
-        with patch.object(journal, "_put_documents", change), self.assertRaisesRegex(journal.JournalError, "changed"):
-            journal.import_legacy(self.run)
-        self.assertFalse(journal.JournalSnapshot.open(self.run).durable)
-        self.assertTrue(journal.import_legacy(self.run).durable)
+    def test_current_version_and_package_stamp(self):
+        snapshot = journal.JournalSnapshot.open(self.run)
+        self.assertEqual(snapshot.storage_version, 3)
+        self.assertEqual(snapshot.package_version, journal.current_package_version())
+        receipt = snapshot.operation_receipt("initialize")
+        self.assertEqual(receipt["result"]["package_version"], snapshot.package_version)
 
-    def test_jd06_sigkill_import_before_and_after_run_state(self):
-        for point in ("documents", "committed"):
-            with self.subTest(point=point):
-                run = self.root / point
+    def test_validate_run_warns_on_package_version_mismatch(self):
+        init = [sys.executable, "-B", str(SCRIPTS / "init-run.py"), "--repo", str(self.root),
+                "--date", "2026-09-13", "--slug", "stamp", "--mode", "compact"]
+        result = subprocess.run(init, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        run = self.root / ".agent-work/runs/2026-09-13-stamp"
+        validate = [sys.executable, "-B", str(SCRIPTS / "validate-run.py"), "--run-dir", str(run), "--allow-pending"]
+        clean = subprocess.run(validate, capture_output=True, text=True)
+        self.assertEqual(clean.returncode, 0, clean.stderr)
+        self.assertNotIn("WARNING", clean.stderr)
+        with sqlite3.connect(run / ".journal/state.sqlite3") as connection:
+            connection.execute("UPDATE run_state SET package_version='0.0.0' WHERE id=1")
+        mismatched = subprocess.run(validate, capture_output=True, text=True)
+        self.assertEqual(mismatched.returncode, 0, mismatched.stderr)
+        self.assertIn("WARNING journal created by agent-flow 0.0.0", mismatched.stderr)
+        self.assertNotIn("unsupported journal storage version", mismatched.stderr)
+
+    def test_pre_0_3_storage_refused_at_every_entry_point(self):
+        for version in (1, 2):
+            with self.subTest(version=version):
+                run = self.root / f"v{version}"
                 shutil.copytree(self.run, run)
-                code = '''
-import sys, os, signal
-from pathlib import Path
-import journal_io as j
-original = j._put_documents
-def put(connection, documents):
-    original(connection, documents)
-    if sys.argv[2] == 'documents': os.kill(os.getpid(), signal.SIGKILL)
-j._put_documents = put
-j.import_legacy(Path(sys.argv[1]))
-os.kill(os.getpid(), signal.SIGKILL)
-'''
-                result = child(code, run, point)
-                self.assertEqual(result.returncode, -signal.SIGKILL, result.stderr)
-                snapshot = journal.JournalSnapshot.open(run)
-                self.assertEqual(snapshot.durable, point == "committed")
-                self.assertEqual(snapshot.read_bytes("context.md"), b"exact\r\nbytes\n")
-                self.assertTrue(journal.import_legacy(run).durable)
+                self.downgrade(run, version)
+                with self.assertRaisesRegex(journal.JournalError, "unsupported journal storage version"):
+                    journal.JournalSnapshot.open(run)
+                with self.assertRaisesRegex(journal.JournalError, "unsupported journal storage version"):
+                    journal.transact(run, "write", {}, lambda snapshot: ({"new.md": b"new"}, {}))
+                commands = [
+                    [sys.executable, "-B", str(SCRIPTS / "journal.py"), "--run-dir", str(run), "read", "context.md"],
+                    [sys.executable, "-B", str(SCRIPTS / "journal.py"), "--run-dir", str(run), "diagnose-recovery"],
+                    [sys.executable, "-B", str(SCRIPTS / "validate-run.py"), "--run-dir", str(run), "--allow-pending"],
+                    [sys.executable, "-B", str(SCRIPTS / "append-timeline.py"), "--run-dir", str(run),
+                     "--role", "orchestrator", "--stage", "checks", "--status", "pass", "--summary", "late"],
+                ]
+                for command in commands:
+                    with self.subTest(command=Path(command[2]).name):
+                        result = subprocess.run(command, capture_output=True, text=True)
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertIn(journal.UNSUPPORTED_STORAGE_VERSION, result.stderr)
+                        self.assertNotIn("Traceback", result.stderr)
 
-    def test_jd06_missing_committed_state_never_falls_back(self):
-        journal.import_legacy(self.run)
-        connection = journal.connect_database(self.run)
-        connection.execute("DELETE FROM run_state")
-        connection.close()
-        with self.assertRaisesRegex(journal.JournalError, "fallback forbidden"):
-            journal.JournalSnapshot.open(self.run)
-
-    def test_jd06_deleted_committed_database_refuses_legacy(self):
-        journal.import_legacy(self.run)
-        (self.run / ".journal/state.sqlite3").unlink()
-        for reader in (journal.JournalSnapshot.open, journal.import_legacy):
-            with self.subTest(reader=reader.__name__):
-                with self.assertRaisesRegex(journal.JournalError, "missing|unavailable"):
-                    reader(self.run)
-
-    def test_jd06_deleted_database_all_cli_consumers_fail_closed(self):
+    def test_missing_database_with_started_lifecycle_refused_everywhere(self):
         init = [sys.executable, "-B", str(SCRIPTS / "init-run.py"), "--repo", str(self.root),
                 "--date", "2026-09-13", "--slug", "loss", "--mode", "compact"]
         result = subprocess.run(init, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         run = self.root / ".agent-work/runs/2026-09-13-loss"
-        before = journal.JournalSnapshot.open(run)
-        for name, data in before.documents.items():
-            if data is not None:
-                target = run / name
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(data)
-        journal.transact(run, "new", {}, lambda snapshot: ({"context.md": b"new committed context"}, {}))
         database = run / ".journal/state.sqlite3"
         database.unlink()
+        with self.assertRaisesRegex(journal.JournalError, "unsupported journal storage version"):
+            journal.JournalSnapshot.open(run)
         commands = [init + ["--reuse"],
                     [sys.executable, "-B", str(SCRIPTS / "journal.py"), "--run-dir", str(run), "read", "context.md"],
                     [sys.executable, "-B", str(SCRIPTS / "validate-run.py"), "--run-dir", str(run), "--allow-pending"],
@@ -450,15 +427,36 @@ os.kill(os.getpid(), signal.SIGKILL)
             with self.subTest(command=Path(command[2]).name):
                 result = subprocess.run(command, capture_output=True, text=True)
                 self.assertNotEqual(result.returncode, 0)
-                self.assertIn("missing", result.stderr)
+                self.assertIn("unsupported journal storage version", result.stderr)
                 self.assertFalse(database.exists())
 
-    def test_jd06_lifecycle_rejects_zero_foreign_and_missing_race(self):
+    def test_missing_committed_state_never_falls_back(self):
+        connection = journal.connect_database(self.run)
+        connection.execute("DELETE FROM run_state")
+        connection.close()
+        with self.assertRaisesRegex(journal.JournalError, "fallback forbidden"):
+            journal.JournalSnapshot.open(self.run)
+
+    def test_flat_directory_reads_without_journal_and_never_writes(self):
+        flat = self.root / "flat"
+        flat.mkdir()
+        (flat / "context.md").write_bytes(b"exact\r\nbytes\n")
+        snapshot = journal.JournalSnapshot.open(flat)
+        self.assertFalse(snapshot.durable)
+        self.assertEqual(snapshot.read_bytes("context.md"), b"exact\r\nbytes\n")
+        before = {str(p.relative_to(flat)): p.read_bytes() for p in flat.rglob("*") if p.is_file()}
+        with self.assertRaisesRegex(journal.JournalError, "unsupported journal storage version"):
+            journal.transact(flat, "write", {}, lambda current: ({"new.md": b"new"}, {}))
+        with self.assertRaisesRegex(journal.JournalError, "unsupported journal storage version"):
+            journal.export_snapshot(snapshot)
+        self.assertEqual({str(p.relative_to(flat)): p.read_bytes() for p in flat.rglob("*") if p.is_file()}, before)
+        self.assertFalse((flat / ".journal").exists())
+
+    def test_lifecycle_rejects_zero_foreign_and_missing_race(self):
         for damage in ("zero", "foreign", "race"):
             with self.subTest(damage=damage):
                 run = self.root / ("loss-" + damage)
                 shutil.copytree(self.run, run)
-                journal.import_legacy(run)
                 database = run / ".journal/state.sqlite3"
                 if damage == "zero":
                     database.write_bytes(b"")
@@ -478,14 +476,16 @@ os.kill(os.getpid(), signal.SIGKILL)
                 else:
                     with self.assertRaises(journal.JournalError):
                         journal.JournalSnapshot.open(run)
-                    with self.assertRaises(journal.JournalError):
-                        journal.import_legacy(run)
 
-    def test_jd06_lifecycle_crash_windows_resume_exact_bootstrap(self):
+    def test_lifecycle_crash_windows_resume_exact_bootstrap(self):
+        flat = self.root / "flat-source"
+        flat.mkdir()
+        (flat / "context.md").write_bytes(b"exact\r\nbytes\n")
+        (flat / "data.json").write_bytes(b'{ "preserve" : true }\n')
         for point in ("schema", "database-sync", "marker-before-sync", "marker-after-sync"):
             with self.subTest(point=point):
                 run = self.root / ("crash-" + point)
-                shutil.copytree(self.run, run)
+                shutil.copytree(flat, run)
                 code = r'''
 import os, signal, sys
 from pathlib import Path
@@ -511,92 +511,132 @@ def sync(fd):
     original_sync(fd)
     if point == 'marker-after-sync' and is_marker: os.kill(os.getpid(), signal.SIGKILL)
 j.connect_database, j.sync_file = connect, sync
-j.import_legacy(run)
+documents, identities = j.capture_flat(run)
+j.initialize_journal(run, documents, source_root=run.parent, identities=identities)
 '''
                 result = child(code, run, point)
                 self.assertEqual(result.returncode, -signal.SIGKILL, result.stderr)
                 snapshot = journal.JournalSnapshot.open(run)
                 self.assertFalse(snapshot.durable)
                 self.assertEqual(snapshot.read_bytes("context.md"), b"exact\r\nbytes\n")
-                self.assertTrue(journal.import_legacy(run).durable)
+                self.assertTrue(self.init_flat(run).durable)
                 self.assertTrue(journal.storage_required(run))
 
-    def test_jd05_marker_sync_failure_precedes_domain_commit(self):
+    def test_sigkill_init_before_and_after_run_state(self):
+        flat = self.root / "flat-kill"
+        flat.mkdir()
+        (flat / "context.md").write_bytes(b"exact\r\nbytes\n")
+        for point in ("documents", "committed"):
+            with self.subTest(point=point):
+                run = self.root / ("kill-" + point)
+                shutil.copytree(flat, run)
+                code = '''
+import sys, os, signal
+from pathlib import Path
+import journal_io as j
+original = j._put_documents
+def put(connection, documents):
+    original(connection, documents)
+    if sys.argv[2] == 'documents': os.kill(os.getpid(), signal.SIGKILL)
+j._put_documents = put
+run = Path(sys.argv[1])
+documents, identities = j.capture_flat(run)
+j.initialize_journal(run, documents, source_root=run.parent, identities=identities)
+os.kill(os.getpid(), signal.SIGKILL)
+'''
+                result = child(code, run, point)
+                self.assertEqual(result.returncode, -signal.SIGKILL, result.stderr)
+                snapshot = journal.JournalSnapshot.open(run)
+                self.assertEqual(snapshot.durable, point == "committed")
+                self.assertEqual(snapshot.read_bytes("context.md"), b"exact\r\nbytes\n")
+                if not snapshot.durable:
+                    self.assertTrue(self.init_flat(run).durable)
+
+    def test_marker_sync_failure_precedes_domain_commit(self):
+        flat = self.root / "marker-failure"
+        flat.mkdir()
+        (flat / "context.md").write_bytes(b"exact\r\nbytes\n")
         original = journal.sync_file
         fired = []
         def fail_marker(fd):
-            marker = self.run / ".journal/storage-required"
+            marker = flat / ".journal/storage-required"
             if marker.exists() and marker.stat().st_ino == os.fstat(fd).st_ino:
                 fired.append(True)
                 raise OSError("marker sync failure")
             original(fd)
         with patch.object(journal, "sync_file", fail_marker):
             with self.assertRaisesRegex(OSError, "marker sync failure"):
-                journal.import_legacy(self.run)
+                self.init_flat(flat)
         self.assertEqual(fired, [True])
-        connection = journal.connect_database(self.run)
+        connection = journal.connect_database(flat)
         self.assertEqual(connection.execute("SELECT count(*) FROM run_state").fetchone()[0], 0)
         journal.validate_bootstrap(connection)
         connection.close()
-        self.assertFalse(journal.JournalSnapshot.open(self.run).durable)
-        self.assertTrue(journal.import_legacy(self.run).durable)
+        self.assertFalse(journal.JournalSnapshot.open(flat).durable)
+        self.assertTrue(self.init_flat(flat).durable)
 
-    def test_jd05_marker_directory_sync_order_and_failure(self):
+    def test_marker_directory_sync_order_and_failure(self):
+        flat = self.root / "marker-order"
+        flat.mkdir()
+        (flat / "context.md").write_bytes(b"exact\r\nbytes\n")
         original_file, original_directory, original_put = journal.sync_file, journal.sync_directory, journal._put_documents
         observed = []
         def file_sync(fd):
             original_file(fd)
-            marker = self.run / ".journal/storage-required"
+            marker = flat / ".journal/storage-required"
             if marker.exists() and marker.stat().st_ino == os.fstat(fd).st_ino:
                 observed.append("marker-file-synced")
         def directory_sync(path):
-            if "marker-file-synced" in observed and Path(path) == self.run / ".journal":
+            if "marker-file-synced" in observed and Path(path) == flat / ".journal":
                 observed.append("marker-directory-sync-failed")
                 raise OSError("marker directory sync failure")
             original_directory(path)
         with patch.object(journal, "sync_file", file_sync), patch.object(journal, "sync_directory", directory_sync):
             with self.assertRaisesRegex(OSError, "marker directory sync failure"):
-                journal.import_legacy(self.run)
+                self.init_flat(flat)
         self.assertEqual(observed, ["marker-file-synced", "marker-directory-sync-failed"])
-        connection = journal.connect_database(self.run)
+        connection = journal.connect_database(flat)
         journal.validate_bootstrap(connection)
         connection.close()
         observed.clear()
         def successful_directory_sync(path):
             original_directory(path)
-            if "marker-file-synced" in observed and Path(path) == self.run / ".journal":
+            if "marker-file-synced" in observed and Path(path) == flat / ".journal":
                 observed.append("marker-directory-synced")
         def put(connection, documents):
             self.assertIn("marker-directory-synced", observed)
             return original_put(connection, documents)
         with patch.object(journal, "sync_file", file_sync), patch.object(journal, "sync_directory", successful_directory_sync), patch.object(journal, "_put_documents", put):
-            self.assertTrue(journal.import_legacy(self.run).durable)
+            self.assertTrue(self.init_flat(flat).durable)
 
-    def test_jd06_adopt_existing_committed_storage_without_document_change(self):
-        before = journal.import_legacy(self.run)
+    def test_adopt_existing_committed_storage_without_document_change(self):
+        before = journal.JournalSnapshot.open(self.run)
         (self.run / ".journal/storage-required").unlink()
-        after = journal.import_legacy(self.run)
+        after = journal.initialize_journal(self.run, {}, source_root=self.root)
         self.assertTrue(journal.storage_required(self.run))
         self.assertEqual((before.run_uuid, before.revision, dict(before.documents)),
                          (after.run_uuid, after.revision, dict(after.documents)))
 
-    def test_jd07_legacy_file_alias_identity_survives_import(self):
+    def test_file_alias_identity_survives_initialization(self):
+        flat = self.root / "aliases"
+        flat.mkdir()
         target = self.root / "outside-run-inside-source"
         target.write_bytes(b"source handoff")
-        (self.run / "qa.md").symlink_to(target)
-        (self.run / "alias.md").hardlink_to(target)
-        (self.run / "review.md").write_bytes(b"source handoff")
+        (flat / "qa.md").symlink_to(target)
+        (flat / "alias.md").hardlink_to(target)
+        (flat / "review.md").write_bytes(b"source handoff")
         from verification_evidence import require_own_reviewer_handoff
-        old = journal.JournalSnapshot.open(self.run)
-        migrated = journal.import_legacy(self.run)
+        old = journal.JournalSnapshot.open(flat)
+        documents, identities = journal.capture_flat(flat, allow_file_links=True, source_root=self.root)
+        migrated = journal.initialize_journal(flat, documents, source_root=self.root, identities=identities)
         self.assertEqual(old.read_bytes("qa.md"), migrated.read_bytes("qa.md"))
         for snapshot in (old, migrated):
             with self.assertRaisesRegex(journal.JournalError, "own handoff"):
-                require_own_reviewer_handoff(self.run, "alias.md", "qa.md", snapshot=snapshot)
-            require_own_reviewer_handoff(self.run, "review.md", "qa.md", snapshot=snapshot)
+                require_own_reviewer_handoff(flat, "alias.md", "qa.md", snapshot=snapshot)
+            require_own_reviewer_handoff(flat, "review.md", "qa.md", snapshot=snapshot)
         view = journal.export_snapshot(migrated)
         with self.assertRaises(journal.JournalError):
-            require_own_reviewer_handoff(self.run, str(view / "qa.md"), "qa.md", snapshot=migrated)
+            require_own_reviewer_handoff(flat, str(view / "qa.md"), "qa.md", snapshot=migrated)
 
 
 class ConsumerTests(unittest.TestCase):
@@ -612,6 +652,26 @@ class ConsumerTests(unittest.TestCase):
         (self.run / "checks.md").write_text("# Synthetic checks\n")
         self.summary, self.source = self.fixtures.acceptance_pack(self.run)
 
+    def initialize_closed(self, run, *, allow_file_links=False, source_root=None):
+        from journal_lifecycle import finalize
+        summary = json.loads((run / "delegation-summary.json").read_text())
+        for record in summary["subagents"]:
+            record["status"] = "pass"
+            record["obligation"] = {"id": record["role"], "required": True, "state": "current"}
+        (run / "delegation-summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+        timeline = run / "timeline.jsonl"
+        lines = timeline.read_bytes().splitlines(keepends=True)
+        timeline.write_bytes(b"".join(line for line in lines if json.loads(line).get("stage") != "final"))
+        (run / "final.md").unlink()
+        source_root = source_root or journal._source_root(run)
+        documents, identities = journal.capture_flat(run, allow_file_links=allow_file_links, source_root=source_root)
+        snapshot = journal.initialize_journal(run, documents, source_root=source_root,
+                                              identities=identities, result_contract_version=1)
+        finalize(run, expected_run_uuid=snapshot.run_uuid, expected_revision=snapshot.revision,
+                 expected_generation=snapshot.generation, identifier="fixture-finalize",
+                 final_summary="Synthetic compact acceptance", verdict="ship", session_source=self.source)
+        return journal.JournalSnapshot.open(run)
+
     def test_jd03_validator_modes_and_mixed_reader_negative_control(self):
         for mode in ("compact", "full", "auto"):
             for mixed in (False, True):
@@ -625,7 +685,7 @@ class ConsumerTests(unittest.TestCase):
                         (run / "checks").mkdir()
                         (run / "checks/smoke.md").write_text("# Synthetic checks\n")
                         (run / "artifacts.json").write_text("[]\n")
-                    snapshot = journal.import_legacy(run)
+                    snapshot = self.initialize_closed(run)
                     self.assertEqual(self.fixtures.validator.validate_run(run, mode=mode, session_source=self.source, snapshot=snapshot), [])
                     original = journal.JournalSnapshot.read_text
                     fired = []
@@ -648,7 +708,7 @@ class ConsumerTests(unittest.TestCase):
     def test_jd03_main_output_and_harness_use_same_snapshot(self):
         import verification_evidence
         import harness_promotion
-        snapshot = journal.import_legacy(self.run)
+        snapshot = self.initialize_closed(self.run)
         validator = self.fixtures.validator
         original_read = journal.JournalSnapshot.read_text
         fired = []
@@ -682,7 +742,7 @@ class ConsumerTests(unittest.TestCase):
 
     def test_jd07_eligible_file_links_and_relocation_preserve_acceptance(self):
         from verification_evidence import result_hash, validate_verification
-        targets = self.root / "legacy-targets"
+        targets = self.root / "link-targets"
         targets.mkdir()
         for index, name in enumerate(("checks.md", "handoffs/evidence-qa.md", "handoffs/evidence-reviewer.md")):
             path = self.run / name
@@ -694,13 +754,13 @@ class ConsumerTests(unittest.TestCase):
         before = result_hash(self.run, self.summary["verification"])
         relocated = self.root / "other-project" / "relocated-run"
         shutil.copytree(self.run, relocated, symlinks=True)
-        snapshot = journal.import_legacy(relocated, source_root=self.root)
+        snapshot = self.initialize_closed(relocated, allow_file_links=True, source_root=self.root)
         self.assertEqual(result_hash(relocated, self.summary["verification"], snapshot=snapshot), before)
         self.assertEqual(validate_verification(relocated, self.summary, {}, "ship", self.source, snapshot=snapshot), [])
         journal.export_snapshot(snapshot)
         self.assertEqual(validate_verification(relocated, self.summary, {}, "ship", self.source), [])
-        with self.assertRaisesRegex(journal.JournalError, "cannot be overridden"):
-            journal.import_legacy(relocated, source_root=relocated.parent)
+        again = journal.initialize_journal(relocated, {}, source_root=self.root)
+        self.assertEqual((again.run_uuid, again.revision), (snapshot.run_uuid, snapshot.revision))
 
 
 if __name__ == "__main__":

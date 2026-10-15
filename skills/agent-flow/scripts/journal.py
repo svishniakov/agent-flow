@@ -27,23 +27,13 @@ def main(argv=None):
     export = commands.add_parser("export")
     export.add_argument("--archive")
     commands.add_parser("diagnose-recovery")
-    legacy = commands.add_parser("import-legacy")
-    legacy.add_argument("--source-root", required=True)
-    for command in ("upgrade", "reopen"):
-        recovery = commands.add_parser(command)
-        for name in ("expected-run-uuid", "operation-id", "reason", "identity-file"):
-            recovery.add_argument("--" + name, required=True)
-        for name in ("expected-revision", "expected-generation"):
-            recovery.add_argument("--" + name, required=True, type=int)
-        if command == "reopen":
-            recovery.add_argument("--upgrade", action="store_true")
-            recovery.add_argument("--final-index", type=int, required=True)
-            recovery.add_argument("--final-sha256", required=True)
-            recovery.add_argument("--failed-validation-path")
-    classification = commands.add_parser("classify-legacy")
-    classification.add_argument("--classification-file", required=True)
-    classification.add_argument("--expected-revision", type=int, required=True)
-    classification.add_argument("--operation-id", required=True)
+    reopen = commands.add_parser("reopen")
+    for name in ("expected-run-uuid", "operation-id", "reason", "identity-file"):
+        reopen.add_argument("--" + name, required=True)
+    for name in ("expected-revision", "expected-generation"):
+        reopen.add_argument("--" + name, required=True, type=int)
+    reopen.add_argument("--final-index", type=int, required=True)
+    reopen.add_argument("--final-sha256", required=True)
     finalize_parser = commands.add_parser("finalize", help="Validate and atomically close an open generation.")
     finalize_parser.add_argument("--expected-run-uuid", required=True)
     finalize_parser.add_argument("--expected-revision", type=int, required=True)
@@ -76,24 +66,14 @@ def main(argv=None):
         elif args.command == "diagnose-recovery":
             from journal_recovery import diagnose_recovery
             print(json.dumps(diagnose_recovery(run_dir), ensure_ascii=False, indent=2))
-        elif args.command == "import-legacy":
-            from journal_io import import_legacy
-            snapshot = import_legacy(run_dir, source_root=Path(args.source_root))
-            print(json.dumps({"revision": snapshot.revision, "storage_version": snapshot.storage_version}))
-        elif args.command in {"upgrade", "reopen"}:
+        elif args.command == "reopen":
             from journal_recovery import recover
-            receipt = recover(run_dir, upgrade=args.command == "upgrade" or args.upgrade,
-                reopen=args.command == "reopen", expected_run_uuid=args.expected_run_uuid,
+            receipt = recover(run_dir, expected_run_uuid=args.expected_run_uuid,
                 expected_revision=args.expected_revision, expected_generation=args.expected_generation,
                 identifier=args.operation_id, reason=args.reason,
                 identity=json.loads(capture_file(Path(args.identity_file))),
-                final_index=getattr(args, "final_index", None), final_sha256=getattr(args, "final_sha256", None),
-                failed_validation_path=getattr(args, "failed_validation_path", None))
+                final_index=args.final_index, final_sha256=args.final_sha256)
             print(json.dumps({"operation_id": args.operation_id, **receipt}))
-        elif args.command == "classify-legacy":
-            from journal_recovery import classify_legacy
-            print(json.dumps({"operation_id": args.operation_id, **classify_legacy(run_dir, json.loads(capture_file(Path(args.classification_file))),
-                expected_revision=args.expected_revision, identifier=args.operation_id)}))
         elif args.command == "publish":
             current = JournalSnapshot.open(run_dir)
             def check_owned(snapshot, names):

@@ -8,7 +8,7 @@ import json
 import re
 from datetime import datetime
 from journal_io import (now_iso, encode_json, encode_json_line, JournalSnapshot,
-                        initialize_journal, import_legacy, export_snapshot, capture_flat)
+                        initialize_journal, export_snapshot, capture_flat, UNSUPPORTED_STORAGE_VERSION)
 import tempfile
 import sys
 from pathlib import Path
@@ -356,7 +356,7 @@ def main(argv=None) -> int:
     parser.add_argument("--source-root", help="Expected original project root for read-only --reuse provenance checks.")
     args = parser.parse_args(argv)
     if args.source_root and not args.reuse:
-        parser.error("--source-root is limited to read-only --reuse; use journal.py import-legacy for explicit import")
+        parser.error("--source-root is limited to read-only --reuse provenance checks")
 
     if args.mode == "compact" and any((args.with_lanes, args.architecture_gate, args.budget,
                                        args.architecture_context_json, args.architecture_capabilities, args.worker_lane)):
@@ -393,7 +393,11 @@ def main(argv=None) -> int:
         raise SystemExit(f"run dir already exists: {run_dir} (use --reuse or choose another slug/date)")
 
     mode = args.mode or "full"
-    snapshot = JournalSnapshot.open(run_dir, legacy_source_root=args.source_root) if run_dir.exists() else None
+    from journal_io import JournalError
+    try:
+        snapshot = JournalSnapshot.open(run_dir) if run_dir.exists() else None
+    except JournalError as exc:
+        parser.error(str(exc))
     if snapshot is not None and (snapshot.durable or snapshot.documents or not (run_dir / ".journal/state.sqlite3").exists()):
         existing_mode = "compact" if snapshot.exists("run.md") and not snapshot.exists("manifest.md") else "full"
         if args.mode and args.mode != existing_mode:
@@ -412,9 +416,11 @@ def main(argv=None) -> int:
             parser.error(f"delegation-summary.json is malformed; correct it before --reuse: {exc}")
 
         if not snapshot.durable:
-            parser.error("flat legacy run requires explicit journal.py import-legacy --source-root before --reuse")
+            parser.error(UNSUPPORTED_STORAGE_VERSION)
+        if args.source_root and Path(args.source_root).expanduser().resolve() != snapshot.source_root:
+            parser.error(f"--source-root differs from committed journal provenance: {snapshot.source_root}")
 
-        # Reuse is a read-only view; migration is an explicit lifecycle operation.
+        # Reuse is a read-only view.
         print(run_dir)
         print(f"view: {export_snapshot(snapshot)}", file=sys.stderr)
         return 0

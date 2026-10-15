@@ -400,8 +400,8 @@ def prepare_scope(run_dir, sources, destination, *, context_roots=(), identifier
             retained = tree.checked_document(snapshot, receipt["result"])
             tree.verify_baseline(retained)
             return retained
-    tree.require(snapshot.storage_version == 2 and snapshot.durable and not snapshot.closed,
-                 "workspace prepare requires an open version 2 journal")
+    tree.require(snapshot.durable and not snapshot.closed,
+                 "workspace prepare requires an open durable journal")
     existing = tree.registered_workspace(snapshot)
     if existing is not None:
         tree.require(existing["source"] == str(sources[0]) and existing["bundle"] == str(destination),

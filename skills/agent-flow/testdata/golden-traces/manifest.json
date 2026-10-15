@@ -7,7 +7,11 @@
       "path": "verification/compact-change",
       "mode": "compact",
       "expected": "pass",
-      "covers": ["compact independent QA and reviewer", "current result hash", "synthetic completed turns"]
+      "covers": [
+        "compact independent QA and reviewer",
+        "current result hash",
+        "synthetic completed turns"
+      ]
     },
     {
       "id": "compact-change-missing-qa",
@@ -15,7 +19,9 @@
       "mode": "compact",
       "expected": "fail",
       "expected_error": "verification.qa requires separate qa-verifier subagent",
-      "covers": ["missing QA is never auto-filled in focused fixtures"]
+      "covers": [
+        "missing QA is never auto-filled in focused fixtures"
+      ]
     },
     {
       "id": "compact-change-wrong-reviewer-model",
@@ -23,7 +29,9 @@
       "mode": "compact",
       "expected": "fail",
       "expected_error": "source model must be gpt-6.1-sol",
-      "covers": ["source model differs from canonical reviewer configuration"]
+      "covers": [
+        "source model differs from canonical reviewer configuration"
+      ]
     },
     {
       "id": "standard-single-worker-no-architecture",
@@ -194,19 +202,6 @@
         "Mandatory Independent QA Review Gate",
         "mandatory-independent-qa-review",
         "role-lane reviewer only"
-      ]
-    },
-    {
-      "id": "mandatory-independent-qa-review-missing-delegation-summary",
-      "path": "invalid/mandatory-independent-qa-review-missing-delegation-summary",
-      "mode": "full",
-      "expected": "fail",
-      "expected_error": "delegation-summary.json is required for positive final",
-      "covers": [
-        "Mandatory Independent QA Review Gate",
-        "mandatory-independent-qa-review",
-        "delegation-summary.json",
-        "schema v1 traceable run"
       ]
     },
     {

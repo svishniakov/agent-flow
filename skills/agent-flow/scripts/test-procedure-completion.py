@@ -14,7 +14,7 @@ from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
 import uuid
-from journal_io import JournalError, JournalSnapshot, transact, connect_database
+from journal_io import JournalError, JournalSnapshot, transact, connect_database, current_package_version
 from journal_lifecycle import finalize
 from unittest.mock import patch
 
@@ -581,7 +581,8 @@ class AnalysisCompletionTests(unittest.TestCase):
         self.run = Path(self.cli("init-run.py", "--repo", str(self.root), "--slug", "analysis",
                                  "--mode", "compact", wrapper=True).stdout.strip())
         snapshot = JournalSnapshot.open(self.run)
-        self.assertEqual(snapshot.storage_version, 2)
+        self.assertEqual(snapshot.storage_version, 3)
+        self.assertEqual(snapshot.package_version, current_package_version())
         self.assertEqual(evidence.result_contract(snapshot)["result_contract_version"], 2)
         publish_fixture(self.run, "scope.md", "Exclude only the source AgentFlow runtime namespace.\n")
         publish_fixture(self.run, "checks.md", "Scope boundaries checked.\n")

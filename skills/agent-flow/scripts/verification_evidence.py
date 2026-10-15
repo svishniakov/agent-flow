@@ -17,7 +17,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from agent_config import AgentConfigError, default_agents_dir, read_frontmatter, role_config, resolve_role_path
-from journal_io import JournalError, timestamp, event_time, source_time, declared_paths, JournalSnapshot, operation_id, transact
+from journal_io import JournalError, timestamp, event_time, source_time, declared_paths, JournalSnapshot, operation_id, transact, UNSUPPORTED_STORAGE_VERSION
 from task_workspace import registered_workspace, verify_candidate, manifest_digest, checked_document, manifest_delta
 
 UUID = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}")
@@ -221,20 +221,6 @@ def result_contract(snapshot):
     return initialized["result"] if initialized else {"result_contract_version": 1}
 
 
-def retained_accepted_boundary_v1(snapshot):
-    """Exact frozen accepted generation only; verifier/source checks still apply."""
-    if not snapshot.closed or not snapshot.exists("final.md"):
-        return False
-    final_digest = sha256(snapshot.read_bytes("final.md"))
-    for identifier in snapshot.receipts:
-        result = snapshot.operation_receipt(identifier).get("result", {})
-        if (result.get("command") == "finalize" and result.get("generation") == snapshot.generation
-                and result.get("final_sha256") == final_digest and result.get("verdict") in POSITIVE
-                and isinstance(result.get("validator_sha256"), str) and isinstance(result.get("input_hashes"), dict)):
-            return True
-    return False
-
-
 def historical_identity(summary):
     verification = summary.get("verification", {})
     records = {record.get("lane_id"): record for record in summary.get("subagents", [])}
@@ -333,51 +319,31 @@ def result_hash(run_dir: Path, verification: dict, *, snapshot=None, require_rea
         if binding is not None:
             for field in ("scope_ref", "qa_proof_ref", "reviewer_proof_ref"):
                 verify_reference(run_dir, binding["request"][field], snapshot=snapshot)
-        semantic_contract = sealed.get("result_hash_version") == 5
         files = verification.get("result_files")
         require(isinstance(files, list) and (bool(files) or not require_ready), "change requires non-empty result_files")
         require(all(isinstance(name, str) for name in files) and len(files) == len(set(files)),
                 "result_files must contain distinct paths")
         require(set(files) == set(sealed["changed_paths"]),
                 "result_files must equal the full workspace delta")
-        initial = verification.get("initial_snapshot")
-        require(semantic_contract or not require_ready and initial is None or isinstance(initial, dict) and isinstance(initial.get("section"), str) and
-                initial["section"].lower() == "initial worktree snapshot",
-                "initial_snapshot must reference Initial Worktree Snapshot")
-        require(semantic_contract or not require_ready and initial is None or isinstance(initial.get("path"), str) and Path(initial["path"]).name in {"context.md", "route.md"},
-                "initial_snapshot must use context.md or route.md")
+        marker = sealed.get("result_hash_version")
+        require(type(marker) is int and marker == 5, "unsupported result_hash_version")
         refs = {}
         for name in ("initial_snapshot", "task_scope"):
             reference = verification.get(name)
-            if reference is None and (not require_ready or semantic_contract and name == "initial_snapshot"):
+            if reference is None and (not require_ready or name == "initial_snapshot"):
                 refs[name] = None
                 continue
             require(isinstance(reference, dict), f"missing source reference: {name}")
             refs[name] = {"path": reference.get("path"), "section": reference.get("section"),
                           "sha256": verify_reference(run_dir, reference, snapshot=snapshot)}
-        payload = {"hash_version": 2, "workspace_id": workspace["workspace_id"],
-                   "candidate_id": sealed["candidate_id"], "baseline_manifest_digest": workspace["baseline_digest"],
-                   "candidate_manifest_digest": sealed["candidate_digest"], "delta": sealed["delta"],
-                   "metadata_scope": workspace.get("metadata_scope"), **refs}
-        if workspace.get("version", 1) >= 2:
-            from task_workspace import current_scope_digest
-            payload.update(hash_version=3, workspace_revision=workspace["workspace_revision"],
-                           task_scope_digest=current_scope_digest(workspace, inputs=snapshot.external_inputs),
-                           task_scope=workspace["task_scope"])
         scope = delivery_scope(snapshot, verification)
         if scope is not None and require_ready:
             validate_delivery_scope_history(snapshot, scope, verification)
-        declarations = [] if semantic_contract else boundary_declarations(snapshot, workspace)
-        if scope is not None or declarations:
-            payload.update(hash_version=4, delivery_scope=scope, boundary_declarations=declarations)
-        marker = sealed.get("result_hash_version")
-        require(marker is None or type(marker) is int and marker == 5, "unsupported result_hash_version")
-        if marker == 5:
-            payload = semantic_result_payload(snapshot, workspace, sealed, scope, require_complete=require_ready)
-            if payload is None:
-                require(verification.get("result_hash") is None, "required author proof missing for existing result_hash")
-                return None
-            payload["requirements_sha256"] = refs["task_scope"]["sha256"] if refs["task_scope"] else None
+        payload = semantic_result_payload(snapshot, workspace, sealed, scope, require_complete=require_ready)
+        if payload is None:
+            require(verification.get("result_hash") is None, "required author proof missing for existing result_hash")
+            return None
+        payload["requirements_sha256"] = refs["task_scope"]["sha256"] if refs["task_scope"] else None
         return sha256(json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode())
     if verification.get("delivery_scope") is not None:
         delivery_scope(snapshot, verification)
@@ -398,7 +364,7 @@ def ensure_result_contract(run_dir, source=None):
     snapshot = JournalSnapshot.open(run_dir)
     if result_contract(snapshot).get("result_contract_version", 1) >= 2:
         return snapshot
-    require(snapshot.durable, "import journal before result-contract transition")
+    require(snapshot.durable, UNSUPPORTED_STORAGE_VERSION)
     from journal_lifecycle import capture_validation, freeze_validation
     from dataclasses import replace
     snapshot, captured = capture_validation(snapshot, session_source=source)
@@ -652,21 +618,6 @@ def author_coverage(snapshot, workspace, entries):
     require(set(final["changed_paths"]) <= covered, "author declarations union must equal full registered workspace delta; current state lacks author proof")
 
 
-def boundary_declarations(snapshot, workspace):
-    lanes = json.loads(snapshot.read_text("lane-map.json")) if snapshot.exists("lane-map.json") else {}
-    bindings = []
-    for lane in lanes.get("lanes", []):
-        name = lane.get("boundary", {}).get("changed_paths_artifact")
-        if not name or not snapshot.exists(name):
-            continue
-        raw = snapshot.read_bytes(name)
-        data = json.loads(raw)
-        if data.get("version") == 2:
-            author_boundary_seal(snapshot, workspace, data)
-            bindings.append({"lane_id": lane["id"], "path": name, "sha256": sha256(raw)})
-    return sorted(bindings, key=lambda item: item["lane_id"])
-
-
 def resolve_author_boundaries(snapshot, workspace, *, presentation_required=False, require_complete=True):
     """Resolve existing native author proofs from assignments, with an optional map."""
     summary = json.loads(snapshot.read_text("delegation-summary.json"))
@@ -724,43 +675,12 @@ def evaluate_obligations(snapshot, summary, *, require_current=True, selected_la
                for r in summary.get(kind, []) if isinstance(r, dict)}
     resolved, errors = set(), []
     visiting = set()
-    unchanged_legacy = set()
     external = set(external_followup(snapshot, "lane_ids", summary=summary)) if require_current else set()
-    if snapshot.archives:
-        from journal_recovery import assignments
-        originals = [snapshot.archive(k) for k in snapshot.archives if snapshot.archive(k).storage_version == 1]
-        if originals:
-            original = originals[0]
-            old_summary = json.loads(original.read_text("delegation-summary.json"))
-            old_records = {r.get("lane_id"): r for kind in ("subagents", "role_lanes") for r in old_summary.get(kind, [])}
-            if not require_current:
-                for lane_id, record in records.items():
-                    previous = old_records.get(lane_id)
-                    trace = record.get("trace")
-                    if (previous == record and "obligation" not in record
-                            and original.documents.get(trace) == snapshot.documents.get(trace)
-                            and [e for e in original.timeline() if e.get("lane_id") == lane_id] == [e for e in snapshot.timeline() if e.get("lane_id") == lane_id]):
-                        unchanged_legacy.add(lane_id)
-            inventory = assignments(originals[0])
-            classification = json.loads(snapshot.documents.get("artifacts/lifecycle/legacy-classification.json", b"{}"))
-            corrections = classification.get("corrections", {})
-            planned = classification.get("planned", {})
-            for lane_id in inventory:
-                if lane_id not in records and lane_id not in corrections:
-                    errors.append("uncovered legacy assignment: " + lane_id)
-                elif lane_id in planned and lane_id in records:
-                    obligation = records[lane_id].get("obligation", {})
-                    if obligation.get("id") != planned[lane_id]["obligation_id"] or obligation.get("required") is not True:
-                        errors.append("planned legacy obligation mismatch: " + lane_id)
-                elif lane_id in records and not records[lane_id].get("legacy") and lane_id not in unchanged_legacy:
-                    errors.append("unclassified legacy assignment: " + lane_id)
     def check(lane_id, *, replacement=False):
         if lane_id in visiting:
             raise EvidenceError("cyclic obligation replacement: " + str(lane_id))
         require(lane_id in records, "missing obligation replacement: " + str(lane_id))
         record = records[lane_id]
-        if lane_id in unchanged_legacy and not replacement:
-            return lane_id
         obligation = record.get("obligation")
         require(isinstance(obligation, dict), "unresolved obligation: " + str(lane_id))
         require(isinstance(obligation.get("id"), str) and bool(obligation["id"].strip()),
@@ -773,14 +693,6 @@ def evaluate_obligations(snapshot, summary, *, require_current=True, selected_la
         if state == "current":
             if (not require_current or lane_id in external) and not replacement:
                 return obligation["id"]
-            if record.get("legacy"):
-                legacy = record["legacy"]
-                require(legacy.get("outcome") in {"pass", "pass-with-risks"},
-                        "legacy assignment requires explicit current replacement: " + str(lane_id))
-                latest = max(assignments(snapshot)[lane_id]["events"],
-                             key=lambda e: (e["event"].get("timestamp", ""), e["index"]))
-                require(latest["event"] == legacy["terminal"]["event"], "legacy assignment has newer unresolved work")
-                return obligation["id"]
             require(record.get("status") in {"pass", "pass-with-risks"}, "current obligation not accepted: " + str(lane_id))
             require(terminal.get("stage") == "handoff" and terminal.get("status") == record["status"],
                     "current obligation terminal status mismatch: " + str(lane_id))
@@ -792,22 +704,16 @@ def evaluate_obligations(snapshot, summary, *, require_current=True, selected_la
         require(isinstance(resolution, dict) and resolution.get("original_lane") == lane_id,
                 "resolution must reference original lane")
         require(isinstance(resolution.get("reason"), str) and bool(resolution["reason"].strip()), "resolution reason missing")
-        legacy = record.get("legacy")
-        if legacy:
-            original = snapshot if legacy.get("continued") else snapshot.archive(legacy["archive_id"])
-            require(legacy["terminal"]["event"] in original.timeline() or
-                    legacy["terminal"]["event"] in [json.loads(l) for l in original.read_text(legacy["terminal"]["path"]).splitlines()],
-                    "historical terminal missing from immutable archive")
-        require(bool(legacy) or terminal.get("status") == record.get("status") and terminal.get("stage") in {"handoff", "blocked", "fail"},
+        require(terminal.get("status") == record.get("status") and terminal.get("stage") in {"handoff", "blocked", "fail"},
                 "historical outcome missing or active: " + str(lane_id))
         refs = resolution.get("evidence")
         require(isinstance(refs, list) and bool(refs), "resolution evidence missing")
         for ref in refs:
             verify_reference(snapshot.artifact_root, ref, snapshot=snapshot)
         if state == "exempt":
-            require(obligation["required"] is False and (record.get("purpose") == "consultation" or legacy and legacy["classification"].get("optional") is True),
+            require(obligation["required"] is False and record.get("purpose") == "consultation",
                     "only an explicitly optional consultation may be exempt")
-            require((legacy.get("outcome") if legacy else record.get("status")) in {"pass", "pass-with-risks"},
+            require(record.get("status") in {"pass", "pass-with-risks"},
                     "negative consultation must resolve its findings")
         else:
             visiting.add(lane_id)
@@ -1697,8 +1603,8 @@ def archived_acceptance(snapshot, record):
         if not re.search(r"^Verdict:\s*(ship|pass-with-risks)\s*$", archived.documents.get("final.md", b"").decode(), re.MULTILINE):
             continue
         original = next((row for row in summary.get("subagents", []) if row.get("lane_id") == record.get("lane_id")), None)
-        if original and {key: value for key, value in original.items() if key not in {"obligation", "legacy"}} == {
-                key: value for key, value in record.items() if key not in {"obligation", "legacy"}}:
+        if original and {key: value for key, value in original.items() if key != "obligation"} == {
+                key: value for key, value in record.items() if key != "obligation"}:
             return True
     return False
 

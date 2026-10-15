@@ -116,8 +116,6 @@ def run_validate(case: dict[str, Any]) -> subprocess.CompletedProcess[str]:
             # Focused cases own every byte, including deliberately missing records.
             source = verification_tests.SyntheticSource()
             source.sessions = json.loads((run / "synthetic-sessions.json").read_text())
-        elif case["id"] == "mandatory-independent-qa-review-missing-delegation-summary":
-            source = verification_tests.SyntheticSource()
         else:
             source = verification_tests.neighboring_pack(
                 run, complete=not case["id"].startswith("mandatory-independent-qa-review-"),

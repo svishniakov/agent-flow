@@ -6,7 +6,7 @@ import re
 from types import MappingProxyType, ModuleType
 
 from journal_io import (JournalSnapshot, _transact, require, digest, encode_json, encode_json_line,
-                        now_iso, validate_event, JournalError, operation_id)
+                        now_iso, validate_event, JournalError, operation_id, UNSUPPORTED_STORAGE_VERSION)
 from validation_inputs import ValidationInputs
 
 
@@ -14,7 +14,7 @@ def resolve_obligation(run_dir, *, lane_id, replacement, reason, expected_revisi
     from verification_evidence import evaluate_obligations, verify_reference
     require(isinstance(reason, str) and bool(reason.strip()), "resolution reason required")
     snapshot = JournalSnapshot.open(run_dir)
-    require(snapshot.durable, "flat legacy requires explicit import before obligation resolution")
+    require(snapshot.durable, UNSUPPORTED_STORAGE_VERSION)
     payload = {"command": "resolve-obligation", "lane_id": lane_id, "replacement": replacement,
                "reason": reason, "expected_revision": expected_revision}
     identifier = operation_id(run_dir, "resolve-obligation", payload, identifier=identifier)
@@ -37,51 +37,13 @@ def resolve_obligation(run_dir, *, lane_id, replacement, reason, expected_revisi
         resolved, errors = evaluate_obligations(snapshot, summary, require_current=False)
         require(lane_id in resolved, "obligation resolution failed: " + "; ".join(errors))
         documents = {"delegation-summary.json": (encode_json(summary, pretty=True) + "\n").encode()}
-        original_status = old.get("status")
-        original_lane = None
-        legacy = old.get("legacy")
-        if legacy:
-            from journal_recovery import assignments
-            original = snapshot.archive(legacy["archive_id"])
-            facts = assignments(original).get(lane_id)
-            require(facts is not None, "original assignment missing from archive")
-            original_lane = facts["lane"]
-            terminal = legacy["terminal"]
-            event = terminal["event"]
-            evidence = snapshot if legacy.get("continued") else original
-            events = assignments(evidence)[lane_id]["events"]
-            require(terminal in events and event.get("lane_id") == lane_id
-                    and event.get("stage") in {"handoff", "blocked", "fail"},
-                    "original terminal conflicts with its assignment")
-            require(legacy["classification"].get("lane_id") == lane_id
-                    and legacy["classification"].get("obligation_id") == old["obligation"]["id"],
-                    "original classification conflicts with its obligation")
-            identity = facts["summary"] or event
-            require(all(old.get(key) == identity.get(key) for key in ("role", "codex_thread_id"))
-                    and all(item["event"].get(key) == old.get(key)
-                            for item in facts["events"] for key in ("role", "codex_thread_id"))
-                    and all(event.get(key) == old.get(key) for key in ("role", "codex_thread_id")),
-                    "original assignment identity conflicts with its source")
-            if facts["summary"]:
-                require(old.get("trace") == facts["summary"].get("trace"),
-                        "original assignment trace conflicts with its source")
-            latest = max(assignments(snapshot)[lane_id]["events"],
-                         key=lambda item: (item["event"].get("timestamp", ""), item["index"]))
-            require(latest["event"] == event, "legacy assignment has newer unresolved work")
-            original_status = original_lane["status"] if original_lane else event.get("status")
         if snapshot.exists("lane-map.json"):
             lane_map = json.loads(snapshot.read_bytes("lane-map.json"))
             lanes = {lane["id"]: lane for lane in lane_map["lanes"]}
-            require(replacement in lanes and (lane_id in lanes or legacy and original_lane is None),
-                    "lane-map replacement missing")
+            require(replacement in lanes and lane_id in lanes, "lane-map replacement missing")
             require(lanes[replacement].get("status") == new.get("status"), "replacement lane status conflicts with its outcome")
-            if lane_id in lanes:
-                require(lanes[lane_id].get("status") == original_status, "original lane status conflicts with its outcome")
-                if legacy:
-                    require(all(lanes[lane_id][key] == old.get(key)
-                                for key in ("role", "codex_thread_id", "trace") if key in lanes[lane_id]),
-                            "original lane identity conflicts with its source")
-                lanes[lane_id].update(status="replaced", replacement=replacement)
+            require(lanes[lane_id].get("status") == old.get("status"), "original lane status conflicts with its outcome")
+            lanes[lane_id].update(status="replaced", replacement=replacement)
             documents["lane-map.json"] = (encode_json(lane_map, pretty=True) + "\n").encode()
         return documents, {
             "lane_id": lane_id, "replacement": replacement}
@@ -123,7 +85,7 @@ def finalize(run_dir, *, expected_run_uuid, expected_revision, expected_generati
     if final_summary is not None:
         from journal_structure import validate_request, render_document
         validate_request("final", {"summary": final_summary, "status": "pass" if verdict == "ship" else verdict})
-        require(final_bytes is None, "provide semantic text or legacy final bytes, not both")
+        require(final_bytes is None, "provide semantic text or raw final bytes, not both")
         final_bytes = render_document("final", final_summary, "pass" if verdict == "ship" else verdict).encode()
     require(isinstance(final_bytes, bytes), "final file must contain bytes")
     snapshot = JournalSnapshot.open(run_dir)
@@ -136,7 +98,7 @@ def finalize(run_dir, *, expected_run_uuid, expected_revision, expected_generati
                 "new finalization requires semantic final_summary; final_bytes is available only for exact historical receipt replay")
         require(receipt["payload_sha256"] == digest(encode_json(payload).encode()), "operation ID payload conflict")
         return receipt["result"]
-    require(snapshot.durable, "flat legacy requires explicit import before finalization")
+    require(snapshot.durable, UNSUPPORTED_STORAGE_VERSION)
     summary = json.loads(snapshot.read_text("delegation-summary.json")) if snapshot.exists("delegation-summary.json") else {}
     product_positive = verdict in {"ship", "pass-with-risks"} and summary.get("verification", {}).get("task_kind") == "change"
     if final_summary is not None:
@@ -168,7 +130,6 @@ def finalize(run_dir, *, expected_run_uuid, expected_revision, expected_generati
     fields = re.findall(r"^Verdict:\s*(.*?)\s*$", final_bytes.decode("utf-8"), re.MULTILINE)
     require(fields == [verdict], "final verdict differs from requested verdict")
     identifier = operation_id(run_dir, "finalize", payload, identifier=identifier)
-    require(snapshot.storage_version == 2, "journal storage version 1 is read-only; explicit upgrade required")
     require(not snapshot.closed, "journal generation is closed")
     require((snapshot.run_uuid, snapshot.revision, snapshot.generation) ==
             (expected_run_uuid, expected_revision, expected_generation), "finalize preconditions changed")

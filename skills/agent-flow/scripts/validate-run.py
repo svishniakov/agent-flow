@@ -7,12 +7,13 @@ import argparse
 import fnmatch
 import json
 import re
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from verification_evidence import validate_verification, external_followup, verify_author_declaration, retained_accepted_boundary_v1, author_boundary_seal, author_coverage, resolve_author_boundaries
+from verification_evidence import validate_verification, external_followup, verify_author_declaration, author_boundary_seal, author_coverage, resolve_author_boundaries
 from task_workspace import registered_workspace, verify_candidate
-from journal_io import timestamp as journal_timestamp, validate_event, JournalError, JournalSnapshot, digest, encode_json
+from journal_io import timestamp as journal_timestamp, validate_event, JournalError, JournalSnapshot, digest, encode_json, current_package_version
 from journal_io import (journal_read_text, journal_read_bytes, journal_exists, journal_is_file,
                         journal_is_dir, journal_iterdir, journal_glob)
 from journal_structure import HANDOFF_STATE_BY_CALLER_STATUS, HANDOFF_DOMAIN_STATUSES, TERMINAL as JOURNAL_TERMINAL_STATUSES
@@ -707,7 +708,7 @@ def validate_agent_traces(run_dir: Path, *, snapshot=None, session_source=None) 
             continue
         for index, event in enumerate(trace_events, start=1):
             mode = corrected_modes.get((display_name, index), event.get('execution_mode'))
-            if mode == 'subagent' and snapshot.storage_version == 2:
+            if mode == 'subagent' and snapshot.durable:
                 identity = event.get('codex_thread_id')
                 if not identity and event.get('lane_id') and snapshot.exists('delegation-summary.json'):
                     summary = json.loads(snapshot.read_text('delegation-summary.json'))
@@ -2175,7 +2176,7 @@ def validate_delegation_summary(
         errors.append(f"{DELEGATION_SUMMARY_PATH}: notes must be a non-empty string")
 
     resolved = set()
-    if snapshot is not None and snapshot.storage_version == 2:
+    if snapshot is not None and snapshot.durable:
         from verification_evidence import evaluate_obligations
         resolved, obligation_errors = evaluate_obligations(snapshot, data, require_current=final_verdict in POSITIVE_FINAL_VERDICTS)
         errors.extend(obligation_errors)
@@ -2238,7 +2239,7 @@ def validate_delegation_summary(
                 errors.append(f"{DELEGATION_SUMMARY_PATH}: lane {lane_id} is not execution_mode=subagent")
             if role is not None and lane.get("role") != role:
                 errors.append(f"{record_label}.role must match lane role: {lane.get('role')}")
-            validate_delegation_summary_record_paths(run_dir, record, lane, record_label, errors, complete=final_verdict in POSITIVE_FINAL_VERDICTS and lane_id not in resolved and not record.get("legacy"), snapshot=snapshot)
+            validate_delegation_summary_record_paths(run_dir, record, lane, record_label, errors, complete=final_verdict in POSITIVE_FINAL_VERDICTS and lane_id not in resolved, snapshot=snapshot)
             if role is not None and codex_thread_id is not None:
                 events, event_errors = load_lane_trace_events(run_dir, role, lane_id, snapshot=snapshot)
                 errors.extend(event_errors)
@@ -2249,7 +2250,7 @@ def validate_delegation_summary(
                 if not has_lane_map:
                     errors.extend(validate_subagent_lane_trace(
                         run_dir, lane_id, role,
-                        lane_status="pass" if final_verdict in POSITIVE_FINAL_VERDICTS and lane_id not in resolved and not record.get("legacy") else "planned",
+                        lane_status="pass" if final_verdict in POSITIVE_FINAL_VERDICTS and lane_id not in resolved else "planned",
                         handoff=record.get("handoff"),
                         snapshot=snapshot,
                     ))
@@ -4725,10 +4726,6 @@ def validate_author_coverage(snapshot, boundary_artifact_by_lane):
         declarations = {}
         for lane_id, name in boundary_artifact_by_lane.items():
             boundary = json.loads(snapshot.read_text(name)) if name and snapshot.exists(name) else {}
-            if boundary.get("version") == 1 and retained_accepted_boundary_v1(snapshot):
-                for path in boundary.get("changed_paths", []):
-                    contributors.setdefault(path, set()).add(lane_id)
-                continue
             if boundary.get("version") != 2:
                 errors.append("new registered author acceptance requires boundary version 2: " + lane_id)
                 continue
@@ -6396,7 +6393,7 @@ def validate_lane_map(
     if final_verdict == "ship":
         resolved_obligations = set()
         obligation_records = {}
-        native_obligations = snapshot is not None and snapshot.storage_version == 2
+        native_obligations = snapshot is not None and snapshot.durable
         if native_obligations:
             summary, summary_errors = load_json(run_dir / DELEGATION_SUMMARY_PATH, DELEGATION_SUMMARY_PATH, snapshot=snapshot)
             errors.extend(summary_errors)
@@ -6520,7 +6517,7 @@ def validate_product_acceptance(run_dir: Path, *, session_source=None, snapshot=
                 errors.append("delegation-summary.json: uncovered lane obligation: " + str(lane_id))
     errors.extend(validate_verification(run_dir, summary, lane_map, verdict, session_source,
         snapshot=snapshot, selected_lane_ids=selected, presentation_required=False))
-    if snapshot.storage_version == 2:
+    if snapshot.durable:
         resolved, obligation_errors = evaluate_obligations(snapshot, summary, selected_lane_ids=selected)
         errors.extend(obligation_errors)
         record_by_id = {record.get("lane_id"): record for record in records}
@@ -6842,7 +6839,7 @@ def validate_run(run_dir: Path, mode: str = "auto", *, require_handoff=False,
     run_dir = snapshot.artifact_root if snapshot is not None else Path(run_dir).resolve()
     snapshot = snapshot or JournalSnapshot.open(run_dir)
     from journal_structure import assignment_errors, archived_assignment_facts
-    structural_errors = assignment_errors(snapshot.documents, history=archived_assignment_facts(snapshot)) if snapshot.durable and snapshot.storage_version == 2 else []
+    structural_errors = assignment_errors(snapshot.documents, history=archived_assignment_facts(snapshot)) if snapshot.durable else []
     if detect_mode(run_dir, mode, snapshot=snapshot) == "compact":
         return structural_errors + validate_compact_run(run_dir, allow_no_check, allow_pending, session_source=session_source, snapshot=snapshot)
     return structural_errors + validate_full_run(run_dir, require_handoff, allow_no_check, allow_pending, session_source=session_source, snapshot=snapshot)
@@ -6862,7 +6859,13 @@ def main() -> int:
     if not run_dir.exists():
         raise SystemExit(f"run dir not found: {run_dir}")
 
-    snapshot = JournalSnapshot.open(run_dir)
+    try:
+        snapshot = JournalSnapshot.open(run_dir)
+    except JournalError as exc:
+        raise SystemExit(str(exc)) from exc
+    if snapshot.durable and snapshot.package_version != current_package_version():
+        print(f"WARNING journal created by agent-flow {snapshot.package_version}; "
+              f"current package is {current_package_version()}", file=sys.stderr)
     mode = detect_mode(run_dir, args.mode, snapshot=snapshot)
     errors = validate_run(run_dir, mode, require_handoff=args.require_handoff,
                           allow_no_check=args.allow_no_check, allow_pending=args.allow_pending, snapshot=snapshot)
