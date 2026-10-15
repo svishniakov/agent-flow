@@ -81,7 +81,7 @@ class Distributions(unittest.TestCase):
                     self.assertIn("runtime smoke failed", result.stderr)
                     self.assertIn(missing.removesuffix(".py"), result.stderr)
 
-    def test_both_archives_create_v2_journals_and_reject_manual_final(self):
+    def test_both_archives_create_v3_journals_and_reject_manual_final(self):
         for form, package in (("skill", self.install / "skill/agent-flow"),
                               ("plugin", self.install / "plugin/agent-flow/skills/agent-flow")):
             with self.subTest(form=form):
@@ -118,10 +118,10 @@ class Distributions(unittest.TestCase):
                                            "--context-root", str(context), "--destination", str(self.base / (form + "-workspace"))],
                                           env=environment, capture_output=True, text=True)
                 self.assertEqual(prepared.returncode, 0, prepared.stdout + prepared.stderr)
-                self.assertEqual(json.loads(prepared.stdout)["version"], 2)
+                self.assertEqual(json.loads(prepared.stdout)["version"], 3)
                 with sqlite3.connect(run / ".journal/state.sqlite3") as connection:
                     before = connection.execute("SELECT version, revision FROM run_state").fetchone()
-                self.assertEqual(before[0], 2)
+                self.assertEqual(before[0], 3)
                 manual = subprocess.run([sys.executable, "-B", str(package / "scripts/append-timeline.py"),
                                          "--run-dir", str(run), "--role", "orchestrator", "--stage", "final",
                                          "--status", "pass", "--summary", "Manual final must fail"],
