@@ -461,6 +461,7 @@ def main() -> int:
         ("architecture capability registry fixtures", [sys.executable, "scripts/test-validate-architecture-capabilities.py"]),
         ("architecture capability registry validation", [sys.executable, "scripts/validate-architecture-capabilities.py"]),
         ("rule consistency", [sys.executable, "scripts/validate-rule-consistency.py"]),
+        ("rule consistency fixtures", [sys.executable, "scripts/test-validate-rule-consistency.py"]),
         ("validate-run CLI", [sys.executable, "scripts/validate-run.py", "--help"]),
         ("init-run fixtures", [sys.executable, "scripts/test-init-run.py"]),
         ("evidence record analyzer fixtures", [sys.executable, "scripts/test-analyze-evidence-records.py"]),
