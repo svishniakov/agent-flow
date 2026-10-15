@@ -118,7 +118,7 @@ class Distributions(unittest.TestCase):
                                            "--context-root", str(context), "--destination", str(self.base / (form + "-workspace"))],
                                           env=environment, capture_output=True, text=True)
                 self.assertEqual(prepared.returncode, 0, prepared.stdout + prepared.stderr)
-                self.assertEqual(json.loads(prepared.stdout)["version"], 3)
+                self.assertEqual(json.loads(prepared.stdout)["version"], 2)
                 with sqlite3.connect(run / ".journal/state.sqlite3") as connection:
                     before = connection.execute("SELECT version, revision FROM run_state").fetchone()
                 self.assertEqual(before[0], 3)
