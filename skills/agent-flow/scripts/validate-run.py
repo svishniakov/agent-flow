@@ -15,6 +15,7 @@ from task_workspace import registered_workspace, verify_candidate
 from journal_io import timestamp as journal_timestamp, validate_event, JournalError, JournalSnapshot, digest, encode_json
 from journal_io import (journal_read_text, journal_read_bytes, journal_exists, journal_is_file,
                         journal_is_dir, journal_iterdir, journal_glob)
+from journal_structure import HANDOFF_STATE_BY_CALLER_STATUS, HANDOFF_DOMAIN_STATUSES, TERMINAL as JOURNAL_TERMINAL_STATUSES
 
 from architecture_capabilities import (
     ARCHITECTURE_CAPABILITY_REGISTRY_PATH,
@@ -96,13 +97,9 @@ UNRESOLVED_LANE_STATUSES = {"planned", "spawned", "active", "timed-out", "fail",
 HANDOFF_STATE_REQUIRED_FIELD = "handoff_state_required"
 HANDOFF_STATE_FIELD = "handoff_state"
 HANDOFF_STATE_MODES = {"task", "batch"}
-HANDOFF_STATE_STATUSES = {"queued", "accepted", "completed", "blocked", "failed"}
-HANDOFF_STATE_TERMINAL_BY_LANE_STATUS = {
-    "pass": "completed",
-    "pass-with-risks": "completed",
-    "blocked": "blocked",
-    "fail": "failed",
-}
+HANDOFF_STATE_STATUSES = set(HANDOFF_DOMAIN_STATUSES)
+HANDOFF_STATE_TERMINAL_BY_LANE_STATUS = {status: HANDOFF_STATE_BY_CALLER_STATUS[status] for status in sorted(JOURNAL_TERMINAL_STATUSES)}
+# Open handoff states by in-flight lane status; "spawned" is a lane-only status with no caller form.
 HANDOFF_STATE_OPEN_BY_LANE_STATUS = {
     "planned": {"queued"},
     "spawned": {"queued", "accepted"},

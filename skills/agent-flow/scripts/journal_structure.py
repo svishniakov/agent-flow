@@ -23,6 +23,8 @@ STATUS_MEANINGS = {
     "replaced": "Another assignment replaces this execution; responsibility requires explicit resolution.",
 }
 CALLER_STATUSES = frozenset(STATUS_MEANINGS)
+HANDOFF_STATE_BY_CALLER_STATUS = {"planned": "queued", "active": "accepted", "pass": "completed", "pass-with-risks": "completed", "blocked": "blocked", "fail": "failed", "timed-out": "blocked", "replaced": "blocked"}
+HANDOFF_DOMAIN_STATUSES = frozenset(HANDOFF_STATE_BY_CALLER_STATUS.values())
 EVENT_STATUS_RULES = {"spawned": {"active"}, "handoff": {"pass", "pass-with-risks"}, "blocked": {"blocked"}, "fail": {"fail"}, "timed-out": {"timed-out"}}
 RESERVED_EVENT_COMMANDS = {"final": "journal finalize", "reopen": "journal reopen", "upgrade": "journal upgrade", "spawn": "stage spawned"}
 RESERVED_EVENT_STAGES = frozenset(RESERVED_EVENT_COMMANDS)

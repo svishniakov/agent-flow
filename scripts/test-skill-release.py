@@ -38,6 +38,8 @@ if a[0]=='api':
  if endpoint.endswith('/releases'):
   assert '--paginate' in a and '--slurp' in a
   if s.get('list_failure'): fail('gh: Forbidden (HTTP 403)')
+  if s.get('listing_lag'):
+   s['listing_lag']-=1; save(); answer([[{'id':99,'tag_name':'v9.0.0'}],[]])
   matches=[] if s['release'] is None else [s['release']]
   answer([[{'id':99,'tag_name':'v9.0.0'}],matches + (matches if s.get('duplicate_release') else [])])
  if endpoint.endswith('/assets'):
@@ -196,6 +198,20 @@ class Publication(unittest.TestCase):
         self.state['calls'] = []; self.save(); self.invoke(False)
         self.assertFalse(any(a[0] == 'release' for a in self.state['calls']))
         print('release-draft-list-failure-no-create release-duplicate-draft-no-mutation')
+
+    def test_draft_listing_lag_recovers_after_create(self):
+        self.state['listing_lag'] = 1; self.save()
+        self.invoke()
+        self.assertFalse(self.state['release']['draft'])
+        self.assertEqual(set(self.state['assets']), {'agent-flow-0.1.0-codex-plugin.zip'})
+        print('release-draft-listing-lag-recovers')
+
+    def test_draft_listing_lag_beyond_retries_stays_unpublished(self):
+        self.state['listing_lag'] = 5; self.save()
+        self.invoke(False)
+        self.assertTrue(self.state['release']['draft'])
+        self.assertFalse(self.edits())
+        print('release-draft-listing-lag-beyond-retries-stays-draft')
 
     def test_conflicting_release_and_assets(self):
         self.invoke()

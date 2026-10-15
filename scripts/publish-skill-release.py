@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 import subprocess
 import tempfile
+import time
 
 SOURCE = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("verify_distributions", SOURCE / "scripts/verify-distributions.py")
@@ -218,7 +219,13 @@ def publish(source, directory, tag, sha, repository, replace_skill=False, backup
         return replace_skill_release(github, release, source, directory, tag, sha, files, notes, backup)
     if release is None:
         github.create(tag, notes)
-        release = github.release(tag)
+        # Fresh drafts can lag the paginated listing for a few seconds.
+        for attempt in range(4):
+            release = github.release(tag)
+            if release is not None:
+                break
+            require(attempt < 3, "created draft release is not visible in listings")
+            time.sleep(3)
     check_release_identity(release, tag, marker)
     present = github.verify_assets(release, files, complete=not release["draft"])
     if not release["draft"]:

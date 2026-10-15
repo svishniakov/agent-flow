@@ -1363,8 +1363,8 @@ def validate_event(event):
 
 def validate_assignment_event(event):
     """Validate new assignment commands only; historical facts remain readable."""
-    allowed = {"spawned": {"active"}, "handoff": {"pass", "pass-with-risks"},
-               "blocked": {"blocked"}, "fail": {"fail"}, "timed-out": {"timed-out"}}
+    from journal_structure import EVENT_STATUS_RULES
+    allowed = EVENT_STATUS_RULES
     statuses = allowed.get(event.get("stage"))
     if event.get("lane_id") and statuses is not None:
         require(event.get("status") in statuses,
@@ -2828,7 +2828,8 @@ def record_event(run_dir, args, artifact_paths, source, snapshot):
         lane["status"] = args.status
         if lane.get("handoff"):
             from journal_io import update_handoff_state
-            state = {"planned": "queued", "active": "accepted", "pass": "completed", "pass-with-risks": "completed", "fail": "failed", "blocked": "blocked", "timed-out": "blocked", "replaced": "blocked"}[args.status]
+            from journal_structure import HANDOFF_STATE_BY_CALLER_STATUS
+            state = HANDOFF_STATE_BY_CALLER_STATUS[args.status]
             lane["handoff_state"] = update_handoff_state(lane=lane, lane_id=args.lane_id, status=state, mode=None,
                 from_lane=None, to_lane=None, task=None, handoff=None, batch_id=None, batch_items=[])
         if args.codex_thread_id:

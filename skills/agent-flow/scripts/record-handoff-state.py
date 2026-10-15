@@ -54,10 +54,10 @@ def record_handoff_state(
     identifier: str | None = None,
     summary: str = "Record handoff state",
 ) -> Path:
-    from journal_structure import validate_request
+    from journal_structure import validate_request, HANDOFF_STATE_BY_CALLER_STATUS
     from journal_io import write_entry
     validate_request("event", {"summary": summary, "status": status, "role": "orchestrator", "stage": "handoff-state"})
-    domain_status = {"planned": "queued", "active": "accepted", "pass": "completed", "pass-with-risks": "completed", "blocked": "blocked", "fail": "failed", "timed-out": "blocked", "replaced": "blocked"}[status]
+    domain_status = HANDOFF_STATE_BY_CALLER_STATUS[status]
     lane_map_path = run_dir.resolve() / "lane-map.json"
     payload = dict(lane_id=lane_id, status=status, mode=mode, from_lane=from_lane,
                    to_lane=to_lane, task=task, handoff=handoff, batch_id=batch_id, batch_items=batch_items)

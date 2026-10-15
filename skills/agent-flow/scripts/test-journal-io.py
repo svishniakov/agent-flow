@@ -3001,6 +3001,8 @@ class JournalRegressions(unittest.TestCase):
             path.write_text("\n".join(lines[:-1]) + "\n")
 
     def test_assignment_stage_status_commands(self):
+        # Intentional oracle copy of journal_structure.EVENT_STATUS_RULES: the test
+        # must fail if the canonical contract changes, not import it blindly.
         allowed = {"spawned": {"active"}, "handoff": {"pass", "pass-with-risks"},
                    "blocked": {"blocked"}, "fail": {"fail"}, "timed-out": {"timed-out"}}
         base.workspace_pack(self)
