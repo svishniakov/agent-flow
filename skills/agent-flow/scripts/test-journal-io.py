@@ -85,6 +85,74 @@ class SemanticRequestRegressions(unittest.TestCase):
         self.assertEqual(contract["semantic_choices"]["architecture-outcome"]["decision"],
                          ["approved", "needs-revision", "rejected"])
 
+    def test_writer_generated_final_sections_cover_audit_required_ids(self):
+        import tempfile
+        from journal_structure import render_document
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            run = root / "run"
+            lane_map = {"schema_version": 2, "architecture_contract_required": True,
+                "engineering_simplicity_scope": {"primary_surfaces": ["service-cli", "storage-layer"],
+                    "secondary_surfaces": ["docs-site"], "evidence": ["checks.md"],
+                    "notes": "Primary surfaces verified by actual command evidence"},
+                "lanes": [
+                    {"id": "worker-a", "type": "implementation", "role": "python-worker", "execution_mode": "role-lane",
+                     "status": "pass", "wave": 1, "handoff": "handoffs/worker-a.md",
+                     "boundary": {"allowed_paths": ["src/module.py"], "forbidden_paths": [],
+                                  "changed_paths_artifact": "checks/lane-boundary-worker-a.json"},
+                     "architecture_compliance": {"engineering_simplicity": {"status": "pass", "checks": ["no-simpler-interface"]}},
+                     "evidence": ["checks/lane-boundary-worker-a.json"]},
+                    {"id": "worker-b", "type": "integration", "role": "python-worker", "execution_mode": "role-lane",
+                     "status": "pass", "wave": 2, "handoff": "handoffs/worker-b.md",
+                     "boundary": {"allowed_paths": ["src/bridge.py"], "forbidden_paths": [],
+                                  "changed_paths_artifact": "checks/lane-boundary-worker-b.json"},
+                     "evidence": ["checks/lane-boundary-worker-b.json"]},
+                ]}
+            continuation = {"version": 1, "status": "resumed-ready",
+                "resolved_blockers": [{"id": "blocked-import", "resolution": "Retried with the corrected check", "evidence": ["checks.md"]}],
+                "readiness_lane": None, "qa_recheck_lane": None, "reviewer_recheck_lane": None,
+                "historical_worker_lanes": ["worker-a"], "new_worker_lanes": ["worker-b"], "revalidated_lanes": ["worker-a"],
+                "notes": "Continuation recorded after the blocked checkpoint"}
+            journal_io.initialize_journal(run, {
+                "checks.md": b"# Checks\n\nActual command evidence.\n",
+                "lane-map.json": json.dumps(lane_map).encode(),
+                "continuation-summary.json": json.dumps(continuation).encode(),
+                "handoffs/worker-a.md": b"Worker A own handoff\n",
+                "handoffs/worker-b.md": b"Worker B own handoff\n",
+            }, source_root=root)
+            snapshot = journal_io.JournalSnapshot.open(run)
+            # The exact render pipeline journal_lifecycle.finalize applies to caller text.
+            summary = {"subagents_used": False, "role_lanes_used": False, "subagents": [], "role_lanes": [], "verification": {}}
+            text = render_document("final", "Architecture-gated result accepted by independent QA and reviewer", "pass")
+            text = journal_io.render_final(text, summary, ["src/module.py", "src/bridge.py"], declared=True)
+            text += journal_io.render_service_sections(snapshot)
+            journal_io.transact(run, "writer-final", {}, lambda current: ({"final.md": text}, {}))
+            snapshot = journal_io.JournalSnapshot.open(run)
+            for heading, ids in (("Engineering Simplicity", ["service-cli", "storage-layer"]),
+                                 ("Boundary Evidence", ["worker-a", "worker-b"]),
+                                 ("Continuation Summary", ["blocked-import", "worker-a", "worker-b"])):
+                self.assertTrue(base.validator.has_markdown_heading(text, heading), heading)
+                section = base.validator.markdown_section_text(text, heading)
+                for required in ids:
+                    self.assertTrue(base.validator.contains_facet_id(section, required), (heading, required))
+            # The full audit no longer reports final.md-caused errors for a
+            # writer-generated report; these were the latent-bug failures.
+            lane_errors = base.validator.validate_lane_map(run, snapshot=snapshot)
+            self.assertFalse([error for error in lane_errors if "final.md" in error], lane_errors)
+            continuation_errors = base.validator.validate_continuation_summary(run,
+                final_verdict="ship", lane_by_id={lane["id"]: lane for lane in lane_map["lanes"]},
+                normalized_status_by_id={lane["id"]: lane["status"] for lane in lane_map["lanes"]},
+                successful_worker_lanes=[(lane["id"], lane["wave"], lane["handoff"]) for lane in lane_map["lanes"]],
+                verification_readiness_data=None, snapshot=snapshot)
+            self.assertFalse([error for error in continuation_errors if "final.md" in error], continuation_errors)
+            # Without the corresponding facts no such sections are rendered.
+            empty_run = root / "empty"
+            journal_io.initialize_journal(empty_run, {"checks.md": b"# Checks\n"}, source_root=root)
+            empty_text = journal_io.render_service_sections(journal_io.JournalSnapshot.open(empty_run))
+            self.assertNotIn("Engineering Simplicity", empty_text)
+            self.assertNotIn("Boundary Evidence", empty_text)
+            self.assertNotIn("Continuation Summary", empty_text)
+
     def tree(self, root):
         return {str(path.relative_to(root)): path.read_bytes()
                 for path in root.rglob("*") if path.is_file()}

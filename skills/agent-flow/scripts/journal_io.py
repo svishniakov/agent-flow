@@ -2952,11 +2952,37 @@ def render_service_sections(snapshot):
                 ("verification-readiness.json", "Verification Readiness", "attempts"), ("continuation-summary.json", "Continuation Summary", "resolved_blockers"),
                 ("harness-evaluation.json", "Harness Evaluation", "findings"))
     text = ""
+    lane_map = json.loads(snapshot.read_text("lane-map.json")) if snapshot.exists("lane-map.json") else {}
+    scope = lane_map.get("engineering_simplicity_scope")
+    if isinstance(scope, dict) and (scope.get("primary_surfaces") or scope.get("secondary_surfaces")):
+        lines = ["- Primary Surface: " + literal_label(surface) for surface in scope.get("primary_surfaces", [])]
+        lines += ["- Secondary Surface: " + literal_label(surface) for surface in scope.get("secondary_surfaces", [])]
+        for lane in lane_map.get("lanes", []):
+            compliance = lane.get("architecture_compliance") if isinstance(lane, dict) else None
+            simplicity = compliance.get("engineering_simplicity") if isinstance(compliance, dict) else None
+            if isinstance(simplicity, dict) and simplicity.get("status"):
+                lines.append("- Lane " + literal_label(lane.get("id", "")) + ": " + literal_label(simplicity["status"]))
+        if scope.get("notes"):
+            lines.append(literal_content(scope["notes"]))
+        text += "\n## Engineering Simplicity\n\n" + "\n".join(lines) + "\n"
+    boundary_lanes = [lane for lane in lane_map.get("lanes", [])
+                      if isinstance(lane, dict) and lane.get("type") in {"implementation", "integration"}
+                      and isinstance(lane.get("boundary"), dict)]
+    if boundary_lanes:
+        text += "\n## Boundary Evidence\n\n" + "\n".join(
+            "- " + literal_label(lane["id"]) + ": " +
+            literal_label(lane["boundary"].get("changed_paths_artifact") or "checks/lane-boundary-" + lane["id"] + ".json")
+            for lane in boundary_lanes) + "\n"
     for path, heading, key in sections:
         if snapshot.exists(path):
             data = json.loads(snapshot.read_text(path))
             rows = data.get(key, []) + (data.get("proposals", []) if key == "findings" else [])
             text += "\n## " + heading + "\n\n" + "\n".join("- " + literal_label(row.get("id") or row.get("risk_id")) + ": " + literal_label(row.get("status", data.get("status", "recorded"))) for row in rows) + "\n"
+            if path == "continuation-summary.json":
+                for field, label in (("historical_worker_lanes", "Historical Worker Lanes"), ("new_worker_lanes", "New Worker Lanes")):
+                    values = data.get(field)
+                    if values:
+                        text += label + ": " + ", ".join(literal_label(value) for value in values) + "\n"
             if path == "verification-readiness.json":
                 text += "Resume phrase: Готово\n\n" + "\n\n".join(literal_content(blocker) for attempt in rows for blocker in attempt.get("blockers", [])) + "\n"
     return text
