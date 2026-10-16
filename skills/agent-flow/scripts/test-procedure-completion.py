@@ -1012,21 +1012,18 @@ class JournalCLITests(unittest.TestCase):
             cli("record-agent-trace.py", "--run-dir", str(run), "--role", "python-worker", "--execution-mode", "role-lane",
                 "--lane-id", "cli-draft", "--stage", "spawned", "--status", "active", "--summary", "Assigned nested draft")
             request_capture = root.parent / "semantic-request.json"
-            request_capture.write_text(json.dumps({"summary": "Written " + nested, "status": "pass", "lane_id": "cli-draft"}))
-            cli("journal.py", "--run-dir", str(run), "record", "--kind", "handoff", "--request-file", str(request_capture), "--operation-id", "draft-handoff")
             proof_capture = root.parent / "draft-edit.json"
             proof_capture.write_text(json.dumps({"written_paths": [nested], "author_thread_id": base.ROOT_ID}))
             cli("journal.py", "--run-dir", str(run), "publish", "--file", "artifacts/draft-edit.json", str(proof_capture))
+            cli("task-workspace.py", "--run-dir", str(run), "seal")
+            # Combined author conclusion: handoff registration and boundary capture in one call.
+            cli("record-agent-trace.py", "--run-dir", str(run), "--prepare-conclusion", "--role", "python-worker",
+                "--lane-id", "cli-draft", "--status", "pass", "--summary", "Written " + nested,
+                "--artifact", "handoffs/cli-draft.md", "--artifact", "artifacts/draft-edit.json",
+                "--authored-path", nested, "--operation-id", "draft-conclusion")
             first = JournalSnapshot.open(run)
             old_handoff = first.read_bytes("handoffs/cli-draft.md")
-            declaration_capture = root.parent / "draft-declaration.json"
-            declaration_capture.write_text(json.dumps({"lane_id": "cli-draft", "authored_paths": [nested],
-                "handoff": {"path": "handoffs/cli-draft.md", "sha256": evidence.sha256(old_handoff)},
-                "edit_evidence": [{"path": "artifacts/draft-edit.json", "sha256": evidence.sha256(first.read_bytes("artifacts/draft-edit.json"))}], "coauthors": {}}))
-            cli("journal.py", "--run-dir", str(run), "publish", "--file", "checks/draft-declaration.json", str(declaration_capture))
-            cli("task-workspace.py", "--run-dir", str(run), "seal")
-            cli("record-lane-boundary.py", "--run-dir", str(run), "--lane-id", "cli-draft", "--declaration-json", "checks/draft-declaration.json")
-            old_boundary = JournalSnapshot.open(run).read_bytes("checks/lane-boundary-cli-draft.json")
+            old_boundary = first.read_bytes("checks/lane-boundary-cli-draft.json")
             request_capture.write_text(json.dumps({"summary": "Review finding: nested draft must contain corrected product bytes", "status": "active"}))
             cli("journal.py", "--run-dir", str(run), "record", "--kind", "progress", "--request-file", str(request_capture), "--operation-id", "draft-review-finding")
             draft.write_text("Corrected product\n")
@@ -1070,19 +1067,13 @@ class JournalCLITests(unittest.TestCase):
             edit_capture = root.parent / "actual-edit.json"
             edit_capture.write_text(json.dumps({"written_paths": ["result.txt", nested], "author_thread_id": base.ROOT_ID}))
             cli("journal.py", "--run-dir", str(run), "publish", "--file", "artifacts/cli-author-edit.json", str(edit_capture))
-            semantic("handoff", {"summary": "Written result.txt and " + nested + "; corrected review finding", "status": "pass", "lane_id": "cli-author",
-                                "evidence": [{"path": "artifacts/cli-author-edit.json"}]}, "cli-author-handoff")
-            own = JournalSnapshot.open(run)
-            declaration = {"lane_id": "cli-author", "authored_paths": ["result.txt", nested],
-                           "handoff": {"path": "handoffs/cli-author.md", "sha256": evidence.sha256(own.read_bytes("handoffs/cli-author.md"))},
-                           "edit_evidence": [{"path": "artifacts/cli-author-edit.json", "sha256": evidence.sha256(own.read_bytes("artifacts/cli-author-edit.json"))}],
-                           "coauthors": {}}
-            # Boundary declaration remains a domain proof; hashes are computed from writer output.
-            edit_capture.write_text(json.dumps(declaration))
-            cli("journal.py", "--run-dir", str(run), "publish", "--file", "checks/cli-author-declaration.json", str(edit_capture))
             sealed = json.loads(cli("task-workspace.py", "--run-dir", str(run), "seal").stdout)
-            cli("record-lane-boundary.py", "--run-dir", str(run), "--lane-id", "cli-author",
-                "--declaration-json", "checks/cli-author-declaration.json")
+            # Combined author conclusion: handoff registration and boundary capture in one call.
+            cli("record-agent-trace.py", "--run-dir", str(run), "--prepare-conclusion", "--role", "python-worker",
+                "--lane-id", "cli-author", "--status", "pass",
+                "--summary", "Written result.txt and " + nested + "; corrected review finding",
+                "--artifact", "handoffs/cli-author.md", "--artifact", "artifacts/cli-author-edit.json",
+                "--authored-path", "result.txt", "--authored-path", nested, "--operation-id", "cli-author-conclusion")
             verification.update(result_files=sealed["changed_paths"], run_changed_files=sealed["changed_paths"])
             self.assertEqual(old_handoff, JournalSnapshot.open(run).read_bytes("handoffs/cli-draft.md"))
             self.assertEqual(old_boundary, JournalSnapshot.open(run).read_bytes("checks/lane-boundary-cli-draft.json"))

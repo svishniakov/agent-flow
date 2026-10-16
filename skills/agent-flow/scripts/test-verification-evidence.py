@@ -3,6 +3,7 @@
 
 import importlib.util
 import json
+import journal_io
 from journal_io import JournalSnapshot, transact
 import subprocess
 import sys
@@ -1011,11 +1012,14 @@ class EvidenceRegressions(unittest.TestCase):
             record["status"] = "pass"
             record["obligation"] = {"id": record["role"], "required": True, "state": "current"}
         transact(self.run, "current-accepted", {}, lambda current: ({"delegation-summary.json": json.dumps(self.summary)}, {}))
-        recorder = module("boundary_recorder", "record-lane-boundary.py")
-        # Undeclared boundary captures remain forbidden, receipt replay included.
-        with self.assertRaisesRegex(EvidenceError, "requires explicit author declaration"):
-            recorder.capture_boundary(run_dir=self.run, lane_id="historical-author", repo_root=None, base_ref="HEAD", head_ref="working-tree", identifier="old-boundary-operation")
         snapshot = JournalSnapshot.open(self.run)
+        sha = sha256(snapshot.read_bytes("checks.md"))
+        undeclared = {"lane_id": "historical-author", "authored_paths": ["result.txt"],
+                      "handoff": {"path": "checks.md", "sha256": sha},
+                      "edit_evidence": [{"path": "checks.md", "sha256": sha}], "coauthors": {}}
+        # Boundary capture for an unregistered author lane remains forbidden.
+        with self.assertRaisesRegex(EvidenceError, "author declaration assignment missing"):
+            journal_io.author_boundary_artifact(snapshot, "historical-author", undeclared)
         # Explicit accepted receipt, with actual validation and captured source
         # inputs. Fresh byte-based finalization is not used.
         from journal_io import _transact, digest, encode_json
@@ -1040,8 +1044,8 @@ class EvidenceRegressions(unittest.TestCase):
         self.assertEqual(validator.validate_run(self.run, session_source=self.source), [])
         supplied = delivery(self.run, session_source=self.source)
         self.assertEqual(delivery(self.run, session_source=self.source), supplied)
-        with self.assertRaisesRegex(EvidenceError, "requires explicit author declaration"):
-            recorder.capture_boundary(run_dir=self.run, lane_id="historical-author", repo_root=None, base_ref="HEAD", head_ref="working-tree", identifier="new-v1-operation")
+        with self.assertRaisesRegex(EvidenceError, "author declaration assignment missing"):
+            journal_io.author_boundary_artifact(JournalSnapshot.open(self.run), "historical-author", undeclared)
 
     def clear_assignment_history(self):
         import shutil

@@ -467,7 +467,7 @@ def main() -> int:
         ("evidence record analyzer fixtures", [sys.executable, "scripts/test-analyze-evidence-records.py"]),
         ("harness evaluation promotion fixtures", [sys.executable, "scripts/test-promote-harness-evaluation.py"]),
         ("handoff state recorder fixtures", [sys.executable, "scripts/test-record-handoff-state.py"]),
-        ("lane boundary recorder fixtures", [sys.executable, "scripts/test-record-lane-boundary.py"]),
+        ("lane boundary fixtures", [sys.executable, "scripts/test-lane-boundary.py"]),
         ("codegraph fixtures", [sys.executable, "scripts/test-codegraph.py"]),
         ("lane fixture tests", [sys.executable, "scripts/test-validate-run-lanes.py"]),
         ("QA/reviewer evidence fixtures", [sys.executable, "scripts/test-verification-evidence.py"]),

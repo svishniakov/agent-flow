@@ -96,7 +96,6 @@ scripts/prepare-check-environment.py
 scripts/promote-harness-evaluation.py
 scripts/record-agent-trace.py
 scripts/record-handoff-state.py
-scripts/record-lane-boundary.py
 scripts/resolve-agent-config.py
 scripts/sync-codex-agent-config.py
 scripts/task-workspace.py
@@ -113,6 +112,7 @@ scripts/test-journal-io.py
 scripts/test-journal-lifecycle.py
 scripts/test-journal-recovery.py
 scripts/test-journal-storage.py
+scripts/test-lane-boundary.py
 scripts/test-model-eval-adapter.py
 scripts/test-model-eval-cli.py
 scripts/test-model-eval-evaluator.py
@@ -126,7 +126,6 @@ scripts/test-model-eval-workspace.py
 scripts/test-procedure-completion.py
 scripts/test-promote-harness-evaluation.py
 scripts/test-record-handoff-state.py
-scripts/test-record-lane-boundary.py
 scripts/test-sync-codex-agent-config.py
 scripts/test-task-facts.py
 scripts/test-task-workspace.py

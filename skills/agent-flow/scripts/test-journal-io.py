@@ -967,16 +967,12 @@ class ReviewInputRegressions(unittest.TestCase):
         proof.write_text(json.dumps({"author": base.ROOT_ID, "written_paths": ["module.py"]}))
         with redirect_stdout(StringIO()):
             self.assertEqual(journal.main(["--run-dir", str(fixture.run), "publish", "--file", "checks/author-edit.json", str(proof)]), 0)
-        snapshot = journal_io.JournalSnapshot.open(fixture.run)
-        declaration = {"lane_id": "author", "authored_paths": ["module.py"],
-            "handoff": {"path": "handoffs/author.md", "sha256": evidence.sha256(snapshot.read_bytes("handoffs/author.md"))},
-            "edit_evidence": [{"path": "checks/author-edit.json", "sha256": evidence.sha256(proof.read_bytes())}], "coauthors": {}}
-        declared = fixture.repo / "declaration.json"
-        declared.write_text(json.dumps(declaration))
-        boundary = load("public_sealed_boundary", "record-lane-boundary.py")
+        recorder = load("public_sealed_boundary_recorder", "record-agent-trace.py")
         with redirect_stdout(StringIO()):
-            self.assertEqual(journal.main(["--run-dir", str(fixture.run), "publish", "--file", "checks/author-declaration.json", str(declared)]), 0)
-            self.assertEqual(boundary.main(["--run-dir", str(fixture.run), "--lane-id", "author", "--declaration-json", "checks/author-declaration.json"]), 0)
+            self.assertEqual(recorder.main(["--run-dir", str(fixture.run), "--prepare-conclusion", "--role", "python-worker",
+                "--lane-id", "author", "--status", "pass",
+                "--artifact", "handoffs/author.md", "--artifact", "checks/author-edit.json",
+                "--authored-path", "module.py", "--operation-id", "author-boundary"], session_source=fixture.source), 0)
         snapshot = journal_io.JournalSnapshot.open(fixture.run)
         digest = evidence.result_hash(fixture.run, verification, snapshot=snapshot)
         self.assertEqual(len(digest), 64)
@@ -3320,7 +3316,7 @@ class JournalRegressions(unittest.TestCase):
 
     def test_wc04_boundary_uses_full_scanner_delta_and_rejects_omission(self):
         workspace = base.workspace_pack(self, files=["undeclared\nЮникод.txt", "back\\slash"])
-        boundary = load("workspace_boundary", "record-lane-boundary.py")
+        boundary = load("workspace_boundary_recorder", "record-agent-trace.py")
         snapshot = journal_io.JournalSnapshot.open(self.run)
         summary = json.loads(snapshot.read_text("delegation-summary.json"))
         author = {"lane_id": "worker", "role": "python-worker", "trace": "agents/worker/trace.jsonl", "handoff": "handoffs/worker.md"}
@@ -3330,13 +3326,16 @@ class JournalRegressions(unittest.TestCase):
         paths = self.summary["verification"]["result_files"]
         handoff = ("Own authored paths:\n" + "\n".join(paths) + "\n").encode()
         proof = json.dumps({"created_files": [{"path": name, "bytes": (Path(workspace["working_root"]) / name).read_text()} for name in paths]}).encode()
-        declaration = {"lane_id": "worker", "authored_paths": paths, "handoff": {"path": author["handoff"], "sha256": evidence.sha256(handoff)},
-            "edit_evidence": [{"path": "checks/worker-created-files.json", "sha256": evidence.sha256(proof)}], "coauthors": {}}
         journal_io.transact(self.run, "fixture-worker-authorship", {}, lambda current: ({
             "delegation-summary.json": json.dumps(summary), author["trace"]: json.dumps(event) + "\n", author["handoff"]: handoff,
             "checks/worker-created-files.json": proof, "timeline.jsonl": current.read_text("timeline.jsonl") + json.dumps(event) + "\n"}, {}))
-        path = boundary.capture_boundary(run_dir=self.run, lane_id="worker", repo_root=None,
-                                         base_ref="HEAD", head_ref="working-tree", declaration=declaration)
+        from types import SimpleNamespace
+        args = SimpleNamespace(sections_file=None, summary=None, status="pass", lane_id="worker", role="python-worker",
+                               reason=None, unverified=[], context_classification_json=None, readiness_gates_file=None,
+                               authored_path=list(paths), coauthor=[], operation_id="wc04-boundary")
+        answer = boundary.prepare_conclusion(self.run, args, [author["handoff"], "checks/worker-created-files.json"],
+                                             evidence.CodexSessionSource())
+        path = self.run / answer["boundary"]
         snapshot = journal_io.JournalSnapshot.open(self.run)
         actual = json.loads(snapshot.read_bytes(path))
         self.assertEqual(actual["changed_paths"], self.summary["verification"]["result_files"])

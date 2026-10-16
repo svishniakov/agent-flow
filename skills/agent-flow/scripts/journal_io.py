@@ -1381,13 +1381,16 @@ def append_event(path, event, *, identifier=None, assign_timestamp=False):
         "stage": event["stage"], "role": event["role"]}, identifier=identifier, payload=payload, mutation=mutation)
 
 
-def write_entry(run_dir, kind, request, *, identifier=None, mutation=None, replay_guard=None, completion=None, payload=None):
+def write_entry(run_dir, kind, request, *, identifier=None, mutation=None, replay_guard=None, completion=None, payload=None, boundary=None):
     """Single semantic writer; adapters may retain source-bound domain checks."""
     from journal_structure import validate_request, render_document, DOCUMENT_PATHS
     try:
         request = validate_request(kind, request)
     except ValueError as exc:
         raise JournalError(str(exc)) from exc
+    if boundary is not None:
+        require(kind == "handoff" and mutation is None and type(boundary) is dict and set(boundary) == {"authored_paths", "coauthors"},
+                "author boundary requires a semantic handoff write")
     run_dir = Path(run_dir)
     defaults = DOCUMENT_PATHS
     if "path" in request:
@@ -1410,7 +1413,8 @@ def write_entry(run_dir, kind, request, *, identifier=None, mutation=None, repla
             expected_generation=expected_generation, identifier=identifier, final_summary=summary,
             verdict="ship" if request["status"] == "pass" else request["status"])
         return {"operation_id": identifier, **receipt}
-    payload = payload if payload is not None else {"kind": kind, "request": request}
+    payload = payload if payload is not None else {"kind": kind, "request": request,
+        **({"boundary": boundary} if boundary is not None else {})}
     if completion is not None and isinstance(payload.get("artifacts"), dict):
         from verification_evidence import historical_evidence_bytes
         summary = json.loads(snapshot.read_text("delegation-summary.json"))
@@ -1576,6 +1580,15 @@ def write_entry(run_dir, kind, request, *, identifier=None, mutation=None, repla
             if kind in {"handoff", "architecture-outcome"}:
                 documents[path] = text
                 result["handoff"] = path
+            if boundary is not None:
+                declaration = {"lane_id": request["lane_id"], "authored_paths": boundary["authored_paths"],
+                               "handoff": {"path": path, "sha256": digest(text.encode() if type(text) is str else text)},
+                               "edit_evidence": evidence, "coauthors": boundary["coauthors"]}
+                augmented = replace(current, documents=MappingProxyType({**current.documents,
+                    **{key: value.encode() if type(value) is str else value for key, value in documents.items()}}))
+                boundary_path, artifact = author_boundary_artifact(augmented, request["lane_id"], declaration)
+                documents[boundary_path] = encode_json(artifact, pretty=True) + "\n"
+                result["boundary"] = boundary_path
             if checkpoint is not None:
                 documents[checkpoint_path] = checkpoint_bytes
                 result.update({"checkpoint": checkpoint, "archive_id": archive_id, "evidence": [{"path": checkpoint_path, "sha256": digest(checkpoint_bytes)}]})
@@ -2860,6 +2873,32 @@ def record_event(run_dir, args, artifact_paths, source, snapshot):
     if summary_data is not None:
         result["result_hash"] = summary_data["verification"].get("result_hash")
     return documents, result
+
+
+def author_boundary_artifact(snapshot, lane_id, declaration):
+    """Validate one author declaration against the pinned view and build its v2 boundary artifact."""
+    from task_workspace import registered_workspace, verify_candidate
+    from verification_evidence import verify_author_declaration, author_boundary_seal
+    require(type(lane_id) is str and bool(lane_id.strip()) and "/" not in lane_id, "lane_id must be a non-empty path segment")
+    logical_path("checks/lane-boundary-" + lane_id + ".json")
+    workspace = registered_workspace(snapshot)
+    require(workspace is not None, "prepare and seal workspace before boundary capture")
+    sealed = verify_candidate(workspace)
+    artifact = {"version": 1, "lane_id": lane_id, "status": "captured", "base_ref": "workspace-baseline",
+                "head_ref": sealed["candidate_id"], "changed_paths": sealed["changed_paths"],
+                "tracked_changed_paths": [], "untracked_paths": [],
+                "command": "task-workspace full baseline-to-candidate inventory",
+                "workspace_id": workspace["workspace_id"], "candidate_id": sealed["candidate_id"],
+                "baseline_digest": workspace["baseline_digest"], "candidate_digest": sealed["candidate_digest"],
+                "notes": f"Full workspace boundary evidence for {lane_id}."}
+    assignment = verify_author_declaration(snapshot, declaration, lane_id=lane_id, presentation_required=False)
+    artifact.update(version=2, **declaration, assignment=assignment)
+    author_boundary_seal(snapshot, workspace, artifact)
+    path = "checks/lane-boundary-" + lane_id + ".json"
+    if snapshot.exists(path):
+        previous = json.loads(snapshot.read_text(path))
+        require(previous == artifact, "author contribution is immutable; use a new assignment for corrections")
+    return path, artifact
 
 
 def declared_paths(run_dir, lane_map, verification, *, evidence_path, confined_path, root, snapshot=None):

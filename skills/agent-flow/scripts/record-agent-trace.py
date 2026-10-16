@@ -32,7 +32,7 @@ from verification_evidence import (
     source_bound_record,
 )
 from task_workspace import registered_workspace
-from journal_io import assignment_lane, worker_start_preflight, prepare_summary, require_subagent_identity, record_event
+from journal_io import assignment_lane, worker_start_preflight, prepare_summary, require_subagent_identity, record_event, author_boundary_artifact
 
 
 
@@ -41,6 +41,13 @@ from journal_io import assignment_lane, worker_start_preflight, prepare_summary,
 def prepare_conclusion(run_dir, args, artifacts, source, *, snapshot=None):
     from journal_structure import validate_request
     sections = json.loads(capture_file(Path(args.sections_file)).decode()) if getattr(args, "sections_file", None) else []
+    authored = list(getattr(args, "authored_path", None) or [])
+    coauthors = {}
+    for item in getattr(args, "coauthor", None) or []:
+        lane, separator, path = item.partition(":")
+        require(bool(separator) and lane.strip() and path.strip(), "--coauthor requires lane:path")
+        coauthors.setdefault(path, []).append(lane)
+    author = bool(authored)
     if args.summary is not None:
         validate_request("handoff", {"summary": args.summary, "status": args.status, "lane_id": args.lane_id, "sections": sections})
     if args.status in {"blocked", "fail"}:
@@ -58,9 +65,13 @@ def prepare_conclusion(run_dir, args, artifacts, source, *, snapshot=None):
     verification = data["verification"]
     lane_path = run_dir / "lane-map.json"
     lane_map = json.loads(snapshot.read_text(lane_path)) if snapshot.exists(lane_path) else {}
-    errors = validate_verification(run_dir, data, lane_map, "pending", source, snapshot=snapshot)
+    errors = validate_verification(run_dir, data, lane_map, "pending", source, snapshot=snapshot) if not author else []
     require(not errors, "; ".join(errors))
     record = next((r for r in data["subagents"] if r.get("lane_id") == args.lane_id and r.get("role") == args.role), None)
+    role_lane = False
+    if record is None and author:
+        record = next((r for r in data.get("role_lanes", []) if r.get("lane_id") == args.lane_id and r.get("role") == args.role), None)
+        role_lane = record is not None
     require(record is not None, "prepare-conclusion requires existing role assignment")
     from verification_evidence import review_subject_kind, review_input_receipt
     preliminary = review_subject_kind(record) == "requirements-plan"
@@ -103,8 +114,13 @@ def prepare_conclusion(run_dir, args, artifacts, source, *, snapshot=None):
         require(qa is not None, "reviewer requires current accepted QA")
         require_own_reviewer_handoff(run_dir, artifacts[0], qa.get("handoff"), snapshot=snapshot)
         accepted_record(run_dir, qa, verification, "qa-verifier", source, snapshot=snapshot)
-    digest = None if preliminary else result_hash(run_dir, verification, snapshot=snapshot, require_ready=not negative) if verification.get("task_kind") == "change" else verification.get("result_hash")
-    require(preliminary or digest == verification.get("result_hash") and (negative or isinstance(digest, str)), "current result_hash is stale or missing")
+    if author:
+        # Author conclusions bind to the retained seal via the boundary artifact;
+        # the result acceptance hash belongs to QA/reviewer conclusions.
+        digest = None
+    else:
+        digest = None if preliminary else result_hash(run_dir, verification, snapshot=snapshot, require_ready=not negative) if verification.get("task_kind") == "change" else verification.get("result_hash")
+        require(preliminary or digest == verification.get("result_hash") and (negative or isinstance(digest, str)), "current result_hash is stale or missing")
     handoff = artifacts[0]
     require(not tool_documents or args.summary is not None, "readiness tool capture requires generated handoff summary")
     if args.summary is not None:
@@ -115,36 +131,73 @@ def prepare_conclusion(run_dir, args, artifacts, source, *, snapshot=None):
         validate_request("handoff", request)
         metadata = {"evidence": [{"path": path, "sha256": sha256(reference_bytes(run_dir, {"path": path}, snapshot=snapshot))} for path in artifacts[1:]], "sections": sections}
         generated = render_document("handoff", args.summary, args.status, metadata)
-        def publish(current):
-            for ref in metadata["evidence"]:
-                raw = tool_documents.get(ref["path"])
-                require(raw is None or not current.exists(ref["path"]) or current.read_bytes(ref["path"]) == raw, "readiness tool attachment changed")
-                require(sha256(raw if raw is not None else reference_bytes(run_dir, {"path": ref["path"]}, snapshot=current)) == ref["sha256"],
-                        "evidence changed while preparing conclusion: " + ref["path"])
-            current_data = json.loads(current.read_text("delegation-summary.json"))
-            current_record = next(r for r in current_data["subagents"] if r.get("lane_id") == args.lane_id)
-            require(current_record == record, "assignment changed while preparing conclusion")
-            require(not current_record.get("completion_turn_id"), "terminal conclusion is immutable")
-            current_lanes = json.loads(current.read_text("lane-map.json")) if current.exists("lane-map.json") else {}
-            errors = validate_verification(run_dir, current_data, current_lanes, "pending", source, snapshot=current)
-            require(not errors, "; ".join(errors))
-            if preliminary:
-                review_input_receipt(current, record, current=True)
-                captured_snapshot = replace(current, documents=MappingProxyType({**current.documents, **tool_documents}))
-                validate_preliminary_gates(captured_snapshot, gates, record=record, source=source, execution_required=True)
-            else:
-                require(result_hash(run_dir, current_data["verification"], snapshot=current, require_ready=not negative) == digest,
-                        "current result_hash changed while preparing conclusion")
-            return {**tool_documents, handoff: generated}, {}
-        write_entry(run_dir, "handoff", request, identifier=args.operation_id, mutation=publish)
+        if author and role_lane:
+            # Role-lane author: handoff registration and boundary capture commit in one transaction.
+            write_entry(run_dir, "handoff", request, identifier=args.operation_id,
+                        boundary={"authored_paths": authored, "coauthors": coauthors})
+        else:
+            def publish(current):
+                for ref in metadata["evidence"]:
+                    raw = tool_documents.get(ref["path"])
+                    require(raw is None or not current.exists(ref["path"]) or current.read_bytes(ref["path"]) == raw, "readiness tool attachment changed")
+                    require(sha256(raw if raw is not None else reference_bytes(run_dir, {"path": ref["path"]}, snapshot=current)) == ref["sha256"],
+                            "evidence changed while preparing conclusion: " + ref["path"])
+                current_data = json.loads(current.read_text("delegation-summary.json"))
+                current_record = next((r for group in ("subagents", "role_lanes") for r in current_data.get(group, [])
+                                       if r.get("lane_id") == args.lane_id), None) if author else \
+                    next(r for r in current_data["subagents"] if r.get("lane_id") == args.lane_id)
+                require(current_record == record, "assignment changed while preparing conclusion")
+                require(not current_record.get("completion_turn_id"), "terminal conclusion is immutable")
+                current_lanes = json.loads(current.read_text("lane-map.json")) if current.exists("lane-map.json") else {}
+                errors = validate_verification(run_dir, current_data, current_lanes, "pending", source, snapshot=current) if not author else []
+                require(not errors, "; ".join(errors))
+                if preliminary:
+                    review_input_receipt(current, record, current=True)
+                    captured_snapshot = replace(current, documents=MappingProxyType({**current.documents, **tool_documents}))
+                    validate_preliminary_gates(captured_snapshot, gates, record=record, source=source, execution_required=True)
+                else:
+                    require(author or result_hash(run_dir, current_data["verification"], snapshot=current, require_ready=not negative) == digest,
+                            "current result_hash changed while preparing conclusion")
+                documents = {**tool_documents, handoff: generated}
+                if author:
+                    declaration = {"lane_id": args.lane_id, "authored_paths": authored,
+                                   "handoff": {"path": handoff, "sha256": sha256(generated.encode())},
+                                   "edit_evidence": metadata["evidence"], "coauthors": coauthors}
+                    augmented = replace(current, documents=MappingProxyType({**current.documents,
+                        **{key: value.encode() if type(value) is str else value for key, value in documents.items()}}))
+                    boundary_path, artifact = author_boundary_artifact(augmented, args.lane_id, declaration)
+                    documents[boundary_path] = encode_json(artifact, pretty=True) + "\n"
+                return documents, {}
+            write_entry(run_dir, "handoff", request, identifier=args.operation_id,
+                        payload={"kind": "handoff", "request": request,
+                                 **({"boundary": {"authored_paths": authored, "coauthors": coauthors}} if author else {})},
+                        mutation=publish)
         snapshot = JournalSnapshot.open(run_dir)
-    text = reference_bytes(run_dir, {"path": handoff}, snapshot=snapshot).decode()
-    for path in artifacts[1:]:
-        sha = sha256(reference_bytes(run_dir, {"path": path}, snapshot=snapshot))
-        require(path in text and sha in text, "evidence reference and sha256 must appear in handoff")
+    elif author:
+        # Boundary capture over an already registered handoff; the writer computes every hash.
+        from journal_io import write_entry
+        declaration = {"lane_id": args.lane_id, "authored_paths": authored,
+                       "handoff": {"path": handoff, "sha256": sha256(reference_bytes(run_dir, {"path": handoff}, snapshot=snapshot))},
+                       "edit_evidence": [{"path": path, "sha256": sha256(reference_bytes(run_dir, {"path": path}, snapshot=snapshot))} for path in artifacts[1:]],
+                       "coauthors": coauthors}
+        boundary_path, artifact = author_boundary_artifact(snapshot, args.lane_id, declaration)
+        def publish_boundary(current):
+            current_path, current_artifact = author_boundary_artifact(current, args.lane_id, declaration)
+            require(current_artifact == artifact, "boundary inputs changed before publication")
+            return {current_path: encode_json(current_artifact, pretty=True) + "\n"}, {}
+        write_entry(run_dir, "event", {"summary": artifact["notes"], "status": "active", "stage": "boundary-captured", "role": "orchestrator"},
+                    identifier=args.operation_id, payload=artifact, mutation=publish_boundary, replay_guard=publish_boundary)
+        snapshot = JournalSnapshot.open(run_dir)
+    if not author or args.summary is not None:
+        text = reference_bytes(run_dir, {"path": handoff}, snapshot=snapshot).decode()
+        for path in artifacts[1:]:
+            sha = sha256(reference_bytes(run_dir, {"path": path}, snapshot=snapshot))
+            require(path in text and sha in text, "evidence reference and sha256 must appear in handoff")
     answer = {"verdict": "passed" if args.status == "pass" else args.status,
               "reviewed_result_hash": digest, "handoff": handoff,
               "handoff_sha256": sha256(reference_bytes(run_dir, {"path": handoff}, snapshot=snapshot))}
+    if author:
+        answer["boundary"] = "checks/lane-boundary-" + args.lane_id + ".json"
     if "review_subject" in record:
         answer["review_subject"] = record["review_subject"]
     if preliminary:
@@ -243,6 +296,10 @@ def main(argv=None, *, session_source=None) -> int:
     parser.add_argument("--verification-json", help="Verification object as JSON or a local file path.")
     parser.add_argument("--reason", help="Reason for a negative prepared conclusion.")
     parser.add_argument("--unverified", action="append", default=[], help="Unperformed check in a negative prepared conclusion.")
+    parser.add_argument("--authored-path", action="append", default=[],
+                        help="Product path authored by this lane; repeatable. Turns prepare-conclusion into an author conclusion with boundary capture.")
+    parser.add_argument("--coauthor", action="append", default=[],
+                        help="Shared authorship as lane:path; repeatable. Requires --authored-path.")
     parser.add_argument("--context-classification-json", help="Context classification conclusion JSON or private capture file.")
     parser.add_argument("--review-subject", choices=["requirements-plan", "product-result"])
     parser.add_argument("--review-source", action="append", default=[])
@@ -262,7 +319,7 @@ def main(argv=None, *, session_source=None) -> int:
         require(not args.readiness_gates_file, "readiness-gates-file requires prepare-conclusion")
     wave_supplied = args.wave is not None
     critical_supplied = args.critical is not None
-    if not args.correction_file:
+    if not args.correction_file and not args.prepare_conclusion and not args.render_final:
         snapshot = JournalSnapshot.open(Path(args.run_dir).expanduser().resolve())
         summary = json.loads(snapshot.documents.get("delegation-summary.json", b"{}"))
         registrations = [(row, mode) for group, mode in (("subagents", "subagent"), ("role_lanes", "role-lane"))
@@ -320,14 +377,17 @@ def main(argv=None, *, session_source=None) -> int:
     if args.sections_file and (not args.prepare_conclusion or args.summary is None):
         parser.error("--sections-file requires --prepare-conclusion with --summary")
     if args.prepare_conclusion or args.render_final:
-        allowed = {"--run-dir", "--render-final", "--operation-id"} if args.render_final else {"--run-dir", "--prepare-conclusion", "--role", "--lane-id", "--status", "--artifact", "--reason", "--unverified", "--context-classification-json", "--summary", "--sections-file", "--operation-id", "--readiness-gates-file"}
+        allowed = {"--run-dir", "--render-final", "--operation-id"} if args.render_final else {"--run-dir", "--prepare-conclusion", "--role", "--lane-id", "--status", "--artifact", "--reason", "--unverified", "--context-classification-json", "--summary", "--sections-file", "--operation-id", "--readiness-gates-file", "--authored-path", "--coauthor"}
         supplied = {arg.split("=", 1)[0] for arg in (argv if argv is not None else sys.argv[1:]) if arg.startswith("--")}
         if supplied - allowed:
             parser.error("incompatible parameters: " + ", ".join(sorted(supplied - allowed)))
         if args.stage or args.verification_json or args.completion_turn_id or args.resolve_session or args.codex_thread_id or args.agent_path:
             parser.error("prepare-conclusion/render-final cannot register events or verification")
-        if args.prepare_conclusion and (args.role not in {"qa-verifier", "reviewer", "reviewer.qa"} or not args.lane_id or args.status not in {"pass", "pass-with-risks", "fail", "blocked"}):
-            parser.error("prepare-conclusion requires QA/reviewer role, lane-id and explicit status")
+        if args.prepare_conclusion and (not args.lane_id or args.status not in {"pass", "pass-with-risks", "fail", "blocked"} or
+                                        (args.role not in {"qa-verifier", "reviewer", "reviewer.qa"} and not args.authored_path)):
+            parser.error("prepare-conclusion requires QA/reviewer role, lane-id and explicit status; author lanes require --authored-path")
+        if args.coauthor and not args.authored_path:
+            parser.error("--coauthor requires --authored-path")
         if args.render_final and (args.role or args.status or args.lane_id or args.artifact):
             parser.error("render-final accepts only --run-dir")
         run_dir = Path(args.run_dir).expanduser().resolve()
@@ -369,10 +429,10 @@ def main(argv=None, *, session_source=None) -> int:
         return 0
     if not all((args.role, args.status, args.stage, args.summary)):
         parser.error("ordinary registration requires --role, --status, --stage and --summary")
-    if args.reason or args.unverified or args.context_classification_json:
-        parser.error("reason/unverified/context-classification-json require --prepare-conclusion")
+    if args.reason or args.unverified or args.context_classification_json or args.authored_path or args.coauthor:
+        parser.error("reason/unverified/context-classification-json/authored-path/coauthor require --prepare-conclusion")
     # Prepare-only fields never enter ordinary recorder receipts/correction payloads.
-    for key in ("reason", "unverified", "context_classification_json"):
+    for key in ("reason", "unverified", "context_classification_json", "authored_path", "coauthor"):
         delattr(args, key)
 
     if args.resolve_session:
