@@ -452,7 +452,7 @@ def main(argv=None, *, session_source=None) -> int:
             lane_map = json.loads(snapshot.read_text("lane-map.json"))
             lane = next(row for row in lane_map["lanes"] if row["id"] == args.lane_id)
         summary = json.loads(snapshot.documents.get("delegation-summary.json", b"{}"))
-        verification = json.loads(args.verification_json) if args.verification_json else summary.get("verification", {})
+        verification = {**summary.get("verification", {}), **json.loads(args.verification_json)} if args.verification_json else summary.get("verification", {})
         worker_start_preflight(snapshot, lane_map, lane, verification, args)
         snapshot = ensure_result_contract(run_dir, session_source)
     except (EvidenceError, OSError, ValueError) as exc:

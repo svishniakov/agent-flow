@@ -787,10 +787,9 @@ class AnalysisCompletionTests(unittest.TestCase):
         for value in (None, "", "g" * 64, "b" * 63, "b" * 65, "b" * 64, "missing"):
             with self.subTest(current=value):
                 verification = deepcopy(self.verification)
-                if value == "missing":
-                    del verification["result_hash"]
-                else:
-                    verification["result_hash"] = value
+                # Patch semantics: omitting a key inherits the stored value, so the
+                # negative "missing hash" input is an explicit null.
+                verification["result_hash"] = None if value == "missing" else value
                 self.unchanged_failure([*args, "--verification-json", json.dumps(verification)],
                                        "does not match current result")
         # Equal invalid hashes must fail the source shape check before equality.
@@ -810,10 +809,9 @@ class AnalysisCompletionTests(unittest.TestCase):
         _, _, args = self.assignment()
         for kind in (None, "missing", "unknown", "change"):
             verification = deepcopy(self.verification)
-            if kind == "missing":
-                del verification["task_kind"]
-            else:
-                verification["task_kind"] = kind
+            # Patch semantics: omitting a key inherits the stored value, so the
+            # negative "missing kind" input is an explicit null.
+            verification["task_kind"] = None if kind == "missing" else kind
             self.unchanged_failure([*args, "--verification-json", json.dumps(verification)])
         self.cli("task-workspace.py", "--run-dir", str(self.run), "prepare", "--source", str(self.root),
                  "--destination", str(self.root.parent / "workspace"))

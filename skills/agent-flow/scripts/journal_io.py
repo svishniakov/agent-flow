@@ -2392,6 +2392,13 @@ def worker_start_preflight(snapshot, lane_map, lane, verification, args):
     verification["author_thread_ids"] = list(dict.fromkeys([*verification.get("author_thread_ids", []), author]))
 
 
+VERIFICATION_PATCH_FIELDS = frozenset({
+    "task_kind", "root_thread_id", "author_thread_ids", "result_files", "initial_snapshot",
+    "task_scope", "qa", "reviewer", "result_hash", "behavioral_checks", "delivery_scope",
+    "blocker", "unverified", "run_changed_files",
+})
+
+
 def prepare_summary(run_dir: Path, args, artifact_paths: list[str], source, *, snapshot=None) -> tuple[dict | None, dict]:
     from verification_evidence import EvidenceError, completed_turn, empty_verification, reference_bytes, result_hash, sha256, validate_verification, resolve_completion, completion_follows, validate_summary_shape, changed_paths, accepted_record, require_own_reviewer_handoff, require_workspace_or_historical, historical_result_hash, SHA256, delivery_scope
     from task_workspace import registered_workspace
@@ -2414,10 +2421,16 @@ def prepare_summary(run_dir: Path, args, artifact_paths: list[str], source, *, s
         raw = args.verification_json
         if not raw.lstrip().startswith("{"):
             raw = Path(raw).expanduser().read_text()
-        verification = json.loads(raw)
-        if not isinstance(verification, dict):
+        patch = json.loads(raw)
+        if not isinstance(patch, dict):
             raise EvidenceError("--verification-json must contain the verification object")
-        data["verification"] = verification
+        unknown = sorted(set(patch) - VERIFICATION_PATCH_FIELDS)
+        if unknown:
+            raise EvidenceError("--verification-json unknown fields: " + ", ".join(unknown))
+        current = data.get("verification")
+        if not isinstance(current, dict):
+            raise EvidenceError("verification must be an object")
+        data["verification"] = {**current, **patch}
     verification = data.get("verification")
     if not isinstance(verification, dict):
         raise EvidenceError("verification must be an object")

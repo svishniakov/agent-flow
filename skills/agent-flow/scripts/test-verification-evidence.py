@@ -433,6 +433,63 @@ class OriginalRegressions(unittest.TestCase):
 
 
 class EvidenceRegressions(unittest.TestCase):
+    def test_verification_json_is_a_shallow_patch_and_derived_fields_recompute(self):
+        timeline = self.run / "timeline.jsonl"
+        timeline.write_text("\n".join(line for line in timeline.read_text().splitlines() if json.loads(line).get("stage") != "final") + "\n")
+        initialize_open_fixture(self.run)
+        workspace_pack(self)
+        recorder = module("verification_patch_recorder", "record-agent-trace.py")
+
+        def record(patch):
+            with redirect_stdout(StringIO()):
+                self.assertEqual(recorder.main(["--run-dir", str(self.run), "--role", "orchestrator",
+                    "--execution-mode", "role-lane", "--stage", "verification-prepared", "--status", "active",
+                    "--summary", "Verification patch", "--verification-json", json.dumps(patch)],
+                    session_source=self.source), 0)
+
+        def current():
+            return json.loads(JournalSnapshot.open(self.run).read_text("delegation-summary.json"))["verification"]
+
+        # A complete object remains a valid patch.
+        record(self.summary["verification"])
+        base = current()
+        self.assertEqual(base["task_kind"], "change")
+        self.assertEqual(base["root_thread_id"], ROOT_ID)
+        base_hash = base["result_hash"]
+        self.assertTrue(base_hash)
+
+        # (a) A single-field patch preserves every absent field.
+        record({"unverified": ["pending QA run"]})
+        merged = current()
+        for field in ("task_kind", "root_thread_id", "author_thread_ids", "result_files",
+                      "initial_snapshot", "task_scope", "qa", "reviewer", "result_hash"):
+            self.assertEqual(merged[field], base[field], field)
+        self.assertEqual(merged["unverified"], ["pending QA run"])
+
+        # (b) A supplied field is replaced wholesale (shallow, not deep).
+        record({"unverified": ["pending reviewer run"]})
+        self.assertEqual(current()["unverified"], ["pending reviewer run"])
+
+        # (d) Stale derived fields in the patch are recomputed by the writer.
+        stale = "0" * 64
+        self.assertNotEqual(base_hash, stale)
+        record({"result_hash": stale, "result_files": ["bogus.txt"]})
+        recomputed = current()
+        self.assertEqual(recomputed["result_hash"], base_hash)
+        self.assertEqual(recomputed["result_files"], base["result_files"])
+
+        # (c) An unknown field is rejected without mutating the journal.
+        before = JournalSnapshot.open(self.run)
+        before_documents = dict(before.documents)
+        with self.assertRaisesRegex(SystemExit, "unknown fields"):
+            with redirect_stdout(StringIO()):
+                recorder.main(["--run-dir", str(self.run), "--role", "orchestrator",
+                    "--execution-mode", "role-lane", "--stage", "verification-prepared", "--status", "active",
+                    "--summary", "Unknown verification field", "--verification-json",
+                    json.dumps({"verification_extra": "not a declared field"})], session_source=self.source)
+        after = JournalSnapshot.open(self.run)
+        self.assertEqual((before.revision, before_documents), (after.revision, dict(after.documents)))
+
     def test_draft_missing_required_boundary_validates_every_present_proof(self):
         from dataclasses import replace
         timeline = self.run / "timeline.jsonl"
