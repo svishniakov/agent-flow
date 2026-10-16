@@ -619,6 +619,16 @@ silently mixing user work with run-owned changes.
 
 ## Validation
 
+Gate names in this document are the seven contours:
+Architecture Gate (входит в: Architecture Contract Gate, Architecture Design Mode, Architecture Capability Router, Architecture Context Propagation, Architecture Execution Control, Architecture Approval Gate),
+Simplicity Gate (входит в: Engineering Simplicity Gate, Simplicity Scope Coverage),
+Lane Boundary Gate (входит в: Lane Boundary Evidence Gate),
+Contract Evidence Gate (входит в: Claim Evidence Gate, Acceptance Criteria Traceability Gate, Surface Evidence Gate, Contract Negative Fixture Gate),
+Verification Readiness Gate,
+Risk Lifecycle Gate (входит в: Mitigation Gate, Resolution Gate, Blocked Resolution Gate),
+and Flow Integrity Gate (входит в: Delegation Trace Gate, Handoff State Gate, Mandatory Independent QA Review Gate, Continuation Gate).
+Harness Evaluation Loop stays a separate loop, not one of the seven.
+
 Run `scripts/validate-run.py --run-dir <run-dir>` before final handoff. By default it fails pending verdicts, missing check files, invalid JSON, and incomplete timeline events. Use `--allow-pending` or `--allow-no-check` only for early structural checks, not final handoff.
 
 Validation remains backward compatible with no-subagent runs: `agents/` is not required. If `agents/<role>/` exists, `timeline.jsonl` and `trace.jsonl` are required. Agent trace files are checked with the same minimum event schema as `timeline.jsonl`, and every agent trace event must also be present in the run-level timeline.
@@ -632,17 +642,16 @@ If `lane-map.json` exists, validation also checks the Lane Sharding contract:
 - successful critical lanes point to existing handoff and evidence artifacts;
 - a timed-out critical lane points to an existing replacement lane whose status is `pass` or `pass-with-risks`;
 - регистрация таймаута назначения: `python3 "$AF_PACKAGE/scripts/record-agent-trace.py" --run-dir <run-dir> --lane-id <lane-id> --stage timed-out --status timed-out --summary <причина>`; обязанность назначения остаётся открытой, пока replacement lane не принят со статусом `pass` или `pass-with-risks`;
-- a `subagent` lane with active or successful status has a matching spawned trace event with `codex_thread_id`;
-- a successful `subagent` lane also has a terminal handoff trace event with the same lane id and handoff artifact;
+- a `subagent` lane with active or successful status has a matching spawned trace event with `codex_thread_id`, and a successful `subagent` lane has a terminal handoff trace event with the same lane id and handoff artifact (see [Per-Agent Trace Events](#per-agent-trace-events));
 - `role-lane` entries do not require a `codex_thread_id`;
 - schema v2 positive lane-map runs require `delegation-summary.json` and a final `Delegation Trace` section;
-- Handoff State Gate is unconditional for durable lane-map runs: the writer projects `handoff_state` at every assignment event, terminal lane status must match handoff state, handoff paths must match, timestamps must be ordered, and batch items must be completed before batch acceptance;
-- Mandatory Independent QA Review Gate требует для `change` два отдельных назначения: `qa-verifier` проверяет результат, `reviewer` проверяет его и доказательства QA. Оба работают как реальные дочерние сессии текущего root; их IDs отличаются от IDs авторов. Модели берутся из действующих файлов ролей через `agent_config`. `reviewer.qa` допустим только как имя назначения канонического `reviewer`; QA под этим именем не заменяет reviewer.
-- role-lane-only reviewer evidence is rejected when Mandatory Independent QA Review Gate applies;
+- Flow Integrity Gate handoff state rules for durable lane-map runs: see [Flow Integrity Gate: Handoff State Projection](#flow-integrity-gate-handoff-state-projection);
+- Flow Integrity Gate mandatory independent QA review требует для `change` два отдельных назначения — см. [Flow Integrity Gate: Mandatory Independent QA Review](#flow-integrity-gate-mandatory-independent-qa-review);
+- role-lane-only reviewer evidence is rejected when the mandatory independent QA review applies;
 - При недоступности запуска или исходной сессии записать причину в `verification.blocker` и завершить `blocked` или `fail`; успешные доказательства не выдумывать.
 - `Verdict: ship` is rejected while a local critical lane is unresolved, failed, blocked, or missing replacement evidence. Explicit external follow-up retains its actual outcome and coverage.
 
-## Delegation Trace Gate
+## Flow Integrity Gate
 
 Для любого положительного итога требуется `delegation-summary.json` версии 1.
 Ниже показаны поля назначений; объект `verification` описан далее и обязателен
@@ -658,7 +667,7 @@ If `lane-map.json` exists, validation also checks the Lane Sharding contract:
     {
       "lane_id": "architecture-contract",
       "role": "architect",
-      "reason": "Architecture Contract Gate executed as role-lane."
+      "reason": "Architecture Gate executed as role-lane."
     }
   ],
   "notes": "No spawned subagents were used. Role lanes are not subagent execution."
@@ -672,9 +681,9 @@ must not claim sidecar/subagent work. If a real subagent was used, the summary
 must point to `agents/<role>/trace.jsonl`, the lane handoff, and the matching
 `codex_thread_id`.
 
-## Handoff State Gate
+## Flow Integrity Gate: Handoff State Projection
 
-Handoff State Gate keeps lane handoff lifecycle state in `lane-map.json`. It is
+The handoff state projection keeps lane handoff lifecycle state in `lane-map.json`. It is
 unconditional for durable lane-map runs; flat fixtures keep it flag-gated. The
 `handoff_state_required` flag stays readable for older lane maps, but
 `init-run.py` no longer sets it and no opt-in is needed.
@@ -715,7 +724,7 @@ A `pass` or `pass-with-risks` lane requires `completed`; `blocked` requires
 `blocked`; `fail` requires `failed`. Timeline and per-agent traces come from
 `record-agent-trace.py`; the projection never replaces those events.
 
-## Mandatory Independent QA Review Gate
+## Flow Integrity Gate: Mandatory Independent QA Review
 
 После изменения кода, tests, PRD, планов, runtime docs или шаблонов нужны два
 отдельных назначения. `qa-verifier` проверяет результат, `reviewer` проверяет
@@ -728,7 +737,7 @@ A `pass` or `pass-with-risks` lane requires `completed`; `blocked` requires
 Ожидаемые модели читает `agent_config` из действующих файлов ролей. Роль из
 самоотчёта, событие `spawned` и role-lane сами по себе не доказывают исполнение.
 
-`delegation-summary.json` остаётся версии 1. Его `subagents` содержит обычные
+`delegation-summary.json` `subagents` содержит обычные
 записи с `lane_id`, `role`, `codex_thread_id`, `trace` и `handoff`. В compact
 `lane_id` служит стабильным ID назначения без lane-map. Если lane-map существует,
 сохраняются проверки покрытия, роли, режима исполнения и успешного статуса lane.
@@ -915,15 +924,13 @@ exit code и статус. Неудачная команда остаётся fa
 Результат — `checks/lane-boundary-worker-a.json` version 2.
 `authored_paths` проверяется по delta собственного seal и различиям с предыдущими
 сохранёнными seals: это позволяет записать удаление или возврат к baseline.
-Permissions проверяются через `fnmatch.fnmatchcase` по собственному вкладу.
-Каждый актуальный изменённый файл должен совпадать с последним зарегистрированным
-вкладом в этот путь. Обычные родительские каталоги учитываются кодом; самостоятельные
-пустые каталоги, изменения mode или типа пути требуют явного вклада. Незаявленная правка,
-путь вне сохранённых изменений, stale/forged handoff и запрещённый вклад блокируют приёмку.
-Записанную декларацию нельзя перепривязать к новому seal; исправление получает новое
-назначение. Старые handoffs и исходные доказательства не меняются. Root как автор тоже
-предъявляет декларацию. Permissions filter общего diff не доказывает авторство.
-QA сверяет вклад с edit evidence; reviewer проверяет эту сверку.
+Незаявленная правка, путь вне сохранённых изменений, stale/forged handoff и
+запрещённый вклад блокируют приёмку; исправление получает новое назначение.
+Root как автор тоже предъявляет декларацию. Permissions filter общего diff не
+доказывает авторство. QA сверяет вклад с edit evidence; reviewer проверяет эту
+сверку. Полный контракт проверок (fnmatch по вкладу, последний вклад на путь,
+родительские каталоги, связь с seal, неизменность доказательств):
+[Lane Boundary Gate](#lane-boundary-gate).
 
 Registered приёмка при действующем boundary gate требует v2, включая
 единственного автора: его handoff явно подтверждает весь delta теми же evidence.
@@ -940,6 +947,12 @@ mapped implementation/integration lanes и явные product stages или пр
 пути противоречат классификации analysis.
 
 ### Запись и собственный итог проверяющего
+
+Назначение записывается тремя checkpoint с разной временной семантикой, а не
+лишними вызовами: `spawned` — admission до dispatch; `--prepare-conclusion` —
+writer-заключение внутри субагента; связывающий `handoff` — регистрация по
+исходной сессии после завершения хода. Слияние разрушило бы admission-гейтинг
+и окно однозначности между подготовкой и завершением.
 
 `AF_PACKAGE` ниже обозначает фактически загруженный каталог skill, `AF_PROJECT` -
 рабочий проект, `AF_RUN` - путь, возвращённый init. Для изолированной проверки
@@ -1706,7 +1719,7 @@ handoff должен отказать до записи; исправление 
 при успешных Python tests. При недоступности среды или строгих входов фиксируется
 точный blocker; другая модель, API и сброс подписки не заменяют проверку.
 
-Schema v2 adds the Architecture Contract Gate:
+## Architecture Gate
 
 - `budget` is required and must be `standard` or `release`;
 - `architecture_contract_required` is a boolean;
@@ -1719,8 +1732,8 @@ Schema v2 adds the Architecture Contract Gate:
 - `validate-run.py` parses allowed Architecture Matrix facets from the markdown source of truth, not from duplicated constants;
 - when `architecture_contract_required` is true, `architecture_capabilities` is required and must include a non-empty `selected` array and non-empty `notes`;
 - selected `architecture_capabilities` must exist in `registries/architecture-capabilities.json` and must cover every selected `architecture_context` facet;
-- Architecture Capability Router uses Soft Skill Binding: registry `recommended_skills` are checked by `validate-architecture-capabilities.py`, but do not block individual runtime validation;
-- Architecture Design Mode runs before implementation when `architecture_contract_required=true`;
+- Architecture Gate capability routing uses Soft Skill Binding: registry `recommended_skills` are checked by `validate-architecture-capabilities.py`, but do not block individual runtime validation;
+- Architecture Gate design mode runs before implementation when `architecture_contract_required=true`;
 - `init-run.py --architecture-gate` создаёт planned lanes и контекст; Architecture Design Brief, contract, handoffs и proof records появляются из содержательных записей writer по мере выполнения работы;
 - init не создаёт `TODO(agent):` proof rows или фиктивные approvals; неизвестные данные остаются незакрытыми, а required gates блокируют начало работы и успешный final;
 - positive final verdicts, `ship` and `pass-with-risks`, are blocked while any architecture artifact referenced from `lane-map.json` still contains `TODO(agent):`;
@@ -1732,22 +1745,27 @@ Schema v2 adds the Architecture Contract Gate:
 - the architecture handoff `Selected Architecture` section must include every selected `architecture_context` facet id and every selected `architecture_capabilities` id;
 - final `ship` requires a successful architecture lane with handoff and evidence;
 - the successful architecture handoff must include these headings: `Selected Architecture`, `Rejected Alternatives`, `Module Boundaries`, `Data And State Flow`, `Public Contracts`, `Worker Ownership`, `Forbidden Changes`, `QA Gates`, `Reviewer Checklist`, and `Stop Conditions`;
-- positive architecture-gated runs with QA and reviewer lanes require Claim Evidence Gate: the architecture handoff `QA Gates` and `Reviewer Checklist` sections must contain `Claim Evidence` ids, and the run root must include `claim-evidence.json`;
+- failed, blocked, or timed-out architecture lanes block `ship`;
+- reviewer and QA lanes may pass only after the architecture contract passes;
+- when `architecture_contract_independent` is true, the architecture lane must use `subagent` execution with spawned trace evidence.
+
+## Contract Evidence Gate
+
+The contour keeps two artifacts: `claim-evidence.json` and `acceptance-traceability.json`.
+
+- positive architecture-gated runs with QA and reviewer lanes require Contract Evidence Gate: the architecture handoff `QA Gates` and `Reviewer Checklist` sections must contain `Claim Evidence` ids, and the run root must include `claim-evidence.json`;
 - `claim-evidence.json` uses `version=1` and a non-empty `claims` array; every claim id is unique kebab-case and every required contract claim id has a record;
 - each claim record names `owner_lane`, `reviewed_by`, owner handoff `section`, `status`, `claim`, `subjects`, and evidence entries with literal `markers`;
 - for `supported`, `owner_lane` must be a successful QA or review lane, `reviewed_by` must be a successful review lane, the owner handoff section must mention the claim id, and every marker must appear in the referenced evidence file;
 - positive verdicts require `status=supported` for local claims; an explicitly scoped external claim may remain `gap`, with its structure and supplied evidence checked;
 - a negative `gap` may lack successful owner/reviewer and complete evidence coverage; every supplied lane, reference and marker still undergoes structural and integrity checks;
-- positive architecture-gated runs require Acceptance Criteria Traceability Gate: the architecture handoff `QA Gates` and `Reviewer Checklist` sections must contain `Acceptance Criteria` ids, and the run root must include `acceptance-traceability.json`;
+- positive architecture-gated runs require Contract Evidence Gate: the architecture handoff `QA Gates` and `Reviewer Checklist` sections must contain `Acceptance Criteria` ids, and the run root must include `acceptance-traceability.json`;
 - `acceptance-traceability.json` uses `version=1` and a non-empty `acceptance` array; every acceptance id is unique kebab-case and every required contract acceptance id has a record;
 - each acceptance record names `source`, `requirement`, `subjects`, `contract_types`, `status`, `surface_expectations`, and evidence entries with literal `markers`;
-- Surface Evidence Gate requires each `surface_expectations` item to name `surface`, `polarity`, and allowed `proof_kinds`; each `evidence` or `negative_fixture_evidence` record names matching `surface`, `polarity`, and `proof_kind`, and only a matching record can cover that expectation;
+- Contract Evidence Gate requires each `surface_expectations` item to name `surface`, `polarity`, and allowed `proof_kinds`; each `evidence` or `negative_fixture_evidence` record names matching `surface`, `polarity`, and `proof_kind`, and only a matching record can cover that expectation;
 - storage or other internal evidence cannot satisfy API, UI, logs, history, provider metadata, or external-provider acceptance unless the target `surface` matches exactly;
 - positive verdicts require every local acceptance record to use `status=supported`, every supplied marker must appear in its evidence file, every local `surface_expectations` item must have matching evidence, and every required local acceptance id must have evidence; explicitly scoped external gaps remain open;
-- Contract Negative Fixture Gate applies to supported acceptance records marked `gate`, `cli`, `query`, `storage`, `config`, or `parser`; those records must include `negative_fixture_evidence` with at least one evidence path and literal marker for a negative or drift fixture, and `negative_fixture_evidence` cannot use `polarity=positive`. A `gap` in a blocked/fail final may leave target coverage incomplete;
-- failed, blocked, or timed-out architecture lanes block `ship`;
-- reviewer and QA lanes may pass only after the architecture contract passes;
-- when `architecture_contract_independent` is true, the architecture lane must use `subagent` execution with spawned trace evidence.
+- Contract Evidence Gate applies to supported acceptance records marked `gate`, `cli`, `query`, `storage`, `config`, or `parser`; those records must include `negative_fixture_evidence` with at least one evidence path and literal marker for a negative or drift fixture, and `negative_fixture_evidence` cannot use `polarity=positive`. A `gap` in a blocked/fail final may leave target coverage incomplete;
 
 ## Verification Readiness Gate
 
@@ -1800,7 +1818,7 @@ Approval и execution остаются разными фактами. Следу
   describes local gates under delivery_scope. Blocked required local verification
   forces QA `blocked`; external follow-up rows retain their actual outcomes.
 
-## Continuation Gate
+## Flow Integrity Gate: Continuation
 
 When a same-run continuation resumes after a blocked checkpoint, do not rewrite
 the old order as if the new gate had existed from the start. If `timeline.jsonl`
@@ -1887,24 +1905,47 @@ Architecture Matrix, capability registry, role prompts, validator guards, and
 Golden Trace Runs remain canonical runtime artifacts and are not promotion
 targets for project traces.
 
-Schema v2 also enforces Architecture Execution Control and Engineering Simplicity Gate when
-`architecture_contract_required=true`:
+## Architecture Gate: Execution Control
+
+Applied when `architecture_contract_required=true`:
 
 - successful `implementation` and `integration` lanes must include
   `architecture_compliance` with `status`, `contract_sections`, `notes`, and
   optional `recheck_lane`;
 - `architecture_compliance.status` must be `compliant` or `drift`;
 - `contract_sections` must name existing Architecture Contract sections;
-- Architecture Context Propagation requires
+- Architecture Gate context propagation requires
   `architecture_compliance.matrix_facets` as a non-empty selected
   `architecture_context` subset for each successful worker lane;
 - `architecture_compliance.engineering_simplicity` is required for every
   successful worker lane, with status `pass`, `fixed`, or `drift`;
+- successful worker handoffs must include `Architecture Compliance` and
+  `Engineering Simplicity`;
+- worker `Architecture Compliance` sections must include every facet id declared
+  in `architecture_compliance.matrix_facets`;
+- `compliant` worker lanes must not set `recheck_lane`;
+- architecture or simplicity drift blocks `ship` and `pass-with-risks` until
+  `recheck_lane` points to a later, successful, critical `architecture` lane
+  with contract handoff and evidence;
+- when worker lanes exist, final `ship` requires successful QA and reviewer lanes;
+- QA must pass after workers and any architecture re-check, and QA handoff must
+  include `Architecture Invariants` with every selected `risk_gates` and
+  `verification_gates` facet;
+- reviewer must pass after architecture, workers, and QA, and reviewer handoff
+  must include `Architecture Matrix Mismatches` and `Contract Drift` covering
+  every selected `architecture_context` facet and selected
+  `architecture_capabilities` id; `Contract Drift` must cover Engineering
+  Simplicity.
+
+## Simplicity Gate
+
+For positive architecture-gated runs with worker lanes:
+
 - `engineering_simplicity.checks` must include `no-extra-work`,
   `stdlib-native-first`, `existing-helper-first`, `dependency-justified`,
   `abstraction-justified`, `smallest-working-diff`, and `tests-fit-risk`;
 - Simplicity Gate is not a reporting gate: fix now if fixable;
-- Simplicity Scope Coverage prevents peripheral-only closure: positive
+- Simplicity Gate scope coverage prevents peripheral-only closure: positive
   architecture-gated runs with worker lanes must include
   `engineering_simplicity_scope` with non-empty unique kebab-case
   `primary_surfaces`, optional `secondary_surfaces`, evidence, and notes;
@@ -1929,9 +1970,16 @@ Schema v2 also enforces Architecture Execution Control and Engineering Simplicit
   closure;
 - retained dependency or abstraction in Engineering Simplicity notes/actions
   must cite a selected `architecture_capabilities` id;
-- successful worker handoffs must include `Architecture Compliance` and
-  `Engineering Simplicity`;
-- Lane Boundary Evidence Gate applies to schema v2 positive architecture-gated
+- reviewer `Contract Drift` must reject reporting-only simplicity closure and
+  mention `Engineering Simplicity` plus every fixed worker lane id;
+- QA handoff must include `Engineering Simplicity Scope` and every primary
+  surface; reviewer `Contract Drift` must mention every primary surface and
+  reject peripheral-only closure; final `Engineering Simplicity` must mention
+  every primary surface;
+
+## Lane Boundary Gate
+
+- Lane Boundary Gate applies to schema v2 positive architecture-gated
   runs with successful worker lanes: every successful `implementation` or
   `integration` lane must include `boundary.allowed_paths`, optional
   `boundary.forbidden_paths`, `boundary.changed_paths_artifact`, and notes;
@@ -1957,29 +2005,10 @@ Schema v2 also enforces Architecture Execution Control and Engineering Simplicit
 - worker handoffs must include `Boundary Evidence`; QA `Architecture
   Invariants`, reviewer `Contract Drift`, and final `Boundary Evidence` must
   mention every successful worker lane id;
-- reviewer `Contract Drift` must reject reporting-only simplicity closure and
-  mention `Engineering Simplicity` plus every fixed worker lane id;
-- QA handoff must include `Engineering Simplicity Scope` and every primary
-  surface; reviewer `Contract Drift` must mention every primary surface and
-  reject peripheral-only closure; final `Engineering Simplicity` must mention
-  every primary surface;
-- worker `Architecture Compliance` sections must include every facet id declared
-  in `architecture_compliance.matrix_facets`;
-- `compliant` worker lanes must not set `recheck_lane`;
-- architecture or simplicity drift blocks `ship` and `pass-with-risks` until
-  `recheck_lane` points to a later, successful, critical `architecture` lane
-  with contract handoff and evidence;
-- when worker lanes exist, final `ship` requires successful QA and reviewer lanes;
-- QA must pass after workers and any architecture re-check, and QA handoff must
-  include `Architecture Invariants` with every selected `risk_gates` and
-  `verification_gates` facet;
-- reviewer must pass after architecture, workers, and QA, and reviewer handoff
-  must include `Architecture Matrix Mismatches` and `Contract Drift` covering
-  every selected `architecture_context` facet and selected
-  `architecture_capabilities` id; `Contract Drift` must cover Engineering
-  Simplicity.
 
-Mitigation Gate applies to every traceable run with `Verdict: pass-with-risks`:
+## Risk Lifecycle Gate
+
+Risk Lifecycle Gate mitigation step applies to every traceable run with `Verdict: pass-with-risks`:
 
 With delivery_scope, the outcome requirements below apply to local risk IDs.
 Explicit external risk records retain their actual status and supplied evidence,
@@ -1997,7 +2026,7 @@ Structure, references and evidence integrity still apply to every record.
 - when `lane-map.json` exists, `detected_by` and `owner_lane` must reference existing lane ids;
 - when `lane-map.json` exists, a successful reviewer lane must include `Risk Mitigation Review` and every risk id.
 
-Resolution Gate follows Mitigation Gate for every traceable run with `Verdict: pass-with-risks`:
+The Risk Lifecycle Gate resolution step follows mitigation for every traceable run with `Verdict: pass-with-risks`:
 
 - `risk-resolutions.json` is required at the run root;
 - `risk-resolutions.json` must use `version=1` and a non-empty `resolutions` array;
@@ -2016,7 +2045,7 @@ Resolution Gate follows Mitigation Gate for every traceable run with `Verdict: p
 - when `lane-map.json` exists, QA handoff must include `Risk Resolution Verification` and every risk id;
 - when `lane-map.json` exists, reviewer handoff must include `Risk Resolution Review` and every risk id.
 
-Blocked Resolution Gate is part of Resolution Gate and uses the same `risk-resolutions.json` artifact:
+The blocked-resolution step of Risk Lifecycle Gate uses the same `risk-resolutions.json` artifact:
 
 - flat resolution records remain valid when no blocked recovery is needed;
 - when `attempts` is present, attempt numbers must be contiguous from `1`, at most three attempts are allowed, and statuses must be `fixed`, `mitigated`, `contained`, `blocked`, or `unresolved`;
@@ -2028,6 +2057,8 @@ Blocked Resolution Gate is part of Resolution Gate and uses the same `risk-resol
 - architect recovery lanes use `type=architecture`, `role=architect`, `critical=false`, successful status, `Resolution Architect Review`, and the worker instruction;
 - supervising architect recovery lanes use `type=architecture`, `role=supervising-architect`, `critical=false`, successful status, `Supervising Architect Review`, and the final retry instruction or final blocker;
 - a third blocked attempt forces final `blocked` or `fail`; it cannot close as `pass-with-risks`.
+
+## Final Handoff Checks
 
 For final handoff, `validate-run.py` also requires:
 
@@ -2078,10 +2109,9 @@ fix. The final timeline should make the actual sequence readable without
 opening chat history.
 
 One final orchestrator event per lifecycle generation is required before final
-handoff. `journal.py finalize` creates it after the applicable prospective acceptance check;
-call the command described in «Финальная команда и завершение задачи» above.
-Do not append this event manually. Archived generations retain their original
-final events and verdicts.
+handoff — see [Final Handoff Checks](#final-handoff-checks). Do not append this
+event manually. Archived generations retain their original final events and
+verdicts.
 
 If a product commit was created, record its event before finalization. The
 request JSON carries `stage: commit`, `role: orchestrator`, caller status,

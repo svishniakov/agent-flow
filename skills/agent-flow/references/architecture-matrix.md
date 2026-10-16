@@ -5,7 +5,7 @@ facets. It is not a project profile catalog and does not create one architect
 per repository. Source projects may inform the matrix, but handoffs use neutral
 facet names.
 
-Use the matrix when the Architecture Contract Gate applies and product type,
+Use the matrix when the Architecture Gate (входит в: Architecture Contract Gate, Architecture Design Mode, Architecture Capability Router, Architecture Context Propagation, Architecture Execution Control, Architecture Approval Gate) applies and product type,
 application surface, stack, or risk changes the architecture constraints.
 
 ## Router

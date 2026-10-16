@@ -4,7 +4,7 @@ Document status: done
 
 Use this reference when Agent Flow creates or materially revises an implementation plan, whether the user asks for the plan directly or another flow reaches the implementation-plan step.
 
-This is a prompt-level contract. It adds no selector, registry, runtime stage picker, plan state machine, Markdown parser, JSON artifact, public mode, lane type, execution gate, Architecture Capability Router change, role frontmatter change, `agent-skills.json` change, `recommended_skills` change, testing-only stage, per-stage rollback, or fixed upper limit on stage count.
+This is a prompt-level contract. It adds no selector, registry, runtime stage picker, plan state machine, Markdown parser, JSON artifact, public mode, lane type, execution gate, Architecture Gate (входит в: Architecture Contract Gate, Architecture Design Mode, Architecture Capability Router, Architecture Context Propagation, Architecture Execution Control, Architecture Approval Gate) capability routing change, role frontmatter change, `agent-skills.json` change, `recommended_skills` change, testing-only stage, per-stage rollback, or fixed upper limit on stage count.
 
 ## Goal
 

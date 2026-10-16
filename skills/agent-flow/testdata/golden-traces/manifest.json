@@ -151,7 +151,7 @@
       "path": "invalid/handoff-state-missing-state",
       "mode": "full",
       "expected": "fail",
-      "expected_error": "missing handoff_state for Handoff State Gate",
+      "expected_error": "missing handoff_state",
       "covers": [
         "Handoff State Gate",
         "handoff_state_required",

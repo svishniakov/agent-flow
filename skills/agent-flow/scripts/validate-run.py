@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate traceable runs, Architecture Capability Router, Architecture Artifact Authoring Automation, Acceptance Criteria Traceability Gate, Surface Evidence Gate, Contract Negative Fixture Gate, Claim Evidence Gate, Lane Boundary Evidence Gate, Handoff State Gate, `boundary.allowed_paths`, `boundary.forbidden_paths`, `changed_paths_artifact`, and Harness Evaluation Loop gates."""
+"""Validate traceable runs, Architecture Gate, Architecture Artifact Authoring Automation, Contract Evidence Gate, Lane Boundary Gate, Simplicity Gate, Verification Readiness Gate, Risk Lifecycle Gate, Flow Integrity Gate, `boundary.allowed_paths`, `boundary.forbidden_paths`, `changed_paths_artifact`, and Harness Evaluation Loop gates."""
 
 from __future__ import annotations
 
@@ -891,7 +891,7 @@ def validate_handoff_states(
         raw_state = lane.get(HANDOFF_STATE_FIELD)
         if raw_state is None:
             if required:
-                errors.append(f"lane-map.json: lane {label} missing handoff_state for Handoff State Gate")
+                errors.append(f"lane-map.json: lane {label} missing handoff_state")
             continue
         if not isinstance(raw_state, dict):
             errors.append(f"lane-map.json: lane {label} handoff_state must be an object")
@@ -1810,7 +1810,7 @@ def validate_recovery_handoff(
     errors: list[str] = []
     handoff = lane.get("handoff")
     if not isinstance(handoff, str) or not handoff:
-        errors.append(f"lane-map.json: lane {lane_id} requires handoff for Blocked Resolution Gate")
+        errors.append(f"lane-map.json: lane {lane_id} requires handoff for Risk Lifecycle Gate")
         return errors
     handoff_path = resolve_run_path(run_dir, handoff)
     for missing in missing_markdown_headings(handoff_path, [section], snapshot=snapshot):
@@ -2388,7 +2388,7 @@ def validate_no_unbacked_subagent_claims(run_dir: Path, *, snapshot=None) -> lis
 
 
 def validate_mandatory_independent_qa_review_gate(run_dir: Path, *, session_source=None, snapshot=None) -> list[str]:
-    """Mandatory Independent QA Review Gate: qa-verifier and reviewer evidence."""
+    """Flow Integrity Gate: mandatory independent qa-verifier and reviewer evidence."""
     verdict = read_single_field(run_dir / "final.md", "Verdict", snapshot=snapshot)
     lane_map, _load_errors = load_json(run_dir / "lane-map.json", "lane-map.json", snapshot=snapshot)
     # Structural lane-map errors are reported by validate_lane_map.
@@ -3379,7 +3379,7 @@ def validate_continuation_summary(
             errors.append(f"{CONTINUATION_SUMMARY_PATH} {label}_recheck_lane must run after readiness lane")
         handoff = lane.get("handoff")
         if not isinstance(handoff, str) or not handoff:
-            errors.append(f"lane-map.json: lane {lane_id} requires handoff for Continuation Gate")
+            errors.append(f"lane-map.json: lane {lane_id} requires handoff for Flow Integrity Gate")
             continue
         handoff_path = resolve_run_path(run_dir, handoff)
         if not presentation_required:
@@ -6286,13 +6286,13 @@ def validate_lane_map(
         if not successful_reviewer_lanes:
             errors.append(
                 "lane-map.json: Verdict pass-with-risks requires successful "
-                "reviewer lane for Mitigation Gate"
+                "reviewer lane for Risk Lifecycle Gate mitigation"
             )
         for lane_id, _wave, handoff in successful_reviewer_lanes:
             if not isinstance(handoff, str) or not handoff:
                 errors.append(
                     f"lane-map.json: lane {lane_id} successful reviewer lane "
-                    "requires handoff for Mitigation Gate"
+                    "requires handoff for Risk Lifecycle Gate mitigation"
                 )
                 continue
             handoff_path = resolve_run_path(run_dir, handoff)
@@ -6317,12 +6317,12 @@ def validate_lane_map(
         if not successful_qa_lanes:
             errors.append(
                 "lane-map.json: Verdict pass-with-risks requires successful "
-                "qa lane for Resolution Gate"
+                "qa lane for Risk Lifecycle Gate resolution"
             )
         if not successful_reviewer_lanes:
             errors.append(
                 "lane-map.json: Verdict pass-with-risks requires successful "
-                "reviewer lane for Resolution Gate"
+                "reviewer lane for Risk Lifecycle Gate resolution"
             )
 
         resolution_qa_ids = {
@@ -6344,7 +6344,7 @@ def validate_lane_map(
             if not isinstance(handoff, str) or not handoff:
                 errors.append(
                     f"lane-map.json: lane {lane_id} successful qa lane "
-                    "requires handoff for Resolution Gate"
+                    "requires handoff for Risk Lifecycle Gate resolution"
                 )
                 continue
             handoff_path = resolve_run_path(run_dir, handoff)
@@ -6372,7 +6372,7 @@ def validate_lane_map(
             if not isinstance(handoff, str) or not handoff:
                 errors.append(
                     f"lane-map.json: lane {lane_id} successful reviewer lane "
-                    "requires handoff for Resolution Gate"
+                    "requires handoff for Risk Lifecycle Gate resolution"
                 )
                 continue
             handoff_path = resolve_run_path(run_dir, handoff)

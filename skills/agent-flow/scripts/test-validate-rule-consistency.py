@@ -45,6 +45,22 @@ class RuleConsistencyFixtures(unittest.TestCase):
             validator.check_documented_vocabulary(errors, doc=doc)
             self.assertTrue(any("`active`" in error for error in errors), errors)
 
+    def test_retired_gate_name_is_reported(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            doc = Path(temporary) / "reference.md"
+            doc.write_text("Enforce Mitigation Gate before pass-with-risks.\n", encoding="utf-8")
+            errors = []
+            validator.check_retired_gate_names(errors, docs=[doc])
+            self.assertTrue(any("Mitigation Gate" in error for error in errors), errors)
+
+    def test_retired_gate_name_with_annotation_is_allowed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            doc = Path(temporary) / "reference.md"
+            doc.write_text("Risk Lifecycle Gate (входит в: Mitigation Gate, Resolution Gate).\n", encoding="utf-8")
+            errors = []
+            validator.check_retired_gate_names(errors, docs=[doc])
+            self.assertEqual(errors, [])
+
 
 if __name__ == "__main__":
     unittest.main()

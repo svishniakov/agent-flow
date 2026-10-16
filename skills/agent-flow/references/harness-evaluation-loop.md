@@ -10,7 +10,7 @@ Evidence Gate failures or recoveries when a worker changed product code outside
 
 The loop is signal-only for the canonical Agent Flow runtime. It writes
 `harness-evaluation.json` and Evidence Records proposals for the current
-project. It never treats Architecture Matrix, Architecture Capability Router
+project. It never treats Architecture Matrix, Architecture Gate (входит в: Architecture Contract Gate, Architecture Design Mode, Architecture Capability Router, Architecture Context Propagation, Architecture Execution Control, Architecture Approval Gate) capability routing
 registry, role prompts, validator guards, or Golden Trace Runs as promotion
 targets for project traces.
 

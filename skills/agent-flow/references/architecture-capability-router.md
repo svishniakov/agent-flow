@@ -1,6 +1,6 @@
-# Architecture Capability Router
+# Architecture Gate capability routing
 
-Architecture Capability Router maps selected Architecture Matrix facets to
+Architecture Gate capability routing (входит в: Architecture Capability Router) maps selected Architecture Matrix facets to
 architecture capabilities. It is an operational routing layer, not a project
 profile catalog and not a skill catalog.
 
@@ -50,7 +50,7 @@ Rules:
 - reviewer `Architecture Matrix Mismatches` and `Contract Drift` cover every
   selected capability id when reviewer control applies.
 
-Engineering Simplicity Gate uses the selected `architecture_capabilities` only
+Simplicity Gate uses the selected `architecture_capabilities` only
 as citation context for retained dependency or abstraction. Do not add a
 separate simplicity capability, Matrix facet, or registry entry for it.
 

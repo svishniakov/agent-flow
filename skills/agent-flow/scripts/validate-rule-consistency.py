@@ -27,6 +27,36 @@ STALE_DOC_PATTERNS = (
     re.compile(r"record-lane-boundary"),
 )
 
+# Gate names retired by the unified gate vocabulary (7 contours). They may
+# appear once per contour per document on a line carrying a «входит в» or
+# «включает» annotation for readers of older journals; nowhere else.
+RETIRED_GATE_NAMES = (
+    "Architecture Contract Gate",
+    "Architecture Design Mode",
+    "Architecture Capability Router",
+    "Architecture Context Propagation",
+    "Architecture Execution Control",
+    "Architecture Approval Gate",
+    "Engineering Simplicity Gate",
+    "Simplicity Scope Coverage",
+    "Lane Boundary Evidence Gate",
+    "Claim Evidence Gate",
+    "Acceptance Criteria Traceability Gate",
+    "Surface Evidence Gate",
+    "Contract Negative Fixture Gate",
+    "Mitigation Gate",
+    "Resolution Gate",
+    "Blocked Resolution Gate",
+    "Delegation Trace Gate",
+    "Handoff State Gate",
+    "Mandatory Independent QA Review Gate",
+    "Continuation Gate",
+)
+
+RETIRED_NAME_MARKERS = ("входит в", "включает")
+
+AGENT_ROLE_DOCS = sorted((ROOT / "agents").glob("*.md"))
+
 STATUS_DOC = ROOT / "references" / "traceable-runs.md"
 
 
@@ -56,6 +86,17 @@ def check_stale_doc_patterns(errors, docs=AGENT_DOCS):
                     fail(errors, f"{path.name}:{number}: stale pattern {pattern.pattern!r}: {line.strip()[:100]}")
 
 
+def check_retired_gate_names(errors, docs=None):
+    for path in docs if docs is not None else [*AGENT_DOCS, *AGENT_ROLE_DOCS]:
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+            if any(marker in line for marker in RETIRED_NAME_MARKERS):
+                continue
+            for name in RETIRED_GATE_NAMES:
+                if name in line:
+                    fail(errors, f"{path.name}:{number}: retired gate name {name!r} outside a «входит в» note: {line.strip()[:100]}")
+                    break
+
+
 def check_documented_vocabulary(errors, doc=STATUS_DOC):
     from journal_structure import CALLER_STATUSES, EVENT_STATUS_RULES, HANDOFF_DOMAIN_STATUSES
     text = doc.read_text(encoding="utf-8")
@@ -74,6 +115,7 @@ def main():
     errors = []
     check_single_source(errors)
     check_stale_doc_patterns(errors)
+    check_retired_gate_names(errors)
     check_documented_vocabulary(errors)
     if errors:
         for error in errors:

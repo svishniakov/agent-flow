@@ -14,13 +14,13 @@ Unmarked requests are also solo unless the user explicitly asks for subagents.
 
 If `spawn_agent` is unavailable after an optional subagent path is selected, say so and continue only when no required subagent gate applies.
 
-Mandatory Independent QA Review Gate требует для `change` два отдельных назначения: `qa-verifier` проверяет результат, `reviewer` проверяет его и доказательства QA. Оба работают как реальные дочерние сессии текущего root; их IDs отличаются от IDs авторов. Модели берутся из действующих файлов ролей через `agent_config`. `reviewer.qa` допустим только как имя назначения канонического `reviewer`; QA под этим именем не заменяет reviewer.
+Flow Integrity Gate (входит в: Delegation Trace Gate, Handoff State Gate, Mandatory Independent QA Review Gate, Continuation Gate) mandatory independent QA review требует для `change` два отдельных назначения: `qa-verifier` проверяет результат, `reviewer` проверяет его и доказательства QA. Оба работают как реальные дочерние сессии текущего root; их IDs отличаются от IDs авторов. Модели берутся из действующих файлов ролей через `agent_config`. `reviewer.qa` допустим только как имя назначения канонического `reviewer`; QA под этим именем не заменяет reviewer.
 
 Before treating `spawn_agent` as unavailable, discover it through active tools and `tool_search` when available.
 
 ## Budget Gate
 
-Delegation is never mandatory just because Agent Flow is active. The exception is required gate infrastructure such as Mandatory Independent QA Review Gate.
+Delegation is never mandatory just because Agent Flow is active. The exception is required gate infrastructure such as Flow Integrity Gate mandatory independent QA review.
 
 Delegate only when the selected budget allows it and all are true:
 
@@ -96,7 +96,7 @@ For code review or release readiness that touches architecture, public contracts
 APIs, data flow, security, migrations, or multiple subsystems, add an
 architect-owned review contract before reviewer verdict.
 
-This is the Architecture Contract Gate. In a traceable lane-map, use schema v2
+This is the Architecture Gate (входит в: Architecture Contract Gate, Architecture Design Mode, Architecture Capability Router, Architecture Context Propagation, Architecture Execution Control, Architecture Approval Gate). In a traceable lane-map, use schema v2
 and a critical `architecture` lane when the contract is required. Schema v2
 requires `budget`. `release` always requires the contract, and `standard`
 requires it when the run has two or more worker lanes (`implementation` or
@@ -123,7 +123,7 @@ architect must cite every selected facet id in `Selected Architecture` and
 convert the constraints into concrete boundaries, forbidden changes, QA gates,
 and reviewer checklist items.
 
-Architecture Capability Router runs after Matrix selection. The orchestrator
+Architecture Gate capability routing runs after Matrix selection. The orchestrator
 selects the smallest `architecture_capabilities` set from
 `registries/architecture-capabilities.json` that covers selected
 `architecture_context` facets. The Architecture Design Brief `Execution Plan`
@@ -132,7 +132,7 @@ capability id. `recommended_skills` use Soft Skill Binding: registry checks
 validate the links, but missing skills are not runtime proof and do not block
 `validate-run.py`.
 
-Architecture Design Mode runs before implementation when
+Architecture Gate design mode runs before implementation when
 `architecture_contract_required=true`. The architecture lane must record
 `architecture_design_brief`, an Architecture Design Brief with `Selected Matrix Facets`,
 a `Decision` section, selected `architecture_capabilities`, and `Status: approved` before worker lanes start.
@@ -151,7 +151,7 @@ The architecture handoff must include these sections: `Selected Architecture`,
 Contracts`, `Worker Ownership`, `Forbidden Changes`, `QA Gates`, `Reviewer
 Checklist`, and `Stop Conditions`.
 
-Architecture Execution Control includes Engineering Simplicity Gate after the
+Architecture Gate execution control includes Simplicity Gate (входит в: Engineering Simplicity Gate, Simplicity Scope Coverage) after the
 contract exists. Successful
 `implementation` and `integration` lanes must record `architecture_compliance`
 in `lane-map.json` and write `Architecture Compliance` plus `Engineering
@@ -171,7 +171,7 @@ approach. Retained dependency or abstraction must cite selected
 the orchestrator routes the case to architect re-check before `ship` or
 `pass-with-risks`; the drift is not closed by worker-only follow-up.
 
-Simplicity Scope Coverage is part of the same control. The orchestrator records
+Simplicity Gate scope coverage is part of the same control. The orchestrator records
 `engineering_simplicity_scope.primary_surfaces` for core task surfaces and
 `secondary_surfaces` for peripheral proof such as smoke scripts or docs.
 Workers record `scope_coverage` under
@@ -180,7 +180,7 @@ assigned primary surfaces before QA. QA writes `Engineering Simplicity Scope`.
 Reviewer `Contract Drift` must mention every primary surface and reject
 peripheral-only closure.
 
-Lane Boundary Evidence Gate is also part of Architecture Execution Control.
+Lane Boundary Gate (входит в: Lane Boundary Evidence Gate) is also part of Architecture Gate execution control.
 For schema v2 positive architecture-gated runs, each successful
 `implementation` or `integration` worker records `boundary.allowed_paths`,
 optional `boundary.forbidden_paths`, `changed_paths_artifact`, and a worker
@@ -212,7 +212,7 @@ task_scope. Внешние gaps/outcomes сохраняются. Code/auth/confi
 lanes, выбранные QA/reviewer и integrity не исключаются. Без scope требования строгие.
 Недоступность обязательного local proof блокирует приёмку.
 
-Architecture Context Propagation carries the selected `architecture_context`
+Architecture Gate context propagation carries the selected `architecture_context`
 through execution. Workers must set `architecture_compliance.matrix_facets` to
 the selected facets they actually touched and mention those facet ids in
 `Architecture Compliance`. QA covers selected `risk_gates` and
@@ -220,21 +220,21 @@ the selected facets they actually touched and mention those facet ids in
 selected facet and selected capability id across `Architecture Matrix
 Mismatches` and `Contract Drift`.
 
-Claim Evidence Gate applies to positive architecture-gated runs. The architect
+Contract Evidence Gate (входит в: Claim Evidence Gate, Acceptance Criteria Traceability Gate, Surface Evidence Gate, Contract Negative Fixture Gate) applies to positive architecture-gated runs. The architect
 adds `Claim Evidence` ids to `QA Gates` and `Reviewer Checklist`; QA or reviewer
 owns each claim in `claim-evidence.json` through `owner_lane`, `supported` or
 `gap`, subjects, evidence paths, and literal `markers`. Reviewer checks that
 each required claim is marker-backed before accepting `ship` or
 `pass-with-risks`.
 
-Acceptance Criteria Traceability Gate applies to positive architecture-gated
+Contract Evidence Gate applies to positive architecture-gated
 runs. The architect adds `Acceptance Criteria` ids to `QA Gates` and
 `Reviewer Checklist`; the orchestrator records each required id in
 `acceptance-traceability.json` with source, requirement, subjects,
 `supported` or `gap`, `surface_expectations`, evidence paths, and literal
 `markers`.
 
-Surface Evidence Gate is part of this traceability. Each `surface_expectations`
+Contract Evidence Gate is part of this traceability. Each `surface_expectations`
 item names the target `surface`, `polarity`, and allowed `proof_kinds`; each
 `evidence` or `negative_fixture_evidence` record names matching `surface`,
 `polarity`, and `proof_kind`. Reviewer rejects storage/internal evidence for
@@ -242,7 +242,7 @@ API, UI, logs, history, provider metadata, or external-provider acceptance
 unless the target surface matches. Reviewer checks that every required id is
 marker-backed before accepting `ship` or `pass-with-risks`.
 
-Contract Negative Fixture Gate applies when an acceptance record is marked
+Contract Evidence Gate applies when an acceptance record is marked
 `gate`, `cli`, `query`, `storage`, `config`, or `parser`. Those records require
 `negative_fixture_evidence` with at least one evidence path and literal marker
 for a negative or drift fixture. `negative_fixture_evidence` cannot use
@@ -268,7 +268,7 @@ the unmet gates. `resume_phrase` — закрытое константное п�
 точной фразы или NLP-проверки. Do not begin work that actually depends on an unavailable check. The
 post-worker QA lane records `Verification Gate Results`.
 
-Continuation Gate applies when a run resumes after `blocked-checkpoint` or a
+Flow Integrity Gate continuation applies when a run resumes after `blocked-checkpoint` or a
 `continuation` timeline stage. The orchestrator writes
 `continuation-summary.json`, preserves the blocked checkpoint snapshot, and
 records resolved blockers, `historical_worker_lanes`, `new_worker_lanes`, and
@@ -286,14 +286,14 @@ findings, Evidence Records proposals, and source evidence, and adds final
 `Evidence Records`, and sets `requires_human_approval=false`; promotion is
 limited to the current project's Project Memory.
 
-Mitigation Gate applies before any `pass-with-risks` final verdict. The
+Risk Lifecycle Gate (входит в: Mitigation Gate, Resolution Gate, Blocked Resolution Gate) mitigation step applies before any `pass-with-risks` final verdict. The
 orchestrator records identified risks in `risk-mitigations.json`; each risk
 keeps concrete `problem`, `impact`, `affected_scope`, evidence, and
 `next_gate=resolution`. QA supplies evidence for the identified risk. The final
 handoff lists every id in `Risk Mitigations`. Reviewer writes
 `Risk Mitigation Review` and confirms that every risk id is visible in the final handoff.
 
-Resolution Gate follows Mitigation Gate before `pass-with-risks`.
+The Risk Lifecycle Gate resolution step follows the mitigation step before `pass-with-risks`.
 Owner передаёт отдельный typed resolution request для каждого risk ID:
 содержательное действие, классификацию, эффект и настоящие evidence. Поля и
 допустимые значения берёт из `journal.py contract`. Writer формирует
@@ -303,7 +303,7 @@ mentions every risk id. Reviewer writes `Risk Resolution Review`, checks every
 risk id, verifies that `final.md` includes `Risk Resolutions`, and confirms
 that `unresolved` does not appear in a positive final verdict.
 
-Blocked Resolution Gate uses the Blocked Recovery Path inside Resolution Gate.
+The blocked-resolution step of Risk Lifecycle Gate uses the Blocked Recovery Path inside the resolution step.
 A blocked attempt records `blocked_lesson`, `rollback`, `forbidden_repeat`, and evidence.
 Attempt 1 blocked routes first to Senior QA for `Senior QA Test Design Review`,
 then to architect for `Resolution Architect Review`; only then can a worker run
@@ -311,7 +311,7 @@ attempt 2. Attempt 2 blocked skips Senior QA and routes to supervising architect
 for `Supervising Architect Review`; only then can attempt 3 start. A third
 blocked attempt ends the run as `blocked` or `fail`.
 
-When worker lanes exist under the Architecture Contract Gate, QA must run after
+When worker lanes exist under the Architecture Gate, QA must run after
 the workers and any architect re-check, and its handoff must include
 `Architecture Invariants`. Reviewer must run after QA and write
 `Architecture Matrix Mismatches` and `Contract Drift`; `Contract Drift` must
@@ -324,7 +324,7 @@ The orchestrator sends the real case through the Architecture
 Approval Gate: request deeper architecture analysis, produce revised steps,
 let workers retry only inside the approved contract, then record the outcome as
 Evidence Records. A regression after reuse triggers regression demotion and
-freezes automatic application until the Architecture Approval Gate resolves it.
+freezes automatic application until the Architecture Gate approval resolves it.
 
 The Local Best Practice auto gate belongs to orchestration, not to a worker.
 Workers may cite matching Evidence Records, but automatic reuse requires an
@@ -400,9 +400,9 @@ Markdown matrices are summaries only. Do not claim that a critical lane is
 covered unless its lane-map entry points to existing handoff and evidence
 artifacts, or to a replacement lane that does.
 
-## Handoff State Gate
+## Flow Integrity Gate handoff state
 
-Handoff State Gate is unconditional for durable lane-map runs; flat fixtures
+Flow Integrity Gate handoff state is unconditional for durable lane-map runs; flat fixtures
 keep it flag-gated. It makes the handoff lane lifecycle
 machine-readable without adding a runtime queue.
 
@@ -514,7 +514,7 @@ QA/reviewer завершают ход целым JSON по `traceable-runs.md`; 
 новый ответ, продолжайте прежнюю сессию с теми же моделью, достигнутым reasoning
 и счётчиком. Подготовленные behavioral inputs сохраняются до каждого вызова.
 
-## Delegation Trace Gate
+## Flow Integrity Gate delegation trace
 
 For every positive traceable run, including compact without lane-map, the orchestrator writes
 `delegation-summary.json` and keeps it synchronized with `lane-map.json`,

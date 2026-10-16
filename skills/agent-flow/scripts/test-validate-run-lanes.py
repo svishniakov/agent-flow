@@ -2852,7 +2852,7 @@ def main() -> int:
                     "handoff_state_required": True,
                 },
             ),
-            "lane-map.json: lane qa-missing missing handoff_state for Handoff State Gate",
+            "lane-map.json: lane qa-missing missing handoff_state",
         )
 
         expect_fail(
@@ -4235,7 +4235,7 @@ def main() -> int:
                     qa_lane(),
                 ],
             ),
-            "lane-map.json: Verdict pass-with-risks requires successful reviewer lane for Mitigation Gate",
+            "lane-map.json: Verdict pass-with-risks requires successful reviewer lane for Risk Lifecycle Gate mitigation",
         )
 
         expect_fail(

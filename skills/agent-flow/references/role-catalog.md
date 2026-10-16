@@ -32,7 +32,7 @@ Overlap notes: Use `backend-worker`, `frontend-worker`, or language workers for 
 ### supervising-architect
 
 Status: active
-Use when: A second Resolution Gate attempt is blocked and the ordinary architect's recovery instruction needs independent root-cause, reasoning, and approach review before a final retry.
+Use when: A second Risk Lifecycle Gate (входит в: Mitigation Gate, Resolution Gate, Blocked Resolution Gate) resolution step attempt is blocked and the ordinary architect's recovery instruction needs independent root-cause, reasoning, and approach review before a final retry.
 Do not use when: Only the first resolution attempt is blocked, or when Senior QA has not yet reviewed acceptance criteria and test design.
 Overlap notes: Use `architect` after Senior QA for attempt 2. Use `supervising-architect` only after attempt 2 blocks; it supervises architecture reasoning and final retry instructions, not worker execution.
 
@@ -67,7 +67,7 @@ Overlap notes: Requirements review identifies gaps for product-manager or archit
 ### senior-qa-verifier
 
 Status: active
-Use when: A Resolution Gate attempt is blocked and the acceptance criteria, QA adequacy, test cases, edge cases, negative cases, and re-check design need independent Senior QA review before architect re-planning.
+Use when: A Risk Lifecycle Gate resolution step attempt is blocked and the acceptance criteria, QA adequacy, test cases, edge cases, negative cases, and re-check design need independent Senior QA review before architect re-planning.
 Do not use when: The resolution has not blocked, or when the task needs implementation or architecture approach selection.
 Overlap notes: Use `qa-verifier` for ordinary verification. Use `senior-qa-verifier` to redesign the verification matrix, then route findings to `architect`.
 
