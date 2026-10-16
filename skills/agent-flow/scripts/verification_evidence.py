@@ -2116,7 +2116,8 @@ def verify_trace_mode_correction(snapshot, correction, source):
         require(set(payload) <= {'agent_path', 'artifact', 'codex_thread_id', 'completion_turn_id', 'critical',
             'execution_mode', 'lane_id', 'next_step', 'obligation_id', 'prepare_conclusion', 'render_final',
             'resolve_session', 'role', 'runtime_nickname', 'stable_agent_name', 'stable_agent_slug', 'stage', 'status',
-            'summary', 'verification_json', 'wave', 'captured_references'}, 'unsupported original mode payload fields')
+            'summary', 'verification_json', 'wave', 'captured_references',
+            'batch_id', 'batch_items', 'from_lane', 'to_lane', 'task'}, 'unsupported original mode payload fields')
         require(not payload.get('prepare_conclusion') and not payload.get('render_final'), 'original request is not metadata')
         require(payload.get('next_step', '') == event.get('next_step', '') and
                 (payload.get('stable_agent_name') or 'orchestrator') == event.get('stable_agent_name') and

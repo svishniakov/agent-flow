@@ -6,7 +6,7 @@ import re
 from types import MappingProxyType, ModuleType
 
 from journal_io import (JournalSnapshot, _transact, require, digest, encode_json, encode_json_line,
-                        now_iso, validate_event, JournalError, operation_id, UNSUPPORTED_STORAGE_VERSION)
+                        now_iso, validate_event, JournalError, operation_id, update_handoff_state, UNSUPPORTED_STORAGE_VERSION)
 from validation_inputs import ValidationInputs
 
 
@@ -44,6 +44,8 @@ def resolve_obligation(run_dir, *, lane_id, replacement, reason, expected_revisi
             require(lanes[replacement].get("status") == new.get("status"), "replacement lane status conflicts with its outcome")
             require(lanes[lane_id].get("status") == old.get("status"), "original lane status conflicts with its outcome")
             lanes[lane_id].update(status="replaced", replacement=replacement)
+            lanes[lane_id]["handoff_state"] = update_handoff_state(lane=lanes[lane_id], lane_id=lane_id, status="blocked",
+                mode=None, from_lane=None, to_lane=None, task=None, handoff=None, batch_id=None, batch_items=[])
             documents["lane-map.json"] = (encode_json(lane_map, pretty=True) + "\n").encode()
         return documents, {
             "lane_id": lane_id, "replacement": replacement}

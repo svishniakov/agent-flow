@@ -3582,16 +3582,15 @@ class JournalRegressions(unittest.TestCase):
         self.assertFalse(evidence.completion_follows(result, result))
         self.assertEqual(before, json.dumps(events))
 
-    def test_four_writers_use_one_injected_utc_clock(self):
+    def test_writers_use_one_injected_utc_clock(self):
         init = load("journal_init", "init-run.py")
-        handoff = load("journal_handoff", "record-handoff-state.py")
         stamp = "2026-09-13T12:34:56.123456Z"
         for zone in ("UTC", "Pacific/Honolulu"):
             with self.subTest(zone=zone), patch.dict(os.environ, {"TZ": zone}):
                 with patch.object(journal_io, "datetime") as clock:
                     clock.now.return_value = datetime(2026, 9, 13, 12, 34, 56, 123456, tzinfo=timezone.utc)
                     self.assertEqual(journal_io.now_iso(), stamp)
-                for module in (init, recorder, handoff):
+                for module in (init, recorder):
                     self.assertIs(module.now_iso, journal_io.now_iso)
                 slug = zone.replace("/", "-").lower()
                 with patch.object(init, "now_iso", return_value=stamp), patch.object(init, "datetime") as local_clock, redirect_stdout(StringIO()) as output:
@@ -3602,16 +3601,24 @@ class JournalRegressions(unittest.TestCase):
                 with patch.object(journal_io, "now_iso", return_value=stamp):
                     journal_io.write_entry(run, "event", {"stage": "checks", "role": "orchestrator", "status": "pass",
                                                           "summary": "Checked"}, identifier="clock-event-" + slug)
-                base.write_json(run / "lane-map.json", {"lanes": [{"id": "worker", "handoff": "handoffs/worker.md"}]})
-                journal_io.transact(run, "fixture-lanes", {}, lambda snapshot: ({"lane-map.json": (run / "lane-map.json").read_bytes()}, {}))
+                summary = json.loads(journal_io.JournalSnapshot.open(run).read_text("delegation-summary.json"))
+                summary["role_lanes"] = [{"lane_id": "worker", "role": "python-worker", "status": "planned",
+                                          "trace": "agents/python-worker/trace.jsonl"}]
+                summary["role_lanes_used"] = True
+                lane_map = {"lanes": [{"id": "worker", "role": "python-worker", "execution_mode": "role-lane",
+                                       "handoff": "handoffs/worker.md"}]}
+                journal_io.transact(run, "fixture-lanes", {}, lambda snapshot: (
+                    {"lane-map.json": json.dumps(lane_map).encode(),
+                     "delegation-summary.json": json.dumps(summary).encode()}, {}))
                 with patch.object(journal_io, "now_iso", return_value=stamp), redirect_stdout(StringIO()):
-                    handoff.main(["--run-dir", str(run), "--lane-id", "worker", "--status", "planned", "--summary", "Queued work"])
+                    recorder.main(["--run-dir", str(run), "--role", "python-worker", "--execution-mode", "role-lane",
+                                   "--lane-id", "worker", "--stage", "checks", "--status", "planned", "--summary", "Queued work"])
                 with patch.object(journal_io, "now_iso", return_value=stamp), redirect_stdout(StringIO()):
                     recorder.main(["--run-dir", str(run), "--role", "orchestrator", "--execution-mode", "role-lane", "--stage", "checks", "--status", "pass", "--summary", "Checked"])
                 snapshot = journal_io.JournalSnapshot.open(run)
                 events = [json.loads(line) for line in snapshot.read_text("timeline.jsonl").splitlines()]
                 state = json.loads(snapshot.read_text("lane-map.json"))["lanes"][0]["handoff_state"]
-                self.assertEqual([e["timestamp"] for e in events], [stamp] * 3)
+                self.assertEqual([e["timestamp"] for e in events], [stamp] * 4)
                 self.assertEqual(state["queued_at"], stamp)
         self.open_timeline()
         with patch.object(journal_io, "now_iso", return_value=stamp):

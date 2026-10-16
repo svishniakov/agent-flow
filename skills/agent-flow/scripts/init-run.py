@@ -287,7 +287,6 @@ def architecture_gate_lane_map(
         "budget": budget,
         "architecture_contract_required": True,
         "architecture_contract_independent": False,
-        "handoff_state_required": True,
         "architecture_context": context,
             "architecture_capabilities": {
                 "selected": capabilities,

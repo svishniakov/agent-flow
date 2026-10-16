@@ -292,6 +292,12 @@ def main(argv=None, *, session_source=None) -> int:
     parser.add_argument("--obligation-id", help="Stable responsibility shared by an assignment and its replacement.")
     parser.add_argument("--wave", type=int)
     parser.add_argument("--critical", action="store_true", default=None, help="Assert critical assignment; omitted value follows planned metadata.")
+    parser.add_argument("--from", dest="from_lane", help="Source lane or role id carried into the projected handoff_state.")
+    parser.add_argument("--to", dest="to_lane", help="Target lane or role id carried into the projected handoff_state. Defaults to lane id.")
+    parser.add_argument("--task", help="Task identifier carried into the projected handoff_state.")
+    parser.add_argument("--batch-id", help="Batch id for handoff_state mode=batch.")
+    parser.add_argument("--batch-item", dest="batch_items", action="append", default=[],
+                        help="Referenced lane id for handoff_state mode=batch. May be repeated; items accumulate.")
     parser.add_argument("--completion-turn-id")
     parser.add_argument("--verification-json", help="Verification object as JSON or a local file path.")
     parser.add_argument("--reason", help="Reason for a negative prepared conclusion.")
@@ -429,6 +435,8 @@ def main(argv=None, *, session_source=None) -> int:
         return 0
     if not all((args.role, args.status, args.stage, args.summary)):
         parser.error("ordinary registration requires --role, --status, --stage and --summary")
+    if (args.from_lane or args.to_lane or args.task or args.batch_id or args.batch_items) and not args.lane_id:
+        parser.error("handoff state metadata requires --lane-id")
     if args.reason or args.unverified or args.context_classification_json or args.authored_path or args.coauthor:
         parser.error("reason/unverified/context-classification-json/authored-path/coauthor require --prepare-conclusion")
     # Prepare-only fields never enter ordinary recorder receipts/correction payloads.

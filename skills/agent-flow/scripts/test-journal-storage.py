@@ -149,15 +149,24 @@ os.kill(os.getpid(), signal.SIGKILL)
                 self.assertEqual(dict(journal.JournalSnapshot.open(run).documents), expected)
 
     def test_jd02_parallel_cli_append_trace_handoff_and_final(self):
-        lanes = {"lanes": [{"id": f"worker-{i}", "handoff": f"handoffs/{i}.md"} for i in range(4)]}
-        journal.transact(self.run, "lanes", {}, lambda snapshot: ({"lane-map.json": json.dumps(lanes)}, {}))
+        lanes = {"lanes": [{"id": f"worker-{i}", "role": "python-worker", "execution_mode": "role-lane",
+                            "handoff": f"handoffs/{i}.md"} for i in range(4)]}
+        summary = {"version": 1, "subagents_used": False, "role_lanes_used": True, "notes": "jd02 parallel fixture",
+                   "subagents": [], "role_lanes": [{"lane_id": f"worker-{i}", "role": "python-worker",
+                    "status": "planned", "trace": "agents/python-worker/trace.jsonl"} for i in range(4)],
+                   "verification": {"task_kind": None, "root_thread_id": None, "author_thread_ids": [],
+                                    "result_files": [], "initial_snapshot": None, "task_scope": None,
+                                    "qa": None, "reviewer": None, "behavioral_checks": []}}
+        journal.transact(self.run, "lanes", {}, lambda snapshot: (
+            {"lane-map.json": json.dumps(lanes), "delegation-summary.json": json.dumps(summary)}, {}))
         event_request = self.run.parent / "event-request.json"
         event_request.write_text(json.dumps({"summary": "Identical independent event", "status": "pass",
                                              "stage": "checks", "role": "orchestrator"}))
         commands = []
         for i in range(4):
             commands.append(["journal.py", "record", "--kind", "event", "--request-file", str(event_request)])
-            commands.append(["record-handoff-state.py", "--lane-id", f"worker-{i}", "--status", "planned", "--summary", "Queued work"])
+            commands.append(["record-agent-trace.py", "--role", "python-worker", "--execution-mode", "role-lane",
+                             "--lane-id", f"worker-{i}", "--stage", "checks", "--status", "planned", "--summary", "Queued work"])
             commands.append(["record-agent-trace.py", "--role", "orchestrator", "--execution-mode", "role-lane", "--stage", "checks", "--status", "pass", "--summary", str(i)])
         processes = [subprocess.Popen([sys.executable, "-B", str(SCRIPTS / command[0]), "--run-dir", str(self.run), *command[1:]], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) for command in commands]
         for process in processes:
@@ -165,7 +174,7 @@ os.kill(os.getpid(), signal.SIGKILL)
             self.assertEqual(process.returncode, 0, output + error)
         snapshot = journal.JournalSnapshot.open(self.run)
         events = [json.loads(line) for line in snapshot.read_text("timeline.jsonl").splitlines()]
-        self.assertEqual(len(events), 8)
+        self.assertEqual(len(events), 12)
         self.assertEqual([event["timestamp"] for event in events], sorted(event["timestamp"] for event in events))
         self.assertTrue(all(lane["handoff_state"]["status"] == "queued" for lane in json.loads(snapshot.read_text("lane-map.json"))["lanes"]))
         final_request = self.run.parent / "final-event-request.json"

@@ -15,7 +15,7 @@ import unittest
 from unittest.mock import patch
 from dataclasses import replace
 
-from journal_io import JournalSnapshot, JournalError, initialize_journal, transact, encode_json, UNSUPPORTED_STORAGE_VERSION
+from journal_io import JournalSnapshot, JournalError, initialize_journal, transact, encode_json, update_handoff_state, UNSUPPORTED_STORAGE_VERSION
 from journal_lifecycle import finalize, load_validator
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -116,6 +116,11 @@ class LifecycleTests(unittest.TestCase):
                        "changed_paths_artifact": "checks/lane-boundary-" + r["lane_id"] + ".json", "notes": "Actual fixture write"}}
                   for r in existing_authors]
         documents = {"delegation-summary.json": json.dumps(summary), "lane-map.json": json.dumps({"schema_version": 1, "lanes": lanes})}
+        lanes = json.loads(documents["lane-map.json"])["lanes"]
+        for lane in lanes:
+            lane["handoff_state"] = update_handoff_state(lane=lane, lane_id=lane["id"], status="completed",
+                mode=None, from_lane=None, to_lane=None, task=None, handoff=None, batch_id=None, batch_items=[])
+        documents["lane-map.json"] = json.dumps({"schema_version": 1, "lanes": lanes})
         events = []
         for record in records:
             event = {**fixtures.trace_event({**record, "codex_thread_id": fixtures.ROOT_ID}, "handoff"), "execution_mode": "role-lane"}
@@ -836,11 +841,16 @@ class LifecycleTests(unittest.TestCase):
                   "execution_mode": "subagent", "handoff": record["handoff"]} for record in self.summary["subagents"]]
         transact(self.run, "failed-lane", {}, lambda s: ({"lane-map.json": json.dumps({"lanes": lanes})}, {}))
         before = JournalSnapshot.open(self.run)
-        command = [sys.executable, "-B", str(SCRIPTS / "record-handoff-state.py"), "--run-dir", str(self.run),
-                   "--lane-id", lane["id"], "--status", "pass", "--summary", "Attempt to hide failure"]
-        result = subprocess.run(command, capture_output=True, text=True)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("requires handoff state failed", result.stderr)
+        thread = "00000000-0000-4000-8000-000000000005"
+        source = fixtures.SyntheticSource()
+        source.sessions[thread] = fixtures.session(thread, "python-worker", {}, 5)
+        spec = importlib.util.spec_from_file_location("terminal_state_recorder", SCRIPTS / "record-agent-trace.py")
+        recorder = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(recorder)
+        with self.assertRaisesRegex(SystemExit, "terminal outcome is immutable"):
+            recorder.main(["--run-dir", str(self.run), "--role", "python-worker", "--lane-id", lane["id"],
+                           "--codex-thread-id", thread, "--stage", "checks", "--status", "pass",
+                           "--summary", "Attempt to hide failure"], session_source=source)
         self.assert_unchanged(before)
 
     def test_new_role_lane_records_obligation_and_cannot_hide_active_work(self):

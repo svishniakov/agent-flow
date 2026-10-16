@@ -876,6 +876,10 @@ def validate_handoff_states(
 ) -> list[str]:
     errors: list[str] = []
     state_by_lane_id: dict[str, dict] = {}
+    # The flag keeps legacy flat lane-maps readable; durable journals always
+    # apply the gate because the writer projects handoff_state on every
+    # assignment event, lane declaration, and obligation resolution.
+    required = handoff_state_required or (snapshot is not None and snapshot.durable)
 
     for index, lane in enumerate(lanes):
         if not isinstance(lane, dict):
@@ -886,7 +890,7 @@ def validate_handoff_states(
         label = lane_label(lane_id, index)
         raw_state = lane.get(HANDOFF_STATE_FIELD)
         if raw_state is None:
-            if handoff_state_required:
+            if required:
                 errors.append(f"lane-map.json: lane {label} missing handoff_state for Handoff State Gate")
             continue
         if not isinstance(raw_state, dict):
@@ -991,7 +995,7 @@ def validate_handoff_states(
                 f"requires handoff_state.status one of: {allowed}"
             )
         if (
-            handoff_state_required
+            required
             and final_verdict in POSITIVE_FINAL_VERDICTS
             and lane.get("critical") is True
             and lane_status in {"planned", "spawned", "active"}

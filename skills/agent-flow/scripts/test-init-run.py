@@ -408,8 +408,8 @@ def main() -> int:
         lane_map = load_lane_map(run_dir)
         if lane_map.get("schema_version") != 2:
             raise AssertionError("generated lane-map.json must use schema v2")
-        if lane_map.get("handoff_state_required") is not True:
-            raise AssertionError("architecture run must retain Handoff State Gate")
+        if "handoff_state_required" in lane_map:
+            raise AssertionError("Handoff State Gate is unconditional in durable journals; init must not require opt-in")
         if lane_map.get("architecture_context") != DEFAULT_ARCHITECTURE_CONTEXT:
             raise AssertionError("selected architecture context must be retained")
         if lane_map.get("architecture_capabilities", {}).get("selected") != DEFAULT_ARCHITECTURE_CAPABILITIES:

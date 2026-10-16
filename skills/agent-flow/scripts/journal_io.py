@@ -35,20 +35,20 @@ STATUS_TIMESTAMP_FIELDS = {
 def validate_mode(mode: str) -> None:
     if mode not in HANDOFF_STATE_MODES:
         allowed = ", ".join(sorted(HANDOFF_STATE_MODES))
-        raise RuntimeError(f"invalid handoff_state mode {mode!r}; expected one of: {allowed}")
+        raise JournalError(f"invalid handoff_state mode {mode!r}; expected one of: {allowed}")
 
 
 def validate_status(status: str) -> None:
     if status not in HANDOFF_STATE_STATUSES:
         allowed = ", ".join(sorted(HANDOFF_STATE_STATUSES))
-        raise RuntimeError(f"invalid handoff_state status {status!r}; expected one of: {allowed}")
+        raise JournalError(f"invalid handoff_state status {status!r}; expected one of: {allowed}")
 
 
 def normalize_existing_state(value: Any) -> dict[str, Any]:
     if value is None:
         return {}
     if not isinstance(value, dict):
-        raise RuntimeError("existing handoff_state must be a JSON object")
+        raise JournalError("existing handoff_state must be a JSON object")
     return dict(value)
 
 
@@ -69,14 +69,14 @@ def update_handoff_state(
 
     lane_handoff = lane.get("handoff")
     if handoff and isinstance(lane_handoff, str) and lane_handoff and handoff != lane_handoff:
-        raise RuntimeError(
+        raise JournalError(
             f"handoff must match lane handoff: expected {lane_handoff!r}, got {handoff!r}"
         )
 
     state = normalize_existing_state(lane.get("handoff_state"))
     selected_mode = mode or state.get("mode") or ("batch" if batch_id or batch_items else "task")
     if not isinstance(selected_mode, str):
-        raise RuntimeError("handoff_state.mode must be a string")
+        raise JournalError("handoff_state.mode must be a string")
     validate_mode(selected_mode)
 
     if selected_mode == "batch":
@@ -84,28 +84,30 @@ def update_handoff_state(
         selected_batch_id = batch_id or existing_batch.get("id")
         existing_items = existing_batch.get("items", [])
         if not isinstance(existing_items, list):
-            raise RuntimeError("existing handoff_state.batch.items must be an array")
+            raise JournalError("existing handoff_state.batch.items must be an array")
         selected_items = [*existing_items, *batch_items]
         if not all(isinstance(item, str) and item for item in selected_items):
-            raise RuntimeError("handoff_state.batch.items must contain only non-empty strings")
+            raise JournalError("handoff_state.batch.items must contain only non-empty strings")
         selected_items = list(dict.fromkeys(selected_items))
         if not isinstance(selected_batch_id, str) or not selected_batch_id:
-            raise RuntimeError("batch mode requires --batch-id or existing handoff_state.batch.id")
+            raise JournalError("batch mode requires --batch-id or existing handoff_state.batch.id")
         if not selected_items:
-            raise RuntimeError("batch mode requires at least one --batch-item or existing batch item")
+            raise JournalError("batch mode requires at least one --batch-item or existing batch item")
         state["batch"] = {"id": selected_batch_id, "items": selected_items}
     elif batch_id or batch_items:
-        raise RuntimeError("--batch-id and --batch-item require --mode batch")
+        raise JournalError("--batch-id and --batch-item require --mode batch")
 
     selected_handoff = handoff
     if selected_handoff is None and isinstance(lane_handoff, str):
         selected_handoff = lane_handoff
     if selected_handoff is None:
         selected_handoff = state.get("handoff")
-    if not isinstance(selected_handoff, str) or not selected_handoff:
-        raise RuntimeError("handoff_state.handoff is required; set lane handoff or pass --handoff")
+    if selected_handoff is None:
+        # Lane-map lanes declare their handoff at creation; only summary-only
+        # lanes need the default path fallback.
+        selected_handoff = "handoffs/" + lane_id + ".md"
     if isinstance(lane_handoff, str) and lane_handoff and selected_handoff != lane_handoff:
-        raise RuntimeError(
+        raise JournalError(
             f"handoff_state.handoff must match lane handoff: expected {lane_handoff!r}, got {selected_handoff!r}"
         )
 
@@ -1822,6 +1824,9 @@ def service_observation_projection(snapshot, kind, request, *, source=None):
         row = {**(old or {}), "id": request["id"], "type": request["lane_type"], "role": request["role"], "execution_mode": request["execution_mode"],
                "wave": request["wave"], "critical": request["critical"], "status": "planned", "purpose": summary,
                "handoff": "handoffs/" + request["id"] + ".md", "evidence": old.get("evidence", []) if old else []}
+        if "handoff_state" not in row:
+            row["handoff_state"] = update_handoff_state(lane=row, lane_id=request["id"], status="queued", mode=None,
+                from_lane=None, to_lane=None, task=None, handoff=None, batch_id=None, batch_items=[])
         if "allowed_paths" in request:
             row["boundary"] = {"allowed_paths": request["allowed_paths"], "forbidden_paths": request.get("forbidden_paths", []), "changed_paths_artifact": "checks/lane-boundary-" + request["id"] + ".json"}
         upsert_record(lane_map["lanes"], row)
@@ -2842,12 +2847,12 @@ def record_event(run_dir, args, artifact_paths, source, snapshot):
     if lane is not None:
         lane["execution_mode"] = args.execution_mode
         lane["status"] = args.status
-        if lane.get("handoff"):
-            from journal_io import update_handoff_state
-            from journal_structure import HANDOFF_STATE_BY_CALLER_STATUS
-            state = HANDOFF_STATE_BY_CALLER_STATUS[args.status]
-            lane["handoff_state"] = update_handoff_state(lane=lane, lane_id=args.lane_id, status=state, mode=None,
-                from_lane=None, to_lane=None, task=None, handoff=None, batch_id=None, batch_items=[])
+        from journal_structure import HANDOFF_STATE_BY_CALLER_STATUS
+        lane["handoff_state"] = update_handoff_state(lane=lane, lane_id=args.lane_id,
+            status=HANDOFF_STATE_BY_CALLER_STATUS[args.status], mode=None,
+            from_lane=getattr(args, "from_lane", None), to_lane=getattr(args, "to_lane", None),
+            task=getattr(args, "task", None), handoff=None,
+            batch_id=getattr(args, "batch_id", None), batch_items=getattr(args, "batch_items", None) or [])
         if args.codex_thread_id:
             lane["codex_thread_id"] = args.codex_thread_id
         for field in ("review_subject", "review_input_operation_id"):
