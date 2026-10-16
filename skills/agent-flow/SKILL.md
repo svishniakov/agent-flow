@@ -183,7 +183,7 @@ recorder и независимое принятие текущего хеша, �
 10. Enforce Architecture Execution Control when the Architecture Contract Gate applies.
 11. Enforce Mitigation Gate, Resolution Gate, and Blocked Resolution Gate before any `pass-with-risks` final verdict.
 12. Enforce Delegation Trace Gate for traceable lane runs.
-13. Enforce Handoff State Gate when `handoff_state_required=true`.
+13. Enforce Handoff State Gate for durable lane-map runs.
 14. Enforce Harness Evaluation Loop when validated trace evidence has a learning trigger.
 15. Enforce Claim Evidence Gate for positive architecture-gated runs.
 16. Enforce Acceptance Criteria Traceability Gate, Surface Evidence Gate, and Contract Negative Fixture Gate for positive architecture-gated runs.
@@ -287,7 +287,7 @@ Architecture Context Propagation is required when worker lanes exist under the A
 
 Engineering Simplicity Gate is part of Architecture Execution Control, after each successful `implementation` or `integration` worker lane and before QA/reviewer. Simplicity Gate is not a reporting gate: fix now if fixable. Fixable overengineering, duplicated helper, unnecessary abstraction, dependency/stack drift, or wider-than-needed implementation is remediated before QA and reviewer. Simplicity Scope Coverage prevents peripheral-only closure: positive architecture-gated worker runs must record `engineering_simplicity_scope` with non-empty `primary_surfaces`, optional `secondary_surfaces`, evidence, and notes. Workers must record `architecture_compliance.engineering_simplicity` with status `pass`, `fixed`, or `drift`, include all required checks (`no-extra-work`, `stdlib-native-first`, `existing-helper-first`, `dependency-justified`, `abstraction-justified`, `smallest-working-diff`, `tests-fit-risk`), include `scope_coverage` for the primary or secondary surfaces they audited, and write `## Engineering Simplicity` in the worker handoff with those surface ids. `pass` means no concrete simplicity issue was found in the covered primary scope. `fixed` means the issue was corrected inside the approved architecture and requires findings, actions, literal action coverage, and covered surface ids in the worker handoff. `drift` is used only when remediation changes boundaries, public contracts, selected capabilities, or the architecture approach; it requires parent `architecture_compliance.status=drift` plus an architect `recheck_lane`. Unresolved simplicity drift blocks `ship` and `pass-with-risks`. QA writes `Engineering Simplicity Scope`; reviewer `Contract Drift` must reject reporting-only closure, reject peripheral-only closure, mention every primary surface, mention `Engineering Simplicity`, and mention fixed worker lane ids. Final `Engineering Simplicity` must mention every primary surface. Retained dependency or abstraction must cite selected `architecture_capabilities`. This gate is not AI Slop Gate, adds no schema v3, no new lane type, no new subagent, and no new Architecture Matrix or capability registry entry.
 
-Lane Boundary Evidence Gate is the product-code boundary check inside Architecture Execution Control. For schema v2 positive architecture-gated runs, every successful `implementation` or `integration` lane must record `boundary.allowed_paths`, optional `boundary.forbidden_paths`, `boundary.changed_paths_artifact`, and notes. `python3 "$AF_PACKAGE/scripts/record-lane-boundary.py" --run-dir <run-dir> --lane-id <lane-id> --declaration-json <published-path>` writes boundary `version=2`: full `changed_paths`, explicit `authored_paths`, own handoff/edit evidence references, coauthors, assignment identity and workspace/candidate bindings. `boundary.changed_paths_artifact` is the canonical reference to an existing, validated proof; a duplicate entry in lane `evidence` is optional. Every changed path must be repo-relative POSIX, match at least one `allowed_paths` pattern through `fnmatch.fnmatchcase`, and match no `forbidden_paths` pattern. `forbidden_paths` wins over `allowed_paths`; empty `changed_paths` is valid. Worker handoffs write `## Boundary Evidence`; QA `Architecture Invariants`, reviewer `Contract Drift`, and final `Boundary Evidence` mention every worker lane id. This is not a new Matrix facet, role, lane type, schema v3, or worktree-isolation requirement.
+Lane Boundary Evidence Gate is the product-code boundary check inside Architecture Execution Control. For schema v2 positive architecture-gated runs, every successful `implementation` or `integration` lane must record `boundary.allowed_paths`, optional `boundary.forbidden_paths`, `boundary.changed_paths_artifact`, and notes. `python3 "$AF_PACKAGE/scripts/record-agent-trace.py" --prepare-conclusion --authored-path <path> [--coauthor lane:path] ...` writes boundary `version=2` atomically in the worker conclusion call: full `changed_paths`, explicit `authored_paths`, own handoff/edit evidence references computed from the journal, coauthors, assignment identity and workspace/candidate bindings. `boundary.changed_paths_artifact` is the canonical reference to an existing, validated proof; a duplicate entry in lane `evidence` is optional. Every changed path must be repo-relative POSIX, match at least one `allowed_paths` pattern through `fnmatch.fnmatchcase`, and match no `forbidden_paths` pattern. `forbidden_paths` wins over `allowed_paths`; empty `changed_paths` is valid. Worker handoffs write `## Boundary Evidence`; QA `Architecture Invariants`, reviewer `Contract Drift`, and final `Boundary Evidence` mention every worker lane id. This is not a new Matrix facet, role, lane type, schema v3, or worktree-isolation requirement.
 
 Claim Evidence Gate is required for positive architecture-gated runs. The Architecture Contract `QA Gates` and `Reviewer Checklist` sections must include `Claim Evidence` ids. The orchestrator writes `claim-evidence.json`; each claim record names `owner_lane`, reviewer lane, `supported` or `gap`, subjects, evidence paths, and literal `markers`. `ship` and `pass-with-risks` require every required claim to be `supported` and every marker to appear in the referenced evidence file.
 
@@ -320,10 +320,11 @@ in `final.md` with `Subagents Used`, `Role Lanes Used`, and
 terminal handoff event; role-lane work must not be called sidecar or subagent
 execution.
 
-Handoff State Gate is opt-in for schema v2 lane-map runs through
-`handoff_state_required=true`. `scripts/record-handoff-state.py` updates only
-`lane-map.json`; it records `handoff_state` status `queued`, `accepted`,
-`completed`, `blocked`, or `failed` without writing timeline events. Positive
+Handoff State Gate is unconditional for durable lane-map runs. The writer
+projects `handoff_state` status `queued`, `accepted`, `completed`, `blocked`,
+or `failed` into `lane-map.json` at every assignment event, including lane
+declarations and resolve-obligation; batch metadata travels as optional
+`record-agent-trace.py` fields. There is no manual status synchronization. Positive
 terminal lanes require completed handoff state, blocked lanes require blocked,
 failed lanes require failed, and batch mode references must point to completed
 items.
@@ -536,9 +537,7 @@ Engineering Simplicity Gate is not AI Slop Gate. Keep it in Architecture Executi
 Optional helper scripts live in `scripts/`:
 
 - `init-run.py`: create a traceable run skeleton.
-- `append-timeline.py`: append one JSONL timeline event.
 - `record-agent-trace.py`: append one subagent or role-lane event to both run and role traces.
-- `record-handoff-state.py`: update Handoff State Gate state in `lane-map.json`.
 - `sync-codex-agent-config.py`: sync project or user `.codex/agents/*.toml` files from Agent Flow roles, model settings, and display nicknames.
 - `validate-run.py`: check run completeness before final handoff.
 - `validate-architecture-capabilities.py`: check Architecture Capability Router registry and Soft Skill Binding links.

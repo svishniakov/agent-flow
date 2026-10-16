@@ -102,7 +102,7 @@ The timeline records the real order of work. If a product commit was created, th
 
 For large PRDs or release work, Agent Flow can split work into implementation, integration, architecture, QA, and review lanes. This is an internal workflow pattern, not a public user mode.
 
-In a traceable run, `lane-map.json` becomes the machine-readable source of truth. Markdown files such as `checks/coverage-matrix.md` remain human-readable summaries. Before final handoff, `validate-run.py` checks `lane-map.json` and rejects `Verdict: ship` when a critical lane has no evidence or valid replacement lane.
+In a traceable run, `lane-map.json` becomes the machine-readable source of truth. The writer regenerates `checks/coverage-matrix.md` from it at every lane mutation; do not edit it manually. Before final handoff, `validate-run.py` checks `lane-map.json` and rejects `Verdict: ship` when a critical lane has no evidence or valid replacement lane.
 
 Schema v2 requires `budget`. Release runs and standard runs with two or more worker lanes must set `architecture_contract_required=true`. The critical `architecture` lane must pass with handoff, evidence, and the required contract sections before QA or review can pass.
 

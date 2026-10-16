@@ -115,6 +115,14 @@ identify one source, disable the extra form before delegation.
 
 ### Updating the skill installed through npx
 
+Breaking change in 0.4.0: the standalone helper commands for appending
+timeline events, recording handoff state, and recording lane boundaries are
+removed. Commit events go through
+`journal.py record --kind event` with `commit_hash` in the request, handoff
+state is writer-computed at every assignment event, and boundary evidence is
+written atomically by the worker conclusion call with `--authored-path`.
+Update any saved runbooks or wrappers before starting a new run.
+
 Breaking change in 0.3.0: journals created by package versions before 0.3.0 use
 the old storage format and are archival — 0.3.0 does not read or convert them.
 After updating, start a new run; previous journals stay on disk only for

@@ -184,11 +184,12 @@ Lane Boundary Evidence Gate is also part of Architecture Execution Control.
 For schema v2 positive architecture-gated runs, each successful
 `implementation` or `integration` worker records `boundary.allowed_paths`,
 optional `boundary.forbidden_paths`, `changed_paths_artifact`, and a worker
-`Boundary Evidence` handoff section. The orchestrator or worker runs
-`scripts/record-lane-boundary.py --run-dir <run-dir> --lane-id <lane-id> --declaration-json <published-path>` to
-write boundary version 2 in `checks/lane-boundary-<lane-id>.json`. Full
+`Boundary Evidence` handoff section. The worker conclusion call
+`record-agent-trace.py --prepare-conclusion` with repeated `--authored-path` and
+optional `--coauthor <lane>:<path>` atomically
+writes boundary version 2 in `checks/lane-boundary-<lane-id>.json`. Full
 `changed_paths` remains the scanner delta; explicit `authored_paths` comes from
-the author's published handoff/declaration with retained edit evidence.
+the author's own conclusion with retained edit evidence computed by the writer.
 The validator checks authored POSIX paths with `fnmatch.fnmatchcase`; every path must
 match `allowed_paths`, and `forbidden_paths` wins. QA `Architecture
 Invariants`, reviewer `Contract Drift`, and final `Boundary Evidence` must
@@ -401,17 +402,15 @@ artifacts, or to a replacement lane that does.
 
 ## Handoff State Gate
 
-Handoff State Gate is optional for existing schema v2 lane maps and required
-when `handoff_state_required=true`. It makes the handoff lane lifecycle
+Handoff State Gate is unconditional for durable lane-map runs; flat fixtures
+keep it flag-gated. It makes the handoff lane lifecycle
 machine-readable without adding a runtime queue.
 
-Use `scripts/record-handoff-state.py` to update only `lane-map.json`:
-
-```bash
-python3 "$AF_PACKAGE/scripts/record-handoff-state.py" --run-dir <run-dir> --lane-id worker-a --status planned --from architecture-contract --task worker-a-implementation --handoff handoffs/worker-a.md
-python3 "$AF_PACKAGE/scripts/record-handoff-state.py" --run-dir <run-dir> --lane-id worker-a --status active
-python3 "$AF_PACKAGE/scripts/record-handoff-state.py" --run-dir <run-dir> --lane-id worker-a --status pass
-```
+The writer projects `handoff_state` into `lane-map.json` at every assignment
+event recorded through `record-agent-trace.py` — lane declaration,
+spawned/active/terminal events, and `resolve-obligation`. Batch metadata
+(`--batch-id`, `--batch-item`, `--from`, `--to`, `--task`) travels as optional
+fields of the same event. There is no manual status synchronization.
 
 `handoff_state.mode` is `task` or `batch`. `handoff_state.status` is `queued`,
 `accepted`, `completed`, `blocked`, or `failed`. A `pass` or `pass-with-risks`
@@ -487,7 +486,7 @@ When a run directory exists, save handoff to `handoffs/<role>.md`.
 
 ## Per-Agent Trace Contract
 
-When a run directory exists, every delegated subagent must have timeline presence owned by that role. Use `scripts/record-agent-trace.py` instead of `scripts/append-timeline.py` for subagent events.
+When a run directory exists, every delegated subagent must have timeline presence owned by that role. Use `scripts/record-agent-trace.py` for subagent events; run-level orchestrator events go through `journal.py record --kind event`.
 
 The orchestrator records a delegation event before or immediately after sending
 the handoff packet. The worker records at least one terminal event when handing

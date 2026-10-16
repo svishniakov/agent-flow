@@ -22,6 +22,9 @@ STALE_DOC_PATTERNS = (
     re.compile(r"journal(?:\.py)? (?:upgrade|import-legacy|classify-legacy)\b"),
     re.compile(r"reopen --upgrade\b"),
     re.compile(r"Version 1 remains readable"),
+    re.compile(r"append-timeline"),
+    re.compile(r"record-handoff-state"),
+    re.compile(r"record-lane-boundary"),
 )
 
 STATUS_DOC = ROOT / "references" / "traceable-runs.md"

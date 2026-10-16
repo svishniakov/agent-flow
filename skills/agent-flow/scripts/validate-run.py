@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate traceable runs, Architecture Capability Router, Architecture Artifact Authoring Automation, Acceptance Criteria Traceability Gate, Surface Evidence Gate, Contract Negative Fixture Gate, Claim Evidence Gate, Lane Boundary Evidence Gate, Handoff State Gate, `handoff_state_required`, `scripts/record-handoff-state.py`, `boundary.allowed_paths`, `boundary.forbidden_paths`, `changed_paths_artifact`, `scripts/record-lane-boundary.py`, and Harness Evaluation Loop gates."""
+"""Validate traceable runs, Architecture Capability Router, Architecture Artifact Authoring Automation, Acceptance Criteria Traceability Gate, Surface Evidence Gate, Contract Negative Fixture Gate, Claim Evidence Gate, Lane Boundary Evidence Gate, Handoff State Gate, `boundary.allowed_paths`, `boundary.forbidden_paths`, `changed_paths_artifact`, and Harness Evaluation Loop gates."""
 
 from __future__ import annotations
 
