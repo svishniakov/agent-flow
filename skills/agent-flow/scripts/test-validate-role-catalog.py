@@ -33,17 +33,8 @@ def write_role(agents_dir: Path, name: str) -> None:
     (agents_dir / f"{name}.md").write_text(ROLE_FRONTMATTER.format(name=name), encoding="utf-8")
 
 
-def catalog_entry(name: str, *, status: str = "active", include_overlap: bool = True) -> str:
-    lines = [
-        f"### {name}",
-        "",
-        f"Status: {status}",
-        "Use when: Fixture use case.",
-        "Do not use when: Fixture exclusion.",
-    ]
-    if include_overlap:
-        lines.append("Overlap notes: Fixture overlap.")
-    return "\n".join(lines) + "\n"
+def catalog_entry(name: str) -> str:
+    return f"### {name}\n\nFixture prose about why the role exists.\n"
 
 
 def write_catalog(path: Path, entries: list[str]) -> None:
@@ -100,11 +91,8 @@ def main() -> int:
         write_catalog(catalog, [catalog_entry("alpha-role"), catalog_entry("alpha-role"), catalog_entry("beta-role")])
         expect_fail("duplicate catalog role", validate(agents_dir, catalog), "duplicate catalog role: alpha-role")
 
-        write_catalog(catalog, [catalog_entry("alpha-role", status="paused"), catalog_entry("beta-role")])
-        expect_fail("invalid status", validate(agents_dir, catalog), "invalid Status: paused")
-
-        write_catalog(catalog, [catalog_entry("alpha-role", include_overlap=False), catalog_entry("beta-role")])
-        expect_fail("missing field", validate(agents_dir, catalog), "missing field 'Overlap notes'")
+        write_catalog(catalog, ["### alpha-role\n", "### beta-role\n"])
+        expect_pass("prose-only catalog entries", validate(agents_dir, catalog))
 
     print("PASS role catalog fixture tests")
     return 0

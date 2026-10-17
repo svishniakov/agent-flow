@@ -446,7 +446,7 @@ select reasoning; do not substitute Astra for Sol or Sol for Astra in the same r
 Resolve role model settings before every `spawn_agent` call:
 
 ```bash
-python3 "$AF_PACKAGE/scripts/resolve-agent-config.py" --role <role> --trigger <trigger>
+python3 "$AF_PACKAGE/scripts/agent_config.py" --role <role> --trigger <trigger>
 ```
 
 Pass one `--trigger` per relevant risk or task shape. Examples: `security`,

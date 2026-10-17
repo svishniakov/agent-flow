@@ -205,7 +205,7 @@ def test_cross_model_escalation(root: Path) -> None:
         expect_error("resolver rejects substitution", lambda: role_config(invalid, "fixture-role", ["security"]), "escalation_model must match model")
         role_path.write_text(VALID_FRONTMATTER.replace("model: gpt-5.6-luna", "model: " + model, 1)
                              .replace("escalation_model: gpt-5.6-luna", "escalation_model: " + target))
-        result = subprocess.run([sys.executable, str(Path(__file__).with_name("resolve-agent-config.py")),
+        result = subprocess.run([sys.executable, str(Path(__file__).with_name("agent_config.py")),
                                  "--agents-dir", str(root), "--role", "fixture-role", "--trigger", "security"],
                                 text=True, capture_output=True)
         assert result.returncode == 1 and "escalation_model must match model" in result.stderr

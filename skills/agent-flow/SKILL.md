@@ -472,7 +472,7 @@ sidecars.
 
 Before launching a subagent, read the bundled role file `agents/<role>.md` and resolve `stable_agent_name`, `stable_agent_slug`, and optional `nickname_candidates` from `agents/agent-identities.json`.
 
-Also resolve the role model config before `spawn_agent`, using `python3 "$AF_PACKAGE/scripts/resolve-agent-config.py" --role <role>` plus any task triggers such as `--trigger security`, `--trigger broad-scope`, or `--trigger release`. Pass the returned `model` and `reasoning_effort` into `spawn_agent`. Pass `service_tier` only when the resolver returns a non-null value.
+Also resolve the role model config before `spawn_agent`, using `python3 "$AF_PACKAGE/scripts/agent_config.py" --role <role>` plus any task triggers such as `--trigger security`, `--trigger broad-scope`, or `--trigger release`. Pass the returned `model` and `reasoning_effort` into `spawn_agent`. Pass `service_tier` only when the resolver returns a non-null value.
 
 When Codex custom-agent files have been generated for the current project or user config, and the current `spawn_agent` schema exposes the Agent Flow role as an available `agent_type`, pass that role slug as `agent_type`. This lets Codex App, CLI, and IDE show configured `nickname_candidates` in subagent activity. If the role is not exposed in the current tool schema, use the closest available built-in `agent_type` and keep Agent Flow identity in trace metadata.
 

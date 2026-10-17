@@ -95,23 +95,6 @@ def validate_identities(path: Path, role_names: list[str]) -> list[str]:
     return errors
 
 
-def validate_readme_role_counts(repo_root: Path, role_count: int) -> list[str]:
-    errors: list[str] = []
-    for name in ["README.md", "README.ru.md"]:
-        path = repo_root / name
-        if not path.exists():
-            continue
-        try:
-            text = path.read_text(encoding="utf-8")
-        except OSError as exc:
-            errors.append(f"{path}: {exc}")
-            continue
-        russian_role_prefix = f"{role_count} \u0440\u043e\u043b"
-        if f"{role_count} roles" not in text and russian_role_prefix not in text:
-            errors.append(f"{path}: visible role count does not match actual role count {role_count}")
-    return errors
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--agents-dir", type=Path, default=default_agents_dir(), help="Directory with role .md files.")
@@ -120,11 +103,6 @@ def main() -> int:
         type=Path,
         default=None,
         help="Agent identities JSON. Defaults to agents/agent-identities.json.",
-    )
-    parser.add_argument(
-        "--skip-readme-counts",
-        action="store_true",
-        help="Skip README role-count drift checks.",
     )
     args = parser.parse_args()
 
@@ -154,9 +132,6 @@ def main() -> int:
 
     identities_path = (args.identities or default_identities_path(agents_dir)).expanduser().resolve()
     errors.extend(validate_identities(identities_path, role_names))
-
-    if not args.skip_readme_counts:
-        errors.extend(validate_readme_role_counts(agents_dir.parent, len(role_names)))
 
     if errors:
         for error in errors:

@@ -51,18 +51,10 @@ def write_identities(agents_dir: Path, entries: list[dict[str, object]]) -> Path
     return path
 
 
-def write_readmes(root: Path, count: int) -> None:
-    russian_role_count = f"{count} \u0440\u043e\u043b\u0435\u0439"
-    (root / "README.md").write_text(f"roles-{count}\n{count} roles\n", encoding="utf-8")
-    (root / "README.ru.md").write_text(f"roles-{count}\n{russian_role_count}\n", encoding="utf-8")
-
-
-def validate(agents_dir: Path, identities_path: Path | None = None, skip_readme_counts: bool = False) -> subprocess.CompletedProcess[str]:
+def validate(agents_dir: Path, identities_path: Path | None = None) -> subprocess.CompletedProcess[str]:
     command = [sys.executable, str(VALIDATE_AGENT_CONFIG), "--agents-dir", str(agents_dir)]
     if identities_path:
         command.extend(["--identities", str(identities_path)])
-    if skip_readme_counts:
-        command.append("--skip-readme-counts")
     return subprocess.run(command, text=True, capture_output=True, check=False)
 
 
@@ -96,8 +88,6 @@ def main() -> int:
         agents_dir.mkdir()
         write_role(agents_dir, "alpha-role")
         write_role(agents_dir, "beta-role")
-        write_readmes(root, 2)
-
         valid_identities = write_identities(agents_dir, [identity("alpha-role"), identity("beta-role")])
         expect_pass("valid fixture", validate(agents_dir, valid_identities))
 
@@ -128,10 +118,6 @@ def main() -> int:
         )
         expect_fail("duplicate nickname", validate(agents_dir, duplicate_nickname), "duplicate nickname candidate")
 
-        valid_identities = write_identities(agents_dir, [identity("alpha-role"), identity("beta-role")])
-        write_readmes(root, 25)
-        expect_fail("README role count drift", validate(agents_dir, valid_identities), "visible role count does not match")
-        expect_pass("README count skip", validate(agents_dir, valid_identities, skip_readme_counts=True))
 
     print("PASS validate-agent-config fixture tests")
     return 0

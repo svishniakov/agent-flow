@@ -4,7 +4,7 @@
 
 Пользователь не выбирает, запускать ли субагентов. Agent Flow может запускать их автоматически, если оркестратор решил, что делегирование даст полезную evidence или параллельную работу, и в текущей среде есть инструмент для запуска subagents.
 
-В `agents/<role>.md` у каждой роли есть runtime-поля `model` и `reasoning_effort`, а также escalation-поля для рискованных задач. Перед `spawn_agent` оркестратор запускает `resolve-agent-config.py`, передаёт подходящие `--trigger` и использует выбранные значения в аргументах инструмента.
+В `agents/<role>.md` у каждой роли есть runtime-поля `model` и `reasoning_effort`, а также escalation-поля для рискованных задач. Перед `spawn_agent` оркестратор запускает `agent_config.py --role <role>`, передаёт подходящие `--trigger` и использует выбранные значения в аргументах инструмента.
 
 Имена ролей лежат в `agents/agent-identities.json`. Там же можно задать `nickname_candidates` - имена, которые Codex показывает в активности subagents. Чтобы Codex App, CLI или IDE увидели эти имена, синхронизируйте project-scoped custom agents:
 

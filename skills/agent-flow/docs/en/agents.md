@@ -4,7 +4,7 @@ This document describes the bundled Agent Flow subagents in English. The working
 
 Users do not decide whether to launch subagents. Agent Flow may launch them automatically when the orchestrator decides delegation adds useful evidence or parallelism and the current environment has a tool for launching subagents.
 
-Each `agents/<role>.md` file has runtime `model` and `reasoning_effort` fields plus escalation fields for risky tasks. Before `spawn_agent`, the orchestrator runs `resolve-agent-config.py`, passes any matching `--trigger` values, and uses the selected output as tool arguments.
+Each `agents/<role>.md` file has runtime `model` and `reasoning_effort` fields plus escalation fields for risky tasks. Before `spawn_agent`, the orchestrator runs `agent_config.py --role <role>`, passes any matching `--trigger` values, and uses the selected output as tool arguments.
 
 Agent Flow role identities live in `agents/agent-identities.json`. That file can also set `nickname_candidates` for Codex custom agents. To make those names visible in Codex App, CLI, or IDE activity, sync project-scoped custom-agent files:
 

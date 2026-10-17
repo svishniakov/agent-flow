@@ -36,7 +36,7 @@ Role frontmatter also defines runtime model settings:
 - `model` and `reasoning_effort`: default values passed to `spawn_agent`.
 - `service_tier`: optional default service tier passed only when present.
 - `escalation_model` must match `model`; `escalation_reasoning_effort` and `escalation_service_tier` retain their existing trigger-based selection.
-- `escalation_triggers`: inline list of task/risk triggers that activate escalation through `resolve-agent-config.py --trigger <trigger>`.
+- `escalation_triggers`: inline list of task/risk triggers that activate escalation through `agent_config.py --trigger <trigger>`.
 
 Run `python3 "$AF_PACKAGE/scripts/validate-agent-config.py"` and `python3 "$AF_PACKAGE/scripts/validate-role-catalog.py"` after editing role files.
 
