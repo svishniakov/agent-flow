@@ -77,11 +77,6 @@ plugin installation commands. This does not update the global CLI. The bundled
 catalog reports shipped models and reasoning levels without refreshing from the
 server; it does not prove that your account can execute a model request.
 
-The Codex `0.144.1` pin in `check-tools.json` belongs to the complete source test
-suite and frozen model-eval harness with its `gpt-5.6-*` catalog. It does not certify
-compatibility with current Agent Flow role models. Select the prepared suite CLI
-separately through `PATH` for those tests.
-
 ## Roles, active source, and updates
 
 The readiness check also rejects explicit Agent Flow role declarations in

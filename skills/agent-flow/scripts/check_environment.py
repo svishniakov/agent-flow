@@ -54,29 +54,13 @@ def require_version(name: str, expected: str, *, minimum: bool = False) -> str:
         accepted = actual == expected
     if not accepted:
         relation = ">=" if minimum else "=="
-        detail = (" This pin belongs to the reproducible source test suite and frozen model-eval harness; "
-                  "it does not certify compatibility with current Agent Flow role models. Select the suite CLI explicitly through PATH."
-                  if name == "codex" else "")
-        raise EnvironmentError(f"Required {name}{relation}{expected}; found {actual} at {executable}.{detail}")
+        raise EnvironmentError(f"Required {name}{relation}{expected}; found {actual} at {executable}.")
     return actual
-
-
-def require_browser() -> Path:
-    value = os.environ.get("AGENT_FLOW_TEST_BROWSER")
-    if not value:
-        raise EnvironmentError("Required browser is missing: set AGENT_FLOW_TEST_BROWSER to the prepared headless shell.")
-    browser = Path(value).expanduser().resolve()
-    if not browser.is_file() or not os.access(browser, os.X_OK):
-        raise EnvironmentError(f"Required browser is not executable: {browser}")
-    actual = version_of([str(browser), "--version"])
-    if actual != TOOLS["browser"]:
-        raise EnvironmentError(f"Required browser=={TOOLS['browser']}; found {actual}.")
-    return browser
 
 
 def check_environment() -> dict[str, str]:
     if sys.platform not in {"darwin", "linux"}:
-        raise EnvironmentError("The full suite requires macOS or Linux; process and Codex sandbox checks cannot be skipped.")
+        raise EnvironmentError("The full suite requires macOS or Linux; obligatory checks cannot be skipped.")
     minimum = tuple(map(int, TOOLS["python"]["minimum"].split(".")))
     if sys.version_info[:3] < minimum:
         raise EnvironmentError(f"Required Python>={TOOLS['python']['minimum']}.")
@@ -85,8 +69,6 @@ def check_environment() -> dict[str, str]:
     versions["node"] = require_version("node", TOOLS["node"]["minimum"], minimum=True)
     for name, expected in TOOLS["cli"].items():
         versions[name] = require_version(name, expected)
-    require_browser()
-    versions["browser"] = TOOLS["browser"]
     for line in (ROOT / "requirements-codegraph.txt").read_text(encoding="utf-8").splitlines():
         if not line.strip() or line.startswith("#"):
             continue

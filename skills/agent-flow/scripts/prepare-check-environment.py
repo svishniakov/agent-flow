@@ -12,17 +12,14 @@ import sys
 import venv
 from pathlib import Path
 
-from check_environment import EnvironmentError, ROOT, TOOLS, require_browser, require_tool, require_version
+from check_environment import EnvironmentError, ROOT, TOOLS, require_tool, require_version
 
 
-def prepare(prefix: Path, browser: Path) -> None:
+def prepare(prefix: Path) -> None:
     if sys.version_info[:3] < tuple(map(int, TOOLS["python"]["minimum"].split("."))):
         raise EnvironmentError(f"Required Python>={TOOLS['python']['minimum']}.")
     require_version("node", TOOLS["node"]["minimum"], minimum=True)
-    require_version("codex", TOOLS["cli"]["codex"])
-    os.environ["AGENT_FLOW_TEST_BROWSER"] = str(browser)
-    browser = require_browser()
-    executables = {name: Path(require_tool(name)).resolve() for name in ("node", "codex")}
+    executables = {"node": Path(require_tool("node")).resolve()}
     npm = require_tool("npm")
     marker = prefix / ".agent-flow-check-environment.json"
     expected_marker = {"schema_version": 1, "purpose": "agent-flow-check-environment"}
@@ -40,9 +37,8 @@ def prepare(prefix: Path, browser: Path) -> None:
     npm_root = prefix / "tools"
     subprocess.run([npm, "install", "--prefix", str(npm_root), "--ignore-scripts",
                     "--no-audit", "--no-fund", "--save-exact",
-                    f"skills@{TOOLS['cli']['skills']}", f"pnpm@{TOOLS['cli']['pnpm']}"], check=True)
-    for name in ("skills", "pnpm"):
-        executables[name] = (npm_root / "node_modules/.bin" / name).resolve()
+                    f"skills@{TOOLS['cli']['skills']}"], check=True)
+    executables["skills"] = (npm_root / "node_modules/.bin/skills").resolve()
     for name, target in executables.items():
         link = prefix / "bin" / name
         if link.is_symlink() and link.resolve() == target:
@@ -55,17 +51,15 @@ def prepare(prefix: Path, browser: Path) -> None:
     subprocess.run([str(python), str(ROOT / "scripts/check_environment.py")], env=environment, check=True)
     print("Prepared dependencies. Connect the hook in the source checkout:")
     print(shlex.join([str(python), "scripts/install-pre-commit.py", "--python", str(python),
-                      "--tool-bin", str(prefix / "bin"), "--browser", str(browser)]))
+                      "--tool-bin", str(prefix / "bin")]))
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--prefix", type=Path, required=True)
-    parser.add_argument("--browser", type=Path, required=True,
-                        help=f"Already installed headless shell {TOOLS['browser']}")
     args = parser.parse_args()
     try:
-        prepare(args.prefix.expanduser().absolute(), args.browser.expanduser().absolute())
+        prepare(args.prefix.expanduser().absolute())
     except (EnvironmentError, OSError, ValueError, subprocess.CalledProcessError) as exc:
         print(f"FAIL prepare check environment: {exc}", file=sys.stderr)
         return 1

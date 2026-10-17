@@ -15,7 +15,6 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--python", default=sys.executable, help="Prepared Python executable (venv path is preserved)")
     parser.add_argument("--tool-bin", type=Path, help="Directory containing prepared tools")
-    parser.add_argument("--browser", type=Path, help="Prepared browser executable")
     args = parser.parse_args()
     try:
         root = Path(subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip()).resolve()
@@ -37,11 +36,6 @@ def main():
             if not tool_bin.is_dir():
                 raise RuntimeError(f"prepared tools directory unavailable: {tool_bin}")
             lines.extend([f"PATH={shlex.quote(str(tool_bin))}:\"$PATH\"", "export PATH"])
-        if args.browser:
-            browser = args.browser.expanduser().absolute()
-            if not browser.is_file() or not os.access(browser, os.X_OK):
-                raise RuntimeError(f"browser executable unavailable: {browser}")
-            lines.extend([f"AGENT_FLOW_TEST_BROWSER={shlex.quote(str(browser))}", "export AGENT_FLOW_TEST_BROWSER"])
         runner = hooks / "agent-flow-check-index.py"
         lines.append(f"exec {shlex.quote(str(python))} {shlex.quote(str(runner))} \"$@\"")
         files = {runner: (root / "scripts/check-index.py").read_bytes(),
