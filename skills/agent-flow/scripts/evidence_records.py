@@ -125,6 +125,11 @@ def is_field_line(line: str) -> bool:
     return bool(key.strip())
 
 
+def is_comment_line(line: str) -> bool:
+    stripped = line.strip()
+    return stripped.startswith("<!--") and stripped.endswith("-->")
+
+
 def split_field(line: str) -> tuple[str, str]:
     key, value = line.strip().split(":", 1)
     return key.strip(), value.strip()
@@ -162,7 +167,7 @@ def parse_record(record_id: str, start_line: int, lines: list[tuple[int, str]]) 
     last_field: str | None = None
 
     for line_number, line in lines:
-        if not line.strip():
+        if not line.strip() or is_comment_line(line):
             continue
 
         if is_field_line(line):
@@ -525,3 +530,40 @@ def analyze_file(path: Path, min_successes: int = 3, fail_on_invalid: bool = Fal
             "errors": [str(exc)],
             "summary": {"records": 0, "groups": 0, "min_successes": min_successes},
         }, 1
+
+
+RENDER_FIELD_ORDER = (
+    "Type", "Section", "Keywords", "Problem class", "Context", "Approach", "Outcome",
+    "Evidence", "Provenance", "Verification", "Helpful", "Harmful", "Neutral", "Active",
+    "Reuse when", "Do not reuse when", "Follow-up",
+)
+
+
+def validate_renderable_fields(record_id: str, fields: dict[str, str]) -> None:
+    """Reject values the writer cannot render losslessly through parse_notes."""
+    for key, value in fields.items():
+        text = str(value)
+        if text != text.strip("\n"):
+            raise EvidenceError(f"{record_id}: field {key} must not start or end with a newline")
+        for continuation in text.splitlines()[1:]:
+            if not continuation.strip() or continuation.strip().startswith("#") or is_field_line(continuation):
+                raise EvidenceError(
+                    f"{record_id}: field {key} continuation lines must be non-blank text without field syntax")
+
+
+def render_record(record_id: str, fields: dict[str, str]) -> str:
+    validate_renderable_fields(record_id, fields)
+    lines = ["### Evidence: " + record_id, ""]
+    ordered = [key for key in RENDER_FIELD_ORDER if key in fields]
+    ordered += [key for key in fields if key not in RENDER_FIELD_ORDER]
+    for key in ordered:
+        value_lines = str(fields[key]).splitlines()
+        lines.append(f"{key}: {value_lines[0] if value_lines else ''}")
+        lines.extend("  " + line for line in value_lines[1:])
+    return "\n".join(lines) + "\n"
+
+
+def render_records(records: list[tuple[str, dict[str, str]]]) -> str:
+    """Render journal rows as `### Evidence:` chunks in stable store order."""
+    chunks = [render_record(record_id, fields).rstrip("\n") for record_id, fields in records]
+    return "\n\n".join(chunks) + "\n" if chunks else ""

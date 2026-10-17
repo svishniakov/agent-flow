@@ -132,6 +132,21 @@ def test_markdown_shape_edges() -> None:
         raise AssertionError("indented continuation was not parsed")
 
 
+def test_writer_block_markers_are_ignored() -> None:
+    body = (
+        "<!-- agent-flow:run-a:begin -->\n" + record("journaled")
+        + "<!-- agent-flow:run-a:end -->\n"
+        + "<!-- agent-flow:run-b:begin -->\n" + record("second", approach="other approach")
+        + "<!-- agent-flow:run-b:end -->\n"
+        + record("manual")
+    )
+    parsed = parse_notes(notes(body))
+    if [item.record_id for item in parsed.records] != ["journaled", "second", "manual"]:
+        raise AssertionError("writer block markers must not disturb record parsing")
+    if any("<!--" in key for item in parsed.records for key in item.fields):
+        raise AssertionError("marker lines must not become record fields")
+
+
 def test_field_flexibility() -> None:
     text = """# Notes
 
@@ -440,6 +455,7 @@ def main() -> int:
     test_required_field_errors()
     test_invalid_values_and_duplicates()
     test_markdown_shape_edges()
+    test_writer_block_markers_are_ignored()
     test_field_flexibility()
     test_ace_inspired_fields_are_parsed()
     test_old_records_get_derived_defaults()

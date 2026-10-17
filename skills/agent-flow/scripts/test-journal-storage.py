@@ -755,7 +755,7 @@ class ConsumerTests(unittest.TestCase):
             observed.append(data["notes"])
             return data
         with patch.object(harness_promotion, "validate_run", validate), patch.object(harness_promotion, "load_harness_evaluation", read):
-            result = harness_promotion.promote_harness_evaluation(self.run, self.root / "notes.md")
+            result = harness_promotion.promote_harness_evaluation(self.run)
         self.assertEqual(observed, ["old"])
         self.assertEqual(result.promoted, 0)
         self.assertEqual(harness_promotion.load_harness_evaluation(self.run)["notes"], "new")

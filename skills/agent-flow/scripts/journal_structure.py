@@ -65,6 +65,11 @@ SERVICE_FIELDS = {
     "simplicity-scope": {"primary_surfaces": "string-list", "secondary_surfaces": "string-list", "evidence": "references"},
     "lane-gate": {"lane_id": "string", "axis": "string", "facet": "string", "check": "string", "evidence": "references"},
     "lane-report": {"lane_id": "string", "sections": "sections?", "evidence": "references?"},
+    "evidence-record": {"id": "string", "record_type": "string", "problem_class": "string", "context": "string",
+                        "outcome": "string", "evidence": "strings", "reuse_when": "string", "do_not_reuse_when": "string",
+                        "follow_up": "string", "section": "string?", "keywords": "string-list?", "provenance": "string?",
+                        "verification": "string?", "active": "boolean?"},
+    "evidence-record-outcome": {"id": "string", "counter": "string", "evidence": "strings", "active": "boolean?"},
 }
 REQUEST_FIELDS.update({kind: {"summary": "string", "status": "status", **fields} for kind, fields in SERVICE_FIELDS.items()})
 REQUEST_FIELDS["handoff"]["sections"] = "sections?"
@@ -125,6 +130,7 @@ def domain_validator():
 
 def semantic_enums():
     validator = domain_validator()
+    from evidence_records import ALLOWED_OUTCOMES, ALLOWED_SECTIONS, ALLOWED_TYPES
     return {"architecture-outcome": {"decision": sorted(validator.ARCHITECTURE_DESIGN_DECISION_STATUSES)},
             "risk": {"category": sorted(validator.RISK_MITIGATION_CATEGORIES)},
             "resolution": {"resolution_type": sorted(validator.RISK_RESOLUTION_TYPES), "effect": ["fix", "mitigate", "contain"]},
@@ -138,7 +144,10 @@ def semantic_enums():
             "lane": {"lane_type": sorted(validator.LANE_TYPES), "execution_mode": sorted(validator.AGENT_EXECUTION_MODES)},
             "lane-simplicity": {"checked_checks": validator.ENGINEERING_SIMPLICITY_REQUIRED_CHECKS},
             "lane-compliance": {"sections": validator.ARCHITECTURE_CONTRACT_SECTIONS},
-            "acceptance": {"contract_types": sorted(validator.CONTRACT_NEGATIVE_FIXTURE_TYPES)}}
+            "acceptance": {"contract_types": sorted(validator.CONTRACT_NEGATIVE_FIXTURE_TYPES)},
+            "evidence-record": {"record_type": sorted(ALLOWED_TYPES), "outcome": sorted(ALLOWED_OUTCOMES),
+                                "section": sorted(ALLOWED_SECTIONS)},
+            "evidence-record-outcome": {"counter": ["helpful", "harmful", "neutral"]}}
 
 
 def nested_choices():
@@ -268,6 +277,10 @@ def validate_request(kind, request):
                 values = request[name] if type(request[name]) is list else [request[name]]
                 if any(value not in allowed for value in values):
                     raise ValueError(name + " has an unknown semantic choice")
+        if kind == "evidence-record" and "keywords" in request:
+            from evidence_records import KEBAB_OR_LOWER_TOKEN
+            if any(not KEBAB_OR_LOWER_TOKEN.fullmatch(keyword) for keyword in request["keywords"]):
+                raise ValueError("keywords must be comma-separated lowercase/kebab tokens")
         for name in ("id", "attempt_id", "risk_id", "lane_id"):
             if name in request and not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", request[name]):
                 raise ValueError(name + " must be kebab-case")

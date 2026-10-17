@@ -752,6 +752,262 @@ class SemanticRequestRegressions(unittest.TestCase):
             sealed = seal(run)
             self.assertEqual(sealed["changed_paths"], [])
 
+    def test_evidence_record_projection_roundtrip_counters_and_upsert(self):
+        import tempfile
+        from evidence_records import parse_notes
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source = root / "source"
+            source.mkdir()
+            subprocess.run(["git", "init", "-q", str(source)], check=True)
+            memory = source / ".agent-work/tasks"
+            memory.mkdir(parents=True)
+            notes = memory / "implementation-notes.md"
+            manual = """# Implementation Notes
+
+## Evidence Records
+
+### Evidence: manual-keep
+
+Type: Failure
+Problem class: legacy
+Context: legacy ctx
+Approach: legacy approach
+Outcome: failure
+Evidence: legacy evidence
+Reuse when: legacy reuse
+Do not reuse when: legacy stop
+Follow-up: none
+
+## Other Section
+
+keep me
+"""
+            notes.write_text(manual, encoding="utf-8")
+            run = source / ".agent-work/runs/memory"
+            journal_io.initialize_journal(run, {}, source_root=source)
+            request = {"summary": "Readiness before workers", "status": "pass", "id": "rec-one",
+                       "record_type": "Success", "problem_class": "verification-readiness-ordering",
+                       "context": "run: memory", "outcome": "success",
+                       "evidence": ["harness-evaluation.json", "checks/smoke.md"],
+                       "reuse_when": "same gates", "do_not_reuse_when": "different gates",
+                       "follow_up": "none", "section": "harness", "keywords": ["readiness", "ordering"],
+                       "provenance": "run=memory", "verification": "python3 scripts/validate-run.py"}
+            receipt = journal_io.write_entry(run, "evidence-record", request, identifier="record-one")
+            self.assertEqual(receipt["record_id"], "rec-one")
+            snapshot = journal_io.JournalSnapshot.open(run)
+            store = json.loads(snapshot.read_text("artifacts/memory/evidence-records.json"))
+            self.assertEqual([row["id"] for row in store["records"]], ["rec-one"])
+            self.assertEqual(store["records"][0]["outcomes"], [])
+            text = notes.read_text(encoding="utf-8")
+            self.assertTrue(text.startswith("# Implementation Notes"))
+            self.assertIn("<!-- agent-flow:" + snapshot.run_uuid + ":begin -->", text)
+            self.assertIn("### Evidence: manual-keep", text)
+            self.assertTrue(text.endswith("keep me\n"))
+            self.assertLess(text.index("### Evidence: rec-one"), text.index("### Evidence: manual-keep"))
+            parsed = parse_notes(text)
+            self.assertEqual([record.record_id for record in parsed.records], ["rec-one", "manual-keep"])
+            record = parsed.records[0]
+            self.assertEqual(record.fields["Helpful"], "1")
+            self.assertEqual(record.fields["Harmful"], "0")
+            self.assertEqual(record.fields["Neutral"], "0")
+            self.assertEqual(record.fields["Active"], "true")
+            self.assertEqual(record.fields["Verification"], "python3 scripts/validate-run.py")
+            row = store["records"][0]
+            self.assertEqual(record.fields, journal_io.evidence_record_fields(row))
+            outcome = {"summary": "Reused successfully", "status": "pass", "id": "rec-one",
+                       "counter": "helpful", "evidence": ["checks/reuse.md"]}
+            journal_io.write_entry(run, "evidence-record-outcome", outcome, identifier="outcome-one")
+            journal_io.write_entry(run, "evidence-record-outcome", outcome, identifier="outcome-one")
+            journal_io.write_entry(run, "evidence-record-outcome",
+                                   {"summary": "Stopped reuse", "status": "fail", "id": "rec-one",
+                                    "counter": "harmful", "evidence": ["checks/harm.md"], "active": False},
+                                   identifier="outcome-two")
+            snapshot = journal_io.JournalSnapshot.open(run)
+            store = json.loads(snapshot.read_text("artifacts/memory/evidence-records.json"))
+            self.assertEqual(len(store["records"][0]["outcomes"]), 2)
+            record = parse_notes(notes.read_text(encoding="utf-8")).records[0]
+            self.assertEqual((record.fields["Helpful"], record.fields["Harmful"], record.fields["Neutral"]),
+                             ("2", "1", "0"))
+            self.assertEqual(record.fields["Active"], "false")
+            updated = dict(request, context="run: memory updated")
+            journal_io.write_entry(run, "evidence-record", updated, identifier="record-one-update")
+            snapshot = journal_io.JournalSnapshot.open(run)
+            store = json.loads(snapshot.read_text("artifacts/memory/evidence-records.json"))
+            self.assertEqual(len(store["records"]), 1)
+            self.assertEqual(store["records"][0]["context"], "run: memory updated")
+            self.assertEqual(len(store["records"][0]["outcomes"]), 2)
+            self.assertEqual(parse_notes(notes.read_text(encoding="utf-8")).records[0].fields["Context"],
+                             "run: memory updated")
+
+    def test_evidence_record_validation_rejections(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source = root / "source"
+            source.mkdir()
+            subprocess.run(["git", "init", "-q", str(source)], check=True)
+            memory = source / ".agent-work/tasks"
+            memory.mkdir(parents=True)
+            notes = memory / "implementation-notes.md"
+            notes.write_text("# Implementation Notes\n\n## Evidence Records\n\n### Evidence: manual-dup\n\n"
+                             "Type: Success\nProblem class: p\nContext: c\nApproach: a\nOutcome: success\n"
+                             "Evidence: e\nReuse when: r\nDo not reuse when: s\nFollow-up: f\n", encoding="utf-8")
+            run = source / ".agent-work/runs/memory"
+            journal_io.initialize_journal(run, {}, source_root=source)
+            valid = {"summary": "Approach text", "status": "pass", "id": "rec-two",
+                     "record_type": "Success", "problem_class": "p", "context": "c", "outcome": "success",
+                     "evidence": ["e"], "reuse_when": "r", "do_not_reuse_when": "s", "follow_up": "f"}
+            before = journal_io.JournalSnapshot.open(run).documents.copy()
+            rejects = [
+                (dict(valid, id="Bad_ID"), "id must be kebab-case"),
+                (dict(valid, record_type="Bogus"), "record_type has an unknown semantic choice"),
+                (dict(valid, outcome="bogused"), "outcome has an unknown semantic choice"),
+                (dict(valid, section="other"), "section has an unknown semantic choice"),
+                (dict(valid, keywords=["Bad Token"]), "keywords must be comma-separated lowercase/kebab tokens"),
+                (dict(valid, context="first\nEvil: injected"), "continuation lines must be non-blank text without field syntax"),
+                (dict(valid, id="manual-dup"), "duplicate record id"),
+            ]
+            for index, (request, needle) in enumerate(rejects):
+                with self.subTest(rejection=index):
+                    with self.assertRaisesRegex(journal_io.JournalError, needle):
+                        journal_io.write_entry(run, "evidence-record", request, identifier=f"reject-{index}")
+            with self.assertRaisesRegex(journal_io.JournalError, "requires an existing record"):
+                journal_io.write_entry(run, "evidence-record-outcome",
+                                       {"summary": "orphan", "status": "pass", "id": "missing",
+                                        "counter": "helpful", "evidence": ["e"]}, identifier="orphan-outcome")
+            with self.assertRaisesRegex(journal_io.JournalError, "counter has an unknown semantic choice"):
+                journal_io.write_entry(run, "evidence-record-outcome",
+                                       {"summary": "orphan", "status": "pass", "id": "missing",
+                                        "counter": "bogus", "evidence": ["e"]}, identifier="bogus-counter")
+            self.assertNotIn("artifacts/memory/evidence-records.json",
+                             journal_io.JournalSnapshot.open(run).documents)
+            self.assertEqual(journal_io.JournalSnapshot.open(run).documents, before)
+            self.assertEqual(notes.read_text(encoding="utf-8").count("### Evidence:"), 1)
+
+    def test_evidence_record_closed_journal_and_import(self):
+        import sqlite3
+        import tempfile
+        from evidence_records import parse_notes
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source = root / "source"
+            source.mkdir()
+            subprocess.run(["git", "init", "-q", str(source)], check=True)
+            memory = source / ".agent-work/tasks"
+            memory.mkdir(parents=True)
+            notes = memory / "implementation-notes.md"
+            notes.write_text("""# Implementation Notes
+
+## Evidence Records
+
+### Evidence: legacy-a
+
+Type: Success
+Problem class: p1
+Context: ctx a
+Approach: approach a
+Outcome: success
+Evidence: ea
+Reuse when: ra
+Do not reuse when: sa
+Follow-up: none
+Helpful: 3
+Active: false
+
+### Evidence: legacy-b
+
+Type: Failure
+Problem class: p2
+Context: ctx b
+Approach: approach b
+Outcome: failure
+Evidence: eb
+Reuse when: rb
+Do not reuse when: sb
+Follow-up: check later
+Custom Field: keep me
+
+## Other Section
+
+keep me
+""", encoding="utf-8")
+            run = source / ".agent-work/runs/memory"
+            journal_io.initialize_journal(run, {}, source_root=source)
+            result = journal_io.import_evidence_records(run, today="2026-10-17")
+            self.assertEqual(result["imported"], ["legacy-a", "legacy-b"])
+            self.assertEqual(result["skipped"], [])
+            text = notes.read_text(encoding="utf-8")
+            self.assertTrue(text.endswith("keep me\n"))
+            self.assertNotIn("### Evidence: legacy-a\n\nType: Success\nProblem class: p1\nContext: ctx a",
+                             text.split(":end -->")[-1])
+            parsed = {record.record_id: record for record in parse_notes(text).records}
+            self.assertEqual(set(parsed), {"legacy-a", "legacy-b"})
+            self.assertEqual(parsed["legacy-a"].fields["Helpful"], "3")
+            self.assertEqual(parsed["legacy-a"].fields["Active"], "false")
+            self.assertEqual(parsed["legacy-a"].fields["Provenance"], "import:2026-10-17")
+            self.assertEqual(parsed["legacy-b"].fields["Custom Field"], "keep me")
+            snapshot = journal_io.JournalSnapshot.open(run)
+            store = json.loads(snapshot.read_text("artifacts/memory/evidence-records.json"))
+            rows = {row["id"]: row for row in store["records"]}
+            self.assertEqual(rows["legacy-a"]["active"], False)
+            self.assertEqual([event["counter"] for event in rows["legacy-a"]["outcomes"]],
+                             ["helpful", "helpful"])
+            self.assertEqual(rows["legacy-b"]["extra"], {"Custom Field": "keep me"})
+            again = journal_io.import_evidence_records(run, today="2026-10-18")
+            self.assertEqual(again["imported"], [])
+            self.assertEqual(again["skipped"], ["legacy-a", "legacy-b"])
+            self.assertEqual(notes.read_text(encoding="utf-8"), text)
+            event = dict(timestamp="2026-01-01T00:00:00Z", stage="final", role="orchestrator",
+                         stable_agent_name="Orchestrator", stable_agent_slug="orchestrator", status="blocked",
+                         summary="Synthetic blocked acceptance", artifacts=["final.md"], next_step="")
+            raw = (journal_io.encode_json(event) + "\n").encode()
+            with sqlite3.connect(run / ".journal/state.sqlite3") as db:
+                journal_io._put_documents(db, {"timeline.jsonl": raw})
+            self.assertTrue(journal_io.JournalSnapshot.open(run).closed)
+            journal_io.write_entry(run, "evidence-record-outcome",
+                                   {"summary": "Observed after close", "status": "pass", "id": "legacy-b",
+                                    "counter": "neutral", "evidence": ["notes"]}, identifier="late-outcome")
+            record = {record.record_id: record for record in parse_notes(notes.read_text(encoding="utf-8")).records}["legacy-b"]
+            self.assertEqual(record.fields["Neutral"], "1")
+            with self.assertRaisesRegex(journal_io.JournalError, "semantic writes require an open durable journal"):
+                journal_io.write_entry(run, "lesson", {"summary": "late lesson", "status": "pass"},
+                                       identifier="late-lesson")
+
+    def test_import_evidence_records_cli(self):
+        import tempfile
+        journal_cli = load("journal_cli_import", "journal.py")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source = root / "source"
+            source.mkdir()
+            subprocess.run(["git", "init", "-q", str(source)], check=True)
+            memory = source / ".agent-work/tasks"
+            memory.mkdir(parents=True)
+            notes = memory / "implementation-notes.md"
+            notes.write_text("# Implementation Notes\n\n## Evidence Records\n\n### Evidence: cli-record\n\n"
+                             "Type: Attempt\nProblem class: p\nContext: c\nApproach: a\nOutcome: unknown\n"
+                             "Evidence: e\nReuse when: r\nDo not reuse when: s\nFollow-up: f\n", encoding="utf-8")
+            run = source / ".agent-work/runs/memory"
+            journal_io.initialize_journal(run, {}, source_root=source)
+            stdout = StringIO()
+            with redirect_stdout(stdout):
+                code = journal_cli.main(["--run-dir", str(run), "import-evidence-records"])
+            self.assertEqual(code, 0)
+            answer = json.loads(stdout.getvalue())
+            self.assertEqual(answer["imported"], ["cli-record"])
+            snapshot = journal_io.JournalSnapshot.open(run)
+            store = json.loads(snapshot.read_text("artifacts/memory/evidence-records.json"))
+            self.assertEqual([row["id"] for row in store["records"]], ["cli-record"])
+            self.assertTrue(store["records"][0]["provenance"].startswith("import:"))
+            stderr = StringIO()
+            with redirect_stderr(stderr):
+                with self.assertRaises(SystemExit) as caught:
+                    journal_cli.main(["--run-dir", str(run), "import-evidence-records",
+                                      "--notes", str(root / "missing.md")])
+            self.assertEqual(caught.exception.code, 1)
+            self.assertIn("notes file not found", stderr.getvalue())
+
     def test_check_process_does_not_hold_journal_writer_lock(self):
         import tempfile
         with tempfile.TemporaryDirectory() as directory:

@@ -50,6 +50,9 @@ def main(argv=None):
     resolution_parser.add_argument("--reason", required=True)
     resolution_parser.add_argument("--expected-revision", type=int, required=True)
     resolution_parser.add_argument("--operation-id", required=True)
+    import_parser = commands.add_parser("import-evidence-records",
+                                        help="Move manual `## Evidence Records` entries into the journal-backed writer block.")
+    import_parser.add_argument("--notes", help="Notes file to import from; defaults to the writer-owned project memory target.")
     args = parser.parse_args(argv)
     if args.command == "contract":
         from journal_structure import request_contract
@@ -118,6 +121,10 @@ def main(argv=None):
                                          reason=args.reason, expected_revision=args.expected_revision,
                                          identifier=args.operation_id)
             print(json.dumps({"operation_id": args.operation_id, **receipt}))
+        elif args.command == "import-evidence-records":
+            from journal_io import import_evidence_records
+            notes = Path(args.notes).expanduser().absolute() if args.notes else None
+            print(json.dumps(import_evidence_records(run_dir, notes=notes), ensure_ascii=False, indent=2))
         elif args.command == "finalize":
             import uuid
             from journal_lifecycle import finalize

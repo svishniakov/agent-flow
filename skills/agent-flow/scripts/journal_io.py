@@ -23,6 +23,8 @@ from typing import Any
 
 HANDOFF_STATE_MODES = {"task", "batch"}
 HANDOFF_STATE_STATUSES = {"queued", "accepted", "completed", "blocked", "failed"}
+EVIDENCE_RECORDS_PATH = "artifacts/memory/evidence-records.json"
+MEMORY_KINDS = frozenset({"evidence-record", "evidence-record-outcome"})
 STATUS_TIMESTAMP_FIELDS = {
     "queued": "queued_at",
     "accepted": "accepted_at",
@@ -814,8 +816,8 @@ def operation_id(run_dir, command, payload, *, identifier=None):
     return identifier
 
 
-def transact(run_dir, identifier, payload, mutation, *, replay_guard=None, timeout=2.0):
-    return _transact(run_dir, identifier, payload, mutation, replay_guard=replay_guard, timeout=timeout)
+def transact(run_dir, identifier, payload, mutation, *, replay_guard=None, timeout=2.0, lifecycle=None):
+    return _transact(run_dir, identifier, payload, mutation, replay_guard=replay_guard, timeout=timeout, lifecycle=lifecycle)
 
 
 def _transact_completion(run_dir, identifier, payload, mutation, *, source, lane_id,
@@ -992,7 +994,7 @@ def _transact(run_dir, identifier, payload, mutation, *, replay_guard=None, time
                 replay_guard(snapshot)
             connection.rollback()
             return json.loads(receipt[1])
-        require(not snapshot.closed or lifecycle in {"delivery", "reopen"}, "journal generation is closed")
+        require(not snapshot.closed or lifecycle in {"delivery", "reopen", "memory"}, "journal generation is closed")
         documents, result = mutation(snapshot)
         if lifecycle == "reopen":
             archive_id, archive_bytes = capture_archive(snapshot)
@@ -1113,6 +1115,8 @@ def _transact(run_dir, identifier, payload, mutation, *, replay_guard=None, time
             workspace = registered_workspace(snapshot, require_sealed=True)
             expected = f"artifacts/workspaces/{workspace['workspace_id']}/delivery/{workspace['seal']['candidate_id']}.json"
             require(set(documents) == {expected}, "delivery may only publish its own artifact")
+        if lifecycle == "memory":
+            require(set(documents) == {EVIDENCE_RECORDS_PATH}, "memory writes may only publish the evidence records store")
         from journal_structure import assignment_errors, archived_assignment_facts
         if lifecycle != "reopen":
             history = archived_assignment_facts(snapshot)
@@ -1383,7 +1387,7 @@ def append_event(path, event, *, identifier=None, assign_timestamp=False):
         "stage": event["stage"], "role": event["role"]}, identifier=identifier, payload=payload, mutation=mutation)
 
 
-def write_entry(run_dir, kind, request, *, identifier=None, mutation=None, replay_guard=None, completion=None, payload=None, boundary=None):
+def write_entry(run_dir, kind, request, *, identifier=None, mutation=None, replay_guard=None, completion=None, payload=None, boundary=None, defer_projection=False):
     """Single semantic writer; adapters may retain source-bound domain checks."""
     from journal_structure import validate_request, render_document, DOCUMENT_PATHS
     try:
@@ -1398,7 +1402,8 @@ def write_entry(run_dir, kind, request, *, identifier=None, mutation=None, repla
     if "path" in request:
         require(kind in defaults and request["path"] == defaults[kind], "document target is writer-owned")
     for ref in request.get("evidence", []):
-        logical_path(ref["path"])
+        if kind not in MEMORY_KINDS:
+            logical_path(ref["path"])
     snapshot = JournalSnapshot.open(run_dir)
     require(snapshot.durable, "semantic writes require a durable journal")
     if kind == "final" and mutation is None:
@@ -1439,13 +1444,13 @@ def write_entry(run_dir, kind, request, *, identifier=None, mutation=None, repla
         if replay_guard is not None:
             replay_guard(snapshot)
         receipt = {"operation_id": identifier, **saved["result"]}
-        if kind in {"task", "lesson"} and mutation is None:
+        if kind in {"task", "lesson", *MEMORY_KINDS} and mutation is None and not defer_projection:
             project_memory(snapshot, kind, identifier)
         return receipt
-    require(not snapshot.closed, "semantic writes require an open durable journal")
+    require(not snapshot.closed or kind in MEMORY_KINDS, "semantic writes require an open durable journal")
     if mutation is None and kind == "event" and request["stage"] == "spawned":
         require(bool(request.get("lane_id")), "spawned requires the native assignment recorder")
-    if kind in {"task", "lesson"} and mutation is None:
+    if kind in {"task", "lesson", *MEMORY_KINDS} and mutation is None:
         validate_directory(memory_path(snapshot, kind).parent)
         require(not memory_path(snapshot, kind).is_symlink(), "memory target must not be a symlink")
     completed = None
@@ -1477,10 +1482,12 @@ def write_entry(run_dir, kind, request, *, identifier=None, mutation=None, repla
 
     def project(current):
         validate_request(kind, request)
-        require(not current.closed, "journal generation is closed")
+        require(not current.closed or kind in MEMORY_KINDS, "journal generation is closed")
         if mutation is not None:
             return mutation(current)
         from journal_structure import SERVICE_FIELDS
+        if kind in MEMORY_KINDS:
+            return evidence_record_projection(current, kind, request, defer_projection=defer_projection)
         if kind in SERVICE_FIELDS:
             documents, result = service_projection(current, kind, request, source=service_source)
             event = {"timestamp": now_iso(), "stage": kind, "role": "orchestrator", "execution_mode": "role-lane",
@@ -1619,8 +1626,9 @@ def write_entry(run_dir, kind, request, *, identifier=None, mutation=None, repla
     if completion:
         receipt = _transact_completion(run_dir, identifier, payload, project, replay_guard=replay_guard, **completion)
     else:
-        receipt = transact(run_dir, identifier, payload, project, replay_guard=replay_guard)
-    if kind in {"task", "lesson"} and mutation is None:
+        receipt = transact(run_dir, identifier, payload, project, replay_guard=replay_guard,
+                           lifecycle="memory" if kind in MEMORY_KINDS and mutation is None else None)
+    if kind in {"task", "lesson", *MEMORY_KINDS} and mutation is None and not defer_projection:
         project_memory(JournalSnapshot.open(run_dir), kind, identifier)
     return {"operation_id": identifier, **receipt}
 
@@ -2226,9 +2234,13 @@ def write_event_projection(snapshot, stage, request):
     return {"timeline.jsonl": snapshot.documents.get("timeline.jsonl", b"") + (encode_json_line(event) + "\n").encode()}, {}
 
 
+MEMORY_FILES = {"task": "todo.md", "lesson": "lessons.md",
+                "evidence-record": "implementation-notes.md", "evidence-record-outcome": "implementation-notes.md"}
+
+
 def memory_path(snapshot, kind):
     root = snapshot.source_root
-    return root / ".agent-work" / "tasks" / ("todo.md" if kind == "task" else "lessons.md")
+    return root / ".agent-work" / "tasks" / MEMORY_FILES[kind]
 
 
 def project_memory(snapshot, kind, identifier):
@@ -2236,20 +2248,32 @@ def project_memory(snapshot, kind, identifier):
     path = memory_path(snapshot, kind)
     validate_directory(path.parent)
     require(not path.is_symlink(), "memory target must not be a symlink")
-    token = snapshot.run_uuid if kind == "task" else digest(identifier.encode())
-    begin = ("<!-- agent-flow:" + token + ":begin -->\n").encode()
-    end = ("<!-- agent-flow:" + token + ":end -->\n").encode()
     old = capture_file(path) if path.exists() else b""
-    require(old.count(begin) == old.count(end) <= 1, "malformed memory section")
-    artifact = "run.md" if kind == "task" else snapshot.operation_receipt(identifier)["result"]["memory_artifact"]
-    body = snapshot.read_bytes(artifact)
-    section = begin + body + end
-    if begin in old:
-        start, stop = old.index(begin), old.index(end) + len(end)
-        require(stop > start, "malformed memory section")
-        updated = old[:start] + section + old[stop:]
+    if kind in MEMORY_KINDS:
+        token = snapshot.run_uuid
+        begin = ("<!-- agent-flow:" + token + ":begin -->\n").encode()
+        end = ("<!-- agent-flow:" + token + ":end -->\n").encode()
+        require(old.count(begin) == old.count(end) <= 1, "malformed memory section")
+        updated = evidence_block_upsert(old, begin, end, render_evidence_records(snapshot))
+        from evidence_records import parse_notes, EvidenceError
+        try:
+            parse_notes(updated.decode())
+        except EvidenceError as exc:
+            raise JournalError("projected Evidence Records invalid: " + str(exc)) from exc
     else:
-        updated = old + (b"\n" if old and not old.endswith(b"\n") else b"") + section
+        token = snapshot.run_uuid if kind == "task" else digest(identifier.encode())
+        begin = ("<!-- agent-flow:" + token + ":begin -->\n").encode()
+        end = ("<!-- agent-flow:" + token + ":end -->\n").encode()
+        require(old.count(begin) == old.count(end) <= 1, "malformed memory section")
+        artifact = "run.md" if kind == "task" else snapshot.operation_receipt(identifier)["result"]["memory_artifact"]
+        body = snapshot.read_bytes(artifact)
+        section = begin + body + end
+        if begin in old:
+            start, stop = old.index(begin), old.index(end) + len(end)
+            require(stop > start, "malformed memory section")
+            updated = old[:start] + section + old[stop:]
+        else:
+            updated = old + (b"\n" if old and not old.endswith(b"\n") else b"") + section
     if updated == old:
         return
     durable_mkdir(path.parent)
@@ -2264,6 +2288,267 @@ def project_memory(snapshot, kind, identifier):
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
+
+
+def evidence_block_upsert(old: bytes, begin: bytes, end: bytes, body: str) -> bytes:
+    """Refresh one writer block inside `## Evidence Records`, keeping the manual zone."""
+    block = begin + (body.encode() + b"\n" if body else b"") + end
+    if begin in old:
+        start, stop = old.index(begin), old.index(end) + len(end)
+        require(stop > start, "malformed memory section")
+        return old[:start] + block + old[stop:]
+    text = old.decode()
+    lines = text.splitlines(keepends=True)
+    heading = next((index for index, line in enumerate(lines) if line.strip() == "## Evidence Records"), None)
+    insertion = b"\n" + block
+    if heading is None:
+        base = old.rstrip(b"\n")
+        prefix = base + b"\n" if base else b"# Implementation Notes\n"
+        return prefix + b"\n## Evidence Records\n" + insertion
+    following = lines[heading + 1:]
+    if following and following[0].strip():
+        insertion += b"\n"
+    return b"".join(line.encode() for line in lines[:heading + 1]) + insertion + b"".join(line.encode() for line in following)
+
+
+def load_evidence_records(snapshot):
+    """Writer-owned Evidence Records store; absent on legacy runs."""
+    if not snapshot.exists(EVIDENCE_RECORDS_PATH):
+        return {"version": 1, "records": []}
+    data = json.loads(snapshot.read_text(EVIDENCE_RECORDS_PATH))
+    require(type(data) is dict and type(data.get("records")) is list
+            and all(type(row) is dict and type(row.get("id")) is str for row in data["records"]),
+            "evidence records store invalid")
+    return data
+
+
+def evidence_record_counters(row):
+    """Counters derive from the outcome chain, never from stored numbers."""
+    from evidence_records import derived_counters
+    totals = derived_counters(row["outcome"])
+    for event in row.get("outcomes", []):
+        totals[event["counter"]] += 1
+    return totals
+
+
+def evidence_record_active(row):
+    """Active comes from the latest outcome flag; import may seed inactive rows."""
+    active = row.get("active", True)
+    for event in row.get("outcomes", []):
+        if "active" in event:
+            active = event["active"]
+    return active
+
+
+def evidence_record_fields(row):
+    counters = evidence_record_counters(row)
+    fields = {"Type": row["type"], "Problem class": row["problem_class"], "Context": row["context"],
+              "Approach": row["approach"], "Outcome": row["outcome"],
+              "Evidence": "; ".join(row["evidence"]), "Reuse when": row["reuse_when"],
+              "Do not reuse when": row["do_not_reuse_when"], "Follow-up": row["follow_up"],
+              "Helpful": str(counters["helpful"]), "Harmful": str(counters["harmful"]),
+              "Neutral": str(counters["neutral"]), "Active": "true" if evidence_record_active(row) else "false"}
+    if row.get("section"):
+        fields["Section"] = row["section"]
+    if row.get("keywords"):
+        fields["Keywords"] = ", ".join(row["keywords"])
+    if row.get("provenance"):
+        fields["Provenance"] = row["provenance"]
+    if row.get("verification"):
+        fields["Verification"] = row["verification"]
+    fields.update(row.get("extra", {}))
+    return fields
+
+
+def render_evidence_records(snapshot):
+    from evidence_records import render_records
+    data = load_evidence_records(snapshot)
+    return render_records([(row["id"], evidence_record_fields(row)) for row in data["records"]])
+
+
+def evidence_record_row(request, existing=None):
+    row = {"id": request["id"], "type": request["record_type"], "problem_class": request["problem_class"],
+           "context": request["context"], "approach": request["summary"], "outcome": request["outcome"],
+           "evidence": list(request["evidence"]), "reuse_when": request["reuse_when"],
+           "do_not_reuse_when": request["do_not_reuse_when"], "follow_up": request["follow_up"]}
+    for optional in ("section", "provenance", "verification"):
+        if optional in request:
+            row[optional] = request[optional]
+    if "keywords" in request:
+        row["keywords"] = list(request["keywords"])
+    if request.get("active") is False:
+        row["active"] = False
+    row["outcomes"] = list(existing.get("outcomes", [])) if existing else []
+    return row
+
+
+def evidence_record_projection(snapshot, kind, request, *, defer_projection=False):
+    """Evidence Records are journal facts; the notes section is a generated projection."""
+    from evidence_records import EvidenceError, parse_notes
+    data = load_evidence_records(snapshot)
+    records = data["records"]
+    if kind == "evidence-record":
+        existing = next((row for row in records if row["id"] == request["id"]), None)
+        upsert_record(records, evidence_record_row(request, existing))
+    else:
+        record = next((row for row in records if row["id"] == request["id"]), None)
+        require(record is not None, "evidence record outcome requires an existing record")
+        event = {"counter": request["counter"], "summary": request["summary"], "status": request["status"],
+                 "evidence": list(request["evidence"])}
+        if "active" in request:
+            event["active"] = request["active"]
+        record.setdefault("outcomes", []).append(event)
+    expected = [(row["id"], evidence_record_fields(row)) for row in records]
+    from evidence_records import render_records
+    try:
+        rendered = render_records(expected)
+        parsed = parse_notes("## Evidence Records\n\n" + rendered)
+    except EvidenceError as exc:
+        raise JournalError("evidence records render invalid: " + str(exc)) from exc
+    require([(record.record_id, record.fields) for record in parsed.records] == expected,
+            "evidence records render round-trip mismatch")
+    if not defer_projection:
+        notes = memory_path(snapshot, kind)
+        if notes.exists():
+            begin = ("<!-- agent-flow:" + snapshot.run_uuid + ":begin -->\n").encode()
+            end = ("<!-- agent-flow:" + snapshot.run_uuid + ":end -->\n").encode()
+            prospective = evidence_block_upsert(capture_file(notes), begin, end, rendered)
+            try:
+                parse_notes(prospective.decode())
+            except EvidenceError as exc:
+                raise JournalError("projected Evidence Records invalid: " + str(exc)) from exc
+    return {EVIDENCE_RECORDS_PATH: encode_json(data, pretty=True) + "\n"}, {
+        "document": EVIDENCE_RECORDS_PATH, "record_id": request["id"], "records": len(records)}
+
+
+def memory_block_line_flags(lines):
+    """True per line inside a writer block (begin/end markers inclusive)."""
+    flags, inside = [], False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("<!-- agent-flow:") and stripped.endswith(":begin -->"):
+            inside = True
+        flags.append(inside)
+        if stripped.startswith("<!-- agent-flow:") and stripped.endswith(":end -->"):
+            inside = False
+    return flags
+
+
+def strip_manual_evidence_records(text, ids):
+    """Remove journal-backed records from the manual zone; keep every other byte."""
+    lines = text.splitlines(keepends=True)
+    flags = memory_block_line_flags(lines)
+    starts = [(index + 1, line.strip()[len("### Evidence:"):].strip())
+              for index, line in enumerate(lines) if line.strip().startswith("### Evidence:")]
+    targets = [number for number, record_id in starts
+               if record_id in ids and not flags[number - 1]]
+    if not targets:
+        return text
+    boundaries = sorted({number for number, _ in starts}
+                        | {index + 1 for index, line in enumerate(lines) if line.startswith("## ")}
+                        | {len(lines) + 1})
+    ranges = [(number, min(boundary for boundary in boundaries if boundary > number)) for number in targets]
+    out = list(lines)
+    for start, end in sorted(ranges, reverse=True):
+        del out[start - 1:end - 1]
+        seam = start - 1
+        left = seam - 1
+        while left >= 0 and not out[left].strip():
+            left -= 1
+        right = seam
+        while right < len(out) and not out[right].strip():
+            right += 1
+        out[left + 1:right] = ["\n"] if 0 <= left and right < len(out) else []
+    return "".join(out)
+
+
+def atomic_memory_write(path, data):
+    durable_mkdir(path.parent)
+    descriptor, temporary = tempfile.mkstemp(prefix=".memory-", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            sync_file(handle.fileno())
+        os.replace(temporary, path)
+        sync_directory(path.parent)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def import_evidence_records(run_dir, *, notes=None, today=None):
+    """Move manual `## Evidence Records` entries into the journal-backed writer block."""
+    from evidence_records import EvidenceError, derived_counters, normalize_active, parse_keywords, parse_notes, record_counters
+    run_dir = Path(run_dir)
+    snapshot = JournalSnapshot.open(run_dir)
+    require(snapshot.durable, UNSUPPORTED_STORAGE_VERSION)
+    path = Path(notes) if notes is not None else memory_path(snapshot, "evidence-record")
+    require(path.is_file(), "notes file not found: " + str(path))
+    require(not path.is_symlink(), "memory target must not be a symlink")
+    stamp = today or datetime.now().date().isoformat()
+    try:
+        parsed = parse_notes(path.read_text(encoding="utf-8"))
+    except EvidenceError as exc:
+        raise JournalError("invalid Evidence Records in " + str(path) + ": " + str(exc)) from exc
+    imported, skipped = [], []
+    for record in parsed.records:
+        store = load_evidence_records(JournalSnapshot.open(run_dir))
+        if record.record_id in {row["id"] for row in store["records"]}:
+            skipped.append(record.record_id)
+            continue
+        fields = record.fields
+        provenance = "import:" + stamp
+        if fields.get("Provenance"):
+            provenance += "; " + fields["Provenance"]
+        request = {"summary": fields["Approach"], "status": "pass", "id": record.record_id,
+                   "record_type": fields["Type"], "problem_class": fields["Problem class"],
+                   "context": fields["Context"], "outcome": fields["Outcome"],
+                   "evidence": [part.strip() for part in fields["Evidence"].split(";") if part.strip()],
+                   "reuse_when": fields["Reuse when"], "do_not_reuse_when": fields["Do not reuse when"],
+                   "follow_up": fields["Follow-up"], "provenance": provenance}
+        if fields.get("Section"):
+            request["section"] = fields["Section"]
+        if fields.get("Keywords"):
+            request["keywords"] = parse_keywords(fields["Keywords"])
+        if fields.get("Verification"):
+            request["verification"] = fields["Verification"]
+        if not normalize_active(fields.get("Active")):
+            request["active"] = False
+        known = {"Type", "Problem class", "Context", "Approach", "Outcome", "Evidence", "Reuse when",
+                 "Do not reuse when", "Follow-up", "Section", "Keywords", "Provenance", "Verification",
+                 "Helpful", "Harmful", "Neutral", "Active"}
+        write_entry(run_dir, "evidence-record", request,
+                    identifier="import-evidence-record-" + record.record_id, defer_projection=True)
+        extra = {key: fields[key] for key in fields if key not in known}
+        if extra:
+            from evidence_records import validate_renderable_fields
+            try:
+                validate_renderable_fields(record.record_id, extra)
+            except EvidenceError as exc:
+                raise JournalError(str(exc)) from exc
+            def patch_extra(current, extra=extra):
+                data = load_evidence_records(current)
+                row = next(row for row in data["records"] if row["id"] == record.record_id)
+                row["extra"] = extra
+                return {EVIDENCE_RECORDS_PATH: encode_json(data, pretty=True) + "\n"}, {}
+            transact(run_dir, "import-evidence-extra-" + record.record_id,
+                     {"kind": "evidence-record-extra", "id": record.record_id}, patch_extra, lifecycle="memory")
+        explicit = record_counters(record)
+        base = derived_counters(record.outcome)
+        for counter in ("helpful", "harmful", "neutral"):
+            for index in range(max(0, explicit[counter] - base[counter])):
+                write_entry(run_dir, "evidence-record-outcome",
+                            {"summary": "Imported counter carry-over", "status": "pass", "id": record.record_id,
+                             "counter": counter, "evidence": [path.name]},
+                            identifier=f"import-evidence-counter-{record.record_id}-{counter}-{index}",
+                            defer_projection=True)
+        imported.append(record.record_id)
+    if imported:
+        updated = strip_manual_evidence_records(path.read_text(encoding="utf-8"), set(imported))
+        atomic_memory_write(path, updated.encode())
+        project_memory(JournalSnapshot.open(run_dir), "evidence-record", None)
+    return {"notes": str(path), "imported": imported, "skipped": skipped}
 
 
 def prepare_review_input(run_dir, lane_id, sources, *, identifier=None):

@@ -9,20 +9,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from evidence_records import EvidenceError, analyze_notes, parse_notes
-from journal_io import JournalSnapshot
+from evidence_records import EvidenceError, analyze_notes, render_records
+from journal_io import (JournalError, JournalSnapshot, evidence_block_upsert, evidence_record_fields,
+                        evidence_record_row, load_evidence_records, memory_path)
 
 
 ROOT = Path(__file__).resolve().parents[1]
 VALIDATE_RUN = ROOT / "scripts" / "validate-run.py"
 HARNESS_EVALUATION_PATH = "harness-evaluation.json"
-EVIDENCE_RECORDS_HEADING = "## Evidence Records"
-
-
-@dataclass(frozen=True)
-class PromotionRecord:
-    record_id: str
-    text: str
 
 
 @dataclass(frozen=True)
@@ -68,15 +62,6 @@ def finding_keywords(data: dict[str, Any], finding: dict[str, Any]) -> list[str]
         keywords.append(token)
         seen.add(token)
     return keywords or ["harness"]
-
-
-def outcome_counters(outcome: object) -> tuple[int, int, int]:
-    normalized = compact(outcome)
-    if normalized == "success":
-        return 1, 0, 0
-    if normalized in {"failure", "regression", "rejected"}:
-        return 0, 1, 0
-    return 0, 0, 1
 
 
 def finding_provenance(run_dir: Path, data: dict[str, Any], finding: dict[str, Any]) -> str:
@@ -165,6 +150,10 @@ def finding_evidence(finding: dict[str, Any]) -> str:
     return "; ".join(dict.fromkeys(values))
 
 
+def finding_evidence_list(finding: dict[str, Any]) -> list[str]:
+    return [part.strip() for part in finding_evidence(finding).split(";") if part.strip()]
+
+
 def build_context(run_dir: Path, data: dict[str, Any], finding: dict[str, Any]) -> str:
     return "; ".join(
         [
@@ -176,89 +165,60 @@ def build_context(run_dir: Path, data: dict[str, Any], finding: dict[str, Any]) 
     )
 
 
-def build_record(run_dir: Path, data: dict[str, Any], finding: dict[str, Any], command_text: str) -> PromotionRecord:
+def build_record(run_dir: Path, data: dict[str, Any], finding: dict[str, Any], command_text: str) -> dict[str, Any]:
+    """Map one validated finding onto an evidence-record writer request."""
     finding_id = compact(finding.get("id"))
     record_id = f"harness-{slugify(run_dir.name)}-{finding_id}"
-    rationale = selected_proposal_rationale(data) or "none"
-    helpful, harmful, neutral = outcome_counters(finding.get("outcome"))
-    fields = [
-        ("Type", finding_record_type(finding)),
-        ("Section", "harness"),
-        ("Keywords", ", ".join(finding_keywords(data, finding))),
-        ("Problem class", compact(finding.get("problem_class"))),
-        ("Context", build_context(run_dir, data, finding)),
-        ("Approach", compact(finding.get("approach"))),
-        ("Outcome", compact(finding.get("outcome"))),
-        ("Evidence", finding_evidence(finding)),
-        ("Provenance", finding_provenance(run_dir, data, finding)),
-        ("Helpful", str(helpful)),
-        ("Harmful", str(harmful)),
-        ("Neutral", str(neutral)),
-        ("Active", "true"),
-        ("Reuse when", compact(finding.get("reuse_when"))),
-        ("Do not reuse when", compact(finding.get("do_not_reuse_when"))),
-        ("Follow-up", rationale),
-        ("Verification", command_text),
-    ]
-    body = "\n".join(f"{key}: {value}" for key, value in fields)
-    return PromotionRecord(record_id=record_id, text=f"### Evidence: {record_id}\n\n{body}\n")
+    return {
+        "summary": compact(finding.get("approach")),
+        "status": "pass",
+        "id": record_id,
+        "record_type": finding_record_type(finding),
+        "problem_class": compact(finding.get("problem_class")),
+        "context": build_context(run_dir, data, finding),
+        "outcome": compact(finding.get("outcome")),
+        "evidence": finding_evidence_list(finding),
+        "section": "harness",
+        "keywords": finding_keywords(data, finding),
+        "provenance": finding_provenance(run_dir, data, finding),
+        "verification": command_text,
+        "reuse_when": compact(finding.get("reuse_when")),
+        "do_not_reuse_when": compact(finding.get("do_not_reuse_when")),
+        "follow_up": selected_proposal_rationale(data) or "none",
+    }
 
 
-def promotable_records(run_dir: Path, data: dict[str, Any], command_text: str) -> list[PromotionRecord]:
+def promotable_records(run_dir: Path, data: dict[str, Any], command_text: str) -> list[dict[str, Any]]:
     if not selected_proposal_rationale(data):
         return []
     findings = data.get("findings")
     if not isinstance(findings, list):
         return []
-    records: list[PromotionRecord] = []
+    records: list[dict[str, Any]] = []
     for finding in findings:
         if isinstance(finding, dict):
             records.append(build_record(run_dir, data, finding, command_text))
     return records
 
 
-def existing_record_ids(notes_path: Path) -> set[str]:
-    if not notes_path.exists():
-        return set()
-    try:
-        parsed = parse_notes(notes_path.read_text(encoding="utf-8"))
-    except EvidenceError as error:
-        raise PromotionError(f"invalid Evidence Records in {notes_path}: {error}") from error
-    return {record.record_id for record in parsed.records}
+def projected_notes_text(snapshot, requests: list[dict[str, Any]]) -> str:
+    """Notes text as it would look after writing the given requests; nothing is written."""
+    data = load_evidence_records(snapshot)
+    rows = list(data["records"])
+    existing = {row["id"] for row in rows}
+    for request in requests:
+        if request["id"] not in existing:
+            rows.append(evidence_record_row(request))
+    body = render_records([(row["id"], evidence_record_fields(row)) for row in rows])
+    notes = memory_path(snapshot, "evidence-record")
+    old = notes.read_bytes() if notes.exists() else b""
+    begin = ("<!-- agent-flow:" + snapshot.run_uuid + ":begin -->\n").encode()
+    end = ("<!-- agent-flow:" + snapshot.run_uuid + ":end -->\n").encode()
+    return evidence_block_upsert(old, begin, end, body).decode()
 
 
-def insert_records(text: str, records: list[PromotionRecord]) -> str:
-    record_text = "\n".join(record.text.rstrip() for record in records).rstrip() + "\n"
-    if not text.strip():
-        return f"# Implementation Notes\n\n{EVIDENCE_RECORDS_HEADING}\n\n{record_text}"
-
-    lines = text.splitlines()
-    heading_index: int | None = None
-    for index, line in enumerate(lines):
-        if line.strip() == EVIDENCE_RECORDS_HEADING:
-            heading_index = index
-            break
-
-    if heading_index is None:
-        base = text.rstrip()
-        return f"{base}\n\n{EVIDENCE_RECORDS_HEADING}\n\n{record_text}"
-
-    insert_at = len(lines)
-    for index in range(heading_index + 1, len(lines)):
-        if lines[index].startswith("## ") and lines[index].strip() != EVIDENCE_RECORDS_HEADING:
-            insert_at = index
-            break
-
-    before = "\n".join(lines[:insert_at]).rstrip()
-    after = "\n".join(lines[insert_at:]).lstrip()
-    if after:
-        return f"{before}\n\n{record_text}\n{after}\n"
-    return f"{before}\n\n{record_text}"
-
-
-def promote_harness_evaluation(run_dir: Path, notes_path: Path, *, dry_run: bool = False) -> PromotionResult:
+def promote_harness_evaluation(run_dir: Path, *, dry_run: bool = False) -> PromotionResult:
     resolved_run_dir = run_dir.expanduser().resolve()
-    resolved_notes = notes_path.expanduser()
     snapshot = JournalSnapshot.open(resolved_run_dir)
     command_text, _validation_output = validate_run(resolved_run_dir, snapshot=snapshot)
     data = load_harness_evaluation(resolved_run_dir, snapshot=snapshot)
@@ -266,52 +226,38 @@ def promote_harness_evaluation(run_dir: Path, notes_path: Path, *, dry_run: bool
     if not records:
         return PromotionResult(promoted=0, skipped=0, dry_run=dry_run, record_ids=[])
 
-    existing_ids = existing_record_ids(resolved_notes)
-    new_records = [record for record in records if record.record_id not in existing_ids]
+    existing_ids = {row["id"] for row in load_evidence_records(snapshot)["records"]}
+    new_records = [record for record in records if record["id"] not in existing_ids]
     skipped = len(records) - len(new_records)
     if not new_records:
-        return PromotionResult(
-            promoted=0,
-            skipped=skipped,
-            dry_run=dry_run,
-            record_ids=[],
-            preview_groups=[],
-        )
+        return PromotionResult(promoted=0, skipped=skipped, dry_run=dry_run, record_ids=[], preview_groups=[])
 
-    existing_text = resolved_notes.read_text(encoding="utf-8") if resolved_notes.exists() else ""
-    updated = insert_records(existing_text, new_records)
     try:
-        preview = analyze_notes(updated)
-    except EvidenceError as error:
+        preview = analyze_notes(projected_notes_text(snapshot, new_records))
+    except (EvidenceError, JournalError) as error:
         raise PromotionError(f"projected Evidence Records invalid: {error}") from error
     if preview.get("errors"):
         raise PromotionError(f"projected Evidence Records invalid: {preview['errors']}")
-    preview_groups = preview_groups_for_records(preview, new_records)
+    record_ids = [record["id"] for record in new_records]
+    preview_groups = preview_groups_for_records(preview, record_ids)
     if dry_run:
-        return PromotionResult(
-            promoted=len(new_records),
-            skipped=skipped,
-            dry_run=True,
-            record_ids=[record.record_id for record in new_records],
-            preview_groups=preview_groups,
-        )
+        return PromotionResult(promoted=len(new_records), skipped=skipped, dry_run=True,
+                               record_ids=record_ids, preview_groups=preview_groups)
 
-    resolved_notes.parent.mkdir(parents=True, exist_ok=True)
-    resolved_notes.write_text(updated, encoding="utf-8")
-    return PromotionResult(
-        promoted=len(new_records),
-        skipped=skipped,
-        dry_run=dry_run,
-        record_ids=[record.record_id for record in new_records],
-        preview_groups=preview_groups,
-    )
+    from journal_io import write_entry
+    for record in new_records:
+        try:
+            write_entry(resolved_run_dir, "evidence-record", record)
+        except JournalError as error:
+            raise PromotionError(str(error)) from error
+    return PromotionResult(promoted=len(new_records), skipped=skipped, dry_run=False,
+                           record_ids=record_ids, preview_groups=preview_groups)
 
 
-def preview_groups_for_records(report: dict[str, Any], records: list[PromotionRecord]) -> list[dict[str, Any]]:
-    record_ids = {record.record_id for record in records}
+def preview_groups_for_records(report: dict[str, Any], record_ids: list[str]) -> list[dict[str, Any]]:
+    wanted = set(record_ids)
     groups: list[dict[str, Any]] = []
     for group in report.get("groups", []):
-        if not record_ids.intersection(group.get("record_ids", [])):
-            continue
-        groups.append(group)
+        if wanted.intersection(group.get("record_ids", [])):
+            groups.append(group)
     return groups
