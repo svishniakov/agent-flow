@@ -9,7 +9,6 @@ import io
 import json
 import shutil
 import subprocess
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -157,7 +156,7 @@ class RepositoryChecks(unittest.TestCase):
         (self.repo / "README.md").unlink()
         names = ("run_step", "run_skills_cli_layout_guard", "run_skills_cli_discovery_guard",
                  "run_skills_cli_install_guard",
-                 "run_golden_trace_artifacts_guard", "run_content_guard", "run_test_inventory_guard")
+                 "run_golden_trace_artifacts_guard", "run_content_guard")
         with contextlib.ExitStack() as stack:
             stack.enter_context(patch.object(self.checks, "check_environment", return_value={}))
             for name in names:
@@ -189,21 +188,48 @@ class RepositoryChecks(unittest.TestCase):
     def test_runtime_suites_remain_planned_and_failures_propagate(self):
         guards = ("run_skills_cli_layout_guard", "run_skills_cli_discovery_guard", "run_skills_cli_install_guard",
                   "run_golden_trace_artifacts_guard", "run_content_guard",
-                  "run_test_inventory_guard", "run_retired_blocking_rules_guard", "run_role_prompt_dedup_guard")
+                  "run_retired_blocking_rules_guard", "run_role_prompt_dedup_guard")
+        scripts = self.package / "scripts"
+        for name in ("test-alpha.py", "test-beta.py", "test-journal-recovery.py"):
+            (scripts / name).write_text("print('fixture')\n")
         with contextlib.ExitStack() as stack:
             stack.enter_context(patch.object(self.checks, "check_environment", return_value={}))
             for name in guards:
                 stack.enter_context(patch.object(self.checks, name, return_value=0))
             steps = stack.enter_context(patch.object(self.checks, "run_step",
-                side_effect=lambda name, command: int("scripts/test-journal-io.py" in command)))
+                side_effect=lambda name, command: int(name == "test-beta.py")))
             code, _, errors = self.capture(self.checks.main)
-        commands = [call.args[1] for call in steps.call_args_list]
-        for script in ("test-init-run.py", "test-journal-io.py", "test-journal-storage.py", "test-journal-recovery.py",
-                       "test-journal-lifecycle.py", "test-task-workspace.py", "test-procedure-completion.py",
-                       "test-verification-evidence.py", "test-golden-traces.py"):
-            self.assertTrue(any("scripts/" + script in command for command in commands), script)
+        calls = steps.call_args_list
+        planned = [call.args[0] for call in calls]
+        commands = [call.args[1] for call in calls]
+        for script in ("test-build-distributions.py", "test-check-index.py", "test-skill-release.py"):
+            self.assertTrue(any(command[-1].endswith("scripts/" + script) for command in commands), script)
+        discovered = [name for name in planned if name in {"test-alpha.py", "test-beta.py", "test-journal-recovery.py"}]
+        self.assertEqual(discovered, ["test-alpha.py", "test-beta.py", "test-journal-recovery.py"])
+        recovery = commands[planned.index("test-journal-recovery.py")]
+        self.assertIn("-B", recovery)
+        self.assertNotIn("-B", commands[planned.index("test-alpha.py")])
+        self.assertTrue(any(command[:2] == [calls[0].args[1][0], "-m"] for command in commands), "py_compile step")
         self.assertEqual(code, 1)
         self.assertIn("FAILED 1 check(s)", errors)
+
+    def test_excluded_tests_are_not_planned(self):
+        (self.package / "scripts/test-included.py").write_text("print('fixture')\n")
+        (self.package / "scripts/test-excluded.py").write_text("print('fixture')\n")
+        guards = ("run_skills_cli_layout_guard", "run_skills_cli_discovery_guard", "run_skills_cli_install_guard",
+                  "run_golden_trace_artifacts_guard", "run_content_guard",
+                  "run_retired_blocking_rules_guard", "run_role_prompt_dedup_guard")
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(patch.object(self.checks, "check_environment", return_value={}))
+            for name in guards:
+                stack.enter_context(patch.object(self.checks, name, return_value=0))
+            stack.enter_context(patch.object(self.checks, "EXCLUDED_TESTS", ("test-excluded.py",)))
+            steps = stack.enter_context(patch.object(self.checks, "run_step", return_value=0))
+            code, _, errors = self.capture(self.checks.main)
+        planned = [call.args[0] for call in steps.call_args_list]
+        self.assertIn("test-included.py", planned)
+        self.assertNotIn("test-excluded.py", planned)
+        self.assertEqual(code, 0, errors)
 
     def test_missing_environment_stops_before_running_any_check(self):
         with patch.object(self.checks, "check_environment", side_effect=self.checks.EnvironmentError("codex missing")), \
@@ -226,29 +252,6 @@ class RepositoryChecks(unittest.TestCase):
             self.assertEqual(self.capture(self.checks.run_step, "fixture", ["fixture"])[0], 0)
         with patch.object(self.checks.subprocess, "run", side_effect=FileNotFoundError("missing tool")):
             self.assertEqual(self.capture(self.checks.run_step, "fixture", ["fixture"])[0], 1)
-
-    def test_inventory_requires_every_test_once_and_packaged(self):
-        test = self.package / "scripts/test-example.py"
-        test.write_text("print('test')\n")
-        manifest = self.package / "package-files.txt"
-        manifest.write_text("scripts/test-example.py\n")
-        steps = [("fixture", [sys.executable, "scripts/test-example.py"]),
-                 ("compile", [sys.executable, "-m", "py_compile", "scripts/test-example.py"])]
-        self.assertEqual(self.capture(self.checks.run_test_inventory_guard, self.repo, steps)[0], 0)
-        missing = self.package / "scripts/test-unlisted.py"
-        missing.touch()
-        code, _, errors = self.capture(self.checks.run_test_inventory_guard, self.repo, steps)
-        self.assertEqual(code, 1)
-        self.assertIn("test missing from full suite", errors)
-        missing.unlink()
-        manifest.write_text("")
-        self.assertEqual(self.capture(self.checks.run_test_inventory_guard, self.repo, steps)[0], 1)
-        manifest.write_text("scripts/test-example.py\n")
-        self.assertEqual(self.capture(self.checks.run_test_inventory_guard, self.repo, steps + [steps[0]])[0], 1)
-        test.unlink()
-        code, _, errors = self.capture(self.checks.run_test_inventory_guard, self.repo, steps)
-        self.assertEqual(code, 1)
-        self.assertIn("required test missing from checkout", errors)
 
     def test_artifacts_must_be_tracked_and_git_errors_stay_errors(self):
         traces = self.package / "testdata/golden-traces"

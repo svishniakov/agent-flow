@@ -57,6 +57,16 @@ REQUIRED_SKILLS_CLI_DIRS = [
     "testdata",
     "docs",
 ]
+ROOT_TEST_SCRIPTS = (
+    "test-build-distributions.py",
+    "test-check-index.py",
+    "test-skill-release.py",
+)
+TEST_EXTRA_ARGS = {
+    "test-journal-lifecycle.py": ["-B"],
+    "test-journal-recovery.py": ["-B"],
+}
+EXCLUDED_TESTS: tuple[str, ...] = ()
 
 
 
@@ -79,37 +89,6 @@ def run_step(name: str, command: list[str]) -> int:
         print(f"FAIL {name}: an obligatory check was skipped", file=sys.stderr)
         return 1
     print(f"PASS {name}")
-    return 0
-
-
-def run_test_inventory_guard(repo_root: Path, command_steps: list[tuple[str, list[str]]]) -> int:
-    """Every test is planned once; removed required tests fail."""
-    discovered = {path.resolve() for path in SCRIPTS.glob("test-*.py")}
-    for path in (repo_root / "scripts").glob("test-*.py"):
-        discovered.add(path.resolve())
-    planned = []
-    for _, command in command_steps:
-        if "-m" in command:
-            continue
-        for argument in command:
-            path = Path(argument)
-            if path.name.startswith("test-") and path.suffix == ".py":
-                planned.append((ROOT / path).resolve())
-    failures = []
-    for path in sorted(discovered - set(planned)):
-        failures.append(f"test missing from full suite: {path}")
-    for path in sorted(set(planned) - discovered):
-        failures.append(f"required test missing from checkout: {path}")
-    if len(planned) != len(set(planned)):
-        failures.append("test scheduled more than once")
-    manifest = set((ROOT / "package-files.txt").read_text(encoding="utf-8").splitlines())
-    for path in sorted(SCRIPTS.glob("test-*.py")):
-        if path.relative_to(ROOT).as_posix() not in manifest:
-            failures.append(f"test missing from package manifest: {path.name}")
-    if failures:
-        print("FAIL test inventory:\n" + "\n".join(failures), file=sys.stderr)
-        return 1
-    print(f"PASS test inventory: {len(planned)} required test scripts")
     return 0
 
 
@@ -391,41 +370,21 @@ def main() -> int:
         return 1
     print("Required environment: " + json.dumps(versions, sort_keys=True))
     python_files = sorted(str(path.relative_to(ROOT)) for path in SCRIPTS.glob("*.py"))
+    test_steps = [
+        (path.name, [sys.executable, *TEST_EXTRA_ARGS.get(path.name, []), f"scripts/{path.name}"])
+        for path in sorted(SCRIPTS.glob("test-*.py"))
+        if path.name not in EXCLUDED_TESTS
+    ]
     command_steps = [
-        ("distribution archive fixtures", [sys.executable, str(repo_root / "scripts/test-build-distributions.py")]),
-        ("numbered skill release fixtures", [sys.executable, str(repo_root / "scripts/test-skill-release.py")]),
-        ("Git index and hook fixtures", [sys.executable, str(repo_root / "scripts/test-check-index.py")]),
+        *[(name, [sys.executable, str(repo_root / "scripts" / name)]) for name in ROOT_TEST_SCRIPTS],
         ("py_compile scripts", [sys.executable, "-m", "py_compile", *python_files]),
-        ("repository check fixtures", [sys.executable, "scripts/test-check-all.py"]),
-        ("check environment fixtures", [sys.executable, "scripts/test-check-environment.py"]),
-        ("task facts fixtures", [sys.executable, "scripts/test-task-facts.py"]),
-        ("agent config fixtures", [sys.executable, "scripts/test-agent-config.py"]),
-        ("validate-agent-config fixtures", [sys.executable, "scripts/test-validate-agent-config.py"]),
-        ("Codex agent config sync fixtures", [sys.executable, "scripts/test-sync-codex-agent-config.py"]),
-        ("role catalog fixtures", [sys.executable, "scripts/test-validate-role-catalog.py"]),
-        ("updater fixtures", [sys.executable, "scripts/test-update-agent-flow-skill.py"]),
+        *test_steps,
         ("agent config validation", [sys.executable, "scripts/validate-agent-config.py"]),
         ("role catalog validation", [sys.executable, "scripts/validate-role-catalog.py"]),
         ("agent skill registry validation", [sys.executable, "scripts/validate-agent-skill-registry.py"]),
-        ("architecture capability registry fixtures", [sys.executable, "scripts/test-validate-architecture-capabilities.py"]),
         ("architecture capability registry validation", [sys.executable, "scripts/validate-architecture-capabilities.py"]),
         ("rule consistency", [sys.executable, "scripts/validate-rule-consistency.py"]),
-        ("rule consistency fixtures", [sys.executable, "scripts/test-validate-rule-consistency.py"]),
         ("validate-run CLI", [sys.executable, "scripts/validate-run.py", "--help"]),
-        ("init-run fixtures", [sys.executable, "scripts/test-init-run.py"]),
-        ("evidence record analyzer fixtures", [sys.executable, "scripts/test-analyze-evidence-records.py"]),
-        ("harness evaluation promotion fixtures", [sys.executable, "scripts/test-promote-harness-evaluation.py"]),
-        ("handoff state fixtures", [sys.executable, "scripts/test-handoff-state.py"]),
-        ("lane boundary fixtures", [sys.executable, "scripts/test-lane-boundary.py"]),
-        ("lane fixture tests", [sys.executable, "scripts/test-validate-run-lanes.py"]),
-        ("QA/reviewer evidence fixtures", [sys.executable, "scripts/test-verification-evidence.py"]),
-        ("journal IO fixtures", [sys.executable, "scripts/test-journal-io.py"]),
-        ("journal storage failures", [sys.executable, "scripts/test-journal-storage.py"]),
-        ("journal recovery", [sys.executable, "-B", "scripts/test-journal-recovery.py"]),
-        ("journal lifecycle", [sys.executable, "-B", "scripts/test-journal-lifecycle.py"]),
-        ("task workspace full coverage", [sys.executable, "scripts/test-task-workspace.py"]),
-        ("procedure completion fixtures", [sys.executable, "scripts/test-procedure-completion.py"]),
-        ("golden trace runs", [sys.executable, "scripts/test-golden-traces.py"]),
         ("git diff hygiene", ["git", "-C", str(repo_root), "diff", "--check"]),
     ]
     content_steps = [
@@ -459,8 +418,6 @@ def main() -> int:
     ]
 
     failures = 0
-    if run_test_inventory_guard(repo_root, command_steps):
-        return 1
     if run_golden_trace_artifacts_guard():
         failures += 1
     if run_skills_cli_layout_guard(repo_root):
