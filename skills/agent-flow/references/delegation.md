@@ -159,15 +159,16 @@ Simplicity` handoff sections. `architecture_compliance.engineering_simplicity`
 must include status `pass`, `fixed`, or `drift`; all seven checks
 (`no-extra-work`, `stdlib-native-first`, `existing-helper-first`,
 `dependency-justified`, `abstraction-justified`, `smallest-working-diff`,
-`tests-fit-risk`); findings; actions; and notes. `fixed` requires findings and
-actions that are repeated literally in the worker `Engineering Simplicity`
-handoff. Simplicity Gate is not a reporting gate: fix now if fixable. Fixable
+`tests-fit-risk`); findings; actions; and notes. `fixed` requires non-empty
+structured `findings` and `actions` arrays; the worker handoff
+`Engineering Simplicity` section lists covered surface ids in `covers`. Simplicity Gate is not a reporting gate: fix now if fixable. Fixable
 overengineering, duplicated helper, unnecessary abstraction, dependency/stack
 drift, or wider-than-needed implementation is remediated before QA/reviewer.
 `pass` cannot report a fixable issue. `drift` is only for remediation that
 changes boundaries, public contracts, selected capabilities, or architecture
-approach. Retained dependency or abstraction must cite selected
-`architecture_capabilities`. If a worker finds architecture or simplicity drift,
+approach. Retained dependency or abstraction is recorded in
+`engineering_simplicity.retained` with `kind` (`dependency` or `abstraction`)
+and a selected capability id. If a worker finds architecture or simplicity drift,
 the orchestrator routes the case to architect re-check before `ship` or
 `pass-with-risks`; the drift is not closed by worker-only follow-up.
 
@@ -176,9 +177,10 @@ Simplicity Gate scope coverage is part of the same control. The orchestrator rec
 `secondary_surfaces` for peripheral proof such as smoke scripts or docs.
 Workers record `scope_coverage` under
 `architecture_compliance.engineering_simplicity` and must audit or remediate
-assigned primary surfaces before QA. QA writes `Engineering Simplicity Scope`.
-Reviewer `Contract Drift` must mention every primary surface and reject
-peripheral-only closure.
+assigned primary surfaces before QA. QA `Engineering Simplicity Scope` `covers`
+list every primary surface.
+Reviewer `Contract Drift` `covers` list every primary surface and
+`rejected-peripheral-only-closure`.
 
 Lane Boundary Gate (входит в: Lane Boundary Evidence Gate) is also part of Architecture Gate execution control.
 For schema v2 positive architecture-gated runs, each successful
@@ -192,8 +194,9 @@ writes boundary version 2 in `checks/lane-boundary-<lane-id>.json`. Full
 the author's own conclusion with retained edit evidence computed by the writer.
 The validator checks authored POSIX paths with `fnmatch.fnmatchcase`; every path must
 match `allowed_paths`, and `forbidden_paths` wins. QA `Architecture
-Invariants`, reviewer `Contract Drift`, and final `Boundary Evidence` must
-mention every worker lane id.
+Invariants` `covers` include `boundary-evidence` and every worker lane id;
+reviewer `covers` list every worker lane id; the writer-generated final
+`Boundary Evidence` names them.
 
 Union всех авторских деклараций точно покрывает полный delta. QA сверяет
 подтверждённый вклад с edit evidence; reviewer проверяет эту сверку. Shared path
@@ -298,9 +301,9 @@ Owner передаёт отдельный typed resolution request для каж
 содержательное действие, классификацию, эффект и настоящие evidence. Поля и
 допустимые значения берёт из `journal.py contract`. Writer формирует
 `risk-resolutions.json`; успешный domain outcome требует QA/reviewer proof.
-QA writes `Risk Resolution Verification` and
-mentions every risk id. Reviewer writes `Risk Resolution Review`, checks every
-risk id, verifies that `final.md` includes `Risk Resolutions`, and confirms
+QA writes `Risk Resolution Verification` with
+every risk id in `covers`. Reviewer writes `Risk Resolution Review` with every
+risk id in `covers`, verifies that `final.md` includes `Risk Resolutions`, and confirms
 that `unresolved` does not appear in a positive final verdict.
 
 The blocked-resolution step of Risk Lifecycle Gate uses the Blocked Recovery Path inside the resolution step.
@@ -314,9 +317,9 @@ blocked attempt ends the run as `blocked` or `fail`.
 When worker lanes exist under the Architecture Gate, QA must run after
 the workers and any architect re-check, and its handoff must include
 `Architecture Invariants`. Reviewer must run after QA and write
-`Architecture Matrix Mismatches` and `Contract Drift`; `Contract Drift` must
-cover Engineering Simplicity, reject reporting-only simplicity closure, and
-mention each fixed worker lane id when `engineering_simplicity.status=fixed`.
+`Architecture Matrix Mismatches` and `Contract Drift`; `Contract Drift` `covers`
+must include `engineering-simplicity` and each fixed worker lane id when
+`engineering_simplicity.status=fixed`.
 
 If the architect rejects the proposed approach, do not treat that reject as a
 reason to raise model/reasoning by default. Model/reasoning upgrade is not the default fix.

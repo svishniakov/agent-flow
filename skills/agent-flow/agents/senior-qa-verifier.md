@@ -49,7 +49,7 @@ The packet must include the blocked `risk_id`, `risk-resolutions.json` attempt, 
 - Expand acceptance criteria only when the blocked evidence shows a real gap.
 - Build a test design matrix with test cases, edge cases, negative cases, regression cases, integration cases, data/state cases, environment cases, and external blockers.
 - Re-check the blocked risk against the expanded criteria.
-- Write `Senior QA Test Design Review` and mention every relevant `risk_id`.
+- Write `Senior QA Test Design Review` with every relevant `risk_id` in `covers`.
 - Do not prescribe implementation. Send the expanded criteria and re-check result to architect.
 
 ## Output Contract

@@ -22,7 +22,16 @@ Traceable runs store evidence for work that needs durable review history.
 Закрытый набор статусов: `planned`, `active`, `pass`, `pass-with-risks`, `blocked`,
 `fail`, `timed-out`, `replaced`. Для конкретного kind используйте только значения
 из его `constraints`; например, `spawned` требует `active`. `summary` и
-`sections[].summary` всегда строки. Число вместо текста, неизвестный статус,
+`sections[].summary` всегда строки. У секции есть опциональное поле `covers`:
+kebab-case id без повторов, перечисляющие покрываемые факты; для именованных
+аудитных секций (`Engineering Simplicity`, `Boundary Evidence`, `Architecture
+Compliance`, `Architecture Invariants`, `Engineering Simplicity Scope`,
+`Architecture Matrix Mismatches`, `Contract Drift`, `Risk Mitigation Review`,
+`Risk Resolution Verification`, `Risk Resolution Review`, `Continuation
+Revalidation`, `Continuation Review`, `Harness Evaluation Review`, recovery
+review секции и owner-секции claims) `covers` обязателен и непуст. Writer
+печатает строки `- Covers: \`id\`` перед текстом секции; валидатор читает
+covers из квитанций, а не из текста markdown. Число вместо текста, неизвестный статус,
 лишнее поле или неверный тип — ошибка входа до записи. Содержательный `blocked`
 или `fail` с корректным входом — допустимый результат работы.
 
@@ -913,8 +922,9 @@ peer lane IDs должны существовать. Прежний автор �
 имеет приоритет. Иммутабельность вклада и assignment binding сохраняются.
 
 При регистрации boundary код проверяет SHA, назначение, разрешения и фактический вклад
-без проверки формулировок handoff. Полный аудит отдельно требует перечислить в тексте
-authored paths и заявленных coauthors; сокращённый текст не освобождает от этого требования.
+без проверки формулировок handoff. Покрытие аудита фиксируется полем `covers`
+секции `Boundary Evidence` заключения (собственный lane id автора), а не
+текстовым перечислением; секции с covers передаются через `--sections-file`.
 
 Пустой вывод команды допустим как evidence только для `checks/command-*.output`
 без section, если штатный command report и native receipt подтверждают байты вывода,
@@ -1206,6 +1216,10 @@ Reviewer передаёт свою роль, назначение и файлы;
 с SHA; помощник выводит собственный итог для завершения хода. Подготовка handoff
 не пишет timeline, принятие или завершение сессии. Режимы `--prepare-conclusion`
 и `--render-final` несовместимы с регистрацией события. Пользователь JSON не готовит.
+Именованные аудитные секции передавайте через `--sections-file` как
+`[{"section", "summary", "covers"}]`; `covers` обязателен для них и заменяет
+текстовое перечисление id — writer печатает `- Covers:` строки, валидатор
+проверяет квитанции.
 
 Для отрицательного итога обязательны `--reason` и хотя бы один `--unverified`;
 последний повторяется для разных непроверенных пунктов. Например, reviewer
@@ -1753,13 +1767,13 @@ handoff должен отказать до записи; исправление 
 
 The contour keeps two artifacts: `claim-evidence.json` and `acceptance-traceability.json`.
 
-- positive architecture-gated runs with QA and reviewer lanes require Contract Evidence Gate: the architecture handoff `QA Gates` and `Reviewer Checklist` sections must contain `Claim Evidence` ids, and the run root must include `claim-evidence.json`;
+- positive architecture-gated runs with QA and reviewer lanes require Contract Evidence Gate: the architecture outcome request carries `claim_evidence_ids`, the writer renders them into the contract `QA Gates` and `Reviewer Checklist` sections, the validator reads the ids from the outcome receipt, and the run root must include `claim-evidence.json`;
 - `claim-evidence.json` uses `version=1` and a non-empty `claims` array; every claim id is unique kebab-case and every required contract claim id has a record;
 - each claim record names `owner_lane`, `reviewed_by`, owner handoff `section`, `status`, `claim`, `subjects`, and evidence entries with literal `markers`;
-- for `supported`, `owner_lane` must be a successful QA or review lane, `reviewed_by` must be a successful review lane, the owner handoff section must mention the claim id, and every marker must appear in the referenced evidence file;
+- for `supported`, `owner_lane` must be a successful QA or review lane, `reviewed_by` must be a successful review lane, the owner handoff section must list the claim id in `covers`, and every marker must appear in the referenced evidence file;
 - positive verdicts require `status=supported` for local claims; an explicitly scoped external claim may remain `gap`, with its structure and supplied evidence checked;
 - a negative `gap` may lack successful owner/reviewer and complete evidence coverage; every supplied lane, reference and marker still undergoes structural and integrity checks;
-- positive architecture-gated runs require Contract Evidence Gate: the architecture handoff `QA Gates` and `Reviewer Checklist` sections must contain `Acceptance Criteria` ids, and the run root must include `acceptance-traceability.json`;
+- positive architecture-gated runs require Contract Evidence Gate: the architecture outcome request carries `acceptance_criteria_ids`, rendered and read back the same way, and the run root must include `acceptance-traceability.json`;
 - `acceptance-traceability.json` uses `version=1` and a non-empty `acceptance` array; every acceptance id is unique kebab-case and every required contract acceptance id has a record;
 - each acceptance record names `source`, `requirement`, `subjects`, `contract_types`, `status`, `surface_expectations`, and evidence entries with literal `markers`;
 - Contract Evidence Gate requires each `surface_expectations` item to name `surface`, `polarity`, and allowed `proof_kinds`; each `evidence` or `negative_fixture_evidence` record names matching `surface`, `polarity`, and `proof_kind`, and only a matching record can cover that expectation;
@@ -1859,9 +1873,10 @@ Continuation validation is timeline-based, not wave-only:
   `revalidated_lanes`;
 - worker events after the blocked checkpoint but before ready readiness fail;
 - new worker events after ready readiness must be listed in `new_worker_lanes`;
-- positive continuation requires final `Continuation Summary`, QA
-  `Continuation Revalidation`, and reviewer `Continuation Review` sections
-  covering every resolved blocker id and every historical or new worker lane id.
+- positive continuation requires the writer-generated final `Continuation
+  Summary`, plus QA `Continuation Revalidation` and reviewer `Continuation
+  Review` sections whose `covers` list every resolved blocker id and every
+  historical or new worker lane id.
 
 ## Harness Evaluation Loop
 
@@ -1898,7 +1913,7 @@ reference selected `architecture_context` facets and selected
 validation.
 
 Positive lane-map runs with a learning trigger require reviewer
-`Harness Evaluation Review` covering every finding and proposal id. The loop can
+`Harness Evaluation Review` with every finding and proposal id in `covers`. The loop can
 promote validated findings only into the current project's Project Memory
 `## Evidence Records` through `scripts/promote-harness-evaluation.py`.
 Architecture Matrix, capability registry, role prompts, validator guards, and
@@ -1928,14 +1943,14 @@ Applied when `architecture_contract_required=true`:
   `recheck_lane` points to a later, successful, critical `architecture` lane
   with contract handoff and evidence;
 - when worker lanes exist, final `ship` requires successful QA and reviewer lanes;
-- QA must pass after workers and any architecture re-check, and QA handoff must
-  include `Architecture Invariants` with every selected `risk_gates` and
-  `verification_gates` facet;
+- QA must pass after workers and any architecture re-check, and the QA handoff
+  `Architecture Invariants` section must list every selected `risk_gates` and
+  `verification_gates` facet in `covers`;
 - reviewer must pass after architecture, workers, and QA, and reviewer handoff
-  must include `Architecture Matrix Mismatches` and `Contract Drift` covering
-  every selected `architecture_context` facet and selected
-  `architecture_capabilities` id; `Contract Drift` must cover Engineering
-  Simplicity.
+  `covers` must include the `Architecture Matrix Mismatches` and `Contract Drift`
+  sections listing every selected `architecture_context` facet and selected
+  `architecture_capabilities` id; `Contract Drift` covers must include
+  `engineering-simplicity`.
 
 ## Simplicity Gate
 
@@ -1956,26 +1971,26 @@ For positive architecture-gated runs with worker lanes:
 - every top-level primary surface must be covered by at least one successful
   worker lane, and scope evidence files must mention the covered surface ids
   literally;
-- worker `Engineering Simplicity` handoffs must mention every covered surface
-  id;
+- worker `Engineering Simplicity` handoff section `covers` must list every
+  covered surface id;
 - `pass` Engineering Simplicity cannot report fixable overengineering,
   duplicated helper, unnecessary abstraction, dependency/stack drift, or
   wider-than-needed implementation;
-- `fixed` Engineering Simplicity requires non-empty findings and actions, and
-  every action must appear literally in the worker `Engineering Simplicity`
-  handoff;
+- `fixed` Engineering Simplicity requires non-empty structured `findings` and
+  `actions` arrays in `architecture_compliance.engineering_simplicity`;
 - `drift` Engineering Simplicity requires parent
   `architecture_compliance.status=drift` and an architect `recheck_lane`;
 - true simplicity drift routes to architect re-check instead of reporting-only
   closure;
-- retained dependency or abstraction in Engineering Simplicity notes/actions
-  must cite a selected `architecture_capabilities` id;
-- reviewer `Contract Drift` must reject reporting-only simplicity closure and
-  mention `Engineering Simplicity` plus every fixed worker lane id;
-- QA handoff must include `Engineering Simplicity Scope` and every primary
-  surface; reviewer `Contract Drift` must mention every primary surface and
-  reject peripheral-only closure; final `Engineering Simplicity` must mention
-  every primary surface;
+- retained dependency or abstraction is recorded in
+  `engineering_simplicity.retained` with `kind` (`dependency` or `abstraction`)
+  and a selected `architecture_capabilities` id;
+- reviewer `Contract Drift` `covers` must include `engineering-simplicity` and
+  every fixed worker lane id;
+- QA handoff `Engineering Simplicity Scope` `covers` must list every primary
+  surface; reviewer `Contract Drift` `covers` must list every primary surface
+  and `rejected-peripheral-only-closure`; the writer-generated final
+  `Engineering Simplicity` section names every primary surface;
 
 ## Lane Boundary Gate
 
@@ -2002,9 +2017,11 @@ For positive architecture-gated runs with worker lanes:
   Ordinary parent directories are inferred, while standalone directory changes
   require authorship. Corrections use new assignments; historic proofs are immutable.
   Every contributor needs edit evidence and permission; unknown coauthors fail;
-- worker handoffs must include `Boundary Evidence`; QA `Architecture
-  Invariants`, reviewer `Contract Drift`, and final `Boundary Evidence` must
-  mention every successful worker lane id;
+- worker handoffs must include a `Boundary Evidence` section covering the own
+  lane id; QA `Architecture Invariants` `covers` must include
+  `boundary-evidence` and every successful worker lane id; reviewer `Contract
+  Drift` (or `Boundary Evidence`) `covers` must list every successful worker
+  lane id; the writer-generated final `Boundary Evidence` names them;
 
 ## Risk Lifecycle Gate
 
@@ -2024,7 +2041,7 @@ Structure, references and evidence integrity still apply to every record.
 - every evidence path must exist, and `next_gate` must be `resolution`;
 - `final.md` must include `Risk Mitigations` and every risk id;
 - when `lane-map.json` exists, `detected_by` and `owner_lane` must reference existing lane ids;
-- when `lane-map.json` exists, a successful reviewer lane must include `Risk Mitigation Review` and every risk id.
+- when `lane-map.json` exists, a successful reviewer lane must include a `Risk Mitigation Review` section whose `covers` list every risk id.
 
 The Risk Lifecycle Gate resolution step follows mitigation for every traceable run with `Verdict: pass-with-risks`:
 
@@ -2042,8 +2059,8 @@ The Risk Lifecycle Gate resolution step follows mitigation for every traceable r
 - when `lane-map.json` exists, `owner_lane`, `verified_by`, and `reviewed_by` must reference existing lane ids;
 - when `lane-map.json` exists, `verified_by` must be a successful QA lane and `reviewed_by` must be a successful review lane;
 - when lane waves are present, the order is `owner_lane <= verified_by <= reviewed_by`;
-- when `lane-map.json` exists, QA handoff must include `Risk Resolution Verification` and every risk id;
-- when `lane-map.json` exists, reviewer handoff must include `Risk Resolution Review` and every risk id.
+- when `lane-map.json` exists, QA handoff must include a `Risk Resolution Verification` section whose `covers` list every risk id;
+- when `lane-map.json` exists, reviewer handoff must include a `Risk Resolution Review` section whose `covers` list every risk id.
 
 The blocked-resolution step of Risk Lifecycle Gate uses the same `risk-resolutions.json` artifact:
 

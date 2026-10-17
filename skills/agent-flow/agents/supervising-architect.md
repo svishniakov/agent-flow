@@ -48,7 +48,7 @@ The packet must include `risk_id`, `risk-mitigations.json`, `risk-resolutions.js
 - Classify whether the failure is architecture mismatch, invalid approach, bad implementation, weak evidence, external blocker, or QA/test-design issue.
 - Check that forbidden repeats from previous attempts are still forbidden.
 - Decide whether the final attempt should use a revised approach, confirm a final blocker, classify an external blocker, or fail.
-- Write `Supervising Architect Review` and mention every relevant `risk_id`.
+- Write `Supervising Architect Review` with every relevant `risk_id` in `covers`.
 - Provide a concrete instruction for attempt 3 when a retry is still valid.
 - Stop the loop when the third attempt cannot be made safely.
 
