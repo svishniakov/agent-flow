@@ -254,12 +254,8 @@ def concurrent_boundary_fixture():
                        "handoff": {"path": assignment["handoff"], "sha256": sha256(handoff)},
                        "edit_evidence": [{"path": "artifacts/edit.txt", "sha256": sha256(proof)}], "coauthors": {}}
         from verification_evidence import verify_author_declaration
-        try:
-            verify_author_declaration(JournalSnapshot.open(run_dir), declaration, lane_id="author")
-        except EvidenceError as exc:
-            assert "handoff must confirm authored_paths" in str(exc), str(exc)
-        else:
-            raise AssertionError("full author audit accepted shortened prose")
+        # No conclusion receipt yet: the declaration stands on its own references.
+        verify_author_declaration(JournalSnapshot.open(run_dir), declaration, lane_id="author")
 
         def conclusion(operation, paths):
             args = SimpleNamespace(sections_file=None, summary=None, status="pass", lane_id="author",
@@ -291,6 +287,17 @@ def concurrent_boundary_fixture():
         conclusion("concurrent-first", ["a"])
         conclusion("exact-replay", ["a"])
         assert JournalSnapshot.open(run_dir).read_bytes("checks/lane-boundary-author.json") == saved["boundary"]
+        # Evidence refs absent from the conclusion receipt are rejected.
+        final_snapshot = JournalSnapshot.open(run_dir)
+        boundary_ref = {"path": "checks/lane-boundary-author.json",
+                        "sha256": sha256(final_snapshot.read_bytes("checks/lane-boundary-author.json"))}
+        try:
+            verify_author_declaration(final_snapshot, {**declaration, "edit_evidence": declaration["edit_evidence"] + [boundary_ref]},
+                                      lane_id="author")
+        except EvidenceError as exc:
+            assert "differs from the conclusion receipt" in str(exc), str(exc)
+        else:
+            raise AssertionError("full author audit accepted evidence absent from the conclusion receipt")
         print("PASS concurrent author publication rejects overwrite and preserves exact replay")
 
 

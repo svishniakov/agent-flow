@@ -2,6 +2,17 @@
 
 ## Architecture Matrix Mismatches
 
+- Covers: `saas-service`
+- Covers: `backend-service`
+- Covers: `monolith`
+- Covers: `go`
+- Covers: `migrations`
+- Covers: `unit`
+- Covers: `integration`
+- Covers: `saas-platform-architecture`
+- Covers: `go-backend-service-architecture`
+- Covers: `modular-monolith-architecture`
+
 Checked facets:
 - `saas-service`
 - `backend-service`
@@ -17,6 +28,10 @@ Checked capabilities:
 - `modular-monolith-architecture`
 
 ## Contract Drift
+
+- Covers: `smoke-tests`
+- Covers: `engineering-simplicity`
+- Covers: `rejected-peripheral-only-closure`
 
 Engineering Simplicity primary surface `smoke-tests` checked; rejected peripheral-only closure.
 

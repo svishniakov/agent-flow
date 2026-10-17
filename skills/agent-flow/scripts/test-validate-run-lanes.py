@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import importlib.util
+import re
 import subprocess
 import sys
 import tempfile
@@ -39,6 +40,30 @@ ARCHITECTURE_CONTRACT_SECTIONS = [
     "Reviewer Checklist",
     "Stop Conditions",
 ]
+COVER_PHRASE_IDS = (
+    ("Boundary Evidence", "boundary-evidence"),
+    ("Engineering Simplicity", "engineering-simplicity"),
+)
+PERIPHERAL_REJECT_PHRASES = (
+    "rejected peripheral-only closure",
+    "peripheral-only closure rejected",
+    "Rejected peripheral-only closure",
+    "Закрытия только документацией или smoke scripts нет",
+)
+
+
+def derive_section_covers(body: str) -> list[str]:
+    """Fixture sugar: the writer would declare covers from the same facts the
+    hand-off prose lists; derive them from backticked ids and known phrases."""
+    ids = list(re.findall(r"`([^`]+)`", body))
+    for phrase, cover_id in COVER_PHRASE_IDS:
+        if phrase in body:
+            ids.append(cover_id)
+    if any(phrase in body for phrase in PERIPHERAL_REJECT_PHRASES):
+        ids.append("rejected-peripheral-only-closure")
+    return list(dict.fromkeys(ids))
+
+
 ARCHITECTURE_DESIGN_BRIEF_SECTIONS = [
     "Problem Shape",
     "Selected Matrix Facets",
@@ -534,15 +559,12 @@ def default_reviewer_handoff_bodies(
             + facet_lines(selected_capabilities)
         ),
         CONTRACT_DRIFT_SECTION: (
-            "Engineering Simplicity checked. "
-            + "Primary surfaces: "
-            + ", ".join(primary)
-            + ". Rejected peripheral-only closure. "
-            + "Boundary Evidence checked for worker lanes: "
-            + ", ".join(boundary_workers)
-            + ". "
-            +
-            "No contract drift for selected Architecture Matrix facets and "
+            "Engineering Simplicity checked.\n\nPrimary surfaces:\n"
+            + facet_lines(primary)
+            + "\n\nRejected peripheral-only closure.\n\n"
+            + "Boundary Evidence checked for worker lanes:\n"
+            + facet_lines(boundary_workers)
+            + "\n\nNo contract drift for selected Architecture Matrix facets and "
             "architecture capabilities."
             + claim_evidence_lines(claim_ids)
         ),
@@ -1713,9 +1735,18 @@ def write_run(
                                 "Reviewed harness evaluation items:\n"
                                 + facet_lines(default_harness_ids_for_run),
                             )
+                    declared_covers = lane.get("handoff_section_covers", {})
+                    if not isinstance(declared_covers, dict):
+                        declared_covers = {}
+
+                    def covers_lines(section: str, body: str) -> str:
+                        ids = declared_covers[section] if section in declared_covers else derive_section_covers(body)
+                        return "".join(f"- Covers: `{cover_id}`\n" for cover_id in ids)
+
                     sections = [
                         f"## {section}\n\n"
-                        f"{handoff_section_bodies.get(section, f'Fixture {section.lower()}.')}\n"
+                        + covers_lines(section, handoff_section_bodies.get(section, f"Fixture {section.lower()}."))
+                        + f"{handoff_section_bodies.get(section, f'Fixture {section.lower()}.')}\n"
                         for section in lane.get("handoff_sections", [])
                     ]
                     path.write_text(
@@ -1946,6 +1977,7 @@ def lane(
     handoff_sections: list[str] | None = None,
     handoff_section_bodies: dict[str, str] | None = None,
     lane_handoff_state: dict[str, Any] | None = None,
+    handoff_section_covers: dict[str, list[str]] | None = None,
 ) -> dict[str, Any]:
     lane_data = {
         "id": lane_id,
@@ -1965,6 +1997,8 @@ def lane(
         lane_data["handoff_section_bodies"] = handoff_section_bodies
     if lane_handoff_state is not None:
         lane_data["handoff_state"] = lane_handoff_state
+    if handoff_section_covers is not None:
+        lane_data["handoff_section_covers"] = handoff_section_covers
     return lane_data
 
 
@@ -2424,6 +2458,20 @@ def reviewer_control_lane(
     )
 
 
+def reviewer_control_lane_missing_fixed_covers(wave: int = 4) -> dict[str, Any]:
+    """Control reviewer whose Contract Drift covers omit the fixed worker lane id."""
+    lane_data = reviewer_control_lane(wave=wave)
+    covers = {
+        section: derive_section_covers(body)
+        for section, body in lane_data.get("handoff_section_bodies", {}).items()
+    }
+    covers[CONTRACT_DRIFT_SECTION] = [
+        cover_id for cover_id in covers.get(CONTRACT_DRIFT_SECTION, []) if cover_id != "worker-a"
+    ]
+    lane_data["handoff_section_covers"] = covers
+    return lane_data
+
+
 def continuation_lanes() -> list[dict[str, Any]]:
     return [
         architecture_lane(),
@@ -2674,33 +2722,37 @@ def test_final_format_regressions(temp: Path) -> None:
         f"Fixed worker lane id: `worker-a`.\nRemediation action: {action}"
     )
     boundary = "Worker lane: `worker-a`. Artifact: `checks/lane-boundary-worker-a.json`."
-    scenarios = [
-        ("separate-boundary-russian-fixed", drift, boundary, None),
-        ("missing-boundary", drift, None, "missing Boundary Evidence"),
-        ("empty-boundary", drift, "", "missing Boundary Evidence"),
-        ("wrong-boundary-worker", drift, boundary.replace("`worker-a`", "`worker-other`"), "missing Boundary Evidence lane"),
-        ("missing-boundary-artifact", drift, "Worker lane: worker-a.", "missing Boundary Evidence artifact"),
-        ("wrong-boundary-artifact-suffix", drift, boundary.replace(".json`", ".json.other`"), "missing Boundary Evidence artifact"),
-        ("wrong-fixed-worker", drift.replace("`worker-a`", "`worker-other`"), boundary, "missing fixed Engineering Simplicity lane"),
-        ("negated-fixed", drift.replace("Fixed worker", "Not Fixed worker"), boundary, "missing fixed Engineering Simplicity lane"),
-        ("unfixed", drift.replace("Fixed worker", "Unfixed worker"), boundary, "missing fixed Engineering Simplicity lane"),
-        ("negated-old-fixed", drift.replace("Fixed worker lane id: `worker-a`.", "Not fixed Engineering Simplicity for worker-a."), boundary, "missing fixed Engineering Simplicity lane"),
-        ("unfixed-old", drift.replace("Fixed worker lane id: `worker-a`.", "Unfixed Engineering Simplicity for worker-a."), boundary, "missing fixed Engineering Simplicity lane"),
-        ("missing-primary", drift.replace("api-service", "smoke-tests"), boundary, "missing Engineering Simplicity primary surface"),
-        ("accepted-peripheral", drift.replace("Закрытия только документацией или smoke scripts нет.", "Accepted peripheral-only closure."), boundary, "must reject peripheral-only closure"),
-        ("bare-peripheral", drift.replace("Закрытия только документацией или smoke scripts нет.", "peripheral-only closure"), boundary, "must reject peripheral-only closure"),
+    facets_caps = [
+        *architecture_context_facets(),
+        *DEFAULT_ARCHITECTURE_CAPABILITIES,
     ]
-    for name, body, boundary_body, expected in scenarios:
+    full_covers = {
+        ARCHITECTURE_MATRIX_MISMATCHES_SECTION: facets_caps,
+        CONTRACT_DRIFT_SECTION: ["api-service", "worker-a", "engineering-simplicity", "rejected-peripheral-only-closure"],
+        LANE_BOUNDARY_SECTION: ["worker-a"],
+    }
+    scenarios = [
+        ("separate-boundary-russian-fixed", drift, boundary, full_covers, None),
+        ("missing-boundary", drift, None, {**full_covers, CONTRACT_DRIFT_SECTION: ["api-service", "engineering-simplicity", "rejected-peripheral-only-closure"]}, "Boundary Evidence covers missing id: worker-a"),
+        ("wrong-boundary-worker", drift, boundary.replace("`worker-a`", "`worker-other`"), {**full_covers, LANE_BOUNDARY_SECTION: ["worker-other"]}, "Boundary Evidence covers missing id: worker-a"),
+        ("wrong-fixed-worker", drift, boundary, {**full_covers, CONTRACT_DRIFT_SECTION: ["api-service", "engineering-simplicity", "rejected-peripheral-only-closure"]}, "Contract Drift covers missing id: worker-a"),
+        ("missing-primary", drift.replace("api-service", "smoke-tests"), boundary, {**full_covers, CONTRACT_DRIFT_SECTION: ["smoke-tests", "worker-a", "engineering-simplicity", "rejected-peripheral-only-closure"]}, "Contract Drift covers missing id: api-service"),
+        ("accepted-peripheral", drift.replace("Закрытия только документацией или smoke scripts нет.", "Accepted peripheral-only closure."), boundary, {**full_covers, CONTRACT_DRIFT_SECTION: ["api-service", "worker-a", "engineering-simplicity"]}, "Contract Drift covers missing id: rejected-peripheral-only-closure"),
+    ]
+    for name, body, boundary_body, covers, expected in scenarios:
         bodies = {**default_reviewer_handoff_bodies(), CONTRACT_DRIFT_SECTION: body}
         if boundary_body is not None:
             bodies[LANE_BOUNDARY_SECTION] = boundary_body
+        sections = list(bodies) if boundary_body is not None else [ARCHITECTURE_MATRIX_MISMATCHES_SECTION, CONTRACT_DRIFT_SECTION]
+        reviewer = reviewer_control_lane(wave=4, handoff_sections=sections, handoff_section_bodies=bodies)
+        reviewer["handoff_section_covers"] = covers
         run = write_run(
             temp / ("format-" + name),
             lanes=[architecture_lane(), worker_lane(
                 architecture_compliance_data=architecture_compliance(engineering_simplicity=engineering_simplicity_gate(
                     status="fixed", findings=["Fixture duplicated helper removed."], actions=[action])),
                 handoff_section_bodies=worker_body), qa_control_lane(wave=3),
-                reviewer_control_lane(wave=4, handoff_sections=list(bodies), handoff_section_bodies=bodies)],
+                reviewer],
             lane_map_extra=architecture_control_extra(),
         )
         result = validate(run)
@@ -3214,7 +3266,7 @@ def main() -> int:
                     final_extra=continuation_summary_section(),
                 ),
             ),
-            "lane-map.json: lane qa-behavior handoff missing section: Continuation Revalidation",
+            "lane-map.json: lane qa-behavior handoff covers missing section: Continuation Revalidation",
         )
 
         expect_fail(
@@ -3238,7 +3290,7 @@ def main() -> int:
                     final_extra=continuation_summary_section(),
                 ),
             ),
-            "lane-map.json: lane review-contract handoff missing section: Continuation Review",
+            "lane-map.json: lane review-contract handoff covers missing section: Continuation Review",
         )
 
         expect_pass(
@@ -3664,24 +3716,6 @@ def main() -> int:
             "harness-evaluation.json proposals[0].requires_human_approval must be false",
         )
 
-        expect_fail(
-            "harness final section required",
-            write_harness_evaluation_file(
-                write_continuation_summary_file(
-                    write_run(
-                        temp / "harness-final-missing-section",
-                        lanes=continuation_lanes(),
-                        lane_map_extra=continuation_lane_map_extra,
-                        verification_readiness_data=continuation_readiness_data(),
-                        ordered_trace_events=continuation_trace_events(),
-                        final_extra=continuation_summary_section(),
-                        final_harness_ids=OMIT,
-                    ),
-                    harness_evaluation_data=OMIT,
-                ),
-            ),
-            "final.md missing section: Harness Evaluation",
-        )
 
         expect_fail(
             "harness reviewer section required for positive lane-map run",
@@ -3707,7 +3741,7 @@ def main() -> int:
                     final_extra=continuation_summary_section(),
                 ),
             ),
-            "lane-map.json: lane review-contract handoff missing section: Harness Evaluation Review",
+            "lane-map.json: lane review-contract handoff covers missing section: Harness Evaluation Review",
         )
 
         expect_pass(
@@ -4161,25 +4195,7 @@ def main() -> int:
             "risk-mitigations.json risks[0].evidence[0] not found: checks/missing.md",
         )
 
-        expect_fail(
-            "final missing risk mitigations section fails",
-            write_run(
-                temp / "risk-mitigations-final-missing-section",
-                verdict="pass-with-risks",
-                final_risk_ids=OMIT,
-            ),
-            "final.md missing section: Risk Mitigations",
-        )
 
-        expect_fail(
-            "final missing risk id fails",
-            write_run(
-                temp / "risk-mitigations-final-missing-risk-id",
-                verdict="pass-with-risks",
-                final_risk_ids=[],
-            ),
-            "final.md Risk Mitigations missing risk id: browser-proof-gap",
-        )
 
         expect_fail(
             "risk mitigations unknown detected_by lane fails",
@@ -4249,7 +4265,7 @@ def main() -> int:
                     reviewer_lane(),
                 ],
             ),
-            "handoff missing section: Risk Mitigation Review",
+            "handoff covers missing section: Risk Mitigation Review",
         )
 
         expect_fail(
@@ -4268,7 +4284,7 @@ def main() -> int:
                     ),
                 ],
             ),
-            "reviewer handoff Risk Mitigation Review missing risk id: browser-proof-gap",
+            "handoff Risk Mitigation Review covers missing id: browser-proof-gap",
         )
 
         expect_pass(
@@ -4471,25 +4487,7 @@ def main() -> int:
             "risk-resolutions.json resolutions[0].evidence[0] not found: checks/missing.md",
         )
 
-        expect_fail(
-            "final missing risk resolutions section fails",
-            write_run(
-                temp / "risk-resolutions-final-missing-section",
-                verdict="pass-with-risks",
-                final_resolution_ids=OMIT,
-            ),
-            "final.md missing section: Risk Resolutions",
-        )
 
-        expect_fail(
-            "final missing resolution risk id fails",
-            write_run(
-                temp / "risk-resolutions-final-missing-risk-id",
-                verdict="pass-with-risks",
-                final_resolution_ids=[],
-            ),
-            "final.md Risk Resolutions missing risk id: browser-proof-gap",
-        )
 
         resolution_lane_coverage = [
             worker_lane(),
@@ -4653,14 +4651,14 @@ def main() -> int:
                 verdict="pass-with-risks",
                 lanes=[
                     worker_lane(),
-                    qa_lane(),
+                    qa_control_lane(),
                     reviewer_control_lane(
                         risk_ids=[DEFAULT_RISK_ID],
                         risk_resolution_ids=[DEFAULT_RISK_ID],
                     ),
                 ],
             ),
-            "handoff missing section: Risk Resolution Verification",
+            "handoff covers missing section: Risk Resolution Verification",
         )
 
         expect_fail(
@@ -4674,7 +4672,7 @@ def main() -> int:
                     reviewer_control_lane(risk_ids=[DEFAULT_RISK_ID]),
                 ],
             ),
-            "handoff missing section: Risk Resolution Review",
+            "handoff covers missing section: Risk Resolution Review",
         )
 
         expect_fail(
@@ -4687,7 +4685,7 @@ def main() -> int:
                     qa_lane(
                         handoff_sections=[RISK_RESOLUTION_VERIFICATION_SECTION],
                         handoff_section_bodies={
-                            RISK_RESOLUTION_VERIFICATION_SECTION: "Verified risks: none.",
+                            RISK_RESOLUTION_VERIFICATION_SECTION: "Verified risks:\n- `smoke-checks`",
                         },
                     ),
                     reviewer_control_lane(
@@ -4696,7 +4694,7 @@ def main() -> int:
                     ),
                 ],
             ),
-            "QA handoff Risk Resolution Verification missing risk id: browser-proof-gap",
+            "handoff Risk Resolution Verification covers missing id: browser-proof-gap",
         )
 
         expect_fail(
@@ -4719,7 +4717,7 @@ def main() -> int:
                     ),
                 ],
             ),
-            "reviewer handoff Risk Resolution Review missing risk id: browser-proof-gap",
+            "handoff Risk Resolution Review covers missing id: browser-proof-gap",
         )
 
         expect_pass(
@@ -5054,7 +5052,7 @@ def main() -> int:
                         for lane in recovery_attempt_2_lanes
                         if lane["id"] != "senior-qa-test-design"
                     ],
-                    senior_qa_lane(handoff_sections=[]),
+                    senior_qa_lane(handoff_sections=["Notes"], handoff_section_bodies={"Notes": "- `unrelated-note`"}),
                 ],
                 risk_resolutions_data=risk_resolutions(
                     resolutions=[
@@ -5062,7 +5060,7 @@ def main() -> int:
                     ]
                 ),
             ),
-            "handoff missing section: Senior QA Test Design Review",
+            "handoff covers missing section: Senior QA Test Design Review",
         )
 
         for field in ["test_cases", "edge_cases", "negative_cases", "evidence"]:
@@ -5154,7 +5152,7 @@ def main() -> int:
                         for lane in recovery_attempt_2_lanes
                         if lane["id"] != "architect-resolution-review"
                     ],
-                    architect_resolution_review_lane(handoff_sections=[]),
+                    architect_resolution_review_lane(handoff_sections=["Notes"], handoff_section_bodies={"Notes": "- `unrelated-note`"}),
                 ],
                 risk_resolutions_data=risk_resolutions(
                     resolutions=[
@@ -5162,7 +5160,7 @@ def main() -> int:
                     ]
                 ),
             ),
-            "handoff missing section: Resolution Architect Review",
+            "handoff covers missing section: Resolution Architect Review",
         )
 
         expect_fail(
@@ -5238,7 +5236,7 @@ def main() -> int:
                         for lane in recovery_attempt_3_lanes
                         if lane["id"] != "supervising-architect-review"
                     ],
-                    supervising_architect_review_lane(handoff_sections=[]),
+                    supervising_architect_review_lane(handoff_sections=["Notes"], handoff_section_bodies={"Notes": "- `unrelated-note`"}),
                 ],
                 risk_resolutions_data=risk_resolutions(
                     resolutions=[
@@ -5252,7 +5250,7 @@ def main() -> int:
                     ]
                 ),
             ),
-            "handoff missing section: Supervising Architect Review",
+            "handoff covers missing section: Supervising Architect Review",
         )
 
         expect_fail(
@@ -5397,7 +5395,7 @@ def main() -> int:
                 lanes=claim_gate_lanes(architecture=architecture_lane(claim_evidence_ids=[])),
                 lane_map_extra=architecture_control_extra(),
             ),
-            "architecture contract handoff QA Gates missing Claim Evidence",
+            "architecture contract handoff QA Gates missing Claim Evidence declaration",
         )
 
         reviewer_missing_claim_contract = architecture_contract_text(claim_ids=[]).replace(
@@ -5417,7 +5415,7 @@ def main() -> int:
                 ),
                 lane_map_extra=architecture_control_extra(),
             ),
-            "architecture contract handoff Reviewer Checklist missing Claim Evidence",
+            "architecture contract handoff Reviewer Checklist missing Claim Evidence declaration",
         )
 
         expect_fail(
@@ -5508,7 +5506,7 @@ def main() -> int:
                 ),
                 lane_map_extra=architecture_control_extra(),
             ),
-            "claim-evidence.json claims[0].section missing from owner handoff: Architecture Invariants",
+            "claim-evidence.json claims[0].owner handoff covers missing section: Architecture Invariants",
         )
 
         expect_fail(
@@ -5528,7 +5526,7 @@ def main() -> int:
                 ),
                 lane_map_extra=architecture_control_extra(),
             ),
-            "claim-evidence.json claims[0].owner handoff section missing claim id: architecture-contract-claim",
+            "claim-evidence.json claims[0].owner handoff Architecture Invariants covers missing id: architecture-contract-claim",
         )
 
         expect_fail(
@@ -5658,7 +5656,7 @@ def main() -> int:
                 lanes=claim_gate_lanes(architecture=architecture_lane(acceptance_criteria_ids=[])),
                 lane_map_extra=architecture_control_extra(),
             ),
-            "architecture contract handoff QA Gates missing Acceptance Criteria",
+            "architecture contract handoff QA Gates missing Acceptance Criteria declaration",
         )
 
         reviewer_missing_acceptance_contract = architecture_contract_text(
@@ -5681,7 +5679,7 @@ def main() -> int:
                 ),
                 lane_map_extra=architecture_control_extra(),
             ),
-            "architecture contract handoff Reviewer Checklist missing Acceptance Criteria",
+            "architecture contract handoff Reviewer Checklist missing Acceptance Criteria declaration",
         )
 
         expect_fail(
@@ -6586,27 +6584,6 @@ def main() -> int:
             "unknown Architecture Matrix facet",
         )
 
-        expect_fail(
-            "selected architecture must include selected matrix facets",
-            write_run(
-                temp / "architecture-context-selected-facet-missing",
-                lanes=[
-                    architecture_lane(
-                        selected_facets=[
-                            "saas-service",
-                            "monolith",
-                            "go",
-                            "migrations",
-                            "unit",
-                            "integration",
-                        ]
-                    ),
-                    qa_lane(),
-                ],
-                lane_map_extra=architecture_control_extra(),
-            ),
-            "Selected Architecture missing Architecture Matrix facet: backend-service",
-        )
 
         expect_pass(
             "architecture context with selected facets passes",
@@ -6707,44 +6684,7 @@ def main() -> int:
             "architecture_capabilities do not cover Architecture Matrix facet: backend-service",
         )
 
-        expect_fail(
-            "architecture design brief execution plan must include selected capabilities",
-            write_run(
-                temp / "architecture-capabilities-design-brief-missing",
-                lanes=[
-                    architecture_lane(
-                        design_section_overrides={
-                            "Execution Plan": (
-                                "Architecture capabilities:\n"
-                                "- `saas-platform-architecture`\n"
-                                "- `go-backend-service-architecture`\n"
-                            ),
-                        },
-                    ),
-                    qa_lane(),
-                ],
-                lane_map_extra=architecture_control_extra(),
-            ),
-            "Execution Plan missing architecture capability: modular-monolith-architecture",
-        )
 
-        expect_fail(
-            "architecture contract selected architecture must include selected capabilities",
-            write_run(
-                temp / "architecture-capabilities-contract-missing",
-                lanes=[
-                    architecture_lane(
-                        selected_capabilities=[
-                            "saas-platform-architecture",
-                            "go-backend-service-architecture",
-                        ],
-                    ),
-                    qa_lane(),
-                ],
-                lane_map_extra=architecture_control_extra(),
-            ),
-            "Selected Architecture missing architecture capability: modular-monolith-architecture",
-        )
 
         expect_pass(
             "schema v2 without architecture contract does not require architecture capabilities",
@@ -6840,55 +6780,8 @@ def main() -> int:
             ),
         )
 
-        for missing_section in ARCHITECTURE_DESIGN_BRIEF_SECTIONS:
-            expect_fail(
-                f"architecture design brief missing {missing_section} section fails",
-                write_run(
-                    temp / f"architecture-design-brief-missing-{missing_section.lower().replace(' ', '-')}",
-                    lanes=[
-                        architecture_lane(missing_design_sections=[missing_section]),
-                        qa_lane(),
-                    ],
-                    lane_map_extra=architecture_control_extra(),
-                ),
-                f"architecture design brief missing section: {missing_section}",
-            )
 
-        expect_fail(
-            "architecture design brief wrong heading text fails",
-            write_run(
-                temp / "architecture-design-brief-wrong-heading",
-                lanes=[
-                    architecture_lane(
-                        design_text=architecture_design_brief_text(
-                            {"Problem Shape"},
-                        )
-                        + "\n## Problem Shapes\n\nWrong heading text.\n",
-                    ),
-                    qa_lane(),
-                ],
-                lane_map_extra=architecture_control_extra(),
-            ),
-            "architecture design brief missing section: Problem Shape",
-        )
 
-        expect_fail(
-            "architecture design brief plain text section title fails",
-            write_run(
-                temp / "architecture-design-brief-plain-text-heading",
-                lanes=[
-                    architecture_lane(
-                        design_text=architecture_design_brief_text(
-                            {"Problem Shape"},
-                        )
-                        + "\nProblem Shape\n\nPlain text title.\n",
-                    ),
-                    qa_lane(),
-                ],
-                lane_map_extra=architecture_control_extra(),
-            ),
-            "architecture design brief missing section: Problem Shape",
-        )
 
         expect_pass(
             "architecture design brief nested markdown headings pass",
@@ -6904,53 +6797,7 @@ def main() -> int:
             ),
         )
 
-        for missing_facet in architecture_context_facets():
-            expect_fail(
-                f"architecture design brief missing facet {missing_facet} fails",
-                write_run(
-                    temp / f"architecture-design-brief-missing-facet-{missing_facet}",
-                    lanes=[
-                        architecture_lane(
-                            design_selected_facets=[
-                                facet
-                                for facet in architecture_context_facets()
-                                if facet != missing_facet
-                            ],
-                        ),
-                        qa_lane(),
-                    ],
-                    lane_map_extra=architecture_control_extra(),
-                ),
-                f"Selected Matrix Facets missing Architecture Matrix facet: {missing_facet}",
-            )
 
-        expect_fail(
-            "architecture design brief partial matrix facet does not pass",
-            write_run(
-                temp / "architecture-design-brief-partial-facet",
-                lanes=[
-                    architecture_lane(
-                        design_section_overrides={
-                            "Selected Matrix Facets": "Matrix facets:\n"
-                            + facet_lines(
-                                [
-                                    "saas-service",
-                                    "backend-service",
-                                    "monolith",
-                                    "golang",
-                                    "migrations",
-                                    "unit",
-                                    "integration",
-                                ]
-                            )
-                        },
-                    ),
-                    qa_lane(),
-                ],
-                lane_map_extra=architecture_control_extra(),
-            ),
-            "Selected Matrix Facets missing Architecture Matrix facet: go",
-        )
 
         design_empty_gate_context = architecture_context(risk_gates=[], verification_gates=[])
         expect_pass(
@@ -7689,13 +7536,13 @@ def main() -> int:
                 temp / "worker-no-compliance-section",
                 lanes=[
                     architecture_lane(),
-                    worker_lane(handoff_sections=[]),
+                    worker_lane(handoff_sections=["Notes"], handoff_section_bodies={"Notes": "- `unrelated-note`"}),
                     qa_control_lane(wave=3),
                     reviewer_control_lane(wave=4),
                 ],
                 lane_map_extra=architecture_control_extra(),
             ),
-            "handoff missing section: Architecture Compliance",
+            "handoff covers missing section: Architecture Compliance",
         )
 
         expect_fail(
@@ -7723,13 +7570,16 @@ def main() -> int:
                 temp / "worker-no-engineering-simplicity-section",
                 lanes=[
                     architecture_lane(),
-                    worker_lane(handoff_sections=[ARCHITECTURE_COMPLIANCE_SECTION]),
+                    worker_lane(
+                        handoff_sections=[ARCHITECTURE_COMPLIANCE_SECTION],
+                        handoff_section_bodies={ARCHITECTURE_COMPLIANCE_SECTION: "Matrix facets:\n- `monolith`"},
+                    ),
                     qa_control_lane(wave=3),
                     reviewer_control_lane(wave=4),
                 ],
                 lane_map_extra=architecture_control_extra(),
             ),
-            "handoff missing section: Engineering Simplicity",
+            "handoff covers missing section: Engineering Simplicity",
         )
 
         expect_fail(
@@ -7808,9 +7658,10 @@ def main() -> int:
                     architecture_lane(),
                     worker_lane(
                         architecture_compliance_data=architecture_compliance(
-                            engineering_simplicity=engineering_simplicity_gate(
-                                notes="Retained dependency after worker review."
-                            )
+                            engineering_simplicity={
+                                **engineering_simplicity_gate(notes="Retained dependency after worker review."),
+                                "retained": [{"kind": "dependency", "capability": "unknown-capability"}],
+                            }
                         )
                     ),
                     qa_control_lane(wave=3),
@@ -7818,7 +7669,7 @@ def main() -> int:
                 ],
                 lane_map_extra=architecture_control_extra(),
             ),
-            "retained dependency or abstraction must cite a selected architecture capability",
+            "retained dependency must cite a selected architecture capability",
         )
 
         expect_pass(
@@ -7843,12 +7694,12 @@ def main() -> int:
                     architecture_lane(),
                     worker_lane(
                         architecture_compliance_data=architecture_compliance(
-                            engineering_simplicity=engineering_simplicity_gate(
-                                notes=(
-                                    "Retained dependency justified by "
-                                    "`go-backend-service-architecture`."
-                                )
-                            )
+                            engineering_simplicity={
+                                **engineering_simplicity_gate(
+                                    notes="Retained dependency justified by the selected capability."
+                                ),
+                                "retained": [{"kind": "dependency", "capability": "go-backend-service-architecture"}],
+                            }
                         )
                     ),
                     qa_control_lane(wave=3),
@@ -8057,30 +7908,6 @@ def main() -> int:
             "scope_coverage evidence missing surface: api-service",
         )
 
-        expect_fail(
-            "worker handoff without covered surface id fails",
-            write_run(
-                temp / "simplicity-worker-handoff-missing-surface",
-                lanes=[
-                    architecture_lane(),
-                    worker_lane(
-                        handoff_section_bodies={
-                            **default_worker_handoff_bodies(primary_surfaces=[]),
-                            ENGINEERING_SIMPLICITY_SECTION: (
-                                "Checks:\n"
-                                + facet_lines(ENGINEERING_SIMPLICITY_CHECKS)
-                                + "\n\nStatus: pass\n"
-                                "Notes: Surface marker intentionally omitted."
-                            ),
-                        }
-                    ),
-                    qa_control_lane(wave=3),
-                    reviewer_control_lane(wave=4),
-                ],
-                lane_map_extra=architecture_control_extra(),
-            ),
-            "Engineering Simplicity missing scope surface: api-service",
-        )
 
         expect_fail(
             "qa handoff without engineering simplicity scope section fails",
@@ -8097,7 +7924,7 @@ def main() -> int:
                 ],
                 lane_map_extra=architecture_control_extra(),
             ),
-            "handoff missing section: Engineering Simplicity Scope",
+            "handoff covers missing section: Engineering Simplicity Scope",
         )
 
         expect_fail(
@@ -8122,7 +7949,7 @@ def main() -> int:
                 ],
                 lane_map_extra=architecture_control_extra(),
             ),
-            "Contract Drift missing Engineering Simplicity primary surface: api-service",
+            "Contract Drift covers missing id: api-service",
         )
 
         expect_fail(
@@ -8454,30 +8281,6 @@ def main() -> int:
             "engineering_simplicity status=pass cannot report fixable remediation findings",
         )
 
-        expect_fail(
-            "fixed engineering simplicity without action handoff coverage fails",
-            write_run(
-                temp / "worker-engineering-simplicity-fixed-action-missing-handoff",
-                lanes=[
-                    architecture_lane(),
-                    worker_lane(
-                        architecture_compliance_data=architecture_compliance(
-                            engineering_simplicity=engineering_simplicity_gate(
-                                status="fixed",
-                                findings=["Fixture extra helper removed."],
-                                actions=[
-                                    "Removed duplicated helper and reused existing tenant helper."
-                                ],
-                            )
-                        )
-                    ),
-                    qa_control_lane(wave=3),
-                    reviewer_control_lane(wave=4),
-                ],
-                lane_map_extra=architecture_control_extra(),
-            ),
-            "Engineering Simplicity missing action: Removed duplicated helper and reused existing tenant helper.",
-        )
 
         fixed_action = "Removed duplicated helper and reused existing tenant helper."
         fixed_worker_handoff = default_worker_handoff_bodies()
@@ -8511,11 +8314,11 @@ def main() -> int:
                         handoff_section_bodies=fixed_worker_handoff,
                     ),
                     qa_control_lane(wave=3),
-                    reviewer_control_lane(wave=4),
+                    reviewer_control_lane_missing_fixed_covers(wave=4),
                 ],
                 lane_map_extra=architecture_control_extra(),
             ),
-            "Contract Drift missing fixed Engineering Simplicity lane: worker-a",
+            "Contract Drift covers missing id: worker-a",
         )
 
         expect_pass(
@@ -8540,11 +8343,11 @@ def main() -> int:
                         handoff_section_bodies={
                             **default_reviewer_handoff_bodies(),
                             CONTRACT_DRIFT_SECTION: (
-                                "Engineering Simplicity fixed for worker-a. "
-                                "Primary surfaces: api-service. "
-                                "Rejected peripheral-only closure. "
-                                "Boundary Evidence checked for worker lanes: worker-a. "
-                                f"Remediation action: {fixed_action} "
+                                "Engineering Simplicity fixed for worker-a.\n\n"
+                                "Primary surfaces:\n- `api-service`\n\n"
+                                "Rejected peripheral-only closure.\n\n"
+                                "Boundary Evidence checked for worker lanes:\n- `worker-a`\n\n"
+                                f"Remediation action: {fixed_action}\n\n"
                                 "No contract drift for selected Architecture Matrix facets "
                                 "and architecture capabilities."
                             ),
@@ -8566,11 +8369,11 @@ def main() -> int:
                         handoff_section_bodies={
                             **default_reviewer_handoff_bodies(),
                             CONTRACT_DRIFT_SECTION: (
-                                "Engineering Simplicity fixed for worker-a. "
-                                "Primary surfaces: api-service. "
-                                "Rejected peripheral-only closure. "
-                                "Boundary Evidence checked for worker lanes: worker-a. "
-                                f"Remediation action: {fixed_action} "
+                                "Engineering Simplicity fixed for worker-a.\n\n"
+                                "Primary surfaces:\n- `api-service`\n\n"
+                                "Rejected peripheral-only closure.\n\n"
+                                "Boundary Evidence checked for worker lanes:\n- `worker-a`\n\n"
+                                f"Remediation action: {fixed_action}\n\n"
                                 "No contract drift for selected Architecture Matrix facets "
                                 "and architecture capabilities."
                             ),
@@ -8687,25 +8490,6 @@ def main() -> int:
             "unselected architecture_context facet",
         )
 
-        expect_fail(
-            "worker architecture compliance handoff missing declared matrix facet fails",
-            write_run(
-                temp / "worker-compliance-handoff-missing-matrix-facet",
-                lanes=[
-                    architecture_lane(),
-                    worker_lane(
-                        architecture_compliance_data=architecture_compliance(
-                            matrix_facets=["backend-service", "monolith"]
-                        ),
-                        handoff_section_bodies=default_worker_handoff_bodies(["backend-service"]),
-                    ),
-                    qa_control_lane(wave=3),
-                    reviewer_control_lane(wave=4),
-                ],
-                lane_map_extra=architecture_control_extra(),
-            ),
-            "Architecture Compliance missing Architecture Matrix facet: monolith",
-        )
 
         expect_pass(
             "worker architecture compliance selected matrix facets pass",
@@ -9038,12 +8822,13 @@ def main() -> int:
                 lanes=[
                     architecture_lane(),
                     worker_lane(),
-                    qa_control_lane(wave=3, handoff_sections=[]),
+                    qa_control_lane(wave=3, handoff_sections=["Notes"],
+                                    handoff_section_bodies={"Notes": "- `unrelated-note`"}),
                     reviewer_control_lane(wave=4),
                 ],
                 lane_map_extra=architecture_control_extra(),
             ),
-            "handoff missing section: Architecture Invariants",
+            "handoff covers missing section: Architecture Invariants",
         )
 
         expect_fail(
@@ -9064,7 +8849,7 @@ def main() -> int:
                 ],
                 lane_map_extra=architecture_control_extra(),
             ),
-            "Architecture Invariants missing Architecture Matrix facet: migrations",
+            "Architecture Invariants covers missing id: migrations",
         )
 
         expect_fail(
@@ -9085,7 +8870,7 @@ def main() -> int:
                 ],
                 lane_map_extra=architecture_control_extra(),
             ),
-            "Architecture Invariants missing Architecture Matrix facet: integration",
+            "Architecture Invariants covers missing id: integration",
         )
 
         empty_gate_context = architecture_context(risk_gates=[], verification_gates=[])
@@ -9144,7 +8929,7 @@ def main() -> int:
                 ],
                 lane_map_extra=architecture_control_extra(),
             ),
-            "handoff missing section: Architecture Matrix Mismatches",
+            "handoff covers missing section: Architecture Matrix Mismatches",
         )
 
         expect_fail(
@@ -9162,7 +8947,7 @@ def main() -> int:
                 ],
                 lane_map_extra=architecture_control_extra(),
             ),
-            "handoff missing section: Contract Drift",
+            "handoff covers missing section: Contract Drift",
         )
 
         expect_fail(
@@ -9191,7 +8976,7 @@ def main() -> int:
                 ],
                 lane_map_extra=architecture_control_extra(),
             ),
-            "Contract Drift missing Engineering Simplicity",
+            "Contract Drift covers missing id: engineering-simplicity",
         )
 
         expect_fail(
@@ -9222,7 +9007,7 @@ def main() -> int:
                 ],
                 lane_map_extra=architecture_control_extra(),
             ),
-            "reviewer handoff missing Architecture Matrix facet: saas-service",
+            "reviewer handoff covers missing Architecture Matrix facet: saas-service",
         )
 
         expect_pass(
@@ -9261,7 +9046,7 @@ def main() -> int:
                 ],
                 lane_map_extra=architecture_control_extra(),
             ),
-            "reviewer handoff missing architecture capability: modular-monolith-architecture",
+            "reviewer handoff covers missing architecture capability: modular-monolith-architecture",
         )
 
         expect_pass(

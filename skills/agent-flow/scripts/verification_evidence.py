@@ -515,8 +515,6 @@ def verify_author_declaration(snapshot, declaration, *, lane_id, presentation_re
     handoff = declaration["handoff"]
     require(isinstance(handoff, dict) and set(handoff) == {"path", "sha256"}, "author declaration handoff invalid")
     verify_reference(snapshot.artifact_root, handoff, snapshot=snapshot)
-    text = reference_bytes(snapshot.artifact_root, handoff, snapshot=snapshot).decode()
-    require(not presentation_required or all(path in text for path in paths), "author handoff must confirm authored_paths")
     evidence = declaration["edit_evidence"]
     require(isinstance(evidence, list) and bool(evidence), "author declaration edit evidence missing")
     for ref in evidence:
@@ -525,9 +523,15 @@ def verify_author_declaration(snapshot, declaration, *, lane_id, presentation_re
     coauthors = declaration["coauthors"]
     require(isinstance(coauthors, dict) and set(coauthors) <= set(paths), "author coauthors paths invalid")
     for path, peers in coauthors.items():
-        require(isinstance(peers, list) and bool(peers) and all(isinstance(peer, str) and peer and peer != lane_id and
-                (not presentation_required or peer in text) for peer in peers)
-                and len(peers) == len(set(peers)), "author coauthors must be disclosed in own handoff")
+        require(isinstance(peers, list) and bool(peers) and all(isinstance(peer, str) and peer and peer != lane_id for peer in peers)
+                and len(peers) == len(set(peers)), "author coauthors invalid")
+    if presentation_required:
+        from journal_io import handoff_receipt_evidence
+        recorded = handoff_receipt_evidence(snapshot, handoff["path"], boundary_path="checks/lane-boundary-" + lane_id + ".json",
+                                            handoff_sha256=handoff["sha256"])
+        if recorded is not None:
+            declared = {(ref["path"], ref["sha256"]) for ref in evidence}
+            require(declared <= recorded, "author declaration edit evidence differs from the conclusion receipt")
     summary = json.loads(snapshot.read_text("delegation-summary.json"))
     known = {r.get("lane_id") for kind in ("subagents", "role_lanes") for r in summary.get(kind, [])}
     require(all(peer in known for peers in coauthors.values() for peer in peers), "author coauthorship mismatch: unknown coauthor")
@@ -1538,8 +1542,16 @@ def source_bound_record(run_dir, record, verification, role, source, *, qa_hando
             verify_reference(run_dir, ref, snapshot=snapshot)
         else:
             historical_evidence_bytes(snapshot, record, ref)
-        require(not presentation_required or ref["path"] in text and ref["sha256"] in text,
-                "evidence reference and sha256 must appear in source-bound handoff")
+    if presentation_required:
+        from journal_io import handoff_receipt_evidence
+        recorded = handoff_receipt_evidence(snapshot, record["handoff"])
+        if recorded is not None:
+            require({(ref["path"], ref["sha256"]) for ref in refs} <= recorded,
+                    "evidence reference set differs from the conclusion receipt")
+        else:
+            # Legacy handoffs without a conclusion receipt bind evidence markers inline.
+            require(all(ref["path"] in text and ref["sha256"] in text for ref in refs),
+                    "evidence reference and sha256 must appear in source-bound handoff")
     digest = None if preliminary else record.get("reviewed_result_hash") if negative or not current else verification.get("result_hash") or result_hash(run_dir, verification, snapshot=snapshot)
     require(record.get("reviewed_result_hash") == digest, "reviewed_result_hash is stale")
     completion = completed_turn(source, thread, record.get("completion_turn_id"), verification.get("root_thread_id"), role, current=current)
@@ -1637,9 +1649,12 @@ def validate_context_classification(run_dir, workspace, records, completions, so
         verify_reference(run_dir, ref, snapshot=snapshot)
         require(any(item.get("path") == ref.get("path") and item.get("sha256") == ref.get("sha256")
                     for item in qa["evidence"]), "qa: context workflow output must be accepted QA evidence")
-        reviewer_text = reference_bytes(run_dir, {"path": records["reviewer"]["handoff"]}, snapshot=snapshot).decode()
-        require(not presentation_required or ref["path"] in reviewer_text and ref["sha256"] in reviewer_text,
-                "reviewer: context workflow evidence must appear in completeness assessment")
+        if presentation_required:
+            from journal_io import handoff_receipt_evidence
+            recorded = handoff_receipt_evidence(snapshot, records["reviewer"]["handoff"])
+            if recorded is not None:
+                require((ref.get("path"), ref.get("sha256")) in recorded,
+                        "reviewer: context workflow evidence must be in the completeness assessment receipt")
         index = ref.get("source_event")
         require(type(index) is int and index in own and
                 completion["task_started_event"] < index < completion["task_complete_event"],

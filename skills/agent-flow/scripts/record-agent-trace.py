@@ -167,7 +167,9 @@ def prepare_conclusion(run_dir, args, artifacts, source, *, snapshot=None):
                         **{key: value.encode() if type(value) is str else value for key, value in documents.items()}}))
                     boundary_path, artifact = author_boundary_artifact(augmented, args.lane_id, declaration)
                     documents[boundary_path] = encode_json(artifact, pretty=True) + "\n"
-                return documents, {}
+                return documents, {"covers": {row["section"]: list(row.get("covers", [])) for row in sections},
+                                   "handoff": handoff, "handoff_sha256": sha256(generated.encode()),
+                                   "evidence": metadata["evidence"]}
             write_entry(run_dir, "handoff", request, identifier=args.operation_id,
                         payload={"kind": "handoff", "request": request,
                                  **({"boundary": {"authored_paths": authored, "coauthors": coauthors}} if author else {})},
@@ -184,7 +186,8 @@ def prepare_conclusion(run_dir, args, artifacts, source, *, snapshot=None):
         def publish_boundary(current):
             current_path, current_artifact = author_boundary_artifact(current, args.lane_id, declaration)
             require(current_artifact == artifact, "boundary inputs changed before publication")
-            return {current_path: encode_json(current_artifact, pretty=True) + "\n"}, {}
+            return {current_path: encode_json(current_artifact, pretty=True) + "\n"}, {"boundary": current_path,
+                    "handoff_sha256": declaration["handoff"]["sha256"], "evidence": declaration["edit_evidence"]}
         write_entry(run_dir, "event", {"summary": artifact["notes"], "status": "active", "stage": "boundary-captured", "role": "orchestrator"},
                     identifier=args.operation_id, payload=artifact, mutation=publish_boundary, replay_guard=publish_boundary)
         snapshot = JournalSnapshot.open(run_dir)

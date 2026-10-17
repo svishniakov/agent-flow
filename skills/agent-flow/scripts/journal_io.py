@@ -1582,6 +1582,12 @@ def write_entry(run_dir, kind, request, *, identifier=None, mutation=None, repla
             if kind in {"handoff", "architecture-outcome"}:
                 documents[path] = text
                 result["handoff"] = path
+                result["handoff_sha256"] = digest(text.encode() if type(text) is str else text)
+                result["evidence"] = evidence
+                result["covers"] = {row["section"]: list(row.get("covers", [])) for row in request.get("sections", [])}
+                if kind == "architecture-outcome":
+                    result["claim_evidence_ids"] = list(request.get("claim_evidence_ids", []))
+                    result["acceptance_criteria_ids"] = list(request.get("acceptance_criteria_ids", []))
             if boundary is not None:
                 declaration = {"lane_id": request["lane_id"], "authored_paths": boundary["authored_paths"],
                                "handoff": {"path": path, "sha256": digest(text.encode() if type(text) is str else text)},
@@ -1839,7 +1845,8 @@ def service_observation_projection(snapshot, kind, request, *, source=None):
             selected = lane()
             report = "checks/" + selected["id"] + ".md"
             documents[report] = render_document(kind, summary, status, {"evidence": refs, "sections": request.get("sections", [])})
-            return documents, {"report": report, "evidence": refs}
+            return documents, {"report": report, "evidence": refs,
+                               "covers": {row["section"]: list(row.get("covers", [])) for row in request.get("sections", [])}}
         if kind == "simplicity-scope":
             data["engineering_simplicity_scope"] = {"primary_surfaces": request["primary_surfaces"], "secondary_surfaces": request["secondary_surfaces"], "evidence": paths, "notes": summary}
             _, _, _, errors = validator.validate_engineering_simplicity_scope(root, data, required=success, allow_pending=not success, snapshot=snapshot)
@@ -1855,6 +1862,8 @@ def service_observation_projection(snapshot, kind, request, *, source=None):
             elif kind == "lane-simplicity":
                 simplicity = {"status": "fixed" if success and request.get("action") else "pass" if success else "drift", "checks": request["checked_checks"],
                     "findings": [summary] if request.get("action") or not success else [], "actions": [request["action"]] if request.get("action") else [], "notes": summary}
+                if "retained" in request:
+                    simplicity["retained"] = request["retained"]
                 simplicity.update({key: value for key, value in compliance.get("engineering_simplicity", {}).items() if key == "scope_coverage"})
                 compliance["engineering_simplicity"] = simplicity
                 errors = validator.validate_engineering_simplicity_shape(compliance, selected["id"], selected_capabilities=capabilities)
@@ -2878,6 +2887,86 @@ def record_event(run_dir, args, artifact_paths, source, snapshot):
     if summary_data is not None:
         result["result_hash"] = summary_data["verification"].get("result_hash")
     return documents, result
+
+
+COVER_MARKER = re.compile(r"^\s*-\s+Covers:\s+`([^`]+)`\s*$")
+
+
+def handoff_receipt_evidence(snapshot, handoff_path, *, boundary_path=None, handoff_sha256=None):
+    """Evidence refs recorded by the write receipts for this handoff/boundary.
+
+    Returns a {(path, sha256)} set, or None when no receipt declares evidence
+    (legacy receipts and flat journals stay readable without it). Receipts
+    recorded against different handoff bytes are not evidence for this one.
+    """
+    if not snapshot.durable:
+        return None
+    found = None
+    for raw in snapshot.receipts.values():
+        result = json.loads(raw).get("result", {})
+        if not isinstance(result.get("evidence"), list):
+            continue
+        if result.get("handoff") != handoff_path and result.get("boundary") != boundary_path:
+            continue
+        receipt_sha = result.get("handoff_sha256")
+        if handoff_sha256 is not None and receipt_sha is not None and receipt_sha != handoff_sha256:
+            continue
+        found = found or set()
+        for ref in result["evidence"]:
+            if isinstance(ref, dict):
+                found.add((ref.get("path"), ref.get("sha256")))
+    return found
+
+
+def handoff_covers(snapshot, lane_id):
+    """Declared section covers for one lane's handoff/report.
+
+    Receipts are the primary source (durable writer path); strict writer marker
+    lines in the document are the legacy/flat fallback. Returns None when the
+    lane has no covers data at all (legacy flat journals stay readable).
+    """
+    paths = set()
+    lane_map = json.loads(snapshot.documents.get("lane-map.json", b"{}"))
+    for lane in lane_map.get("lanes", []):
+        if isinstance(lane, dict) and lane.get("id") == lane_id and isinstance(lane.get("handoff"), str):
+            paths.add(lane["handoff"])
+    summary = json.loads(snapshot.documents.get("delegation-summary.json", b"{}"))
+    for group in ("subagents", "role_lanes"):
+        for record in summary.get(group) or []:
+            if isinstance(record, dict) and record.get("lane_id") == lane_id and isinstance(record.get("handoff"), str):
+                paths.add(record["handoff"])
+    paths.add("checks/" + lane_id + ".md")
+    covers = None
+    for raw in snapshot.receipts.values():
+        result = json.loads(raw).get("result", {})
+        if not isinstance(result.get("covers"), dict):
+            continue
+        if result.get("handoff") not in paths and result.get("report") not in paths:
+            continue
+        covers = covers or {}
+        for section, ids in result["covers"].items():
+            covers[section] = list(dict.fromkeys(ids))
+    if covers is not None:
+        return covers
+    parsed = {}
+    for path in sorted(paths):
+        if not snapshot.exists(path):
+            continue
+        lines = snapshot.read_text(path).splitlines()
+        if not any(COVER_MARKER.match(line) for line in lines):
+            continue  # legacy document without marker lines stays skipped
+        section = None
+        for line in lines:
+            heading = re.match(r"^#{2,6}\s+(.+?)\s*#*$", line)
+            if heading:
+                section = heading.group(1)
+                parsed.setdefault(section, [])
+                continue
+            if section is not None:
+                marker = COVER_MARKER.match(line)
+                if marker and marker.group(1) not in parsed[section]:
+                    parsed[section].append(marker.group(1))
+    return parsed or None
 
 
 def author_boundary_artifact(snapshot, lane_id, declaration):

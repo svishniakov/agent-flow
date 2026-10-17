@@ -652,9 +652,7 @@ class EvidenceRegressions(unittest.TestCase):
                        "handoff": {"path": record["handoff"], "sha256": ""},
                        "edit_evidence": [{"path": "checks.md", "sha256": sha256(evidence.read_bytes())}],
                        "coauthors": {"result.txt": [peer]}}
-        for text, audit_error in (("Completed implementation.\n", "confirm authored_paths"),
-                                  ("Changed result.txt.\n", "coauthors must be disclosed"),
-                                  (f"Changed result.txt with {peer}.\n", None)):
+        for text in ("Completed implementation.\n", "Changed result.txt.\n", f"Changed result.txt with {peer}.\n"):
             with self.subTest(text=text):
                 handoff.write_text(text)
                 declaration["handoff"]["sha256"] = sha256(handoff.read_bytes())
@@ -662,11 +660,36 @@ class EvidenceRegressions(unittest.TestCase):
                 verified = verify_author_declaration(snapshot, declaration, lane_id=record["lane_id"],
                                                      presentation_required=False)
                 self.assertEqual(verified["codex_thread_id"], record["codex_thread_id"])
-                if audit_error:
-                    with self.assertRaisesRegex(EvidenceError, audit_error):
-                        verify_author_declaration(snapshot, declaration, lane_id=record["lane_id"])
-                else:
-                    self.assertEqual(verify_author_declaration(snapshot, declaration, lane_id=record["lane_id"]), verified)
+                # Legacy handoffs without a conclusion receipt stay readable.
+                self.assertEqual(verify_author_declaration(snapshot, declaration, lane_id=record["lane_id"]), verified)
+        # Receipt binding replaces prose reading: declared edit evidence must be
+        # the evidence the conclusion receipt recorded.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            receipt_run = root / "run"
+            thread = "00000000-0000-4000-8000-000000000077"
+            record_fixture = {"lane_id": "author", "role": "python-worker", "trace": "agents/author/trace.jsonl"}
+            receipt_summary = {"version": 1, "subagents_used": False, "role_lanes_used": True,
+                               "notes": "Receipt binding fixture", "subagents": [], "role_lanes": [record_fixture],
+                               "verification": {**empty_verification(), "root_thread_id": thread}}
+            journal_io.initialize_journal(receipt_run, {
+                "delegation-summary.json": json.dumps(receipt_summary).encode(),
+                "checks.md": b"Actual edit proof\n",
+                "agents/author/trace.jsonl": (json.dumps({"lane_id": "author", "role": "python-worker",
+                                                          "execution_mode": "role-lane"}) + "\n").encode(),
+            }, source_root=root)
+            journal_io.write_entry(receipt_run, "handoff", {"lane_id": "author", "summary": "Own authored path: result.txt",
+                                                            "status": "pass", "evidence": [{"path": "checks.md"}]},
+                                   identifier="author-conclusion")
+            receipt_snapshot = JournalSnapshot.open(receipt_run)
+            good = {"lane_id": "author", "authored_paths": ["result.txt"],
+                    "handoff": {"path": "handoffs/author.md", "sha256": sha256(receipt_snapshot.read_bytes("handoffs/author.md"))},
+                    "edit_evidence": [{"path": "checks.md", "sha256": sha256(b"Actual edit proof\n")}], "coauthors": {}}
+            self.assertEqual(verify_author_declaration(receipt_snapshot, good, lane_id="author")["codex_thread_id"], thread)
+            foreign = {**good, "edit_evidence": [{"path": "handoffs/author.md",
+                                                  "sha256": sha256(receipt_snapshot.read_bytes("handoffs/author.md"))}]}
+            with self.assertRaisesRegex(EvidenceError, "differs from the conclusion receipt"):
+                verify_author_declaration(receipt_snapshot, foreign, lane_id="author")
         handoff.write_text("Altered proof after declared SHA.\n")
         with self.assertRaisesRegex(EvidenceError, "sha256 mismatch"):
             verify_author_declaration(JournalSnapshot.open(self.run), declaration, lane_id=record["lane_id"],
@@ -683,7 +706,7 @@ class EvidenceRegressions(unittest.TestCase):
                                       presentation_required=False)
         declaration["authored_paths"] = ["result.txt"]
         declaration["coauthors"]["result.txt"] = [record["lane_id"]]
-        with self.assertRaisesRegex(EvidenceError, "coauthors must be disclosed"):
+        with self.assertRaisesRegex(EvidenceError, "coauthors invalid"):
             verify_author_declaration(JournalSnapshot.open(self.run), declaration, lane_id=record["lane_id"],
                                       presentation_required=False)
         declaration["coauthors"]["result.txt"] = [peer]

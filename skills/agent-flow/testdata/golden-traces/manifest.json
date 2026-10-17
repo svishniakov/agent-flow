@@ -1,601 +1,601 @@
 {
-  "version": 1,
-  "description": "Golden Trace Runs acceptance pack for the architecture layer.",
-  "cases": [
-    {
-      "id": "compact-change-verification",
-      "path": "verification/compact-change",
-      "mode": "compact",
-      "expected": "pass",
-      "covers": [
-        "compact independent QA and reviewer",
-        "current result hash",
-        "synthetic completed turns"
-      ]
-    },
-    {
-      "id": "compact-change-missing-qa",
-      "path": "verification/compact-missing-qa",
-      "mode": "compact",
-      "expected": "fail",
-      "expected_error": "verification.qa requires separate qa-verifier subagent",
-      "covers": [
-        "missing QA is never auto-filled in focused fixtures"
-      ]
-    },
-    {
-      "id": "compact-change-wrong-reviewer-model",
-      "path": "verification/compact-wrong-reviewer-model",
-      "mode": "compact",
-      "expected": "fail",
-      "expected_error": "source model must be gpt-6.1-sol",
-      "covers": [
-        "source model differs from canonical reviewer configuration"
-      ]
-    },
-    {
-      "id": "standard-single-worker-no-architecture",
-      "path": "valid/standard-single-worker-no-architecture",
-      "mode": "full",
-      "expected": "pass",
-      "covers": [
-        "backward-compatible-standard-single-worker",
-        "Mandatory Independent QA Review Gate",
-        "mandatory-independent-qa-review"
-      ]
-    },
-    {
-      "id": "handoff-state-gate-ship",
-      "path": "valid/handoff-state-gate-ship",
-      "mode": "full",
-      "expected": "pass",
-      "covers": [
-        "Handoff State Gate",
-        "handoff_state_required",
-        "queued",
-        "accepted",
-        "completed"
-      ]
-    },
-    {
-      "id": "standard-multilane-architecture-ship",
-      "path": "valid/standard-multilane-architecture-ship",
-      "mode": "full",
-      "expected": "pass",
-      "covers": [
-        "Architecture Contract Gate",
-        "Architecture Matrix Router",
-        "Architecture Capability Router",
-        "Architecture Design Mode",
-        "Architecture Execution Control",
-        "Architecture Context Propagation",
-        "Engineering Simplicity Gate"
-      ]
-    },
-    {
-      "id": "blocked-checkpoint-continuation-ship",
-      "path": "valid/blocked-checkpoint-continuation-ship",
-      "mode": "full",
-      "expected": "pass",
-      "covers": [
-        "Continuation Gate",
-        "blocked-checkpoint",
-        "historical worker revalidation"
-      ]
-    },
-    {
-      "id": "release-independent-architecture-ship",
-      "path": "valid/release-independent-architecture-ship",
-      "mode": "full",
-      "expected": "pass",
-      "covers": [
-        "release architecture gate",
-        "independent architecture subagent"
-      ]
-    },
-    {
-      "id": "architecture-drift-rechecked-ship",
-      "path": "valid/architecture-drift-rechecked-ship",
-      "mode": "full",
-      "expected": "pass",
-      "covers": [
-        "Architecture Execution Control",
-        "Engineering Simplicity Gate",
-        "drift recheck"
-      ]
-    },
-    {
-      "id": "pass-with-risks-mitigated",
-      "path": "valid/pass-with-risks-mitigated",
-      "mode": "full",
-      "expected": "pass",
-      "covers": [
-        "Mitigation Gate",
-        "Resolution Gate"
-      ]
-    },
-    {
-      "id": "blocked-resolution-recovered-attempt-2",
-      "path": "valid/blocked-resolution-recovered-attempt-2",
-      "mode": "full",
-      "expected": "pass",
-      "covers": [
-        "Blocked Resolution Gate",
-        "Senior QA Test Design Review",
-        "Resolution Architect Review"
-      ]
-    },
-    {
-      "id": "blocked-resolution-third-attempt-blocked",
-      "path": "valid/blocked-resolution-third-attempt-blocked",
-      "mode": "full",
-      "expected": "pass",
-      "covers": [
-        "Blocked Resolution Gate",
-        "Supervising Architect Review",
-        "final blocked"
-      ]
-    },
-    {
-      "id": "release-without-architecture-contract",
-      "path": "invalid/release-without-architecture-contract",
-      "mode": "full",
-      "expected": "fail",
-      "expected_error": "release budget requires architecture_contract_required=true",
-      "covers": [
-        "release architecture gate"
-      ]
-    },
-    {
-      "id": "handoff-state-missing-state",
-      "path": "invalid/handoff-state-missing-state",
-      "mode": "full",
-      "expected": "fail",
-      "expected_error": "missing handoff_state",
-      "covers": [
-        "Handoff State Gate",
-        "handoff_state_required",
-        "missing state"
-      ]
-    },
-    {
-      "id": "handoff-state-terminal-mismatch",
-      "path": "invalid/handoff-state-terminal-mismatch",
-      "mode": "full",
-      "expected": "fail",
-      "expected_error": "status pass requires handoff_state.status=completed",
-      "covers": [
-        "Handoff State Gate",
-        "terminal status mapping"
-      ]
-    },
-    {
-      "id": "handoff-state-batch-order",
-      "path": "invalid/handoff-state-batch-order",
-      "mode": "full",
-      "expected": "fail",
-      "expected_error": "batch item qa-item must be completed before batch lane accepted",
-      "covers": [
-        "Handoff State Gate",
-        "batch ordering"
-      ]
-    },
-    {
-      "id": "mandatory-independent-qa-review-missing-subagent",
-      "path": "invalid/mandatory-independent-qa-review-missing-subagent",
-      "mode": "full",
-      "expected": "fail",
-      "expected_error": "verification.qa requires separate qa-verifier subagent",
-      "covers": [
-        "Mandatory Independent QA Review Gate",
-        "mandatory-independent-qa-review",
-        "missing reviewer.qa subagent"
-      ]
-    },
-    {
-      "id": "mandatory-independent-qa-review-role-lane-only",
-      "path": "invalid/mandatory-independent-qa-review-role-lane-only",
-      "mode": "full",
-      "expected": "fail",
-      "expected_error": "verification.qa requires separate qa-verifier subagent",
-      "covers": [
-        "Mandatory Independent QA Review Gate",
-        "mandatory-independent-qa-review",
-        "role-lane reviewer only"
-      ]
-    },
-    {
-      "id": "standard-multilane-without-architecture-contract",
-      "path": "invalid/standard-multilane-without-architecture-contract",
-      "mode": "full",
-      "expected": "fail",
-      "expected_error": "standard budget with 2 worker lanes requires architecture_contract_required=true",
-      "covers": [
-        "standard multi-lane architecture gate"
-      ]
-    },
-    {
-      "id": "architecture-context-unknown-facet",
-      "path": "invalid/architecture-context-unknown-facet",
-      "mode": "full",
-      "expected": "fail",
-      "expected_error": "unknown Architecture Matrix facet",
-      "covers": [
-        "Architecture Matrix Router"
-      ]
-    },
-    {
-      "id": "design-brief-not-approved",
-      "path": "invalid/design-brief-not-approved",
-      "mode": "full",
-      "expected": "fail",
-      "expected_error": "positive final Verdict requires approved Architecture Design Brief",
-      "covers": [
-        "Architecture Design Mode"
-      ]
-    },
-    {
-      "id": "worker-before-approved-design",
-      "path": "invalid/worker-before-approved-design",
-      "mode": "full",
-      "expected": "fail",
-      "expected_error": "worker lane must run after approved Architecture Design Brief",
-      "covers": [
-        "Architecture Design Mode ordering"
-      ]
-    },
-    {
-      "id": "drift-without-architecture-recheck",
-      "path": "invalid/drift-without-architecture-recheck",
-      "mode": "full",
-      "expected": "fail",
-      "expected_error": "architecture drift requires recheck_lane",
-      "covers": [
-        "Architecture Execution Control"
-      ]
-    },
-    {
-      "id": "worker-without-engineering-simplicity",
-      "path": "invalid/worker-without-engineering-simplicity",
-      "mode": "full",
-      "expected": "fail",
-      "expected_error": "missing architecture_compliance.engineering_simplicity",
-      "covers": [
-        "Engineering Simplicity Gate",
-        "Architecture Execution Control"
-      ]
-    },
-    {
-      "id": "positive-run-without-lane-boundary",
-      "path": "invalid/positive-run-without-lane-boundary",
-      "mode": "full",
-      "expected": "fail",
-      "expected_error": "successful worker lane requires boundary",
-      "covers": [
-        "Lane Boundary Evidence Gate",
-        "boundary.allowed_paths",
-        "boundary.forbidden_paths",
-        "changed_paths_artifact",
-        "changed_paths",
-        "record-lane-boundary.py",
-        "Architecture Execution Control"
-      ]
-    },
-    {
-      "id": "lane-boundary-out-of-bounds",
-      "path": "invalid/lane-boundary-out-of-bounds",
-      "mode": "full",
-      "expected": "fail",
-      "expected_error": "changed path outside allowed_paths",
-      "covers": [
-        "Lane Boundary Evidence Gate",
-        "boundary.allowed_paths",
-        "boundary.forbidden_paths",
-        "changed_paths_artifact",
-        "changed_paths",
-        "record-lane-boundary.py",
-        "allowed_paths"
-      ]
-    },
-    {
-      "id": "lane-boundary-forbidden-path",
-      "path": "invalid/lane-boundary-forbidden-path",
-      "mode": "full",
-      "expected": "fail",
-      "expected_error": "changed path matches forbidden_paths",
-      "covers": [
-        "Lane Boundary Evidence Gate",
-        "boundary.allowed_paths",
-        "boundary.forbidden_paths",
-        "changed_paths_artifact",
-        "changed_paths",
-        "record-lane-boundary.py",
-        "forbidden_paths"
-      ]
-    },
-    {
-      "id": "pass-with-risks-without-resolution",
-      "path": "invalid/pass-with-risks-without-resolution",
-      "mode": "full",
-      "expected": "fail",
-      "expected_error": "risk-resolutions.json is required for Verdict: pass-with-risks",
-      "covers": [
-        "Resolution Gate"
-      ]
-    },
-    {
-      "id": "blocked-attempt-without-architect-instruction",
-      "path": "invalid/blocked-attempt-without-architect-instruction",
-      "mode": "full",
-      "expected": "fail",
-      "expected_error": "architect_review.instruction must be a non-empty string",
-      "covers": [
-        "Blocked Resolution Gate"
-      ]
-    },
-    {
-      "id": "role-lane-called-sidecar",
-      "path": "invalid/role-lane-called-sidecar",
-      "mode": "full",
-      "expected": "fail",
-      "expected_error": "claims subagent/sidecar without spawned trace evidence",
-      "covers": [
-        "Delegation Trace Gate",
-        "narrative claim guard"
-      ]
-    },
-    {
-      "id": "subagent-lane-without-terminal-handoff",
-      "path": "invalid/subagent-lane-without-terminal-handoff",
-      "mode": "full",
-      "expected": "fail",
-      "expected_error": "missing terminal handoff trace event",
-      "covers": [
-        "Delegation Trace Gate",
-        "terminal handoff"
-      ]
-    },
-    {
-      "id": "delegation-summary-claims-subagent-without-spawned-trace",
-      "path": "invalid/delegation-summary-claims-subagent-without-spawned-trace",
-      "mode": "full",
-      "expected": "fail",
-      "expected_error": "lane worker-a is not execution_mode=subagent",
-      "covers": [
-        "Delegation Trace Gate",
-        "delegation-summary.json"
-      ]
-    },
-    {
-      "id": "worker-before-verification-readiness",
-      "path": "invalid/worker-before-verification-readiness",
-      "mode": "full",
-      "expected": "fail",
-      "expected_error": "lane-map.json: worker lane worker-a must run after ready Verification Readiness Gate",
-      "covers": [
-        "Verification Readiness Gate"
-      ]
-    },
-    {
-      "id": "positive-verdict-with-paused-readiness",
-      "path": "invalid/positive-verdict-with-paused-readiness",
-      "mode": "full",
-      "expected": "fail",
-      "expected_error": "lane-map.json: positive final Verdict requires ready Verification Readiness Gate",
-      "covers": [
-        "Verification Readiness Gate"
-      ]
-    },
-    {
-      "id": "qa-pass-with-blocked-verification-result",
-      "path": "invalid/qa-pass-with-blocked-verification-result",
-      "mode": "full",
-      "expected": "fail",
-      "expected_error": "lane-map.json: lane qa-behavior pass requires verification_results.status=pass",
-      "covers": [
-        "Verification Readiness Gate"
-      ]
-    },
-    {
-      "id": "continuation-positive-without-summary",
-      "path": "invalid/continuation-positive-without-summary",
-      "mode": "full",
-      "expected": "fail",
-      "expected_error": "continuation-summary.json is required for positive continuation run",
-      "covers": [
-        "Continuation Gate"
-      ]
-    },
-    {
-      "id": "continuation-worker-before-readiness",
-      "path": "invalid/continuation-worker-before-readiness",
-      "mode": "full",
-      "expected": "fail",
-      "expected_error": "continuation worker lane worker-a must run after ready Verification Readiness Gate",
-      "covers": [
-        "Continuation Gate",
-        "Verification Readiness Gate"
-      ]
-    },
-    {
-      "id": "continuation-historical-worker-not-revalidated",
-      "path": "invalid/continuation-historical-worker-not-revalidated",
-      "mode": "full",
-      "expected": "fail",
-      "expected_error": "continuation-summary.json missing revalidated historical worker lane: worker-b",
-      "covers": [
-        "Continuation Gate"
-      ]
-    },
-    {
-      "id": "continuation-missing-lane-timeline-event",
-      "path": "invalid/continuation-missing-lane-timeline-event",
-      "mode": "full",
-      "expected": "fail",
-      "expected_error": "lane-map.json: continuation timeline for lane verification-readiness-1 missing event",
-      "covers": [
-        "Continuation Gate",
-        "timeline lane evidence"
-      ]
-    },
-    {
-      "id": "triggered-run-without-harness-evaluation",
-      "path": "invalid/triggered-run-without-harness-evaluation",
-      "mode": "full",
-      "expected": "fail",
-      "expected_error": "harness-evaluation.json is required for triggered learning run",
-      "covers": [
-        "Harness Evaluation Loop",
-        "learning trigger"
-      ]
-    },
-    {
-      "id": "harness-evaluation-auto-applied-proposal",
-      "path": "invalid/harness-evaluation-auto-applied-proposal",
-      "mode": "full",
-      "expected": "fail",
-      "expected_error": "harness-evaluation.json proposals[0].status must be proposed",
-      "covers": [
-        "Harness Evaluation Loop",
-        "human approval"
-      ]
-    },
-    {
-      "id": "harness-evaluation-missing-evidence",
-      "path": "invalid/harness-evaluation-missing-evidence",
-      "mode": "full",
-      "expected": "fail",
-      "expected_error": "harness-evaluation.json findings[0].evidence[0] not found: checks/missing.md",
-      "covers": [
-        "Harness Evaluation Loop",
-        "evidence"
-      ]
-    },
-    {
-      "id": "harness-evaluation-unselected-context",
-      "path": "invalid/harness-evaluation-unselected-context",
-      "mode": "full",
-      "expected": "fail",
-      "expected_error": "harness-evaluation.json findings[0].architecture_context[0] unselected facet: frontend-service",
-      "covers": [
-        "Harness Evaluation Loop",
-        "Architecture Matrix Router"
-      ]
-    },
-    {
-      "id": "positive-run-without-acceptance-traceability",
-      "path": "invalid/positive-run-without-acceptance-traceability",
-      "mode": "full",
-      "expected": "fail",
-      "expected_error": "acceptance-traceability.json is required for positive architecture contract run",
-      "covers": [
-        "Acceptance Criteria Traceability Gate"
-      ]
-    },
-    {
-      "id": "acceptance-traceability-without-negative-fixture",
-      "path": "invalid/acceptance-traceability-without-negative-fixture",
-      "mode": "full",
-      "expected": "fail",
-      "expected_error": "acceptance-traceability.json acceptance[0].negative_fixture_evidence must be an array",
-      "covers": [
-        "Contract Negative Fixture Gate"
-      ]
-    },
-    {
-      "id": "acceptance-traceability-missing-surface-expectations",
-      "path": "invalid/acceptance-traceability-missing-surface-expectations",
-      "mode": "full",
-      "expected": "fail",
-      "expected_error": "acceptance-traceability.json acceptance[0].surface_expectations must be a non-empty array",
-      "covers": [
-        "Surface Evidence Gate"
-      ]
-    },
-    {
-      "id": "acceptance-traceability-wrong-surface-evidence",
-      "path": "invalid/acceptance-traceability-wrong-surface-evidence",
-      "mode": "full",
-      "expected": "fail",
-      "expected_error": "acceptance-traceability.json acceptance[0].evidence[0].surface not in surface_expectations: storage",
-      "covers": [
-        "Surface Evidence Gate"
-      ]
-    },
-    {
-      "id": "positive-run-without-claim-evidence",
-      "path": "invalid/positive-run-without-claim-evidence",
-      "mode": "full",
-      "expected": "fail",
-      "expected_error": "claim-evidence.json is required for positive architecture contract run",
-      "covers": [
-        "Claim Evidence Gate",
-        "claim-evidence.json"
-      ]
-    },
-    {
-      "id": "architecture-contract-without-claim-evidence",
-      "path": "invalid/architecture-contract-without-claim-evidence",
-      "mode": "full",
-      "expected": "fail",
-      "expected_error": "architecture contract handoff QA Gates missing Claim Evidence",
-      "covers": [
-        "Claim Evidence Gate",
-        "Architecture Contract"
-      ]
-    },
-    {
-      "id": "claim-evidence-missing-marker",
-      "path": "invalid/claim-evidence-missing-marker",
-      "mode": "full",
-      "expected": "fail",
-      "expected_error": "claim-evidence.json claims[0].evidence[0].markers[0] not found in checks/qa-behavior.md",
-      "covers": [
-        "Claim Evidence Gate",
-        "marker-backed evidence"
-      ]
-    },
-    {
-      "id": "positive-run-without-simplicity-scope",
-      "path": "invalid/positive-run-without-simplicity-scope",
-      "mode": "full",
-      "expected": "fail",
-      "expected_error": "positive architecture-gated worker run requires engineering_simplicity_scope",
-      "covers": [
-        "Simplicity Scope Coverage",
-        "engineering_simplicity_scope",
-        "primary_surfaces",
-        "secondary_surfaces",
-        "scope_coverage"
-      ]
-    },
-    {
-      "id": "secondary-only-simplicity-closure",
-      "path": "invalid/secondary-only-simplicity-closure",
-      "mode": "full",
-      "expected": "fail",
-      "expected_error": "engineering_simplicity_scope primary surface not covered by worker: api-service",
-      "covers": [
-        "Simplicity Scope Coverage",
-        "peripheral-only closure",
-        "primary_surfaces",
-        "secondary_surfaces",
-        "scope_coverage"
-      ]
-    },
-    {
-      "id": "simplicity-primary-surface-not-reviewed",
-      "path": "invalid/simplicity-primary-surface-not-reviewed",
-      "mode": "full",
-      "expected": "fail",
-      "expected_error": "Contract Drift missing Engineering Simplicity primary surface: api-service",
-      "covers": [
-        "Simplicity Scope Coverage",
-        "reviewer scope coverage",
-        "primary_surfaces",
-        "secondary_surfaces",
-        "scope_coverage"
-      ]
-    }
-  ]
+ "version": 1,
+ "description": "Golden Trace Runs acceptance pack for the architecture layer.",
+ "cases": [
+  {
+   "id": "compact-change-verification",
+   "path": "verification/compact-change",
+   "mode": "compact",
+   "expected": "pass",
+   "covers": [
+    "compact independent QA and reviewer",
+    "current result hash",
+    "synthetic completed turns"
+   ]
+  },
+  {
+   "id": "compact-change-missing-qa",
+   "path": "verification/compact-missing-qa",
+   "mode": "compact",
+   "expected": "fail",
+   "expected_error": "verification.qa requires separate qa-verifier subagent",
+   "covers": [
+    "missing QA is never auto-filled in focused fixtures"
+   ]
+  },
+  {
+   "id": "compact-change-wrong-reviewer-model",
+   "path": "verification/compact-wrong-reviewer-model",
+   "mode": "compact",
+   "expected": "fail",
+   "expected_error": "source model must be gpt-6.1-sol",
+   "covers": [
+    "source model differs from canonical reviewer configuration"
+   ]
+  },
+  {
+   "id": "standard-single-worker-no-architecture",
+   "path": "valid/standard-single-worker-no-architecture",
+   "mode": "full",
+   "expected": "pass",
+   "covers": [
+    "backward-compatible-standard-single-worker",
+    "Mandatory Independent QA Review Gate",
+    "mandatory-independent-qa-review"
+   ]
+  },
+  {
+   "id": "handoff-state-gate-ship",
+   "path": "valid/handoff-state-gate-ship",
+   "mode": "full",
+   "expected": "pass",
+   "covers": [
+    "Handoff State Gate",
+    "handoff_state_required",
+    "queued",
+    "accepted",
+    "completed"
+   ]
+  },
+  {
+   "id": "standard-multilane-architecture-ship",
+   "path": "valid/standard-multilane-architecture-ship",
+   "mode": "full",
+   "expected": "pass",
+   "covers": [
+    "Architecture Contract Gate",
+    "Architecture Matrix Router",
+    "Architecture Capability Router",
+    "Architecture Design Mode",
+    "Architecture Execution Control",
+    "Architecture Context Propagation",
+    "Engineering Simplicity Gate"
+   ]
+  },
+  {
+   "id": "blocked-checkpoint-continuation-ship",
+   "path": "valid/blocked-checkpoint-continuation-ship",
+   "mode": "full",
+   "expected": "pass",
+   "covers": [
+    "Continuation Gate",
+    "blocked-checkpoint",
+    "historical worker revalidation"
+   ]
+  },
+  {
+   "id": "release-independent-architecture-ship",
+   "path": "valid/release-independent-architecture-ship",
+   "mode": "full",
+   "expected": "pass",
+   "covers": [
+    "release architecture gate",
+    "independent architecture subagent"
+   ]
+  },
+  {
+   "id": "architecture-drift-rechecked-ship",
+   "path": "valid/architecture-drift-rechecked-ship",
+   "mode": "full",
+   "expected": "pass",
+   "covers": [
+    "Architecture Execution Control",
+    "Engineering Simplicity Gate",
+    "drift recheck"
+   ]
+  },
+  {
+   "id": "pass-with-risks-mitigated",
+   "path": "valid/pass-with-risks-mitigated",
+   "mode": "full",
+   "expected": "pass",
+   "covers": [
+    "Mitigation Gate",
+    "Resolution Gate"
+   ]
+  },
+  {
+   "id": "blocked-resolution-recovered-attempt-2",
+   "path": "valid/blocked-resolution-recovered-attempt-2",
+   "mode": "full",
+   "expected": "pass",
+   "covers": [
+    "Blocked Resolution Gate",
+    "Senior QA Test Design Review",
+    "Resolution Architect Review"
+   ]
+  },
+  {
+   "id": "blocked-resolution-third-attempt-blocked",
+   "path": "valid/blocked-resolution-third-attempt-blocked",
+   "mode": "full",
+   "expected": "pass",
+   "covers": [
+    "Blocked Resolution Gate",
+    "Supervising Architect Review",
+    "final blocked"
+   ]
+  },
+  {
+   "id": "release-without-architecture-contract",
+   "path": "invalid/release-without-architecture-contract",
+   "mode": "full",
+   "expected": "fail",
+   "expected_error": "release budget requires architecture_contract_required=true",
+   "covers": [
+    "release architecture gate"
+   ]
+  },
+  {
+   "id": "handoff-state-missing-state",
+   "path": "invalid/handoff-state-missing-state",
+   "mode": "full",
+   "expected": "fail",
+   "expected_error": "missing handoff_state",
+   "covers": [
+    "Handoff State Gate",
+    "handoff_state_required",
+    "missing state"
+   ]
+  },
+  {
+   "id": "handoff-state-terminal-mismatch",
+   "path": "invalid/handoff-state-terminal-mismatch",
+   "mode": "full",
+   "expected": "fail",
+   "expected_error": "status pass requires handoff_state.status=completed",
+   "covers": [
+    "Handoff State Gate",
+    "terminal status mapping"
+   ]
+  },
+  {
+   "id": "handoff-state-batch-order",
+   "path": "invalid/handoff-state-batch-order",
+   "mode": "full",
+   "expected": "fail",
+   "expected_error": "batch item qa-item must be completed before batch lane accepted",
+   "covers": [
+    "Handoff State Gate",
+    "batch ordering"
+   ]
+  },
+  {
+   "id": "mandatory-independent-qa-review-missing-subagent",
+   "path": "invalid/mandatory-independent-qa-review-missing-subagent",
+   "mode": "full",
+   "expected": "fail",
+   "expected_error": "verification.qa requires separate qa-verifier subagent",
+   "covers": [
+    "Mandatory Independent QA Review Gate",
+    "mandatory-independent-qa-review",
+    "missing reviewer.qa subagent"
+   ]
+  },
+  {
+   "id": "mandatory-independent-qa-review-role-lane-only",
+   "path": "invalid/mandatory-independent-qa-review-role-lane-only",
+   "mode": "full",
+   "expected": "fail",
+   "expected_error": "verification.qa requires separate qa-verifier subagent",
+   "covers": [
+    "Mandatory Independent QA Review Gate",
+    "mandatory-independent-qa-review",
+    "role-lane reviewer only"
+   ]
+  },
+  {
+   "id": "standard-multilane-without-architecture-contract",
+   "path": "invalid/standard-multilane-without-architecture-contract",
+   "mode": "full",
+   "expected": "fail",
+   "expected_error": "standard budget with 2 worker lanes requires architecture_contract_required=true",
+   "covers": [
+    "standard multi-lane architecture gate"
+   ]
+  },
+  {
+   "id": "architecture-context-unknown-facet",
+   "path": "invalid/architecture-context-unknown-facet",
+   "mode": "full",
+   "expected": "fail",
+   "expected_error": "unknown Architecture Matrix facet",
+   "covers": [
+    "Architecture Matrix Router"
+   ]
+  },
+  {
+   "id": "design-brief-not-approved",
+   "path": "invalid/design-brief-not-approved",
+   "mode": "full",
+   "expected": "fail",
+   "expected_error": "positive final Verdict requires approved Architecture Design Brief",
+   "covers": [
+    "Architecture Design Mode"
+   ]
+  },
+  {
+   "id": "worker-before-approved-design",
+   "path": "invalid/worker-before-approved-design",
+   "mode": "full",
+   "expected": "fail",
+   "expected_error": "worker lane must run after approved Architecture Design Brief",
+   "covers": [
+    "Architecture Design Mode ordering"
+   ]
+  },
+  {
+   "id": "drift-without-architecture-recheck",
+   "path": "invalid/drift-without-architecture-recheck",
+   "mode": "full",
+   "expected": "fail",
+   "expected_error": "architecture drift requires recheck_lane",
+   "covers": [
+    "Architecture Execution Control"
+   ]
+  },
+  {
+   "id": "worker-without-engineering-simplicity",
+   "path": "invalid/worker-without-engineering-simplicity",
+   "mode": "full",
+   "expected": "fail",
+   "expected_error": "missing architecture_compliance.engineering_simplicity",
+   "covers": [
+    "Engineering Simplicity Gate",
+    "Architecture Execution Control"
+   ]
+  },
+  {
+   "id": "positive-run-without-lane-boundary",
+   "path": "invalid/positive-run-without-lane-boundary",
+   "mode": "full",
+   "expected": "fail",
+   "expected_error": "successful worker lane requires boundary",
+   "covers": [
+    "Lane Boundary Evidence Gate",
+    "boundary.allowed_paths",
+    "boundary.forbidden_paths",
+    "changed_paths_artifact",
+    "changed_paths",
+    "record-lane-boundary.py",
+    "Architecture Execution Control"
+   ]
+  },
+  {
+   "id": "lane-boundary-out-of-bounds",
+   "path": "invalid/lane-boundary-out-of-bounds",
+   "mode": "full",
+   "expected": "fail",
+   "expected_error": "changed path outside allowed_paths",
+   "covers": [
+    "Lane Boundary Evidence Gate",
+    "boundary.allowed_paths",
+    "boundary.forbidden_paths",
+    "changed_paths_artifact",
+    "changed_paths",
+    "record-lane-boundary.py",
+    "allowed_paths"
+   ]
+  },
+  {
+   "id": "lane-boundary-forbidden-path",
+   "path": "invalid/lane-boundary-forbidden-path",
+   "mode": "full",
+   "expected": "fail",
+   "expected_error": "changed path matches forbidden_paths",
+   "covers": [
+    "Lane Boundary Evidence Gate",
+    "boundary.allowed_paths",
+    "boundary.forbidden_paths",
+    "changed_paths_artifact",
+    "changed_paths",
+    "record-lane-boundary.py",
+    "forbidden_paths"
+   ]
+  },
+  {
+   "id": "pass-with-risks-without-resolution",
+   "path": "invalid/pass-with-risks-without-resolution",
+   "mode": "full",
+   "expected": "fail",
+   "expected_error": "risk-resolutions.json is required for Verdict: pass-with-risks",
+   "covers": [
+    "Resolution Gate"
+   ]
+  },
+  {
+   "id": "blocked-attempt-without-architect-instruction",
+   "path": "invalid/blocked-attempt-without-architect-instruction",
+   "mode": "full",
+   "expected": "fail",
+   "expected_error": "architect_review.instruction must be a non-empty string",
+   "covers": [
+    "Blocked Resolution Gate"
+   ]
+  },
+  {
+   "id": "role-lane-called-sidecar",
+   "path": "invalid/role-lane-called-sidecar",
+   "mode": "full",
+   "expected": "fail",
+   "expected_error": "claims subagent/sidecar without spawned trace evidence",
+   "covers": [
+    "Delegation Trace Gate",
+    "narrative claim guard"
+   ]
+  },
+  {
+   "id": "subagent-lane-without-terminal-handoff",
+   "path": "invalid/subagent-lane-without-terminal-handoff",
+   "mode": "full",
+   "expected": "fail",
+   "expected_error": "missing terminal handoff trace event",
+   "covers": [
+    "Delegation Trace Gate",
+    "terminal handoff"
+   ]
+  },
+  {
+   "id": "delegation-summary-claims-subagent-without-spawned-trace",
+   "path": "invalid/delegation-summary-claims-subagent-without-spawned-trace",
+   "mode": "full",
+   "expected": "fail",
+   "expected_error": "lane worker-a is not execution_mode=subagent",
+   "covers": [
+    "Delegation Trace Gate",
+    "delegation-summary.json"
+   ]
+  },
+  {
+   "id": "worker-before-verification-readiness",
+   "path": "invalid/worker-before-verification-readiness",
+   "mode": "full",
+   "expected": "fail",
+   "expected_error": "lane-map.json: worker lane worker-a must run after ready Verification Readiness Gate",
+   "covers": [
+    "Verification Readiness Gate"
+   ]
+  },
+  {
+   "id": "positive-verdict-with-paused-readiness",
+   "path": "invalid/positive-verdict-with-paused-readiness",
+   "mode": "full",
+   "expected": "fail",
+   "expected_error": "lane-map.json: positive final Verdict requires ready Verification Readiness Gate",
+   "covers": [
+    "Verification Readiness Gate"
+   ]
+  },
+  {
+   "id": "qa-pass-with-blocked-verification-result",
+   "path": "invalid/qa-pass-with-blocked-verification-result",
+   "mode": "full",
+   "expected": "fail",
+   "expected_error": "lane-map.json: lane qa-behavior pass requires verification_results.status=pass",
+   "covers": [
+    "Verification Readiness Gate"
+   ]
+  },
+  {
+   "id": "continuation-positive-without-summary",
+   "path": "invalid/continuation-positive-without-summary",
+   "mode": "full",
+   "expected": "fail",
+   "expected_error": "continuation-summary.json is required for positive continuation run",
+   "covers": [
+    "Continuation Gate"
+   ]
+  },
+  {
+   "id": "continuation-worker-before-readiness",
+   "path": "invalid/continuation-worker-before-readiness",
+   "mode": "full",
+   "expected": "fail",
+   "expected_error": "continuation worker lane worker-a must run after ready Verification Readiness Gate",
+   "covers": [
+    "Continuation Gate",
+    "Verification Readiness Gate"
+   ]
+  },
+  {
+   "id": "continuation-historical-worker-not-revalidated",
+   "path": "invalid/continuation-historical-worker-not-revalidated",
+   "mode": "full",
+   "expected": "fail",
+   "expected_error": "continuation-summary.json missing revalidated historical worker lane: worker-b",
+   "covers": [
+    "Continuation Gate"
+   ]
+  },
+  {
+   "id": "continuation-missing-lane-timeline-event",
+   "path": "invalid/continuation-missing-lane-timeline-event",
+   "mode": "full",
+   "expected": "fail",
+   "expected_error": "lane-map.json: continuation timeline for lane verification-readiness-1 missing event",
+   "covers": [
+    "Continuation Gate",
+    "timeline lane evidence"
+   ]
+  },
+  {
+   "id": "triggered-run-without-harness-evaluation",
+   "path": "invalid/triggered-run-without-harness-evaluation",
+   "mode": "full",
+   "expected": "fail",
+   "expected_error": "harness-evaluation.json is required for triggered learning run",
+   "covers": [
+    "Harness Evaluation Loop",
+    "learning trigger"
+   ]
+  },
+  {
+   "id": "harness-evaluation-auto-applied-proposal",
+   "path": "invalid/harness-evaluation-auto-applied-proposal",
+   "mode": "full",
+   "expected": "fail",
+   "expected_error": "harness-evaluation.json proposals[0].status must be proposed",
+   "covers": [
+    "Harness Evaluation Loop",
+    "human approval"
+   ]
+  },
+  {
+   "id": "harness-evaluation-missing-evidence",
+   "path": "invalid/harness-evaluation-missing-evidence",
+   "mode": "full",
+   "expected": "fail",
+   "expected_error": "harness-evaluation.json findings[0].evidence[0] not found: checks/missing.md",
+   "covers": [
+    "Harness Evaluation Loop",
+    "evidence"
+   ]
+  },
+  {
+   "id": "harness-evaluation-unselected-context",
+   "path": "invalid/harness-evaluation-unselected-context",
+   "mode": "full",
+   "expected": "fail",
+   "expected_error": "harness-evaluation.json findings[0].architecture_context[0] unselected facet: frontend-service",
+   "covers": [
+    "Harness Evaluation Loop",
+    "Architecture Matrix Router"
+   ]
+  },
+  {
+   "id": "positive-run-without-acceptance-traceability",
+   "path": "invalid/positive-run-without-acceptance-traceability",
+   "mode": "full",
+   "expected": "fail",
+   "expected_error": "acceptance-traceability.json is required for positive architecture contract run",
+   "covers": [
+    "Acceptance Criteria Traceability Gate"
+   ]
+  },
+  {
+   "id": "acceptance-traceability-without-negative-fixture",
+   "path": "invalid/acceptance-traceability-without-negative-fixture",
+   "mode": "full",
+   "expected": "fail",
+   "expected_error": "acceptance-traceability.json acceptance[0].negative_fixture_evidence must be an array",
+   "covers": [
+    "Contract Negative Fixture Gate"
+   ]
+  },
+  {
+   "id": "acceptance-traceability-missing-surface-expectations",
+   "path": "invalid/acceptance-traceability-missing-surface-expectations",
+   "mode": "full",
+   "expected": "fail",
+   "expected_error": "acceptance-traceability.json acceptance[0].surface_expectations must be a non-empty array",
+   "covers": [
+    "Surface Evidence Gate"
+   ]
+  },
+  {
+   "id": "acceptance-traceability-wrong-surface-evidence",
+   "path": "invalid/acceptance-traceability-wrong-surface-evidence",
+   "mode": "full",
+   "expected": "fail",
+   "expected_error": "acceptance-traceability.json acceptance[0].evidence[0].surface not in surface_expectations: storage",
+   "covers": [
+    "Surface Evidence Gate"
+   ]
+  },
+  {
+   "id": "positive-run-without-claim-evidence",
+   "path": "invalid/positive-run-without-claim-evidence",
+   "mode": "full",
+   "expected": "fail",
+   "expected_error": "claim-evidence.json is required for positive architecture contract run",
+   "covers": [
+    "Claim Evidence Gate",
+    "claim-evidence.json"
+   ]
+  },
+  {
+   "id": "architecture-contract-without-claim-evidence",
+   "path": "invalid/architecture-contract-without-claim-evidence",
+   "mode": "full",
+   "expected": "fail",
+   "expected_error": "architecture contract handoff QA Gates missing Claim Evidence declaration",
+   "covers": [
+    "Claim Evidence Gate",
+    "Architecture Contract"
+   ]
+  },
+  {
+   "id": "claim-evidence-missing-marker",
+   "path": "invalid/claim-evidence-missing-marker",
+   "mode": "full",
+   "expected": "fail",
+   "expected_error": "claim-evidence.json claims[0].evidence[0].markers[0] not found in checks/qa-behavior.md",
+   "covers": [
+    "Claim Evidence Gate",
+    "marker-backed evidence"
+   ]
+  },
+  {
+   "id": "positive-run-without-simplicity-scope",
+   "path": "invalid/positive-run-without-simplicity-scope",
+   "mode": "full",
+   "expected": "fail",
+   "expected_error": "positive architecture-gated worker run requires engineering_simplicity_scope",
+   "covers": [
+    "Simplicity Scope Coverage",
+    "engineering_simplicity_scope",
+    "primary_surfaces",
+    "secondary_surfaces",
+    "scope_coverage"
+   ]
+  },
+  {
+   "id": "secondary-only-simplicity-closure",
+   "path": "invalid/secondary-only-simplicity-closure",
+   "mode": "full",
+   "expected": "fail",
+   "expected_error": "engineering_simplicity_scope primary surface not covered by worker: api-service",
+   "covers": [
+    "Simplicity Scope Coverage",
+    "peripheral-only closure",
+    "primary_surfaces",
+    "secondary_surfaces",
+    "scope_coverage"
+   ]
+  },
+  {
+   "id": "simplicity-primary-surface-not-reviewed",
+   "path": "invalid/simplicity-primary-surface-not-reviewed",
+   "mode": "full",
+   "expected": "fail",
+   "expected_error": "handoff Contract Drift covers missing id: api-service",
+   "covers": [
+    "Simplicity Scope Coverage",
+    "reviewer scope coverage",
+    "primary_surfaces",
+    "secondary_surfaces",
+    "scope_coverage"
+   ]
+  }
+ ]
 }

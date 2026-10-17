@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 AGENT_DOCS = [ROOT / "SKILL.md", *sorted((ROOT / "references").glob("*.md"))]
 
-SINGLE_SOURCE_TABLES = ("EVENT_STATUS_RULES", "HANDOFF_STATE_BY_CALLER_STATUS", "HANDOFF_DOMAIN_STATUSES")
+SINGLE_SOURCE_TABLES = ("EVENT_STATUS_RULES", "HANDOFF_STATE_BY_CALLER_STATUS", "HANDOFF_DOMAIN_STATUSES", "COVERED_SECTIONS")
 
 # Phrases that documented superseded rules; they must never come back.
 STALE_DOC_PATTERNS = (

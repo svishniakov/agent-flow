@@ -68,7 +68,13 @@ class LifecycleTests(unittest.TestCase):
             return validator.validate_lane_boundary_artifact(self.run / artifact_name, artifact_name,
                 record["lane_id"], snapshot=current, presentation_required=presentation)
         self.assertEqual(check(future, False), (sealed["changed_paths"], []))
-        self.assertTrue(any("handoff must confirm" in error for error in check(future, True)[1]))
+        foreign_proof = "checks/foreign.patch"
+        transact(self.run, "foreign-conclusion", {}, lambda current: ({}, {"handoff": handoff,
+            "evidence": [{"path": foreign_proof, "sha256": fixtures.sha256(b"Foreign proof bytes.\n")}]}))
+        receipt_future = replace(JournalSnapshot.open(self.run),
+                                 documents={**documents, foreign_proof: b"Foreign proof bytes.\n"})
+        self.assertTrue(any("differs from the conclusion receipt" in error for error in check(receipt_future, True)[1]))
+        self.assertEqual(check(receipt_future, False), (sealed["changed_paths"], []))
         for name in (proof, handoff):
             corrupted = replace(future, documents={**documents, name: documents[name] + b"tampered\n"})
             for presentation in (False, True):
@@ -162,12 +168,6 @@ class LifecycleTests(unittest.TestCase):
         future = replace(future, documents={**future.documents, "timeline.jsonl": future.read_bytes("timeline.jsonl") + (json.dumps(final_event) + "\n").encode()})
         audit_presentation_errors = [
             "lane-map.json: lane fixture-root-author missing architecture_compliance",
-            *["lane-map.json: lane fixture-root-author handoff missing section: " + section
-              for section in ("Architecture Compliance", "Engineering Simplicity", "Boundary Evidence")],
-            "lane-map.json: lane fixture-root-author Boundary Evidence missing lane id",
-            "lane-map.json: lane fixture-root-author Boundary Evidence missing artifact: checks/lane-boundary-fixture-root-author.json",
-            *["lane-map.json: lane fixture-root-author Engineering Simplicity missing check: " + check
-              for check in validator.ENGINEERING_SIMPLICITY_REQUIRED_CHECKS],
         ]
         self.assertEqual(validator.validate_product_acceptance(self.run, snapshot=future, session_source=self.source, verdict="ship"), [])
         for mode in ("compact", "full", "auto"):

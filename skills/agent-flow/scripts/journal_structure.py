@@ -60,7 +60,7 @@ SERVICE_FIELDS = {
     "harness-evaluation": {"evidence": "references", "reviewed_by": "nullable-string?"},
     "lane": {"id": "string", "lane_type": "string", "role": "string", "execution_mode": "string", "wave": "integer", "critical": "boolean", "allowed_paths": "strings?", "forbidden_paths": "string-list?"},
     "lane-compliance": {"lane_id": "string", "sections": "strings", "matrix_facets": "string-list", "needs_recheck": "boolean", "recheck_lane": "nullable-string?"},
-    "lane-simplicity": {"lane_id": "string", "checked_checks": "strings", "action": "string?", "evidence": "references?"},
+    "lane-simplicity": {"lane_id": "string", "checked_checks": "strings", "action": "string?", "evidence": "references?", "retained": "retained?"},
     "lane-scope": {"lane_id": "string", "primary_surfaces": "string-list", "secondary_surfaces": "string-list", "evidence": "references"},
     "simplicity-scope": {"primary_surfaces": "string-list", "secondary_surfaces": "string-list", "evidence": "references"},
     "lane-gate": {"lane_id": "string", "axis": "string", "facet": "string", "check": "string", "evidence": "references"},
@@ -90,11 +90,21 @@ def recovery_decisions(kind, status):
     return choices - negative if status in {"pass", "pass-with-risks"} else choices & negative
 
 
+COVERED_SECTIONS = frozenset({
+    "Engineering Simplicity", "Boundary Evidence", "Architecture Compliance", "Architecture Invariants",
+    "Engineering Simplicity Scope", "Architecture Matrix Mismatches", "Contract Drift",
+    "Risk Mitigation Review", "Risk Resolution Verification", "Risk Resolution Review",
+    "Continuation Revalidation", "Continuation Review", "Harness Evaluation Review",
+    "Senior QA Test Design Review", "Resolution Architect Review", "Supervising Architect Review",
+})
+
+
 NESTED_FIELDS = {
     "marker-evidence": {"path": "string", "markers": "strings"},
     "surface-evidence": {"path": "string", "markers": "strings", "surface": "string", "polarity": "string", "proof_kind": "string"},
     "expectations": {"surface": "string", "polarity": "string", "proof_kinds": "strings"},
-    "sections": {"section": "string", "summary": "string"},
+    "sections": {"section": "string", "summary": "string", "covers": "string-list?"},
+    "retained": {"kind": "string", "capability": "string"},
     "commands": {"cwd": "string", "command": "string", "source": "string"},
     "rollback": {"disposition": "string", "summary": "string", "evidence": "references?"},
     "lesson-observation": {"disposition": "string", "classification": "string", "summary": "string", "forbidden_repeat": "strings"},
@@ -144,6 +154,7 @@ def nested_choices():
         "rollback": {"disposition": sorted(validator.ROLLBACK_STATUSES)},
         "lesson-observation": {"disposition": sorted(validator.BLOCKED_LESSON_STATUSES), "classification": sorted(validator.BLOCKED_RESOLUTION_REASONS)},
         "sections": {"section": sorted(sections)},
+        "retained": {"kind": ["abstraction", "dependency"]},
     }
 
 
@@ -165,7 +176,7 @@ def validate_nested(field_type, value, name):
         shapes = NESTED_FIELDS
         if field_type not in shapes:
             raise ValueError("unknown field type: " + field_type)
-        rows = value if field_type in {"marker-evidence", "surface-evidence", "expectations", "sections", "commands"} else [value]
+        rows = value if field_type in {"marker-evidence", "surface-evidence", "expectations", "sections", "commands", "retained"} else [value]
         if type(rows) is not list:
             raise ValueError(name + " must be an array")
         for row in rows:
@@ -174,6 +185,15 @@ def validate_nested(field_type, value, name):
                 values = row[field] if type(row[field]) is list else [row[field]]
                 if any(choice not in allowed for choice in values):
                     raise ValueError(name + "." + field + " has an unknown semantic choice")
+            if field_type == "sections":
+                covers = row.get("covers", [])
+                if len(set(covers)) != len(covers):
+                    raise ValueError(name + ".covers must not repeat ids")
+                for value in covers:
+                    if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", value):
+                        raise ValueError(name + ".covers ids must be kebab-case")
+                if row["section"] in COVERED_SECTIONS and not covers:
+                    raise ValueError(name + ": section " + row["section"] + " requires non-empty covers")
 
 
 def validate_fields(request, fields):
@@ -380,7 +400,10 @@ def render_document(kind, summary, status, metadata=None):
     if metadata.get("evidence"):
         text += "\n## Evidence\n\n" + "".join("- " + literal_label(ref["path"]) + " sha256=" + ref["sha256"] + "\n" for ref in metadata["evidence"])
     for section in metadata.get("sections", []):
-        text += "\n## " + section["section"] + "\n\n" + literal_content(section["summary"]) + "\n"
+        text += "\n## " + section["section"] + "\n\n"
+        for covered in section.get("covers", []):
+            text += "- Covers: `" + literal_label(covered) + "`\n"
+        text += literal_content(section["summary"]) + "\n"
     return text
 
 

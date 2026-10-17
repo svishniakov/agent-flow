@@ -85,6 +85,51 @@ class SemanticRequestRegressions(unittest.TestCase):
         self.assertEqual(contract["semantic_choices"]["architecture-outcome"]["decision"],
                          ["approved", "needs-revision", "rejected"])
 
+    def test_covers_render_receipt_readback_and_domain_obligation(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            run = root / "run"
+            journal_io.initialize_journal(run, {"checks.md": b"# Checks\n"}, source_root=root)
+            self.register_synthetic_root(run)
+            journal_io.write_entry(run, "lane", {"id": "worker", "summary": "Planned worker", "status": "planned",
+                "lane_type": "implementation", "role": "python-worker", "execution_mode": "role-lane",
+                "wave": 1, "critical": False}, identifier="covers-lane")
+            request = {"lane_id": "worker", "summary": "Reviewed the declared scope", "status": "pass",
+                       "sections": [{"section": "Architecture Compliance", "summary": "Compliant with the contract",
+                                     "covers": ["backend-service", "monolith"]}]}
+            result = journal_io.write_entry(run, "handoff", request, identifier="covers-handoff")
+            self.assertEqual(result["covers"], {"Architecture Compliance": ["backend-service", "monolith"]})
+            snapshot = journal_io.JournalSnapshot.open(run)
+            text = snapshot.read_text("handoffs/worker.md")
+            self.assertIn("- Covers: `backend-service`", text)
+            self.assertIn("- Covers: `monolith`", text)
+            self.assertEqual(journal_io.handoff_covers(snapshot, "worker"),
+                             {"Architecture Compliance": ["backend-service", "monolith"]})
+            before = (snapshot.revision, dict(snapshot.documents))
+            for bad_sections in (
+                [{"section": "Contract Drift", "summary": "Missing covers declaration"}],
+                [{"section": "Architecture Invariants", "summary": "Declared", "covers": ["Not-Kebab"]}],
+                [{"section": "Architecture Invariants", "summary": "Declared", "covers": ["worker", "worker"]}],
+            ):
+                with self.subTest(sections=bad_sections):
+                    with self.assertRaises((ValueError, journal_io.JournalError)):
+                        journal_io.write_entry(run, "handoff", {**request, "sections": bad_sections}, identifier="bad-covers")
+            after = journal_io.JournalSnapshot.open(run)
+            self.assertEqual(before, (after.revision, dict(after.documents)))
+            # Legacy handoff without receipts or marker lines stays readable as "no covers data".
+            legacy = root / "legacy"
+            journal_io.initialize_journal(legacy, {
+                "lane-map.json": json.dumps({"lanes": [{"id": "worker", "handoff": "handoffs/worker.md"}]}).encode(),
+                "handoffs/worker.md": b"# worker handoff\n\n## Contract Drift\n\nLegacy prose.\n",
+            }, source_root=root)
+            self.assertIsNone(journal_io.handoff_covers(journal_io.JournalSnapshot.open(legacy), "worker"))
+            # Strict writer marker lines remain readable for flat/legacy documents.
+            journal_io.transact(legacy, "marker-handoff", {}, lambda current: (
+                {"handoffs/worker.md": b"# worker handoff\n\n## Contract Drift\n\n- Covers: `worker-a`\n\nLegacy prose.\n"}, {}))
+            self.assertEqual(journal_io.handoff_covers(journal_io.JournalSnapshot.open(legacy), "worker"),
+                             {"Contract Drift": ["worker-a"]})
+
     def test_writer_generated_final_sections_cover_audit_required_ids(self):
         import tempfile
         from journal_structure import render_document
@@ -444,7 +489,8 @@ class SemanticRequestRegressions(unittest.TestCase):
                                                      "lane_type": lane_type, "role": role, "execution_mode": "role-lane", "wave": wave, "critical": False}, identifier="declare-" + lane_id)
                 journal_io.write_entry(run, "handoff", {"lane_id": lane_id, "summary": "Reviewed actual failed check; failed-check-risk needs a revised check",
                                                         "status": "pass", "evidence": refs,
-                                                        "sections": [{"section": section, "summary": "failed-check-risk: Verify actual expected bytes on the disposable copy"}]}, identifier="conclude-" + lane_id)
+                                                        "sections": [{"section": section, "summary": "failed-check-risk: Verify actual expected bytes on the disposable copy",
+                                                                      "covers": ["failed-check-risk"]}]}, identifier="conclude-" + lane_id)
             recovery = {"risk_id": "failed-check-risk", "lane_id": "senior-recovery", "summary": "Actual failed check needs a revised execution",
                         "status": "pass", "decision": "criteria-adequate", "recheck": "fail", "evidence": refs,
                         **{name: [] for name in ("covered_acceptance_criteria", "missing_acceptance_criteria", "ambiguous_acceptance_criteria", "added_acceptance_criteria",
@@ -485,7 +531,8 @@ class SemanticRequestRegressions(unittest.TestCase):
             journal_io.write_entry(run, "lane", {"id": "supervisor", "summary": "Independent supervising recovery", "status": "planned", "lane_type": "architecture",
                                                  "role": "supervising-architect", "execution_mode": "role-lane", "wave": 5, "critical": False}, identifier="supervisor-declaration")
             journal_io.write_entry(run, "handoff", {"lane_id": "supervisor", "summary": "Reviewed failed-check-risk and the actual revised assertion failure", "status": "pass", "evidence": second["evidence"],
-                                                    "sections": [{"section": "Supervising Architect Review", "summary": "failed-check-risk: " + instruction}]}, identifier="supervisor-handoff")
+                                                    "sections": [{"section": "Supervising Architect Review", "summary": "failed-check-risk: " + instruction,
+                                                                  "covers": ["failed-check-risk"]}]}, identifier="supervisor-handoff")
             journal_io.write_entry(run, "supervising-recovery", {"risk_id": "failed-check-risk", "lane_id": "supervisor", "summary": "A distinct negative assertion is the final retry",
                                                                  "status": "pass", "decision": "revised-approach", "instruction": instruction,
                                                                  "forbidden_repeat": ["repeat unchanged failed check"], "evidence": second["evidence"]}, identifier="supervisor-recovery")
@@ -530,7 +577,8 @@ class SemanticRequestRegressions(unittest.TestCase):
             result = journal_io.write_entry(run, "progress", request, identifier="literal-progress")
             journal_io.write_entry(run, "lane", {"id": "literal-observer", "summary": "Observe literal evidence without a product edit", "status": "planned",
                                                  "lane_type": "architecture", "role": "architect", "execution_mode": "role-lane", "wave": 1, "critical": False}, identifier="literal-observer-lane")
-            handoff_request = {**request, "status": "pass", "lane_id": "literal-observer", "sections": [{"section": "Architecture Compliance", "summary": nested}]}
+            handoff_request = {**request, "status": "pass", "lane_id": "literal-observer",
+                               "sections": [{"section": "Architecture Compliance", "summary": nested, "covers": ["literal-compliance"]}]}
             handoff_result = journal_io.write_entry(run, "handoff", handoff_request, identifier="literal-handoff")
             snapshot = journal_io.JournalSnapshot.open(run)
             text = snapshot.read_text("progress.md")
@@ -2219,7 +2267,11 @@ class ArchitectureOutcomeRegressions(unittest.TestCase):
         selected_capabilities = mapping["architecture_capabilities"]["selected"]
         self.assertEqual(selected_capabilities, ["saas-platform-architecture", "go-backend-service-architecture", "modular-monolith-architecture"])
         self.assertEqual(validator.validate_architecture_design_brief(path, facets, selected_capabilities, snapshot=snapshot), ("needs-revision", []))
-        self.assertEqual(validator.validate_selected_architecture_capabilities(path, selected_capabilities, snapshot=snapshot), [])
+        outcome_receipts = [json.loads(raw)["result"] for raw in snapshot.receipts.values()]
+        outcome = next(result for result in outcome_receipts if result.get("handoff") == lane["handoff"])
+        self.assertEqual(outcome["claim_evidence_ids"], ["actual-proof"])
+        self.assertEqual(outcome["acceptance_criteria_ids"], ["public-transition"])
+        self.assertIn("covers", outcome)
         text = snapshot.read_text(lane["handoff"])
         for capability in selected_capabilities:
             self.assertIn("- Capability: `" + capability + "`", text)
