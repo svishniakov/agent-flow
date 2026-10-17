@@ -323,8 +323,8 @@ must include `engineering-simplicity` and each fixed worker lane id when
 
 If the architect rejects the proposed approach, do not treat that reject as a
 reason to raise model/reasoning by default. Model/reasoning upgrade is not the default fix.
-The orchestrator sends the real case through the Architecture
-Approval Gate: request deeper architecture analysis, produce revised steps,
+The orchestrator sends the real case through the Architecture Gate
+approval: request deeper architecture analysis, produce revised steps,
 let workers retry only inside the approved contract, then record the outcome as
 Evidence Records. A regression after reuse triggers regression demotion and
 freezes automatic application until the Architecture Gate approval resolves it.

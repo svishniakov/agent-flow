@@ -61,6 +61,14 @@ class RuleConsistencyFixtures(unittest.TestCase):
             validator.check_retired_gate_names(errors, docs=[doc])
             self.assertEqual(errors, [])
 
+    def test_retired_gate_name_spanning_line_wrap_is_reported(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            doc = Path(temporary) / "reference.md"
+            doc.write_text("The lane must satisfy Lane Boundary\nEvidence Gate before QA.\n", encoding="utf-8")
+            errors = []
+            validator.check_retired_gate_names(errors, docs=[doc])
+            self.assertTrue(any("Lane Boundary Evidence Gate" in error and "wrap" in error for error in errors), errors)
+
 
 if __name__ == "__main__":
     unittest.main()

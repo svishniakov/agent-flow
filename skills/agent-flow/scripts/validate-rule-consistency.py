@@ -88,13 +88,20 @@ def check_stale_doc_patterns(errors, docs=AGENT_DOCS):
 
 def check_retired_gate_names(errors, docs=None):
     for path in docs if docs is not None else [*AGENT_DOCS, *AGENT_ROLE_DOCS]:
+        body_lines = []
+        reported = set()
         for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
             if any(marker in line for marker in RETIRED_NAME_MARKERS):
                 continue
+            body_lines.append(line)
             for name in RETIRED_GATE_NAMES:
-                if name in line:
+                if name in line and name not in reported:
+                    reported.add(name)
                     fail(errors, f"{path.name}:{number}: retired gate name {name!r} outside a «входит в» note: {line.strip()[:100]}")
-                    break
+        joined = re.sub(r"\s*\n\s*", " ", "\n".join(body_lines))
+        for name in RETIRED_GATE_NAMES:
+            if name not in reported and name in joined:
+                fail(errors, f"{path.name}: retired gate name {name!r} spans a line wrap outside a «входит в» note")
 
 
 def check_documented_vocabulary(errors, doc=STATUS_DOC):

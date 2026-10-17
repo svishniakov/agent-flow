@@ -262,7 +262,7 @@ Before browser checks or local UI smoke, probe the chosen browser-control surfac
 
 When `implementation-notes.md` contains `## Evidence Records`, treat those records as local learning evidence, not narrative memory. Use the analyzer before applying a repeated approach automatically.
 
-Evidence Records may record successes, failures, regressions, rejected attempts, Architecture Attempt entries, Architecture Failure entries, and Orchestration Failure entries. Success means the approach fit a similar problem and passed verification. Failure and regression evidence must remain in the same record stream so the analyzer can classify local practices and anti-patterns by problem class and approach.
+Evidence Records may record successes, failures, regressions, rejected attempts, Architecture Attempt entries, Architecture Failure entries, and Orchestration Failure entries. Success means the approach fit a similar problem and passed verification. Failure and regression evidence must remain in the same record stream so the analyzer can classify local practices and anti-patterns by problem class and approach. Records and reuse outcomes are journal operations (`record --kind evidence-record` / `evidence-record-outcome`); Helpful/Harmful/Neutral counters derive from the outcome chain, and the `## Evidence Records` notes section is writer-generated — never edit it by hand.
 
 Promoted Evidence Records may include ACE-inspired metadata fields: `Section`, `Keywords`, `Provenance`, `Helpful`, `Harmful`, `Neutral`, and `Active`. These fields are project-local analyzer hints only. They do not create an `ace-framework` dependency, MCP server, vector store, separate skillbook, or permission to mutate canonical runtime artifacts.
 

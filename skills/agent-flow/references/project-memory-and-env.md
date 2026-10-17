@@ -369,3 +369,28 @@ After a user correction or repeated process failure, update `.agent-work/tasks/l
 Keep lessons short. Do not store secrets, tokens, private URLs, or raw logs.
 
 Use Evidence Records for reusable approach evidence. Lessons are direct rules for future behavior; Evidence Records preserve the observed cases that let the analyzer promote, demote, freeze, or reject local practices.
+
+### Evidence Records as journal facts
+
+Evidence Records are journal facts, not hand-edited markdown. Record them with
+`journal.py record --kind evidence-record` (fields: `id`, `record_type`,
+`problem_class`, `context`, `outcome`, `evidence`, `reuse_when`,
+`do_not_reuse_when`, `follow_up`; optional `section`, `keywords`, `provenance`,
+`verification`, `active`) and record reuse with `--kind evidence-record-outcome`
+(`counter`: `helpful`, `harmful`, or `neutral`, plus `evidence` and optional
+`active`). The writer upserts the writer-owned
+`artifacts/memory/evidence-records.json` by record id.
+
+Helpful/Harmful/Neutral counters are derived from the outcome event chain —
+never edit them by hand; `Active` comes from the latest outcome `active` flag.
+The `## Evidence Records` section of `.agent-work/tasks/implementation-notes.md`
+is generated inside per-run marked blocks (`<!-- agent-flow:<run_uuid>:begin`
+/ `:end -->`); bytes outside the blocks (the manual zone) are preserved, and
+record ids duplicating the manual zone are rejected. The analyzer reads the
+generated markdown as before.
+
+Move existing manual entries once with
+`journal.py import-evidence-records --run-dir <run> [--notes <path>]`: records
+enter the journal with `import:<date>` provenance plus the original one,
+stored counters become outcome events, and imported entries leave the manual
+zone. The import is idempotent.

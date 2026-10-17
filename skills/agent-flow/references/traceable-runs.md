@@ -1915,7 +1915,8 @@ validation.
 Positive lane-map runs with a learning trigger require reviewer
 `Harness Evaluation Review` with every finding and proposal id in `covers`. The loop can
 promote validated findings only into the current project's Project Memory
-`## Evidence Records` through `scripts/promote-harness-evaluation.py`.
+`## Evidence Records` through `scripts/promote-harness-evaluation.py`, which
+records journal `evidence-record` facts instead of editing markdown.
 Architecture Matrix, capability registry, role prompts, validator guards, and
 Golden Trace Runs remain canonical runtime artifacts and are not promotion
 targets for project traces.

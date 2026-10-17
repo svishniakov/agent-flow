@@ -5,7 +5,7 @@
 Harness Evaluation Loop turns validated trace evidence into a structured learning
 record. It runs after the architecture, readiness, continuation, mitigation, and
 resolution gates have produced persisted artifacts, including Lane Boundary
-Evidence Gate failures or recoveries when a worker changed product code outside
+Gate failures or recoveries when a worker changed product code outside
 `boundary.allowed_paths` or inside `boundary.forbidden_paths`.
 
 The loop is signal-only for the canonical Agent Flow runtime. It writes
@@ -51,9 +51,10 @@ Runs without learning triggers do not need this artifact. If the artifact exists
 - `findings`: what worked, failed, regressed, or should become an anti-pattern;
 - `proposals`: proposed local Evidence Records promotions.
 
-Every finding and proposal id is kebab-case and must be mentioned in final
-`Harness Evaluation`. Positive lane-map runs with a learning trigger also require
-reviewer `Harness Evaluation Review`.
+Every finding and proposal id is kebab-case; the writer-generated final
+`Harness Evaluation` lists them from `harness-evaluation.json`. Positive
+lane-map runs with a learning trigger also require reviewer
+`Harness Evaluation Review` with every finding and proposal id in `covers`.
 
 Findings may include optional `section` (`context` or `harness`) and `keywords`
 fields. When promoted, Harness findings default to `Section: harness`; the
@@ -70,12 +71,18 @@ Every proposal must use:
 - `requires_human_approval=false`.
 
 `scripts/promote-harness-evaluation.py` can promote validated findings into the
-current project's Project Memory `## Evidence Records` after
-`validate-run.py --mode full` passes. Promotion is project-local. Canonical
+current project's Project Memory after
+`validate-run.py --mode full` passes. Promotion writes journal facts:
+each proposal becomes a `journal.py record --kind evidence-record` entry
+(upsert by id into the writer-owned `artifacts/memory/evidence-records.json`),
+and the `## Evidence Records` section of `implementation-notes.md` is
+regenerated inside per-run marked blocks; bytes outside the blocks are
+preserved. The script no longer edits markdown, and the `--notes` target flag
+is removed because the projection target is writer-owned; `--dry-run` prints
+the affected analyzer groups without changing anything. Promotion also works
+on completed runs (memory lifecycle). Promotion is project-local. Canonical
 runtime artifacts are read-only from real-project trace learning.
 Canonical runtime artifacts are not promotion targets.
-Promotion validates the projected notes in memory before writing and `--dry-run`
-prints the affected analyzer groups without changing files.
 
 ## Reviewer Responsibility
 
@@ -110,9 +117,9 @@ Reviewer handoff includes:
 ```md
 ## Harness Evaluation Review
 
-- `finding-id`
-- `proposal-id`
+- Covers: `finding-id`
+- Covers: `proposal-id`
 ```
 
-The content can be brief, but every id must be present so validation can prove
-that learning was reviewed instead of left as narrative.
+The content can be brief, but every id must be present in `covers` so
+validation can prove that learning was reviewed instead of left as narrative.
