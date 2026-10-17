@@ -13,8 +13,6 @@ PACKAGE_DIRS = ("agents", "references", "registries", "scripts", "docs/en", "doc
 PACKAGE_ROOT_ENTRIES = frozenset(PACKAGE_FILES) | {d.split("/", 1)[0] for d in PACKAGE_DIRS} | {"testdata", "agent-flow-package.json"}
 OMIT = {"__pycache__", ".DS_Store", ".git", ".agent-work", ".codex", ".env", "node_modules"}
 RECORD = "agent-flow-package.json"
-BUILD_RECORD = "agent-flow-build.json"
-CI_FIELDS = ("commit_sha", "run_id", "run_attempt")
 SEMVER = re.compile(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?")
 
 
@@ -45,43 +43,11 @@ def read_json(path):
     return value
 
 
-def ci_metadata(commit_sha=None, run_id=None, run_attempt=None):
-    values = (commit_sha, run_id, run_attempt)
-    if all(value is None for value in values):
-        return {}
-    require(all(isinstance(value, str) for value in values), "CI commit-sha, run-id and run-attempt must be supplied together")
-    require(re.fullmatch(r"[0-9a-f]{40}", commit_sha), "commit-sha must be a full lowercase Git SHA")
-    for name, value in zip(CI_FIELDS[1:], values[1:]):
-        require(re.fullmatch(r"[1-9][0-9]*", value), f"{name} must be a positive decimal without leading zeros")
-    return dict(zip(CI_FIELDS, values))
-
-
-def release_metadata(commit_sha, release_tag, run_id=None, run_attempt=None):
+def release_tag_name(release_tag):
     require(isinstance(release_tag, str) and re.fullmatch(
         r"v(0|[1-9][0-9]*)[.](0|[1-9][0-9]*)[.](0|[1-9][0-9]*)", release_tag),
         "release-tag must be vX.Y.Z without leading zeros or suffixes")
-    require(isinstance(commit_sha, str) and re.fullmatch(r"[0-9a-f]{40}", commit_sha),
-            "release commit-sha must be a full lowercase Git SHA")
-    require(run_id is None and run_attempt is None, "release identity forbids run-id and run-attempt")
-    return {"commit_sha": commit_sha, "release_tag": release_tag}
-
-
-def check_ci_record(record):
-    if "release_tag" in record:
-        require(not any(field in record for field in CI_FIELDS[1:]), "mixed release and CI metadata")
-        metadata = release_metadata(record.get("commit_sha"), record["release_tag"])
-        require(record.get("version") == metadata["release_tag"][1:],
-                "release record version does not match release tag")
-        return metadata
-    metadata = ci_metadata(*(record.get(field) for field in CI_FIELDS))
-    if metadata:
-        require(isinstance(record.get("version"), str) and re.fullmatch(
-            r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-dev\."
-            + re.escape(metadata["run_id"]) + r"\." + re.escape(metadata["run_attempt"]),
-            record["version"]), "CI record version does not match run identity")
-    else:
-        require(not any(field in record for field in CI_FIELDS), "partial CI metadata")
-    return metadata
+    return release_tag
 
 
 def inventory(root):
@@ -166,44 +132,32 @@ def validate_marketplace(data):
 
 def plugin_root(package):
     parent = package.parent.parent
-    markers = (".codex-plugin/plugin.json", BUILD_RECORD, ".agents/plugins/marketplace.json")
+    markers = (".codex-plugin/plugin.json", ".agents/plugins/marketplace.json")
     return parent if package.parent.name == "skills" and any((parent / name).exists() or (parent / name).is_symlink() for name in markers) else None
 
 
 def check_package(root):
+    files = inventory(root)
     record_path = root / RECORD
     source = root.parent.parent
+    record = None
     if record_path.exists():
         require(not record_path.is_symlink(), f"symlink forbidden: {record_path}")
         record = read_json(record_path)
-        check_ci_record(record)
-        expected = record.get("files")
-        require(isinstance(expected, dict) and expected and all(
-            isinstance(name, str) and isinstance(sha, str) for name, sha in expected.items()),
-            "invalid package checksum inventory")
-        files = {}
-        for name in sorted(expected):
-            path = root / name
-            require(not any(p.is_symlink() for p in (path, *path.parents) if p != root and p.is_relative_to(root)),
-                    f"symlink forbidden in distribution: {path}")
-            require(path.is_file(), f"missing packaged file: {name}")
-            data = path.read_bytes()
-            require(digest(data) == expected[name], f"package file changed: {name}")
-            files[name] = data
-        require(record.get("sha256") == digest(json_bytes(expected)), "invalid package inventory checksum")
+        require(set(record) == {"version"} and isinstance(record["version"], str)
+                and SEMVER.fullmatch(record["version"]), f"invalid package record: {record_path}")
     else:
-        require(root.parent.name == "skills" and (source / ".git").exists() and (source / "scripts/build-distributions.py").is_file(), f"missing package checksum record: {record_path}")
-        files = inventory(root)
+        require(root.parent.name == "skills" and (source / ".git").exists()
+                and (source / "scripts/build-plugin.py").is_file(), f"missing package record: {record_path}")
     parent = plugin_root(root)
     if parent is not None:
-        validate_manifest(read_json(parent / ".codex-plugin/plugin.json"))
+        manifest = read_json(parent / ".codex-plugin/plugin.json")
+        validate_manifest(manifest)
+        if record is not None:
+            require(record["version"] == manifest["version"], "package record does not match plugin manifest")
         catalog = parent / ".agents/plugins/marketplace.json"
-        if record_path.exists():
+        if record is not None:
             require(catalog.is_file(), f"missing marketplace: {catalog}")
-            build = read_json(parent / BUILD_RECORD)
-            require(check_ci_record(build) == check_ci_record(record), "plugin CI metadata does not match installed package")
-            require(record_path.is_file(), f"missing package checksum record: {record_path}")
-            require(build.get("format") == "plugin" and build.get("package_sha256") == record.get("sha256") and build.get("version") == record.get("version") == read_json(parent / ".codex-plugin/plugin.json").get("version"), "plugin build metadata does not match installed package")
         if catalog.exists():
             validate_marketplace(read_json(catalog))
-    return {"package_root": str(root), "format": "plugin" if parent and (parent / BUILD_RECORD).is_file() else "skill", "files": len(files), "package_sha256": digest(json_bytes({p: digest(b) for p, b in files.items()}))}
+    return {"package_root": str(root), "format": "plugin" if parent else "skill", "files": len(files)}

@@ -58,7 +58,7 @@ REQUIRED_SKILLS_CLI_DIRS = [
     "docs",
 ]
 ROOT_TEST_SCRIPTS = (
-    "test-build-distributions.py",
+    "test-build-plugin.py",
     "test-check-index.py",
     "test-skill-release.py",
 )

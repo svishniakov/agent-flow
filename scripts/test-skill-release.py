@@ -47,11 +47,6 @@ if a[0]=='api':
  if '/releases/assets/' in endpoint:
   asset_id=endpoint.rsplit('/',1)[1]
   name=next(k for k,v in s['assets'].items() if str(v['id'])==asset_id)
-  if '--method' in a:
-   assert a[a.index('--method')+1]=='DELETE'
-   assert name.endswith(('-skill.zip','-build.json','-SHA256SUMS.txt'))
-   if s.get('delete_failure_after')==s.get('deleted',0): fail('delete interrupted')
-   del s['assets'][name]; s['deleted']=s.get('deleted',0)+1; save(); sys.exit()
   if s.get('download_failure'): fail('download unavailable')
   data=s['assets'][name]['data']
   if s.get('plugin_download_failure') and name.endswith('-codex-plugin.zip'): fail('plugin unavailable')
@@ -67,9 +62,6 @@ if a[:2]==['release','upload']:
  if s.get('upload_failure_after') == len(s['assets']): fail('upload interrupted')
  f=Path(a[3]); assert f.name not in s['assets']
  s['assets'][f.name]={'id':max([v['id'] for v in s['assets'].values()]+[0])+1,'data':base64.b64encode(f.read_bytes()).decode()}
- if s.get('legacy_id_drift'):
-  for name,asset in s['assets'].items():
-   if name.endswith('-skill.zip'): asset['id']+=100
  if s.get('release_id_drift'): s['release']['id']+=1
  save(); sys.exit()
 if a[:2]==['release','edit']:
@@ -113,7 +105,7 @@ class Publication(unittest.TestCase):
         cls.git("remote", "add", "origin", str(cls.remote))
         cls.git("checkout", "--detach", cls.sha)
         cls.bundle = cls.base / "bundle"
-        release.verifier.builder.build(cls.source, cls.bundle, cls.sha, release_tag="v0.1.0")
+        release.builder.build(cls.source, cls.bundle, cls.sha, release_tag="v0.1.0")
         cls.bin = cls.base / "bin"
         cls.bin.mkdir()
         gh = cls.bin / "gh"
@@ -133,7 +125,6 @@ class Publication(unittest.TestCase):
 
     def setUp(self):
         self.state_path = self.base / "state.json"
-        self.backup = self.base / ("backup-" + self.id().split(".")[-1])
         self.state = {"release": None, "assets": {}, "calls": [], "remote": str(self.remote),
                       "other_sha": self.other_sha}
         self.save()
@@ -145,12 +136,10 @@ class Publication(unittest.TestCase):
     def save(self):
         self.state_path.write_text(json.dumps(self.state))
 
-    def invoke(self, success=True, tag="v0.1.0", sha=None, source_only=False, replacement=False):
+    def invoke(self, success=True, tag="v0.1.0", sha=None, source_only=False):
         args = [sys.executable, "-B", str(ROOT / "scripts/publish-skill-release.py"),
                 "--source", str(self.source), "--release-tag", tag, "--commit-sha", sha or self.sha]
         args += ["--check-source-only"] if source_only else ["--directory", str(self.bundle), "--repository", "owner/repo"]
-        if replacement:
-            args += ["--replace-skill-release", "--backup-directory", str(self.backup)]
         env = {**os.environ, "PATH": str(self.bin) + os.pathsep + os.environ["PATH"],
                "FAKE_GH_STATE": str(self.state_path), "PYTHONDONTWRITEBYTECODE": "1"}
         result = subprocess.run(args, env=env, text=True, capture_output=True)
@@ -236,132 +225,6 @@ class Publication(unittest.TestCase):
         self.assertTrue(self.state['release']['draft']); self.assertFalse(self.edits())
         print('release-remote-tag-drift-rejected')
 
-    def legacy_release(self):
-        self.state['release'] = {
-            'id': 42, 'tag_name': 'v0.1.0', 'draft': False, 'prerelease': False, 'immutable': False,
-            'body': f'<!-- agent-flow-skill-release v0.1.0 {self.sha} -->',
-            'html_url': 'https://example.test/release'}
-        self.legacy = release.legacy_skill_files(self.source, 'v0.1.0', self.sha)
-        self.state['assets'] = {name: {'id': index + 1, 'data': base64.b64encode(data).decode()}
-                                for index, (name, data) in enumerate(self.legacy.items())}
-        self.save()
-
-    def deletions(self):
-        return [a for a in self.state['calls'] if '--method' in a and 'DELETE' in a]
-
-    def test_replacement_backups_downloads_before_deletion_and_readonly_repeat(self):
-        self.legacy_release()
-        self.invoke(False)
-        self.assertFalse(self.deletions())
-        self.invoke(replacement=True)
-        self.assertEqual(set(self.state['assets']), {'agent-flow-0.1.0-codex-plugin.zip'})
-        self.assertEqual({p.name: p.read_bytes() for p in self.backup.iterdir()}, self.legacy)
-        calls = self.state['calls']
-        upload = next(i for i, a in enumerate(calls) if a[:2] == ['release', 'upload'])
-        delete = next(i for i, a in enumerate(calls) if '--method' in a)
-        self.assertTrue(any('/releases/assets/4' in a[1] for a in calls[upload:delete] if a[0]=='api'))
-        self.assertEqual(len(self.deletions()), 3)
-        self.assertIn('agent-flow-plugin-release', self.state['release']['body'])
-        self.assertFalse(self.state['release']['draft'])
-        self.state['calls'] = []; self.save()
-        self.invoke(replacement=True); self.invoke()
-        self.assertTrue(all(a[0]=='api' and '--method' not in a for a in self.state['calls']))
-        print('migration-backup-verified migration-download-before-delete migration-plugin-only '
-              'migration-repeat-readonly')
-
-    def test_replacement_resumes_after_each_deletion_and_notes_failure(self):
-        for stopped in range(4):
-            with self.subTest(stopped=stopped):
-                self.legacy_release()
-                self.state['calls'] = []
-                self.state.pop('deleted', None)
-                self.state.pop('delete_failure_after', None)
-                if stopped < 3:
-                    self.state['delete_failure_after'] = stopped
-                else:
-                    self.state['notes_failure'] = True
-                self.save(); self.invoke(False, replacement=True)
-                self.assertIn('agent-flow-0.1.0-codex-plugin.zip', self.state['assets'])
-                self.assertIn('agent-flow-skill-release', self.state['release']['body'])
-                self.state.pop('delete_failure_after', None)
-                self.state.pop('notes_failure', None)
-                self.save(); self.invoke(replacement=True)
-                self.assertEqual(len(self.state['assets']), 1)
-        print('migration-partial-delete-resume migration-notes-failure-resume')
-
-    def test_replacement_rejects_invalid_remote_state_before_writes(self):
-        for failure in ('foreign-marker','extra','duplicate','corrupt','missing','draft','prerelease','immutable'):
-            with self.subTest(failure=failure):
-                self.legacy_release(); self.state['calls'] = []; self.state.pop('duplicate', None)
-                if failure == 'foreign-marker': self.state['release']['body'] = 'other'
-                elif failure == 'extra': self.state['assets']['unknown.zip'] = {'id': 99, 'data': ''}
-                elif failure == 'corrupt': self.state['assets'][next(iter(self.legacy))]['data'] = ''
-                elif failure == 'missing': self.state['assets'].pop(next(iter(self.legacy)))
-                elif failure == 'duplicate': self.state['duplicate'] = True
-                else: self.state['release'][failure] = True
-                self.save(); self.invoke(False, replacement=True)
-                self.assertFalse(any(a[0]=='release' for a in self.state['calls']))
-                self.assertFalse(self.deletions())
-        print('migration-invalid-state-no-write')
-
-    def test_replacement_upload_or_verification_failure_never_deletes(self):
-        for failure in ('upload_failure_after', 'plugin_download_failure', 'legacy_id_drift',
-                        'release_id_drift', 'tag_drift'):
-            with self.subTest(failure=failure):
-                self.legacy_release(); self.state['calls'] = []
-                self.state[failure] = 3 if failure == 'upload_failure_after' else True
-                self.save(); self.invoke(False, replacement=True)
-                self.assertFalse(self.deletions())
-                self.assertTrue(self.legacy.keys() <= self.state['assets'].keys())
-                self.state.pop(failure)
-                subprocess.run(['git','--git-dir',str(self.remote),'update-ref','refs/tags/v0.1.0',
-                                self.git('rev-parse','v0.1.0')],check=True)
-        print('migration-upload-or-download-failure-no-delete migration-asset-id-drift-rejected '
-              'migration-source-drift-rejected')
-
-    def test_malformed_release_flags_and_ids_are_rejected(self):
-        self.legacy_release()
-        valid = self.state['release']
-        for field in ('draft', 'prerelease', 'immutable', 'id'):
-            for value in ('missing', None, 0, 1, 'false'):
-                if field == 'id' and value == 1:
-                    value = True
-                with self.subTest(field=field, value=value):
-                    malformed = dict(valid)
-                    if value == 'missing': malformed.pop(field)
-                    else: malformed[field] = value
-                    with self.assertRaises(release.PackageError):
-                        release.check_release_identity(malformed, 'v0.1.0', valid['body'])
-        for invalid_id in (None, 0, -1, True, '1'):
-            github = release.GitHub('owner/repo')
-            github.assets = lambda _: [{'id': invalid_id, 'name': 'plugin.zip'}]
-            with self.assertRaises(release.PackageError):
-                github.verify_assets(valid, {'plugin.zip': b''}, complete=True)
-        print('release-malformed-flags-and-ids-rejected')
-
-    def test_replacement_backup_conflict_or_missing_resume_backup_never_deletes(self):
-        self.legacy_release()
-        self.backup.mkdir()
-        target = self.backup / next(iter(self.legacy))
-        target.write_bytes(b'preserve user backup')
-        self.invoke(False, replacement=True)
-        self.assertFalse(self.deletions())
-        self.assertEqual(target.read_bytes(), b'preserve user backup')
-        target.unlink()
-        target.symlink_to(self.bundle / 'agent-flow-0.1.0-codex-plugin.zip')
-        self.invoke(False, replacement=True)
-        self.assertFalse(self.deletions())
-        target.unlink()
-        self.state['delete_failure_after'] = 1; self.save()
-        self.invoke(False, replacement=True)
-        deleted_name = next(name for name in self.legacy if name not in self.state['assets'])
-        (self.backup / deleted_name).unlink()
-        self.state.pop('delete_failure_after'); self.state['calls'] = []; self.save()
-        self.invoke(False, replacement=True)
-        self.assertFalse(self.deletions())
-        print('migration-backup-conflict-rejected migration-backup-symlink-rejected '
-              'migration-missing-backup-no-delete')
-
     def test_tag_and_source_gates(self):
         self.invoke(source_only=True)
         print('release-tag-match-ok')
@@ -387,37 +250,37 @@ class Workflow(unittest.TestCase):
             if not value:
                 raise ValueError('unsafe release workflow')
         require('on:\n  push:\n\npermissions:\n  contents: read\n' in text)
-        checks, publish = text.split('  publish-skill-release:\n')
-        require('contents: write' not in checks)
-        require('branches:' not in checks and 'paths:' not in checks)
+        require(text.count('\njobs:\n') == 1)
+        job = text.split('\njobs:\n', 1)[1]
+        require('runs-on: ubuntu-24.04' in job)
+        require('branches:' not in job and 'paths:' not in job)
+        require('permissions:\n      contents: write\n' in job)
         require('cancel-in-progress: true' not in text)
-        require('needs: check-and-build' in publish and 'contents: write' in publish)
-        tag_condition="github.ref_type == 'tag' && startsWith(github.ref_name, 'v')"
-        require(tag_condition in checks and tag_condition in publish)
-        require('ref: ${{ github.sha }}' in checks and 'ref: ${{ github.sha }}' in publish)
-        require('name: ${{ needs.check-and-build.outputs.release-artifact }}' in publish)
-        require('persist-credentials: false' in checks and 'persist-credentials: false' in publish)
-        require('cancel-in-progress: false' in publish and 'group: skill-release-${{ github.ref }}' in publish)
-        suite=checks.index('/opt/homebrew/opt/agent-flow-checks/bin/python3 skills/agent-flow/scripts/check-all.py')
-        build=checks.index('python3 scripts/build-distributions.py')
-        stable=checks.index('python3 scripts/publish-skill-release.py --check-source-only')
-        upload=checks.index('uses: actions/upload-artifact@')
-        require(suite < build < stable < upload)
+        require('group: skill-release-${{ github.ref }}' in job and 'cancel-in-progress: false' in job)
+        tag_condition = "github.ref_type == 'tag' && startsWith(github.ref_name, 'v')"
+        require(job.count('if: ${{ ' + tag_condition + ' }}') == 2)
+        require('ref: ${{ github.sha }}' in job and 'persist-credentials: false' in job)
+        require('fetch-depth: 0' in job)
+        suite = job.index('python3 skills/agent-flow/scripts/check-all.py')
+        build = job.index('python3 scripts/build-plugin.py')
+        publish = job.index('python3 scripts/publish-skill-release.py')
+        require(suite < build < publish)
         require('continue-on-error' not in text and 'always()' not in text)
-        require('python3 scripts/publish-skill-release.py' in publish)
+        require('GH_TOKEN: ${{ github.token }}' in job)
 
     def test_workflow_and_negative_mutations(self):
         text=(ROOT/'.github/workflows/push-build.yml').read_text()
         self.validate(text)
         mutations=[
             text.replace('contents: read','contents: write',1),
-            text.replace('needs: check-and-build','needs: other-job'),
+            text.replace('permissions:\n      contents: write\n','permissions:\n      contents: read\n'),
             text.replace("github.ref_type == 'tag'", "github.ref_type == 'branch'"),
             text.replace('cancel-in-progress: false','cancel-in-progress: true'),
             text.replace('python3 skills/agent-flow/scripts/check-all.py','python3 skills/agent-flow/scripts/some-tests.py'),
+            text.replace('persist-credentials: false','persist-credentials: true'),
             text.replace('  push:\n','  push:\n    branches: [main]\n'),
-            text.replace('scripts/check-all.py', 'SWAP').replace('scripts/build-distributions.py',
-                'scripts/check-all.py').replace('SWAP', 'scripts/build-distributions.py'),
+            text.replace('scripts/check-all.py', 'SWAP').replace('scripts/build-plugin.py',
+                'scripts/check-all.py').replace('SWAP', 'scripts/build-plugin.py'),
         ]
         for mutation in mutations:
             with self.assertRaises(ValueError): self.validate(mutation)

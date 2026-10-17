@@ -23,7 +23,7 @@ and synchronize roles into that project's `.codex/agents` directory.
 Download `agent-flow-X.Y.Z-codex-plugin.zip` from the
 [latest release](https://github.com/svishniakov/agent-flow/releases/latest).
 It is the only uploaded release file. The two automatic Source code links
-contain repository snapshots. Build JSON and SHA256SUMS stay inside Actions.
+contain repository snapshots.
 
 Compare the ZIP's SHA-256 with the digest in the release notes or beside the
 asset on GitHub:
@@ -33,8 +33,9 @@ shasum -a 256 agent-flow-X.Y.Z-codex-plugin.zip
 ```
 
 Extract it into a separate permanent directory. The extracted
-`agent-flow/agent-flow-build.json` records `version`, `release_tag`, and
-`commit_sha`; compare them with the release and its tag. Then install:
+`agent-flow/skills/agent-flow/agent-flow-package.json` records the package
+`version`; compare it with the release name, and compare the release tag's
+commit with the source you expect. Then install:
 
 ```sh
 codex plugin marketplace add "/permanent/directory/agent-flow"
@@ -143,7 +144,7 @@ user additions.
 Extract the new archive into a new permanent location, run
 `codex plugin marketplace remove agent-flow`, then repeat the add and setup
 commands above with the new location. Local builds use a deterministic
-`+codex.<snapshot hash>` suffix; GitHub builds use `X.Y.Z-dev.RUN.ATTEMPT`.
+`+codex.<snapshot hash>` suffix; numbered releases are exactly `X.Y.Z`.
 A new version selects a new Codex cache entry.
 Create a new task after setup. Keep the previous archive and backup until
 verification passes in that task. Compare local additions before transferring
@@ -158,44 +159,21 @@ From the source Git checkout:
 
 ```sh
 python3 skills/agent-flow/scripts/check-all.py
-python3 scripts/build-distributions.py --output "/directory/outside/source"
+python3 scripts/build-plugin.py --output "/directory/outside/source"
 ```
 
 The builder collects the runtime package by walking the allowlisted package
 directories (`agents`, `references`, `registries`, `scripts`, `docs/en`,
 `docs/ru`, `docs/assets`); test data, test scripts, caches, and historical
 implementation/ADR documents are not packaged. ZIP output is reproducible from
-identical inputs. Check an extracted installation using its own script:
+identical inputs, and every written archive is re-read and
+verified against a fresh source snapshot before the build succeeds. Check an
+extracted installation using its own script:
 
 ```sh
 python3 "$AF_PACKAGE/scripts/check-installed-package.py" --package-only
 ```
 
 The complete repository suite requires its source Git checkout. Archive checks
-do not prove real QA/reviewer sessions or Desktop invocation. For development builds, use the Actions instructions below.
-
-## Development builds after push
-
-Open [GitHub Actions](https://github.com/svishniakov/agent-flow/actions/workflows/push-build.yml),
-select a successful `Push checks and distributions` run, and confirm its commit SHA.
-Download `agent-flow-<version>-<full SHA>-run<RUN>-attempt<ATTEMPT>` from Artifacts.
-Retention is 14 days, subject to repository policy. Failed checks do not publish
-installable archives.
-
-Extract the downloaded artifact into an empty directory. It contains two ZIPs,
-build metadata JSON, and a file ending in `-SHA256SUMS.txt`. Verify them there:
-
-```sh
-shasum -a 256 -c *-SHA256SUMS.txt
-```
-
-Stop on a checksum mismatch. Confirm the metadata commit SHA and
-`X.Y.Z-dev.RUN.ATTEMPT` version against the selected run, then extract the chosen
-ZIP into a new permanent directory and follow the installation instructions below.
-Both archives contain the same shared package.
-
-These are prerelease builds, lower than stable `X.Y.Z` under SemVer. Installing one
-over a stable version requires explicit reinstallation from the chosen archive;
-automatic stable-to-prerelease updates are not promised. For each subsequent build,
-follow the update procedure: replace the plugin marketplace source, synchronize
-roles, verify the installed package, and start a new Codex task.
+do not prove real QA/reviewer sessions or Desktop invocation. Numbered releases
+are built and verified on GitHub only from `vX.Y.Z` tags.

@@ -202,7 +202,7 @@ class RepositoryChecks(unittest.TestCase):
         calls = steps.call_args_list
         planned = [call.args[0] for call in calls]
         commands = [call.args[1] for call in calls]
-        for script in ("test-build-distributions.py", "test-check-index.py", "test-skill-release.py"):
+        for script in ("test-build-plugin.py", "test-check-index.py", "test-skill-release.py"):
             self.assertTrue(any(command[-1].endswith("scripts/" + script) for command in commands), script)
         discovered = [name for name in planned if name in {"test-alpha.py", "test-beta.py", "test-journal-recovery.py"}]
         self.assertEqual(discovered, ["test-alpha.py", "test-beta.py", "test-journal-recovery.py"])
