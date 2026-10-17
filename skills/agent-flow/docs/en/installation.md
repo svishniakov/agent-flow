@@ -161,9 +161,10 @@ python3 skills/agent-flow/scripts/check-all.py
 python3 scripts/build-distributions.py --output "/directory/outside/source"
 ```
 
-The explicit `skills/agent-flow/package-files.txt` inventory excludes local
-additions, backups, caches, and historical implementation/ADR documents. Add new
-runtime resources to this list before building. ZIP output is reproducible from
+The builder collects the runtime package by walking the allowlisted package
+directories (`agents`, `references`, `registries`, `scripts`, `docs/en`,
+`docs/ru`, `docs/assets`); test data, test scripts, caches, and historical
+implementation/ADR documents are not packaged. ZIP output is reproducible from
 identical inputs. Check an extracted installation using its own script:
 
 ```sh

@@ -8,8 +8,9 @@ import re
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
-PACKAGE_FILES = ("SKILL.md", "LICENSE", "check-tools.json", "package-files.txt")
-PACKAGE_DIRS = ("agents", "references", "registries", "scripts", "testdata", "docs/en", "docs/ru", "docs/assets")
+PACKAGE_FILES = ("SKILL.md", "LICENSE", "check-tools.json")
+PACKAGE_DIRS = ("agents", "references", "registries", "scripts", "docs/en", "docs/ru", "docs/assets")
+PACKAGE_ROOT_ENTRIES = frozenset(PACKAGE_FILES) | {d.split("/", 1)[0] for d in PACKAGE_DIRS} | {"testdata", "agent-flow-package.json"}
 OMIT = {"__pycache__", ".DS_Store", ".git", ".agent-work", ".codex", ".env", "node_modules"}
 RECORD = "agent-flow-package.json"
 BUILD_RECORD = "agent-flow-build.json"
@@ -84,24 +85,34 @@ def check_ci_record(record):
 
 
 def inventory(root):
-    """Read exactly the maintained file list, never local additions or caches."""
+    """Collect the runtime package by walking the allowlisted files and directories."""
     require(not any(path.is_symlink() for path in (root, *root.parents)), f"symlink package root forbidden: {root}")
+    for entry in root.iterdir():
+        if entry.name in OMIT:
+            continue
+        require(entry.name in PACKAGE_ROOT_ENTRIES, f"unexpected package entry: {entry.name}")
     files = {}
-    index = root / "package-files.txt"
-    require(index.is_file() and not index.is_symlink(), f"missing package resource: {index}")
-    names = index.read_text().splitlines()
-    require(names == sorted(set(names)) and set(PACKAGE_FILES) <= set(names), "invalid package file list")
-    for name in names:
-        relative = Path(name)
-        require(not relative.is_absolute() and relative.as_posix() == name and ".." not in relative.parts, f"unsafe package path: {name}")
-        require(not OMIT.intersection(relative.parts) and not name.endswith((".bak", ".pyc", ".pyo")), f"forbidden package path: {name}")
-        require(name in PACKAGE_FILES or any(name.startswith(d + "/") for d in PACKAGE_DIRS), f"path outside runtime allowlist: {name}")
+    for name in PACKAGE_FILES:
         path = root / name
-        require(not any(p.is_symlink() for p in (path, *path.parents) if p != root and p.is_relative_to(root)), f"symlink forbidden in distribution: {path}")
-        require(path.is_file(), f"missing or unsupported package resource: {path}")
+        require(path.is_file() and not path.is_symlink(), f"missing package resource: {path}")
         files[name] = path.read_bytes()
+    for dirname in PACKAGE_DIRS:
+        base = root / dirname
+        require(base.is_dir() and not base.is_symlink(), f"missing package directory: {base}")
+        for path in sorted(base.rglob("*")):
+            if path.is_dir() and not path.is_symlink():
+                continue
+            relative = path.relative_to(root)
+            name = relative.as_posix()
+            if OMIT.intersection(relative.parts) or "testdata" in relative.parts or name.endswith((".bak", ".pyc", ".pyo")):
+                continue
+            if dirname == "scripts" and path.name.startswith("test-") and path.suffix == ".py":
+                continue
+            require(not any(p.is_symlink() for p in (path, *path.parents) if p != root and p.is_relative_to(root)),
+                    f"symlink forbidden in distribution: {path}")
+            require(path.is_file(), f"missing or unsupported package resource: {path}")
+            files[name] = path.read_bytes()
     require("agents/agent-identities.json" in files, "missing role identities")
-    require("testdata/golden-traces/manifest.json" in files, "missing golden trace manifest")
     validate_links(files)
     return dict(sorted(files.items()))
 
@@ -160,17 +171,29 @@ def plugin_root(package):
 
 
 def check_package(root):
-    files = inventory(root)
     record_path = root / RECORD
     source = root.parent.parent
-    if not record_path.exists():
-        require(root.parent.name == "skills" and (source / ".git").exists() and (source / "scripts/build-distributions.py").is_file(), f"missing package checksum record: {record_path}")
     if record_path.exists():
         require(not record_path.is_symlink(), f"symlink forbidden: {record_path}")
         record = read_json(record_path)
         check_ci_record(record)
-        require(record.get("files") == {p: digest(b) for p, b in files.items()}, "package checksum inventory mismatch; reinstall the selected archive")
-        require(record.get("sha256") == digest(json_bytes(record["files"])), "invalid package inventory checksum")
+        expected = record.get("files")
+        require(isinstance(expected, dict) and expected and all(
+            isinstance(name, str) and isinstance(sha, str) for name, sha in expected.items()),
+            "invalid package checksum inventory")
+        files = {}
+        for name in sorted(expected):
+            path = root / name
+            require(not any(p.is_symlink() for p in (path, *path.parents) if p != root and p.is_relative_to(root)),
+                    f"symlink forbidden in distribution: {path}")
+            require(path.is_file(), f"missing packaged file: {name}")
+            data = path.read_bytes()
+            require(digest(data) == expected[name], f"package file changed: {name}")
+            files[name] = data
+        require(record.get("sha256") == digest(json_bytes(expected)), "invalid package inventory checksum")
+    else:
+        require(root.parent.name == "skills" and (source / ".git").exists() and (source / "scripts/build-distributions.py").is_file(), f"missing package checksum record: {record_path}")
+        files = inventory(root)
     parent = plugin_root(root)
     if parent is not None:
         validate_manifest(read_json(parent / ".codex-plugin/plugin.json"))

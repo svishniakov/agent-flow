@@ -66,8 +66,7 @@ class Distributions(unittest.TestCase):
         for missing in ("journal_structure.py", "workspace_scope.py"):
             with self.subTest(missing=missing):
                 source = self.copy_source("missing-" + missing)
-                manifest = source / "skills/agent-flow/package-files.txt"
-                manifest.write_text(manifest.read_text().replace("scripts/" + missing + "\n", ""))
+                (source / "skills/agent-flow/scripts" / missing).unlink()
                 built = builder.build(source, self.base / ("archive-" + missing))
                 for archive in built["archives"]:
                     installed = self.base / ("installed-" + missing + Path(archive).stem)
@@ -147,35 +146,48 @@ class Distributions(unittest.TestCase):
             shutil.copyfile(ROOT / name, source / name)
         return source
 
-    def test_missing_resource_and_symlink_fail_before_output(self):
-        source = self.copy_source("broken resource")
-        path = source / "skills/agent-flow/references/delegation.md"
-        path.unlink()
+    def test_missing_required_entry_and_symlink_fail_before_output(self):
+        source = self.copy_source("broken skill")
+        (source / "skills/agent-flow/SKILL.md").unlink()
         output = self.base / "missing output"
-        with self.assertRaisesRegex(PackageError, "missing"):
+        with self.assertRaisesRegex(PackageError, "missing package resource"):
             builder.build(source, output)
         self.assertFalse(output.exists())
+        source = self.copy_source("broken directory")
+        shutil.rmtree(source / "skills/agent-flow/references")
+        with self.assertRaisesRegex(PackageError, "missing package directory"):
+            builder.build(source, output)
+        self.assertFalse(output.exists())
+        source = self.copy_source("linked resource")
+        path = source / "skills/agent-flow/references/delegation.md"
+        path.unlink()
         path.symlink_to(ROOT / "skills/agent-flow/references/delegation.md")
         with self.assertRaisesRegex(PackageError, "symlink"):
             builder.build(source, output)
         self.assertFalse(output.exists())
 
-    def test_local_files_are_not_packaged(self):
+    def test_development_files_are_not_packaged(self):
         source = self.copy_source("local additions")
-        (source / "skills/agent-flow/scripts/private.txt").write_text("DO_NOT_SHIP")
         (source / "skills/agent-flow/.env").write_text("DO_NOT_SHIP")
+        (source / "skills/agent-flow/scripts/.env").write_text("DO_NOT_SHIP")
+        with self.assertRaisesRegex(PackageError, "unexpected package entry"):
+            (source / "skills/agent-flow/local-notes.md").write_text("DO_NOT_SHIP")
+            builder.build(source, self.base / "stray output")
+        (source / "skills/agent-flow/local-notes.md").unlink()
         result = builder.build(source, self.base / "filtered output")
         for path in result["archives"]:
             with zipfile.ZipFile(path) as z:
-                self.assertFalse(any("private.txt" in p or p.endswith("/.env") for p in z.namelist()))
+                names = z.namelist()
+                self.assertFalse(any(p.endswith("/.env") for p in names))
+                self.assertFalse(any("/testdata/" in p for p in names))
+                self.assertFalse(any("/scripts/test-" in p for p in names))
                 self.assertFalse(any((i.external_attr >> 16) & 0o170000 == 0o120000 for i in z.infolist()))
 
-    def test_rejects_unsafe_file_list(self):
+    def test_rejects_symlinked_walked_directory(self):
         source = self.copy_source("unsafe list")
-        index = source / "skills/agent-flow/package-files.txt"
-        names = index.read_text().splitlines()
-        index.write_text("\n".join(sorted([*names, "../account.json"])) + "\n")
-        with self.assertRaisesRegex(PackageError, "unsafe package path"):
+        target = source / "skills/agent-flow/references/linked"
+        target.symlink_to(ROOT / "skills/agent-flow/references", target_is_directory=True)
+        with self.assertRaisesRegex(PackageError, "symlink"):
             builder.build(source, self.base / "unsafe output")
 
     def test_schema_negative_cases(self):
