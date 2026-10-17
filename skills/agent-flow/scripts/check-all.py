@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import os
 import re
@@ -39,12 +38,6 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 GOLDEN_TRACE_MANIFEST = ROOT / "testdata" / "golden-traces" / "manifest.json"
 ROLE_PROMPT_INPUT_MARKER = "Use the delegation packet as the source of truth"
-CODEGRAPH_REQUIRED_MODULES = [
-    "tree_sitter",
-    "tree_sitter_python",
-    "tree_sitter_javascript",
-    "tree_sitter_typescript",
-]
 PRODUCT_SEARCH_PATHS = [
     "README.md",
     "README.ru.md",
@@ -301,21 +294,6 @@ def run_skills_cli_install_guard(repo_root: Path) -> int:
     return 0
 
 
-def run_codegraph_dependency_preflight(repo_root: Path) -> int:
-    print("==> CodeGraph parser dependency preflight")
-    missing = [name for name in CODEGRAPH_REQUIRED_MODULES if importlib.util.find_spec(name) is None]
-    if missing:
-        requirements_path = ROOT / "requirements-codegraph.txt"
-        display_path = requirements_path.relative_to(repo_root) if repo_root != ROOT else requirements_path.name
-        print("FAIL CodeGraph parser dependency preflight", file=sys.stderr)
-        print("Missing Python modules:", ", ".join(missing), file=sys.stderr)
-        print("Install CodeGraph parser dependencies:", file=sys.stderr)
-        print(f"python3 -m pip install -r {display_path}", file=sys.stderr)
-        return 1
-    print("PASS CodeGraph parser dependency preflight")
-    return 0
-
-
 def git_tracked_paths_under(path: Path) -> set[str]:
     relative = path.relative_to(ROOT).as_posix()
     try:
@@ -454,7 +432,6 @@ def main() -> int:
         ("harness evaluation promotion fixtures", [sys.executable, "scripts/test-promote-harness-evaluation.py"]),
         ("handoff state fixtures", [sys.executable, "scripts/test-handoff-state.py"]),
         ("lane boundary fixtures", [sys.executable, "scripts/test-lane-boundary.py"]),
-        ("codegraph fixtures", [sys.executable, "scripts/test-codegraph.py"]),
         ("lane fixture tests", [sys.executable, "scripts/test-validate-run-lanes.py"]),
         ("QA/reviewer evidence fixtures", [sys.executable, "scripts/test-verification-evidence.py"]),
         ("journal IO fixtures", [sys.executable, "scripts/test-journal-io.py"]),
@@ -500,8 +477,6 @@ def main() -> int:
     if run_test_inventory_guard(repo_root, command_steps):
         return 1
     if run_golden_trace_artifacts_guard():
-        failures += 1
-    if run_codegraph_dependency_preflight(repo_root):
         failures += 1
     if run_skills_cli_layout_guard(repo_root):
         failures += 1

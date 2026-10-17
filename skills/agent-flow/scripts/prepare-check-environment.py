@@ -30,10 +30,8 @@ def prepare(prefix: Path) -> None:
             raise EnvironmentError(f"Refusing to change an unowned nonempty prefix: {prefix}")
     prefix.mkdir(parents=True, exist_ok=True)
     marker.write_text(json.dumps(expected_marker) + "\n", encoding="utf-8")
-    venv.EnvBuilder(with_pip=True).create(prefix)
+    venv.EnvBuilder().create(prefix)
     python = prefix / "bin/python3"
-    subprocess.run([str(python), "-m", "pip", "install", "--disable-pip-version-check",
-                    "-r", str(ROOT / "requirements-codegraph.txt")], check=True)
     npm_root = prefix / "tools"
     subprocess.run([npm, "install", "--prefix", str(npm_root), "--ignore-scripts",
                     "--no-audit", "--no-fund", "--save-exact",

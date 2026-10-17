@@ -156,7 +156,7 @@ class RepositoryChecks(unittest.TestCase):
     def test_main_continues_after_readme_failure(self):
         (self.repo / "README.md").unlink()
         names = ("run_step", "run_skills_cli_layout_guard", "run_skills_cli_discovery_guard",
-                 "run_skills_cli_install_guard", "run_codegraph_dependency_preflight",
+                 "run_skills_cli_install_guard",
                  "run_golden_trace_artifacts_guard", "run_content_guard", "run_test_inventory_guard")
         with contextlib.ExitStack() as stack:
             stack.enter_context(patch.object(self.checks, "check_environment", return_value={}))
@@ -188,7 +188,7 @@ class RepositoryChecks(unittest.TestCase):
 
     def test_runtime_suites_remain_planned_and_failures_propagate(self):
         guards = ("run_skills_cli_layout_guard", "run_skills_cli_discovery_guard", "run_skills_cli_install_guard",
-                  "run_codegraph_dependency_preflight", "run_golden_trace_artifacts_guard", "run_content_guard",
+                  "run_golden_trace_artifacts_guard", "run_content_guard",
                   "run_test_inventory_guard", "run_retired_blocking_rules_guard", "run_role_prompt_dedup_guard")
         with contextlib.ExitStack() as stack:
             stack.enter_context(patch.object(self.checks, "check_environment", return_value={}))

@@ -43,13 +43,6 @@ class EnvironmentChecks(unittest.TestCase):
             with self.assertRaisesRegex(environment.EnvironmentError, "22.20.0"):
                 environment.require_version("node", "22.20.0", minimum=True)
 
-    def test_missing_python_dependency_fails(self):
-        with patch.object(environment, "require_tool", return_value="/tool"), \
-             patch.object(environment, "require_version", return_value="1.2.3"), \
-             patch.object(environment.importlib.metadata, "version", side_effect=environment.importlib.metadata.PackageNotFoundError):
-            with self.assertRaisesRegex(environment.EnvironmentError, "Python dependency is missing"):
-                environment.check_environment()
-
     def test_unsupported_platform_fails(self):
         with patch.object(environment.sys, "platform", "win32"):
             with self.assertRaisesRegex(environment.EnvironmentError, "cannot be skipped"):

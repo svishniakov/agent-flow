@@ -62,7 +62,6 @@ references/traceable-runs.md
 references/workflow-patterns.md
 registries/agent-skills.json
 registries/architecture-capabilities.json
-requirements-codegraph.txt
 scripts/agent_config.py
 scripts/agent_skill_deps.py
 scripts/analyze-evidence-records.py
@@ -72,7 +71,6 @@ scripts/check-agent-deps.py
 scripts/check-all.py
 scripts/check-installed-package.py
 scripts/check_environment.py
-scripts/codegraph.py
 scripts/evidence_records.py
 scripts/harness_promotion.py
 scripts/init-run.py
@@ -94,7 +92,6 @@ scripts/test-agent-config.py
 scripts/test-analyze-evidence-records.py
 scripts/test-check-all.py
 scripts/test-check-environment.py
-scripts/test-codegraph.py
 scripts/test-golden-traces.py
 scripts/test-handoff-state.py
 scripts/test-init-run.py
@@ -126,7 +123,6 @@ scripts/validate-run.py
 scripts/validation_inputs.py
 scripts/verification_evidence.py
 scripts/workspace_scope.py
-testdata/codegraph/README.md
 testdata/golden-traces/invalid/acceptance-traceability-missing-surface-expectations/acceptance-traceability.json
 testdata/golden-traces/invalid/acceptance-traceability-missing-surface-expectations/agents/reviewer/trace.jsonl
 testdata/golden-traces/invalid/acceptance-traceability-missing-surface-expectations/artifacts.json

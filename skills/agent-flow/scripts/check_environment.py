@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import importlib.metadata
 import json
 import os
 import re
@@ -69,17 +68,6 @@ def check_environment() -> dict[str, str]:
     versions["node"] = require_version("node", TOOLS["node"]["minimum"], minimum=True)
     for name, expected in TOOLS["cli"].items():
         versions[name] = require_version(name, expected)
-    for line in (ROOT / "requirements-codegraph.txt").read_text(encoding="utf-8").splitlines():
-        if not line.strip() or line.startswith("#"):
-            continue
-        name, expected = line.split("==")
-        try:
-            actual = importlib.metadata.version(name)
-        except importlib.metadata.PackageNotFoundError as exc:
-            raise EnvironmentError(f"Required Python dependency is missing: {line}.") from exc
-        if actual != expected:
-            raise EnvironmentError(f"Required {line}; found {actual}.")
-        versions[name] = actual
     return versions
 
 

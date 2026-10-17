@@ -180,11 +180,9 @@ post-update check.
 
 ## Checks
 
-After changing the repository, install CodeGraph parser dependencies before the
-full developer suite:
+After changing the repository, run the full developer suite:
 
 ```bash
-python3 -m pip install -r skills/agent-flow/requirements-codegraph.txt
 python3 scripts/check-all.py
 python3 scripts/check-agent-deps.py --scope core
 python3 scripts/validate-role-catalog.py

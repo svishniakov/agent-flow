@@ -180,11 +180,9 @@ python3 ~/.agents/skills/agent-flow/scripts/update-agent-flow-skill.py
 
 ## Проверки
 
-После изменений в репозитории поставьте CodeGraph parser dependencies перед
-полным набором dev-проверок:
+После изменений в репозитории запустите полный набор dev-проверок:
 
 ```bash
-python3 -m pip install -r skills/agent-flow/requirements-codegraph.txt
 python3 scripts/check-all.py
 python3 scripts/check-agent-deps.py --scope core
 python3 scripts/validate-role-catalog.py

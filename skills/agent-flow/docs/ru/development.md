@@ -12,10 +12,9 @@ Document status: done
 Установленная копия скилла без исходного репозитория для этого не подходит.
 
 Нужны Python с модулем `venv`, Git и Node. Версии инструментов
-и библиотек записаны в `skills/agent-flow/check-tools.json` и
-`skills/agent-flow/requirements-codegraph.txt`. Подготовка проверяет версии,
-создаёт локальное окружение Python, устанавливает закреплённые зависимости
-и локальный Skills CLI. Установка требует сети и выполняется явно.
+записаны в `skills/agent-flow/check-tools.json`. Подготовка проверяет версии,
+создаёт локальное окружение Python и локальный Skills CLI.
+Установка требует сети и выполняется явно.
 
 ```sh
 python3 scripts/prepare-check-environment.py \
