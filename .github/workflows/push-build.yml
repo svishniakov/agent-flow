@@ -58,14 +58,14 @@ jobs:
 
       - name: Prepare all pinned check dependencies
         run: |
-          python3 scripts/prepare-check-environment.py \
+          python3 skills/agent-flow/scripts/prepare-check-environment.py \
             --prefix /opt/homebrew/opt/agent-flow-checks
           echo /opt/homebrew/opt/agent-flow-checks/bin >> "$GITHUB_PATH"
 
       - name: Run the complete pre-commit test suite
         run: |
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          /opt/homebrew/opt/agent-flow-checks/bin/python3 scripts/check-all.py
+          /opt/homebrew/opt/agent-flow-checks/bin/python3 skills/agent-flow/scripts/check-all.py
 
       - name: Build and verify both distributions
         id: build

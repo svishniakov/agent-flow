@@ -183,9 +183,9 @@ python3 ~/.agents/skills/agent-flow/scripts/update-agent-flow-skill.py
 После изменений в репозитории запустите полный набор dev-проверок:
 
 ```bash
-python3 scripts/check-all.py
-python3 scripts/check-agent-deps.py --scope core
-python3 scripts/validate-role-catalog.py
+python3 skills/agent-flow/scripts/check-all.py
+python3 skills/agent-flow/scripts/check-agent-deps.py --scope core
+python3 skills/agent-flow/scripts/validate-role-catalog.py
 ```
 
 `check-all.py` должен закончиться строкой `PASS all Agent Flow checks`.

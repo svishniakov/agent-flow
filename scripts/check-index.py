@@ -145,9 +145,9 @@ def check_index():
         git(checkout, env, "update-ref", "HEAD", os.fsdecode(commit))
         if index.read_bytes() != original:
             raise CheckError("Git index changed while preparing the snapshot; retry the commit")
-        checker = checkout / "scripts/check-all.py"
+        checker = checkout / "skills/agent-flow/scripts/check-all.py"
         if not checker.is_file() or checker.is_symlink():
-            raise CheckError("staged scripts/check-all.py is missing or is a symlink")
+            raise CheckError("staged skills/agent-flow/scripts/check-all.py is missing or is a symlink")
         env["AGENT_FLOW_PRE_COMMIT_RUNNING"] = "1"
         print(f"Agent Flow: full suite for index tree {tree}\nTemporary checkout: {checkout}", flush=True)
         try:

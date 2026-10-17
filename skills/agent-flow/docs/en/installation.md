@@ -157,7 +157,7 @@ and user role files must remain intact.
 From the source Git checkout:
 
 ```sh
-python3 scripts/check-all.py
+python3 skills/agent-flow/scripts/check-all.py
 python3 scripts/build-distributions.py --output "/directory/outside/source"
 ```
 

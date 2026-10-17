@@ -34,7 +34,7 @@ class RepositoryChecks(unittest.TestCase):
         self.package = self.repo / "skills/agent-flow"
         (self.package / "scripts").mkdir(parents=True)
         (self.repo / "scripts").mkdir()
-        (self.repo / "scripts/check-all.py").write_text("# source entrypoint\n")
+        (self.repo / "scripts/check-index.py").write_text("# source entrypoint\n")
         shutil.copy2(SCRIPT, self.package / "scripts/check-all.py")
         self.git("init")
         for name in ("README.md", "README.ru.md"):
@@ -249,18 +249,6 @@ class RepositoryChecks(unittest.TestCase):
         code, _, errors = self.capture(self.checks.run_test_inventory_guard, self.repo, steps)
         self.assertEqual(code, 1)
         self.assertIn("required test missing from checkout", errors)
-
-    def test_changed_compatibility_wrapper_requires_own_test_entry(self):
-        canonical = self.package / "scripts/test-example.py"
-        canonical.touch()
-        (self.package / "package-files.txt").write_text("scripts/test-example.py\n")
-        wrapper = self.repo / "scripts/test-example.py"
-        source = SCRIPT.parents[3] / "scripts/prepare-check-environment.py"
-        shutil.copyfile(source, wrapper)
-        steps = [("fixture", [sys.executable, "scripts/test-example.py"])]
-        self.assertEqual(self.capture(self.checks.run_test_inventory_guard, self.repo, steps)[0], 0)
-        wrapper.write_text(wrapper.read_text() + "# additional behavior\n")
-        self.assertEqual(self.capture(self.checks.run_test_inventory_guard, self.repo, steps)[0], 1)
 
     def test_artifacts_must_be_tracked_and_git_errors_stay_errors(self):
         traces = self.package / "testdata/golden-traces"

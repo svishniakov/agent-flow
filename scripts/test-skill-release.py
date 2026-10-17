@@ -398,7 +398,7 @@ class Workflow(unittest.TestCase):
         require('name: ${{ needs.check-and-build.outputs.release-artifact }}' in publish)
         require('persist-credentials: false' in checks and 'persist-credentials: false' in publish)
         require('cancel-in-progress: false' in publish and 'group: skill-release-${{ github.ref }}' in publish)
-        suite=checks.index('/opt/homebrew/opt/agent-flow-checks/bin/python3 scripts/check-all.py')
+        suite=checks.index('/opt/homebrew/opt/agent-flow-checks/bin/python3 skills/agent-flow/scripts/check-all.py')
         build=checks.index('python3 scripts/build-distributions.py')
         stable=checks.index('python3 scripts/publish-skill-release.py --check-source-only')
         upload=checks.index('uses: actions/upload-artifact@')
@@ -414,7 +414,7 @@ class Workflow(unittest.TestCase):
             text.replace('needs: check-and-build','needs: other-job'),
             text.replace("github.ref_type == 'tag'", "github.ref_type == 'branch'"),
             text.replace('cancel-in-progress: false','cancel-in-progress: true'),
-            text.replace('python3 scripts/check-all.py','python3 scripts/some-tests.py'),
+            text.replace('python3 skills/agent-flow/scripts/check-all.py','python3 skills/agent-flow/scripts/some-tests.py'),
             text.replace('  push:\n','  push:\n    branches: [main]\n'),
             text.replace('scripts/check-all.py', 'SWAP').replace('scripts/build-distributions.py',
                 'scripts/check-all.py').replace('SWAP', 'scripts/build-distributions.py'),

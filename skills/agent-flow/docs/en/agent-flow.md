@@ -183,9 +183,9 @@ post-update check.
 After changing the repository, run the full developer suite:
 
 ```bash
-python3 scripts/check-all.py
-python3 scripts/check-agent-deps.py --scope core
-python3 scripts/validate-role-catalog.py
+python3 skills/agent-flow/scripts/check-all.py
+python3 skills/agent-flow/scripts/check-agent-deps.py --scope core
+python3 skills/agent-flow/scripts/validate-role-catalog.py
 ```
 
 `check-all.py` should finish with `PASS all Agent Flow checks`.

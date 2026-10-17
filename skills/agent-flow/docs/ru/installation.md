@@ -179,7 +179,7 @@ Git-updater отдельного скилла к плагину не приме�
 Из исходного Git checkout:
 
 ```sh
-python3 scripts/check-all.py
+python3 skills/agent-flow/scripts/check-all.py
 python3 scripts/build-distributions.py --output "/каталог/вне/репозитория"
 ```
 

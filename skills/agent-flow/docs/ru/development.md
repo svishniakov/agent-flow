@@ -2,7 +2,7 @@
 
 Document status: done
 
-Локальный `pre-commit` запускает полный `scripts/check-all.py` для индекса Git,
+Локальный `pre-commit` запускает полный `skills/agent-flow/scripts/check-all.py` для индекса Git,
 то есть подготовленных к коммиту файлов. Неподготовленные изменения остаются
 в рабочем каталоге и не влияют на результат проверки.
 
@@ -17,7 +17,7 @@ Document status: done
 Установка требует сети и выполняется явно.
 
 ```sh
-python3 scripts/prepare-check-environment.py \
+python3 skills/agent-flow/scripts/prepare-check-environment.py \
   --prefix "$PWD/.git/agent-flow-checks"
 ```
 
@@ -88,7 +88,7 @@ Workflow `Push checks and distributions` запускается после об�
 На `macos-15` ARM64 явно устанавливаются версии Python и Node
 из `check-tools.json`.
 Существующий `prepare-check-environment.py` готовит закреплённые зависимости.
-Затем выполняется тот же `python3 scripts/check-all.py`,
+Затем выполняется тот же `python3 skills/agent-flow/scripts/check-all.py`,
 что использует pre-commit.
 Отсутствующий инструмент, ошибка или пропуск обязательной проверки завершают
 запуск неуспешно.
@@ -117,7 +117,7 @@ Workflow имеет только `contents: read` и не записывает �
 
 ## Пронумерованный выпуск плагина
 
-Обычный push запускает полный `python3 scripts/check-all.py` и сохраняет оба
+Обычный push запускает полный `python3 skills/agent-flow/scripts/check-all.py` и сохраняет оба
 архива в Actions. Публичный ZIP плагина появляется отдельно: при push тега
 `vX.Y.Z`, совпадающего с версией `.codex-plugin/plugin.json`. Коммит тега должен
 входить в историю удалённой `main`. Теги с суффиксами или ведущими нулями

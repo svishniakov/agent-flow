@@ -29,7 +29,7 @@ def find_repo_root(start: Path) -> Path:
     if result.returncode:
         raise CheckError(f"Git repository required (exit {result.returncode}): {result.stderr.strip()}")
     repo_root = Path(result.stdout.strip()).resolve()
-    if (repo_root / "skills/agent-flow").resolve() != start.resolve() or not (repo_root / "scripts/check-all.py").is_file():
+    if (repo_root / "skills/agent-flow").resolve() != start.resolve() or not (repo_root / "scripts/check-index.py").is_file():
         raise CheckError(f"Not the Agent Flow source repository: {repo_root}")
     return repo_root
 
@@ -83,24 +83,9 @@ def run_step(name: str, command: list[str]) -> int:
 
 
 def run_test_inventory_guard(repo_root: Path, command_steps: list[tuple[str, list[str]]]) -> int:
-    """Every test is planned once; removed required tests and changed wrappers fail."""
+    """Every test is planned once; removed required tests fail."""
     discovered = {path.resolve() for path in SCRIPTS.glob("test-*.py")}
-    wrapper = '''#!/usr/bin/env python3
-"""Run the canonical Agent Flow script from skills/agent-flow/scripts."""
-
-from __future__ import annotations
-
-import runpy
-import sys
-from pathlib import Path
-
-TARGET = Path(__file__).resolve().parents[1] / "skills" / "agent-flow" / "scripts" / Path(__file__).name
-sys.path.insert(0, str(TARGET.parent))
-runpy.run_path(str(TARGET), run_name="__main__")
-'''.encode()
     for path in (repo_root / "scripts").glob("test-*.py"):
-        if (SCRIPTS / path.name).is_file() and path.read_bytes() == wrapper:
-            continue
         discovered.add(path.resolve())
     planned = []
     for _, command in command_steps:

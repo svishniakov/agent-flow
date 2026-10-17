@@ -579,7 +579,7 @@ class AnalysisCompletionTests(unittest.TestCase):
             f"CodexSessionSource.session_dir = lambda self: Path({str(self.sessions)!r})\n")
         self.env = {**os.environ, "PYTHONPATH": str(bootstrap), "PYTHONDONTWRITEBYTECODE": "1"}
         self.run = Path(self.cli("init-run.py", "--repo", str(self.root), "--slug", "analysis",
-                                 "--mode", "compact", wrapper=True).stdout.strip())
+                                 "--mode", "compact").stdout.strip())
         snapshot = JournalSnapshot.open(self.run)
         self.assertEqual(snapshot.storage_version, 3)
         self.assertEqual(snapshot.package_version, current_package_version())
@@ -592,8 +592,8 @@ class AnalysisCompletionTests(unittest.TestCase):
                              "result_hash": evidence.sha256(JournalSnapshot.open(self.run).read_bytes("scope.md"))}
         self.register()
 
-    def cli(self, name, *args, wrapper=False, ok=True):
-        script = SCRIPTS.parents[2] / "scripts" / name if wrapper else SCRIPTS / name
+    def cli(self, name, *args, ok=True):
+        script = SCRIPTS / name
         result = subprocess.run([sys.executable, "-B", str(script), *args], env=self.env,
                                 capture_output=True, text=True)
         self.assertEqual(result.returncode == 0, ok, result.stdout + result.stderr)
@@ -637,7 +637,7 @@ class AnalysisCompletionTests(unittest.TestCase):
         for role, thread, lane, second in (("qa-verifier", base.QA_ID, "scope-qa", 10),
                                           ("reviewer", base.REVIEWER_ID, "scope-reviewer", 20)):
             _, answer, args = self.assignment(role, thread, lane, second)
-            self.cli("record-agent-trace.py", *args, wrapper=True)
+            self.cli("record-agent-trace.py", *args)
             stored = self.stored()
             key = "qa" if role == "qa-verifier" else "reviewer"
             self.assertEqual(stored["verification"][key], lane)
@@ -758,7 +758,7 @@ class AnalysisCompletionTests(unittest.TestCase):
         index = resolved.index("--completion-turn-id")
         del resolved[index:index + 2]
         resolved += ["--resolve-session", "--agent-path", "/root/scope_reviewer"]
-        self.cli("record-agent-trace.py", *resolved, wrapper=True)
+        self.cli("record-agent-trace.py", *resolved)
         before = JournalSnapshot.open(self.run)
         for replay in (args, review_args):
             replay = list(replay)
@@ -948,15 +948,15 @@ class AnalysisCompletionTests(unittest.TestCase):
                 ("qa-verifier", "00000000-0000-4000-8000-000000000004", "product-qa", 30),
                 ("reviewer", "00000000-0000-4000-8000-000000000005", "product-reviewer", 40)):
             _, _, args = self.assignment(role, thread, lane, second)
-            self.cli("record-agent-trace.py", *args, wrapper=True)
+            self.cli("record-agent-trace.py", *args)
         publish_fixture(self.run, "final.md", "# Итог\n\nVerdict: ship\n\nДобавлен product.txt.\n")
         self.cli("record-agent-trace.py", "--run-dir", str(self.run), "--render-final")
         snapshot = JournalSnapshot.open(self.run)
         self.cli("journal.py", "--run-dir", str(self.run), "finalize", "--expected-run-uuid", snapshot.run_uuid,
                  "--expected-revision", str(snapshot.revision), "--expected-generation", str(snapshot.generation),
                  "--operation-id", "analysis-to-product-finalize", "--summary", "Product product.txt independently accepted after scoped analysis",
-                 "--status", "pass", wrapper=True)
-        self.cli("validate-run.py", "--run-dir", str(self.run), wrapper=True)
+                 "--status", "pass")
+        self.cli("validate-run.py", "--run-dir", str(self.run))
         delivered = json.loads(self.cli("task-workspace.py", "--run-dir", str(self.run), "delivery").stdout)
         self.assertEqual(delivered["candidate_root"], sealed["candidate_root"])
         self.assertEqual(delivered["result_hash"], registered["result_hash"])
@@ -980,8 +980,8 @@ class JournalCLITests(unittest.TestCase):
                 {"type": "session_meta", "payload": {"id": base.ROOT_ID}}) + "\n")
             env = {**os.environ, "CODEX_HOME": str(codex_home), "PYTHONDONTWRITEBYTECODE": "1"}
 
-            def cli(name, *args, wrapper=False, ok=True):
-                script = SCRIPTS.parents[2] / "scripts" / name if wrapper else SCRIPTS / name
+            def cli(name, *args, ok=True):
+                script = SCRIPTS / name
                 result = subprocess.run([sys.executable, "-B", str(script), *args], env=env, capture_output=True, text=True)
                 if ok:
                     self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -990,7 +990,7 @@ class JournalCLITests(unittest.TestCase):
                 return result
 
             result = cli("init-run.py", "--repo", str(root), "--slug", "cli", "--mode", "compact", "--summary", "Change result.txt and verify actual output",
-                         "--plan-summary", "Implement result.txt, execute checks and obtain independent acceptance", wrapper=True)
+                         "--plan-summary", "Implement result.txt, execute checks and obtain independent acceptance")
             run = Path(result.stdout.strip())
             preliminary = {**evidence.empty_verification(), "task_kind": "analysis", "root_thread_id": base.ROOT_ID,
                            "initial_snapshot": {"path": "context.md", "section": "Initial Worktree Snapshot"},
@@ -1120,7 +1120,7 @@ class JournalCLITests(unittest.TestCase):
                 self.assertEqual(before, dict(JournalSnapshot.open(run).documents))
                 events = base.session(thread, role, answer, second)
                 (sessions / f"synthetic-{thread}.jsonl").write_text("".join(json.dumps(e) + "\n" for e in events))
-                cli("record-agent-trace.py", *handoff_args, wrapper=True)
+                cli("record-agent-trace.py", *handoff_args)
                 repeat.append(handoff_args)
             source_before = {p: p.read_bytes() for p in sessions.iterdir()}
             before = dict(JournalSnapshot.open(run).documents)
@@ -1190,13 +1190,13 @@ class JournalCLITests(unittest.TestCase):
             finalize_args = ["--run-dir", str(run), "finalize", "--expected-run-uuid", snapshot.run_uuid,
                              "--expected-revision", str(snapshot.revision), "--expected-generation", str(snapshot.generation),
                              "--operation-id", "cli-finalize", "--summary", "Actual result checked and independently accepted", "--status", "pass"]
-            cli("journal.py", *finalize_args, wrapper=True)
+            cli("journal.py", *finalize_args)
             finalized = JournalSnapshot.open(run)
             final = finalized.read_bytes("final.md")
             cli("journal.py", *finalize_args)
             self.assertEqual(finalized.revision, JournalSnapshot.open(run).revision)
             cli("validate-run.py", "--run-dir", str(run))
-            cli("validate-run.py", "--run-dir", str(run), "--mode", "compact", wrapper=True)
+            cli("validate-run.py", "--run-dir", str(run), "--mode", "compact")
             delivered = json.loads(cli("task-workspace.py", "--run-dir", str(run), "delivery").stdout)
             self.assertEqual(delivered["candidate_root"], sealed["candidate_root"])
             before = dict(JournalSnapshot.open(run).documents)

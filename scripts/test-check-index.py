@@ -57,7 +57,9 @@ class IndexHookTests(unittest.TestCase):
         (self.repo / name).write_text(text)
 
     def checker(self, text):
-        self.write("scripts/check-all.py", text)
+        target = self.repo / "skills/agent-flow/scripts/check-all.py"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text)
 
     def install(self, *args, check=True):
         return self.command([sys.executable, str(self.repo / "scripts/install-pre-commit.py"), *args], check=check)
@@ -105,7 +107,7 @@ class IndexHookTests(unittest.TestCase):
         self.write("new file.txt", "added\n")
         self.git("rm", "remove.txt")
         self.git("mv", "rename.txt", "renamed file.txt")
-        self.git("add", "scripts/check-all.py", "new file.txt")
+        self.git("add", "skills/agent-flow/scripts/check-all.py", "new file.txt")
         self.write("file with spaces.txt", "unstaged error\n")
         self.write("new file.txt", "unstaged change\n")
         self.write("untracked.txt", "private\n")
@@ -135,7 +137,7 @@ class IndexHookTests(unittest.TestCase):
             with self.subTest(signal=sig):
                 cue = self.root / f"ready-{sig}"
                 self.checker(f"from pathlib import Path\nimport time\nPath({str(cue)!r}).write_text('ready')\ntime.sleep(60)\n")
-                self.git("add", "scripts/check-all.py")
+                self.git("add", "skills/agent-flow/scripts/check-all.py")
                 before = self.state()
                 process = subprocess.Popen([sys.executable, str(self.repo / "scripts/check-index.py")],
                                            cwd=self.repo, env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -158,7 +160,7 @@ class IndexHookTests(unittest.TestCase):
         self.write(".gitattributes", '*.txt export-ignore text eol=crlf\n')
         self.git("add", ".gitattributes")
         self.checker("from pathlib import Path\nassert Path('file with spaces.txt').read_bytes() == b'good\\n'\n")
-        self.git("add", "scripts/check-all.py")
+        self.git("add", "skills/agent-flow/scripts/check-all.py")
         self.command([sys.executable, str(self.repo / "scripts/check-index.py")])
         self.assert_clean_temp()
 
@@ -166,7 +168,7 @@ class IndexHookTests(unittest.TestCase):
         self.install()
         cue = self.root / "commit-started"
         self.checker(f"from pathlib import Path\nimport time\nPath({str(cue)!r}).write_text('ready')\ntime.sleep(60)\n")
-        self.git("add", "scripts/check-all.py")
+        self.git("add", "skills/agent-flow/scripts/check-all.py")
         before = self.state()
         head = self.git("rev-parse", "HEAD").stdout
         process = subprocess.Popen(["git", "commit", "-qm", "interrupted"], cwd=self.repo, env=self.env,
@@ -238,7 +240,7 @@ class IndexHookTests(unittest.TestCase):
                  "signal.signal(signal.SIGTERM,signal.SIG_IGN); "
                  f"Path({str(cue)!r}).write_text(str(os.getpid())); time.sleep(60)")
         self.checker(f"import subprocess,sys,time\nsubprocess.Popen([sys.executable,'-c',{child!r}])\ntime.sleep(60)\n")
-        self.git("add", "scripts/check-all.py")
+        self.git("add", "skills/agent-flow/scripts/check-all.py")
         process = subprocess.Popen([sys.executable, str(self.repo / "scripts/check-index.py")],
                                    cwd=self.repo, env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         child_pid = None
@@ -275,14 +277,14 @@ class IndexHookTests(unittest.TestCase):
         self.write("intent.txt", "not staged\n")
         self.git("add", "-N", "intent.txt")
         self.checker("from pathlib import Path\nassert not Path('intent.txt').exists()\n")
-        self.git("add", "scripts/check-all.py")
+        self.git("add", "skills/agent-flow/scripts/check-all.py")
         self.command([sys.executable, str(self.repo / "scripts/check-index.py")])
 
     def test_missing_staged_checker_and_recursion_refuse(self):
         self.install()
-        self.git("rm", "scripts/check-all.py")
+        self.git("rm", "skills/agent-flow/scripts/check-all.py")
         missing = self.command([str(self.repo / ".git/hooks/pre-commit")], check=False)
-        self.assertIn("staged scripts/check-all.py is missing", missing.stderr)
+        self.assertIn("staged skills/agent-flow/scripts/check-all.py is missing", missing.stderr)
         recursion = self.command([str(self.repo / ".git/hooks/pre-commit")],
                                  env=self.env | {"AGENT_FLOW_PRE_COMMIT_RUNNING": "1"}, check=False)
         self.assertIn("recursive", recursion.stderr)
