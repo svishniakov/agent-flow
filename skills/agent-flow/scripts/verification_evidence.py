@@ -1544,7 +1544,7 @@ def source_bound_record(run_dir, record, verification, role, source, *, qa_hando
             historical_evidence_bytes(snapshot, record, ref)
     if presentation_required:
         from journal_io import handoff_receipt_evidence
-        recorded = handoff_receipt_evidence(snapshot, record["handoff"])
+        recorded = handoff_receipt_evidence(snapshot, record["handoff"], handoff_sha256=handoff_hash)
         if recorded is not None:
             require({(ref["path"], ref["sha256"]) for ref in refs} <= recorded,
                     "evidence reference set differs from the conclusion receipt")
@@ -1650,8 +1650,9 @@ def validate_context_classification(run_dir, workspace, records, completions, so
         require(any(item.get("path") == ref.get("path") and item.get("sha256") == ref.get("sha256")
                     for item in qa["evidence"]), "qa: context workflow output must be accepted QA evidence")
         if presentation_required:
-            from journal_io import handoff_receipt_evidence
-            recorded = handoff_receipt_evidence(snapshot, records["reviewer"]["handoff"])
+            from journal_io import digest, handoff_receipt_evidence
+            recorded = handoff_receipt_evidence(snapshot, records["reviewer"]["handoff"],
+                                                handoff_sha256=digest(snapshot.read_bytes(records["reviewer"]["handoff"])))
             if recorded is not None:
                 require((ref.get("path"), ref.get("sha256")) in recorded,
                         "reviewer: context workflow evidence must be in the completeness assessment receipt")

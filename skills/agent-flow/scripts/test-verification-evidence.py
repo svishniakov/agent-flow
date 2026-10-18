@@ -935,6 +935,124 @@ class EvidenceRegressions(unittest.TestCase):
             negative["verification"]["result_files"] = []
             self.assertIn("full workspace delta", " ".join(validate_verification(run, negative, {}, "blocked", source)))
 
+    def test_v2_reviewer_conclusion_receipt_binds_current_handoff_bytes(self):
+        """A second prepare-conclusion rewrites the reviewer handoff; the strict audit must
+        count only the receipt recorded against the current bytes."""
+        from journal_io import initialize_journal
+        import task_workspace as workspace
+        recorder = module("receipt_binding_recorder", "record-agent-trace.py")
+
+        def run_flow(second_artifacts, completion_artifacts=None):
+            completion_artifacts = second_artifacts if completion_artifacts is None else completion_artifacts
+            keepalive = tempfile.TemporaryDirectory()
+            temporary = keepalive.name
+            root = Path(temporary).resolve()
+            primary, secondary, context = root / "primary", root / "secondary", root / "instructions.md"
+            primary.mkdir(); secondary.mkdir()
+            workspace.git_command(primary, "init", "-q")
+            (primary / "result.txt").write_text("before\n")
+            (secondary / "extra.txt").write_text("secondary\n")
+            context.write_text("Task instructions only\n")
+            (primary / "AGENTS.md").symlink_to(context)
+            run = root / ".agent-work/runs/receipt-binding"
+            verification = {**empty_verification(), "task_kind": "change", "root_thread_id": ROOT_ID,
+                            "author_thread_ids": [ROOT_ID]}
+            summary = {"version": 1, "notes": "Reviewer receipt binding", "subagents_used": False,
+                       "role_lanes_used": False, "subagents": [], "role_lanes": [], "verification": verification}
+            initialize_journal(run, {"run.md": b"# Neutral change\n", "checks.md": b"# Checks\n",
+                "context.md": b"# Context\n\n## Initial Worktree Snapshot\n\nKnown complete topology.\n",
+                "plan.md": b"# Plan\n\nChange primary/result.txt.\n", "final.md": b"Verdict: pending\n",
+                "delegation-summary.json": json.dumps(summary).encode()}, source_root=root)
+            prepared = workspace.prepare(run, [primary, secondary], root / "owned", context_roots=[context], identifier="scope")
+            (Path(prepared["working_root"]) / "primary/result.txt").write_text("after\n")
+            sealed = workspace.seal(run, identifier="candidate")
+            snapshot = JournalSnapshot.open(run)
+            summary = json.loads(snapshot.read_text("delegation-summary.json"))
+            verification = summary["verification"]
+            verification["result_files"] = sealed["changed_paths"]
+            verification.update(initial_snapshot=reference(run, "context.md", "Initial Worktree Snapshot"),
+                                task_scope=reference(run, "plan.md"))
+            from types import SimpleNamespace
+            publish_workspace_authors(SimpleNamespace(run=run, summary=summary), {**prepared, "seal": sealed})
+            verification["result_hash"] = result_hash(run, verification)
+            transact(run, "scope-refs", {}, lambda s: ({"delegation-summary.json": json.dumps(summary)}, {}))
+            observed = "Candidate workflow loaded complete product topology successfully.\n"
+            workflow = {"path": "checks/workflow.txt", "sha256": sha256(observed.encode()),
+                        "source_event": 4, "source_call_id": "workflow-call"}
+            transact(run, "publish-evidence", {}, lambda s: ({"checks/workflow.txt": observed.encode(),
+                                                              "checks/other.txt": b"other proof\n"}, {}))
+            source = SyntheticSource()
+            aliases = [item["relative_path"] for item in prepared["task_scope"]["context_exclusions"]]
+            classification = {"task_scope_digest": sealed["task_scope_digest"], "context_exclusions": aliases}
+            # QA: pre-published handoff with inline evidence markers, no receipt.
+            qa_lane, qa_handoff = "scope-qa-verifier", "handoffs/scope-qa-verifier.md"
+            qa_handoff_data = ("# Independent completeness assessment\n\nCandidate workflow covers runtime dependencies.\n\n"
+                               + workflow["path"] + " " + workflow["sha256"] + "\n").encode()
+            transact(run, "publish-qa", {}, lambda s: ({qa_handoff: qa_handoff_data}, {}))
+            source.sessions[QA_ID] = session(QA_ID, "qa-verifier", {}, 10)
+            qa_common = ["--run-dir", str(run), "--role", "qa-verifier", "--lane-id", qa_lane]
+            with redirect_stdout(StringIO()):
+                recorder.main([*qa_common, "--codex-thread-id", QA_ID, "--stage", "spawned", "--status", "active",
+                               "--summary", "Independent candidate assessment"], session_source=source)
+            with redirect_stdout(StringIO()) as output:
+                recorder.main([*qa_common, "--prepare-conclusion", "--status", "pass", "--artifact", qa_handoff,
+                    "--artifact", workflow["path"], "--context-classification-json",
+                    json.dumps({**classification, "workflow_evidence": [workflow]})], session_source=source)
+            qa_answer = json.loads(output.getvalue())
+            source.sessions[QA_ID] = session(QA_ID, "qa-verifier", qa_answer, 10)
+            source.sessions[QA_ID].insert(3, {"type": "response_item", "payload": {
+                "type": "function_call_output", "call_id": "workflow-call", "output": observed}})
+            with redirect_stdout(StringIO()):
+                recorder.main([*qa_common, "--codex-thread-id", QA_ID, "--completion-turn-id", QA_ID + "-turn",
+                    "--stage", "handoff", "--status", "pass", "--summary", "Accepted complete candidate",
+                    "--artifact", qa_handoff, "--artifact", workflow["path"]], session_source=source)
+            # Reviewer: two conclusions; the second rewrites the handoff bytes.
+            reviewer_lane, reviewer_handoff = "scope-reviewer", "handoffs/scope-reviewer.md"
+            reviewer_common = ["--run-dir", str(run), "--role", "reviewer", "--lane-id", reviewer_lane]
+            source.sessions[REVIEWER_ID] = session(REVIEWER_ID, "reviewer", {}, 20)
+            with redirect_stdout(StringIO()):
+                recorder.main([*reviewer_common, "--codex-thread-id", REVIEWER_ID, "--stage", "spawned",
+                               "--status", "active", "--summary", "Independent candidate assessment"],
+                              session_source=source)
+            with redirect_stdout(StringIO()) as output:
+                recorder.main([*reviewer_common, "--prepare-conclusion", "--status", "pass",
+                    "--summary", "First completeness assessment", "--artifact", reviewer_handoff,
+                    "--artifact", workflow["path"],
+                    "--context-classification-json", json.dumps(classification)], session_source=source)
+            first_answer = json.loads(output.getvalue())
+            with redirect_stdout(StringIO()) as output:
+                recorder.main([*reviewer_common, "--prepare-conclusion", "--status", "pass",
+                    "--summary", "Second completeness assessment", "--artifact", reviewer_handoff,
+                    *second_artifacts,
+                    "--context-classification-json", json.dumps(classification)], session_source=source)
+            second_answer = json.loads(output.getvalue())
+            self.assertNotEqual(first_answer["handoff_sha256"], second_answer["handoff_sha256"])
+            source.sessions[REVIEWER_ID] = session(REVIEWER_ID, "reviewer", second_answer, 20)
+            with redirect_stdout(StringIO()):
+                recorder.main([*reviewer_common, "--codex-thread-id", REVIEWER_ID,
+                    "--completion-turn-id", REVIEWER_ID + "-turn", "--stage", "handoff", "--status", "pass",
+                    "--summary", "Accepted complete candidate",
+                    "--artifact", reviewer_handoff, *completion_artifacts], session_source=source)
+            return run, source, keepalive
+
+        # The second conclusion omits the workflow evidence: the stale first receipt must not count.
+        from journal_lifecycle import finalize
+        run, source, _keep1 = run_flow(["--artifact", "checks/other.txt"])
+        snapshot = JournalSnapshot.open(run)
+        finalize(run, expected_run_uuid=snapshot.run_uuid, expected_revision=snapshot.revision,
+                 expected_generation=snapshot.generation, identifier="receipt-binding-final",
+                 final_summary="Scoped local result independently accepted", verdict="ship", session_source=source)
+        errors = validator.validate_run(run, session_source=source)
+        self.assertIn("reviewer: context workflow evidence must be in the completeness assessment receipt",
+                      "\n".join(errors))
+        # With the workflow evidence in the second conclusion the audit accepts the run.
+        run, source, _keep2 = run_flow(["--artifact", "checks/workflow.txt"])
+        snapshot = JournalSnapshot.open(run)
+        finalize(run, expected_run_uuid=snapshot.run_uuid, expected_revision=snapshot.revision,
+                 expected_generation=snapshot.generation, identifier="receipt-binding-final",
+                 final_summary="Scoped local result independently accepted", verdict="ship", session_source=source)
+        self.assertEqual(validator.validate_run(run, session_source=source), [])
+
     def test_negative_source_completions_before_prepare_and_retry(self):
         from journal_io import initialize_journal
         from journal_lifecycle import finalize

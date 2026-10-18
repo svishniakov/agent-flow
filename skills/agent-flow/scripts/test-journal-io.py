@@ -1131,6 +1131,116 @@ keep me
             projected = journal_io.memory_path(journal_io.JournalSnapshot.open(fourth), "evidence-record")
             self.assertIn("### Evidence: manual-two", projected.read_text(encoding="utf-8"))
 
+    def test_import_evidence_records_stage_completion_and_content_conflict(self):
+        import tempfile
+        from evidence_records import parse_notes
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source = root / "source"
+            source.mkdir()
+            subprocess.run(["git", "init", "-q", str(source)], check=True)
+            run = source / ".agent-work/runs/import-stages"
+            journal_io.initialize_journal(run, {}, source_root=source)
+            manual_text = ("# Implementation Notes\n\n## Evidence Records\n\n### Evidence: partial-one\n\n"
+                           "Type: Success\nProblem class: p\nContext: c\nApproach: a\nOutcome: success\n"
+                           "Evidence: e\nReuse when: r\nDo not reuse when: s\nFollow-up: f\n"
+                           "Helpful: 3\nActive: false\nCustom Field: keep me\n")
+            notes = root / "notes.md"
+            notes.write_text(manual_text, encoding="utf-8")
+            # A crash between the record stage and the extra/counters stages leaves a partial row.
+            original_transact = journal_io.transact
+            def flaky(run_dir, identifier, payload, mutation, **kwargs):
+                if identifier == "import-evidence-extra-partial-one":
+                    raise RuntimeError("simulated crash")
+                return original_transact(run_dir, identifier, payload, mutation, **kwargs)
+            journal_io.transact = flaky
+            try:
+                with self.assertRaises(RuntimeError):
+                    journal_io.import_evidence_records(run, notes=notes, today="2026-10-18")
+            finally:
+                journal_io.transact = original_transact
+            store = json.loads(journal_io.JournalSnapshot.open(run).read_text("artifacts/memory/evidence-records.json"))
+            row = store["records"][0]
+            self.assertNotIn("extra", row)
+            self.assertEqual(row["outcomes"], [])
+            self.assertEqual(notes.read_text(encoding="utf-8"), manual_text)
+            # The rerun completes the missing stages under the same deterministic operation ids.
+            result = journal_io.import_evidence_records(run, notes=notes, today="2026-10-19")
+            self.assertEqual(result["imported"], ["partial-one"])
+            store = json.loads(journal_io.JournalSnapshot.open(run).read_text("artifacts/memory/evidence-records.json"))
+            row = store["records"][0]
+            self.assertEqual(row["extra"], {"Custom Field": "keep me"})
+            self.assertEqual([event["counter"] for event in row["outcomes"]], ["helpful", "helpful"])
+            self.assertEqual(row["active"], False)
+            self.assertNotIn("### Evidence: partial-one", notes.read_text(encoding="utf-8"))
+            projected = journal_io.memory_path(journal_io.JournalSnapshot.open(run), "evidence-record")
+            parsed = {record.record_id: record
+                      for record in parse_notes(projected.read_text(encoding="utf-8")).records}
+            self.assertEqual(parsed["partial-one"].fields["Helpful"], "3")
+            self.assertEqual(parsed["partial-one"].fields["Custom Field"], "keep me")
+            self.assertEqual(parsed["partial-one"].fields["Active"], "false")
+            again = journal_io.import_evidence_records(run, notes=notes, today="2026-10-20")
+            self.assertEqual((again["imported"], again["skipped"]), ([], []))
+            # Canonical content match: the manual copy of a journaled record is skipped and stripped.
+            journal_io.write_entry(run, "evidence-record",
+                                   {"summary": "Same approach", "status": "pass", "id": "already-there",
+                                    "record_type": "Success", "problem_class": "p", "context": "c",
+                                    "outcome": "success", "evidence": ["e"], "reuse_when": "r",
+                                    "do_not_reuse_when": "s", "follow_up": "f"}, identifier="direct-record")
+            notes_match = root / "notes-match.md"
+            notes_match.write_text("# Implementation Notes\n\n## Evidence Records\n\n### Evidence: already-there\n\n"
+                                   "Type: Success\nProblem class: p\nContext: c\nApproach: Same approach\nOutcome: success\n"
+                                   "Evidence: e\nReuse when: r\nDo not reuse when: s\nFollow-up: f\n", encoding="utf-8")
+            matched = journal_io.import_evidence_records(run, notes=notes_match)
+            self.assertEqual((matched["imported"], matched["skipped"]), ([], ["already-there"]))
+            self.assertNotIn("### Evidence:", notes_match.read_text(encoding="utf-8"))
+            # Same id with different content is rejected; the manual block stays untouched.
+            notes_conflict = root / "notes-conflict.md"
+            notes_conflict.write_text("# Implementation Notes\n\n## Evidence Records\n\n### Evidence: already-there\n\n"
+                                      "Type: Success\nProblem class: p\nContext: DIFFERENT\nApproach: Same approach\n"
+                                      "Outcome: success\nEvidence: e\nReuse when: r\nDo not reuse when: s\nFollow-up: f\n",
+                                      encoding="utf-8")
+            conflict_text = notes_conflict.read_text(encoding="utf-8")
+            with self.assertRaisesRegex(journal_io.JournalError,
+                                        "import conflict: already-there differs from journaled record"):
+                journal_io.import_evidence_records(run, notes=notes_conflict)
+            self.assertEqual(notes_conflict.read_text(encoding="utf-8"), conflict_text)
+
+    def test_covers_fall_back_to_markers_for_pre_hash_receipts(self):
+        """0.6.0-style journal: lane-report receipt without handoff_sha256, handoff receipt with empty covers."""
+        import sqlite3
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            run = root / "run"
+            journal_io.initialize_journal(run, {"checks.md": b"# Checks\n"}, source_root=root)
+            self.register_synthetic_root(run)
+            journal_io.write_entry(run, "lane", {"id": "worker", "summary": "Planned worker", "status": "planned",
+                "lane_type": "implementation", "role": "python-worker", "execution_mode": "role-lane",
+                "wave": 1, "critical": False}, identifier="covers-lane")
+            journal_io.write_entry(run, "handoff", {"lane_id": "worker", "summary": "Work done",
+                                                    "status": "pass"}, identifier="covers-handoff")
+            journal_io.write_entry(run, "lane-report",
+                                   {"lane_id": "worker", "summary": "Worker report", "status": "pass",
+                                    "sections": [{"section": "Contract Drift", "summary": "drift",
+                                                  "covers": ["api-service"]}]}, identifier="covers-report")
+            connection = sqlite3.connect(run / ".journal/state.sqlite3")
+            try:
+                rows = connection.execute("SELECT operation_id, result FROM operations").fetchall()
+                stripped = 0
+                for operation_id, raw in rows:
+                    result = json.loads(raw)
+                    if "report" in result and result.pop("handoff_sha256", None) is not None:
+                        connection.execute("UPDATE operations SET result=? WHERE operation_id=?",
+                                           (json.dumps(result), operation_id))
+                        stripped += 1
+                connection.commit()
+            finally:
+                connection.close()
+            self.assertEqual(stripped, 1)
+            snapshot = journal_io.JournalSnapshot.open(run)
+            self.assertEqual(journal_io.handoff_covers(snapshot, "worker"), {"Contract Drift": ["api-service"]})
+
     def test_check_process_does_not_hold_journal_writer_lock(self):
         import tempfile
         with tempfile.TemporaryDirectory() as directory:

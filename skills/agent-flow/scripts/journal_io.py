@@ -2502,11 +2502,8 @@ def import_evidence_records(run_dir, *, notes=None, today=None):
     conflicted = sorted(record.record_id for record in parsed.records if record.record_id in block_ids)
     require(not conflicted, "evidence records already journaled by another run: " + ", ".join(conflicted))
     imported, skipped = [], []
+    moved = set()
     for record in parsed.records:
-        store = load_evidence_records(JournalSnapshot.open(run_dir))
-        if record.record_id in {row["id"] for row in store["records"]}:
-            skipped.append(record.record_id)
-            continue
         fields = record.fields
         provenance = "import:" + stamp
         if fields.get("Provenance"):
@@ -2528,9 +2525,40 @@ def import_evidence_records(run_dir, *, notes=None, today=None):
         known = {"Type", "Problem class", "Context", "Approach", "Outcome", "Evidence", "Reuse when",
                  "Do not reuse when", "Follow-up", "Section", "Keywords", "Provenance", "Verification",
                  "Helpful", "Harmful", "Neutral", "Active"}
-        write_entry(run_dir, "evidence-record", request,
-                    identifier="import-evidence-record-" + record.record_id, defer_projection=True)
         extra = {key: fields[key] for key in fields if key not in known}
+        explicit = record_counters(record)
+        base = derived_counters(record.outcome)
+        planned = [(counter, index) for counter in ("helpful", "harmful", "neutral")
+                   for index in range(max(0, explicit[counter] - base[counter]))]
+        expected = evidence_record_row(request)
+        if extra:
+            expected["extra"] = extra
+        expected["outcomes"] = [{"counter": counter, "summary": "Imported counter carry-over",
+                                 "status": "pass", "evidence": [path.name]} for counter, _index in planned]
+        expected_fields = {key: value for key, value in evidence_record_fields(expected).items()
+                           if key != "Provenance"}
+        store = load_evidence_records(JournalSnapshot.open(run_dir))
+        existing = next((row for row in store["records"] if row["id"] == record.record_id), None)
+        if existing is not None:
+            actual_fields = {key: value for key, value in evidence_record_fields(existing).items()
+                             if key != "Provenance"}
+            if actual_fields == expected_fields:
+                # Canonical content already journaled in full; safe to drop the manual copy.
+                skipped.append(record.record_id)
+                moved.add(record.record_id)
+                continue
+            actual_base = {key: value for key, value in existing.items()
+                           if key not in {"outcomes", "extra", "provenance"}}
+            expected_base = {key: value for key, value in expected.items()
+                             if key not in {"outcomes", "extra", "provenance"}}
+            actual_outcomes = existing.get("outcomes", [])
+            consistent = (actual_base == expected_base
+                          and existing.get("extra", extra) == extra
+                          and actual_outcomes == expected["outcomes"][:len(actual_outcomes)])
+            require(consistent, "import conflict: " + record.record_id + " differs from journaled record")
+        else:
+            write_entry(run_dir, "evidence-record", request,
+                        identifier="import-evidence-record-" + record.record_id, defer_projection=True)
         if extra:
             from evidence_records import validate_renderable_fields
             try:
@@ -2544,23 +2572,24 @@ def import_evidence_records(run_dir, *, notes=None, today=None):
                 return {EVIDENCE_RECORDS_PATH: encode_json(data, pretty=True) + "\n"}, {}
             transact(run_dir, "import-evidence-extra-" + record.record_id,
                      {"kind": "evidence-record-extra", "id": record.record_id}, patch_extra, lifecycle="memory")
-        explicit = record_counters(record)
-        base = derived_counters(record.outcome)
-        for counter in ("helpful", "harmful", "neutral"):
-            for index in range(max(0, explicit[counter] - base[counter])):
-                write_entry(run_dir, "evidence-record-outcome",
-                            {"summary": "Imported counter carry-over", "status": "pass", "id": record.record_id,
-                             "counter": counter, "evidence": [path.name]},
-                            identifier=f"import-evidence-counter-{record.record_id}-{counter}-{index}",
-                            defer_projection=True)
+        for counter, index in planned:
+            write_entry(run_dir, "evidence-record-outcome",
+                        {"summary": "Imported counter carry-over", "status": "pass", "id": record.record_id,
+                         "counter": counter, "evidence": [path.name]},
+                        identifier=f"import-evidence-counter-{record.record_id}-{counter}-{index}",
+                        defer_projection=True)
+        final_row = next(row for row in load_evidence_records(JournalSnapshot.open(run_dir))["records"]
+                         if row["id"] == record.record_id)
+        final_fields = {key: value for key, value in evidence_record_fields(final_row).items()
+                        if key != "Provenance"}
+        require(final_fields == expected_fields, "import did not complete for " + record.record_id)
         imported.append(record.record_id)
-    store = load_evidence_records(JournalSnapshot.open(run_dir))
-    store_ids = {row["id"] for row in store["records"]}
-    moved = set(imported) | {record.record_id for record in parsed.records if record.record_id in store_ids}
+        moved.add(record.record_id)
     if moved:
         updated = strip_manual_evidence_records(path.read_text(encoding="utf-8"), moved)
         atomic_memory_write(path, updated.encode())
-    if store_ids:
+    store = load_evidence_records(JournalSnapshot.open(run_dir))
+    if store["records"]:
         # Repairable projection: a crashed earlier import is completed here.
         project_memory(JournalSnapshot.open(run_dir), "evidence-record", None)
     return {"notes": str(path), "imported": imported, "skipped": skipped}
@@ -3225,9 +3254,10 @@ def handoff_covers(snapshot, lane_id):
 
     Receipts are the primary source (durable writer path), accepted only when
     their handoff_sha256 binds them to the current document bytes; receipts of
-    superseded revisions and legacy receipts without a hash are ignored. Strict
-    writer marker lines in the document are the legacy/flat fallback. Returns
-    None when the lane has no covers data at all (legacy flat journals stay
+    superseded revisions and legacy receipts without a hash are ignored, and an
+    empty receipt covers mapping does not block the fallback. Strict writer
+    marker lines in the document are the legacy/flat fallback. Returns None
+    when the lane has no covers data at all (legacy flat journals stay
     readable).
     """
     paths = set()
@@ -3255,7 +3285,7 @@ def handoff_covers(snapshot, lane_id):
         covers = covers or {}
         for section, ids in result["covers"].items():
             covers[section] = list(dict.fromkeys(ids))
-    if covers is not None:
+    if covers:
         return covers
     parsed = {}
     for path in sorted(paths):
