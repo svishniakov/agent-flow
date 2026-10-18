@@ -4,12 +4,14 @@
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import os
 import re
 import subprocess
 from pathlib import Path, PurePosixPath
 import sys
+import tarfile
 import tempfile
 import zipfile
 
@@ -42,16 +44,31 @@ def check_checkout(source, commit_sha):
     require(not git("status", "--porcelain", "--untracked-files=no"), "tracked source files have changes")
 
 
-def plugin_files(source, commit_sha=None, release_tag=None):
+def export_commit(source, commit_sha, destination):
+    result = subprocess.run(["git", "-C", str(source), "archive", "--format=tar", commit_sha],
+                            capture_output=True)
+    require(result.returncode == 0, "cannot export commit: " + result.stderr.decode(errors="replace").strip())
+    with tarfile.open(fileobj=io.BytesIO(result.stdout)) as archive:
+        for member in archive.getmembers():
+            name = PurePosixPath(member.name)
+            require(not name.is_absolute() and ".." not in name.parts, f"unsafe archive member: {member.name}")
+            target = destination / name.as_posix()
+            if member.isdir():
+                target.mkdir(parents=True, exist_ok=True)
+            elif member.issym():
+                link = PurePosixPath(member.linkname)
+                require(not link.is_absolute() and ".." not in link.parts,
+                        f"unsafe archive symlink: {member.name}")
+                target.symlink_to(member.linkname)
+            else:
+                require(member.isfile(), f"unsupported archive member: {member.name}")
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(archive.extractfile(member).read())
+
+
+def plugin_files(source, release_tag=None):
     if release_tag is not None:
-        require(isinstance(commit_sha, str) and re.fullmatch(r"[0-9a-f]{40}", commit_sha),
-                "release commit-sha must be a full lowercase Git SHA")
         release_tag_name(release_tag)
-    elif commit_sha is not None:
-        require(isinstance(commit_sha, str) and re.fullmatch(r"[0-9a-f]{40}", commit_sha),
-                "commit-sha must be a full lowercase Git SHA")
-    if commit_sha is not None:
-        check_checkout(source, commit_sha)
     manifest = read_json(source / ".codex-plugin/plugin.json")
     validate_manifest(manifest)
     package = inventory(source / "skills/agent-flow")
@@ -73,9 +90,22 @@ def plugin_files(source, commit_sha=None, release_tag=None):
     files["agent-flow/.agents/plugins/marketplace.json"] = json_bytes(marketplace())
     for name, data in outer.items():
         files["agent-flow/" + name] = data
-    if commit_sha is not None:
-        check_checkout(source, commit_sha)
     return files, manifest["version"]
+
+
+def release_files(source, commit_sha, release_tag=None):
+    """Expected plugin archive content, exported hermetically from the given commit."""
+    require(isinstance(commit_sha, str) and re.fullmatch(r"[0-9a-f]{40}", commit_sha),
+            "commit-sha must be a full lowercase Git SHA")
+    if release_tag is not None:
+        release_tag_name(release_tag)
+    source = source.resolve()
+    check_checkout(source, commit_sha)
+    with tempfile.TemporaryDirectory(prefix="agent-flow-export-") as temporary:
+        tree = Path(temporary).resolve() / "tree"
+        tree.mkdir()
+        export_commit(source, commit_sha, tree)
+        return plugin_files(tree, release_tag)
 
 
 def read_archive(path):
@@ -92,9 +122,8 @@ def read_archive(path):
         return {name: archive.read(name) for name in names}
 
 
-def verify_archive(source, path, commit_sha=None, release_tag=None):
-    """Re-read the written archive, compare with a fresh snapshot, and smoke the package."""
-    files, version = plugin_files(source, commit_sha, release_tag)
+def verify_archive(path, files, version):
+    """Re-read the written archive, compare with the expected snapshot, and smoke the package."""
     require(path.name == f"agent-flow-{version}-codex-plugin.zip", f"unexpected archive name: {path.name}")
     require(read_archive(path) == files, f"archive bytes or metadata mismatch: {path.name}")
     with tempfile.TemporaryDirectory(prefix="agent-flow-verify-") as temporary:
@@ -130,7 +159,14 @@ def verify_archive(source, path, commit_sha=None, release_tag=None):
 def build(source, output, commit_sha=None, release_tag=None):
     source, output = source.resolve(), output.resolve()
     require(not output.is_relative_to(source), "output must be outside source tree and skill discovery")
-    files, version = plugin_files(source, commit_sha, release_tag)
+    if release_tag is not None:
+        require(commit_sha is not None, "release builds require --commit-sha for a hermetic export")
+    if commit_sha is None:
+        print("warning: building from the working tree; untracked or ignored files can enter the archive — "
+              "pass --commit-sha for a hermetic build", file=sys.stderr)
+        files, version = plugin_files(source, release_tag)
+    else:
+        files, version = release_files(source, commit_sha, release_tag)
     data = archive_bytes(files)
     target = output / f"agent-flow-{version}-codex-plugin.zip"
     require(not target.is_symlink(), f"refusing output symlink: {target}")
@@ -145,12 +181,12 @@ def build(source, output, commit_sha=None, release_tag=None):
         finally:
             temporary.unlink()
         try:
-            verify_archive(source, target, commit_sha, release_tag)
+            verify_archive(target, files, version)
         except BaseException:
             target.unlink()
             raise
     else:
-        verify_archive(source, target, commit_sha, release_tag)
+        verify_archive(target, files, version)
     return {"version": version, "archive": str(target), "sha256": digest(data)}
 
 
@@ -158,7 +194,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, default=SOURCE)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--commit-sha")
+    parser.add_argument("--commit-sha", help="Full commit SHA; the build exports that commit instead of reading the working tree (mandatory with --release-tag).")
     parser.add_argument("--release-tag")
     args = parser.parse_args()
     try:

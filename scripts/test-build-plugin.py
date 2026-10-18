@@ -316,7 +316,8 @@ class ReleaseBuild(unittest.TestCase):
         cls.temp.cleanup()
 
     def verify(self, path):
-        return builder.verify_archive(self.source, path, self.sha, self.tag)
+        files, version = builder.release_files(self.source, self.sha, self.tag)
+        return builder.verify_archive(path, files, version)
 
     def test_release_cli_builds_verified_single_archive(self):
         output = self.base / "release-cli"
@@ -339,8 +340,22 @@ class ReleaseBuild(unittest.TestCase):
                          {p.name: p.read_bytes() for p in self.output.iterdir()})
         print("release-rebuild-identical")
 
+    def test_release_build_is_hermetic_for_untracked_and_ignored_files(self):
+        ignored = self.source / "skills/agent-flow/scripts/.env.production"
+        ignored.write_text("SECRET=1\n")
+        untracked = self.source / "skills/agent-flow/scripts/untracked-notes.py"
+        untracked.write_text("print('local only')\n")
+        result = builder.build(self.source, self.base / "hermetic", self.sha, release_tag=self.tag)
+        with zipfile.ZipFile(result["archive"]) as archive:
+            names = archive.namelist()
+        self.assertFalse(any(".env.production" in name for name in names))
+        self.assertFalse(any("untracked-notes" in name for name in names))
+        ignored.unlink()
+        untracked.unlink()
+        print("release-build-hermetic-untracked-ignored")
+
     def test_release_invalid_cli_identity_fails_before_output(self):
-        cases = [(self.tag, None, "release commit-sha"),
+        cases = [(self.tag, None, "require --commit-sha"),
                  ("v01.0.0", self.sha, "release-tag"),
                  ("v1.0.0-rc.1", self.sha, "release-tag"),
                  ("v1.0.0+build", self.sha, "release-tag"),

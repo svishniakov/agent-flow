@@ -174,9 +174,11 @@ python3 ~/.agents/skills/agent-flow/scripts/update-agent-flow-skill.py
 
 `--dry-run` делает `fetch` и показывает, clean checkout или нет, отстаёт он от remote, опережает его или разошёлся с ним. Реальное обновление делает только fast-forward для clean checkout. Чтобы отбросить локальные правки или divergent commits, нужно явно запустить с `--overwrite`.
 
-По умолчанию updater запускает `scripts/check-agent-deps.py --scope core`. Для
-полной проверки после обновления передайте `--full-check`. Чтобы пропустить
-проверку, используйте `--skip-check`.
+По умолчанию updater запускает `skills/agent-flow/scripts/check-agent-deps.py
+--scope core`. Для полной проверки после обновления передайте `--full-check`
+(запускается `skills/agent-flow/scripts/check-all.py`). Чтобы пропустить
+проверку, используйте `--skip-check`. Отсутствующая обязательная проверка
+завершает обновление ошибкой.
 
 ## Проверки
 

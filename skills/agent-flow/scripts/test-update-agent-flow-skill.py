@@ -61,13 +61,13 @@ def prepare_remote(root: Path) -> tuple[Path, Path, Path]:
     commit_file(source, "README.md", "v1\n", "initial readme")
     commit_file(
         source,
-        "scripts/check-agent-deps.py",
+        "skills/agent-flow/scripts/check-agent-deps.py",
         "print('INSTALL_HEALTH_CHECK')\n",
         "add install health check fixture",
     )
     commit_file(
         source,
-        "scripts/check-all.py",
+        "skills/agent-flow/scripts/check-all.py",
         "print('FULL_CHECK')\n",
         "add full check fixture",
     )
@@ -148,6 +148,20 @@ def main() -> int:
         if "INSTALL_HEALTH_CHECK" not in overwritten.stdout:
             raise AssertionError(overwritten.stdout)
         assert_text(installed / "README.md", "v3\n")
+
+        git(source, "rm", "-q", "skills/agent-flow/scripts/check-all.py")
+        git(source, "commit", "-qm", "remove full check fixture")
+        git(source, "push", "origin", "main")
+        missing_full = run_updater(installed, "--full-check", check=False)
+        if missing_full.returncode == 0 or "required full check is missing" not in missing_full.stderr:
+            raise AssertionError(missing_full.stdout + missing_full.stderr)
+
+        git(source, "rm", "-q", "skills/agent-flow/scripts/check-agent-deps.py")
+        git(source, "commit", "-qm", "remove health check fixture")
+        git(source, "push", "origin", "main")
+        missing_health = run_updater(installed, check=False)
+        if missing_health.returncode == 0 or "required install health check is missing" not in missing_health.stderr:
+            raise AssertionError(missing_health.stdout + missing_health.stderr)
 
     print("PASS update-agent-flow-skill fixture tests")
     return 0

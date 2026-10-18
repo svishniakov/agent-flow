@@ -173,10 +173,11 @@ python3 ~/.agents/skills/agent-flow/scripts/update-agent-flow-skill.py
 
 `--dry-run` fetches the remote and reports whether the checkout is clean, behind, ahead, or diverged. A real update only fast-forwards a clean checkout. To discard local edits or divergent commits, rerun with explicit `--overwrite`.
 
-By default the updater runs `scripts/check-agent-deps.py --scope core`, which
-uses only the installed skill dependency checker. Pass `--full-check` to run
-`scripts/check-all.py` after update. Pass `--skip-check` to skip the
-post-update check.
+By default the updater runs `skills/agent-flow/scripts/check-agent-deps.py
+--scope core`, which uses only the installed skill dependency checker. Pass
+`--full-check` to run `skills/agent-flow/scripts/check-all.py` after update.
+Pass `--skip-check` to skip the post-update check. A missing required check
+fails the update.
 
 ## Checks
 

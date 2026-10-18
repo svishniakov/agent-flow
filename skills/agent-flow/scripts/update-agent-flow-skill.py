@@ -65,11 +65,19 @@ def is_ancestor(repo: Path, older_ref: str, newer_ref: str) -> bool:
     return result.returncode == 0
 
 
+def find_check_script(repo: Path, name: str) -> Path | None:
+    for candidate in (repo / "skills/agent-flow/scripts" / name, repo / "scripts" / name):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def run_install_health_check(repo: Path) -> int:
-    check_script = repo / "scripts" / "check-agent-deps.py"
-    if not check_script.exists():
-        print(f"skip install health check: {check_script} not found")
-        return 0
+    check_script = find_check_script(repo, "check-agent-deps.py")
+    if check_script is None:
+        print(f"required install health check is missing: skills/agent-flow/scripts/check-agent-deps.py not found in {repo}",
+              file=sys.stderr)
+        return 1
     result = subprocess.run(
         [sys.executable, str(check_script), "--scope", "core"],
         cwd=repo,
@@ -80,10 +88,11 @@ def run_install_health_check(repo: Path) -> int:
 
 
 def run_full_check(repo: Path) -> int:
-    check_script = repo / "scripts" / "check-all.py"
-    if not check_script.exists():
-        print(f"skip full check: {check_script} not found")
-        return 0
+    check_script = find_check_script(repo, "check-all.py")
+    if check_script is None:
+        print(f"required full check is missing: skills/agent-flow/scripts/check-all.py not found in {repo}",
+              file=sys.stderr)
+        return 1
     result = subprocess.run([sys.executable, str(check_script)], cwd=repo, text=True, check=False)
     return result.returncode
 
@@ -99,7 +108,7 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Discard local uncommitted changes and reset divergent local commits to the remote branch.",
     )
-    parser.add_argument("--full-check", action="store_true", help="Run scripts/check-all.py after a real update.")
+    parser.add_argument("--full-check", action="store_true", help="Run the full skills/agent-flow/scripts/check-all.py suite after a real update.")
     parser.add_argument("--skip-check", action="store_true", help="Skip the post-update health check.")
     return parser.parse_args()
 

@@ -117,7 +117,7 @@ def release_notes(tag, sha, repository, plugin_name, plugin_bytes):
 
 def publish(source, directory, tag, sha, repository):
     check_source(source, tag, sha)
-    files, version = builder.plugin_files(source, sha, tag)
+    files, version = builder.release_files(source, sha, tag)
     plugin_name = f"agent-flow-{version}-codex-plugin.zip"
     require(directory.is_dir() and {p.name for p in directory.iterdir()} == {plugin_name},
             "distribution directory must contain exactly the verified plugin archive")
