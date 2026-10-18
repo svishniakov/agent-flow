@@ -354,6 +354,18 @@ class ReleaseBuild(unittest.TestCase):
         untracked.unlink()
         print("release-build-hermetic-untracked-ignored")
 
+    def test_release_build_ignores_info_attributes_export_ignore(self):
+        attrs = self.source / ".git/info/attributes"
+        attrs.write_text("skills/agent-flow/scripts/update-agent-flow-skill.py export-ignore\n")
+        first = builder.build(self.source, self.base / "attr-ignore", self.sha, release_tag=self.tag)
+        with zipfile.ZipFile(first["archive"]) as archive:
+            names = archive.namelist()
+        self.assertIn("agent-flow/skills/agent-flow/scripts/update-agent-flow-skill.py", names)
+        attrs.unlink()
+        second = builder.build(self.source, self.base / "attr-clean", self.sha, release_tag=self.tag)
+        self.assertEqual(Path(first["archive"]).read_bytes(), Path(second["archive"]).read_bytes())
+        print("release-build-ignores-export-ignore")
+
     def test_release_invalid_cli_identity_fails_before_output(self):
         cases = [(self.tag, None, "require --commit-sha"),
                  ("v01.0.0", self.sha, "release-tag"),

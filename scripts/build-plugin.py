@@ -4,14 +4,12 @@
 from __future__ import annotations
 
 import argparse
-import io
 import json
 import os
 import re
 import subprocess
 from pathlib import Path, PurePosixPath
 import sys
-import tarfile
 import tempfile
 import zipfile
 
@@ -45,25 +43,46 @@ def check_checkout(source, commit_sha):
 
 
 def export_commit(source, commit_sha, destination):
-    result = subprocess.run(["git", "-C", str(source), "archive", "--format=tar", commit_sha],
-                            capture_output=True)
-    require(result.returncode == 0, "cannot export commit: " + result.stderr.decode(errors="replace").strip())
-    with tarfile.open(fileobj=io.BytesIO(result.stdout)) as archive:
-        for member in archive.getmembers():
-            name = PurePosixPath(member.name)
-            require(not name.is_absolute() and ".." not in name.parts, f"unsafe archive member: {member.name}")
-            target = destination / name.as_posix()
-            if member.isdir():
-                target.mkdir(parents=True, exist_ok=True)
-            elif member.issym():
-                link = PurePosixPath(member.linkname)
-                require(not link.is_absolute() and ".." not in link.parts,
-                        f"unsafe archive symlink: {member.name}")
-                target.symlink_to(member.linkname)
+    listing = subprocess.run(["git", "-C", str(source), "ls-tree", "-rz", commit_sha],
+                             capture_output=True)
+    require(listing.returncode == 0, "cannot list commit tree: " + listing.stderr.decode(errors="replace").strip())
+    batch = subprocess.Popen(["git", "-C", str(source), "cat-file", "--batch"],
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        for record in listing.stdout.split(b"\0"):
+            if not record:
+                continue
+            header, raw_path = record.split(b"\t", 1)
+            mode, kind, oid = header.split()
+            name = os.fsdecode(raw_path)
+            require(kind == b"blob", f"unsupported commit entry type: {name}")
+            path = PurePosixPath(name)
+            require(not path.is_absolute() and ".." not in path.parts, f"unsafe commit path: {name}")
+            batch.stdin.write(oid + b"\n")
+            batch.stdin.flush()
+            answer = batch.stdout.readline().split()
+            require(len(answer) == 3 and answer[0] == oid and answer[1] == b"blob",
+                    f"unexpected cat-file answer for {name}")
+            size = int(answer[2])
+            data = batch.stdout.read(size)
+            require(len(data) == size and batch.stdout.read(1) == b"\n",
+                    f"truncated cat-file payload for {name}")
+            target = destination / path.as_posix()
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if mode == b"120000":
+                link = PurePosixPath(os.fsdecode(data))
+                require(not link.is_absolute() and ".." not in link.parts, f"unsafe commit symlink: {name}")
+                target.symlink_to(os.fsdecode(data))
             else:
-                require(member.isfile(), f"unsupported archive member: {member.name}")
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(archive.extractfile(member).read())
+                require(mode in (b"100644", b"100755"), f"unsupported commit entry mode: {name} ({os.fsdecode(mode)})")
+                target.write_bytes(data)
+                if mode == b"100755":
+                    target.chmod(0o755)
+    finally:
+        batch.stdin.close()
+        batch.wait()
+    require(batch.returncode == 0,
+            "cannot read commit blobs: " + batch.stderr.read().decode(errors="replace").strip())
 
 
 def plugin_files(source, release_tag=None):
