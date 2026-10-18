@@ -13,6 +13,8 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch
+
+TEMP_ROOT = "/private/tmp" if sys.platform == "darwin" else "/tmp"
 from dataclasses import replace
 
 from journal_io import JournalSnapshot, JournalError, initialize_journal, transact, encode_json, update_handoff_state, UNSUPPORTED_STORAGE_VERSION
@@ -426,7 +428,7 @@ class LifecycleTests(unittest.TestCase):
 
 
     def test_flat_domain_and_cli_refusal_preserves_complete_tree(self):
-        with tempfile.TemporaryDirectory(dir='/private/tmp') as temporary:
+        with tempfile.TemporaryDirectory(dir=TEMP_ROOT) as temporary:
             root = Path(temporary).resolve()
             self.assertEqual(root, Path(temporary))
             def tree(run):

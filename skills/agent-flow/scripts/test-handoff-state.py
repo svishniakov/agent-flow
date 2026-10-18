@@ -13,6 +13,8 @@ from io import StringIO
 from pathlib import Path
 
 import journal_io
+
+TEMP_ROOT = "/private/tmp" if sys.platform == "darwin" else "/tmp"
 from journal_io import JournalSnapshot, initialize_journal, update_handoff_state
 
 
@@ -343,7 +345,7 @@ def closed_journal_and_gate_fixtures():
 
 
 def root_metadata_rejection_fixtures():
-    with tempfile.TemporaryDirectory(dir='/private/tmp') as directory:
+    with tempfile.TemporaryDirectory(dir=TEMP_ROOT) as directory:
         root = Path(directory).resolve()
         for index, (stage, status) in enumerate([('verification-prepared', 'active'), ('verification-prepared', 'active'), ('verification-ready', 'pass')]):
             current = root / str(index)

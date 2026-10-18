@@ -11,6 +11,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+TEMP_ROOT = "/private/tmp" if sys.platform == "darwin" else "/tmp"
+
 from journal_io import (JournalSnapshot, JournalError, initialize_journal, encode_json,
                         digest, transact, export_snapshot, append_event, now_iso,
                         UNSUPPORTED_STORAGE_VERSION)
@@ -329,7 +331,7 @@ class RecoveryTests(unittest.TestCase):
 
 
     def test_flat_domain_and_cli_refusal_preserves_complete_tree(self):
-        with tempfile.TemporaryDirectory(dir='/private/tmp') as temporary:
+        with tempfile.TemporaryDirectory(dir=TEMP_ROOT) as temporary:
             root = Path(temporary).resolve()
             self.assertEqual(root, Path(temporary))
             def tree(run):
@@ -971,7 +973,7 @@ recover(sys.argv[1],**args,barrier=stop)
 
 class TraceModeCorrectionTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(dir='/private/tmp')
+        self.temp = tempfile.TemporaryDirectory(dir=TEMP_ROOT)
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name).resolve()
         self.run = self.root / 'run'
