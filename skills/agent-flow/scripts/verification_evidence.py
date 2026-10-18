@@ -1651,11 +1651,18 @@ def validate_context_classification(run_dir, workspace, records, completions, so
                     for item in qa["evidence"]), "qa: context workflow output must be accepted QA evidence")
         if presentation_required:
             from journal_io import digest, handoff_receipt_evidence
-            recorded = handoff_receipt_evidence(snapshot, records["reviewer"]["handoff"],
-                                                handoff_sha256=digest(snapshot.read_bytes(records["reviewer"]["handoff"])))
+            reviewer_handoff = records["reviewer"]["handoff"]
+            recorded = handoff_receipt_evidence(snapshot, reviewer_handoff,
+                                                handoff_sha256=digest(snapshot.read_bytes(reviewer_handoff)))
             if recorded is not None:
+                # The receipt of the current handoff bytes is decisive; text is not consulted.
                 require((ref.get("path"), ref.get("sha256")) in recorded,
                         "reviewer: context workflow evidence must be in the completeness assessment receipt")
+            elif snapshot.durable:
+                # No receipt for the current bytes: the literal current handoff text must carry the reference.
+                text = snapshot.read_text(reviewer_handoff)
+                require(ref["path"] in text and ref["sha256"] in text,
+                        "reviewer: no receipt or current handoff bytes declare this evidence")
         index = ref.get("source_event")
         require(type(index) is int and index in own and
                 completion["task_started_event"] < index < completion["task_complete_event"],

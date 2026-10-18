@@ -942,7 +942,8 @@ class EvidenceRegressions(unittest.TestCase):
         import task_workspace as workspace
         recorder = module("receipt_binding_recorder", "record-agent-trace.py")
 
-        def run_flow(second_artifacts, completion_artifacts=None):
+        def run_flow(second_artifacts, completion_artifacts=None, receiptless=False, receiptless_marks=None,
+                     summary_decoy=False):
             completion_artifacts = second_artifacts if completion_artifacts is None else completion_artifacts
             keepalive = tempfile.TemporaryDirectory()
             temporary = keepalive.name
@@ -1020,11 +1021,27 @@ class EvidenceRegressions(unittest.TestCase):
                     "--artifact", workflow["path"],
                     "--context-classification-json", json.dumps(classification)], session_source=source)
             first_answer = json.loads(output.getvalue())
-            with redirect_stdout(StringIO()) as output:
-                recorder.main([*reviewer_common, "--prepare-conclusion", "--status", "pass",
-                    "--summary", "Second completeness assessment", "--artifact", reviewer_handoff,
-                    *second_artifacts,
-                    "--context-classification-json", json.dumps(classification)], session_source=source)
+            if receiptless:
+                other_sha = sha256(b"other proof\n")
+                if receiptless_marks == "workflow":
+                    rewritten = ("# Revised completeness assessment\n\nReviewed the candidate workflow.\n\n"
+                                 + workflow["path"] + " " + workflow["sha256"] + "\n").encode()
+                else:
+                    rewritten = ("# Revised completeness assessment\n\nReviewed other evidence.\n\n"
+                                 "checks/other.txt " + other_sha + "\n").encode()
+                transact(run, "rewrite-reviewer-handoff", {}, lambda s: ({reviewer_handoff: rewritten}, {}))
+                with redirect_stdout(StringIO()) as output:
+                    recorder.main([*reviewer_common, "--prepare-conclusion", "--status", "pass",
+                        "--artifact", reviewer_handoff, *second_artifacts,
+                        "--context-classification-json", json.dumps(classification)], session_source=source)
+            else:
+                second_summary = ("Rechecked " + workflow["path"] + " " + workflow["sha256"] + " fully"
+                                  if summary_decoy else "Second completeness assessment")
+                with redirect_stdout(StringIO()) as output:
+                    recorder.main([*reviewer_common, "--prepare-conclusion", "--status", "pass",
+                        "--summary", second_summary, "--artifact", reviewer_handoff,
+                        *second_artifacts,
+                        "--context-classification-json", json.dumps(classification)], session_source=source)
             second_answer = json.loads(output.getvalue())
             self.assertNotEqual(first_answer["handoff_sha256"], second_answer["handoff_sha256"])
             source.sessions[REVIEWER_ID] = session(REVIEWER_ID, "reviewer", second_answer, 20)
@@ -1052,6 +1069,31 @@ class EvidenceRegressions(unittest.TestCase):
                  expected_generation=snapshot.generation, identifier="receipt-binding-final",
                  final_summary="Scoped local result independently accepted", verdict="ship", session_source=source)
         self.assertEqual(validator.validate_run(run, session_source=source), [])
+        # A rewritten handoff whose current bytes have no receipt is rejected by the strict audit.
+        run, source, _keep3 = run_flow(["--artifact", "checks/other.txt"], receiptless=True)
+        snapshot = JournalSnapshot.open(run)
+        finalize(run, expected_run_uuid=snapshot.run_uuid, expected_revision=snapshot.revision,
+                 expected_generation=snapshot.generation, identifier="receipt-binding-final",
+                 final_summary="Scoped local result independently accepted", verdict="ship", session_source=source)
+        errors = validator.validate_run(run, session_source=source)
+        self.assertIn("reviewer: no receipt or current handoff bytes declare this evidence", "\n".join(errors))
+        # Without a receipt, the literal current handoff bytes may carry the reference.
+        run, source, _keep4 = run_flow(["--artifact", "checks/workflow.txt"], receiptless=True,
+                                       receiptless_marks="workflow")
+        snapshot = JournalSnapshot.open(run)
+        finalize(run, expected_run_uuid=snapshot.run_uuid, expected_revision=snapshot.revision,
+                 expected_generation=snapshot.generation, identifier="receipt-binding-final",
+                 final_summary="Scoped local result independently accepted", verdict="ship", session_source=source)
+        self.assertEqual(validator.validate_run(run, session_source=source), [])
+        # A receipt for the current bytes is decisive: workflow referenced only in the summary text is rejected.
+        run, source, _keep5 = run_flow(["--artifact", "checks/other.txt"], summary_decoy=True)
+        snapshot = JournalSnapshot.open(run)
+        finalize(run, expected_run_uuid=snapshot.run_uuid, expected_revision=snapshot.revision,
+                 expected_generation=snapshot.generation, identifier="receipt-binding-final",
+                 final_summary="Scoped local result independently accepted", verdict="ship", session_source=source)
+        errors = validator.validate_run(run, session_source=source)
+        self.assertIn("reviewer: context workflow evidence must be in the completeness assessment receipt",
+                      "\n".join(errors))
 
     def test_negative_source_completions_before_prepare_and_retry(self):
         from journal_io import initialize_journal
