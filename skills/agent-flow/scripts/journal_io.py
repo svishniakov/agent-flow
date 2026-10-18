@@ -2534,8 +2534,12 @@ def import_proven_carryovers(snapshot, record_id, events):
     proven = [False] * len(events)
     used = set()
     for index, event in enumerate(events):
+        # Every field the 0.6.2 writer persisted is part of the request; `active`
+        # belongs to the payload whenever the key is present, false included.
         request = {"summary": event.get("summary"), "status": event.get("status"), "id": record_id,
                    "counter": event.get("counter"), "evidence": list(event.get("evidence", []))}
+        if "active" in event:
+            request["active"] = event["active"]
         payload = {"kind": "evidence-record-outcome", "request": request}
         expected_sha = digest(encode_json(payload).encode())
         number = 0
@@ -2645,9 +2649,16 @@ def import_evidence_records(run_dir, *, notes=None, today=None):
                 events = existing.get("outcomes", [])
                 proven = import_proven_carryovers(snapshot, record.record_id, events)
                 derived = derived_counters(record.outcome)
+                totals = record_counters(record)
                 proven_count = {key: sum(1 for event, ok in zip(events, proven)
                                          if ok and event.get("counter") == key)
-                                for key in explicit_counters}
+                                for key in ("helpful", "harmful", "neutral")}
+                # 0.6.2 writer semantics: at most max(0, T - B) carry-overs per counter;
+                # more proof than the source allows means the recorded transfer is ahead.
+                overflow = [key for key in ("helpful", "harmful", "neutral")
+                            if proven_count[key] > max(0, totals[key] - derived[key])]
+                require(not overflow, "import conflict: " + record.record_id
+                        + " counters below already journaled carry-over")
                 legacy_complete = (existing.get("extra", {}) == extra
                                    and all(derived[key] + proven_count[key] == explicit_counters[key]
                                            for key in explicit_counters))
@@ -2657,7 +2668,8 @@ def import_evidence_records(run_dir, *, notes=None, today=None):
                     moved.add(record.record_id)
                     continue
                 def normalize(current, *, expected=expected, extra=extra,
-                              explicit_counters=explicit_counters, record_id=record.record_id):
+                              explicit_counters=explicit_counters, record_id=record.record_id,
+                              source=record):
                     data = load_evidence_records(current)
                     row = next((row for row in data["records"] if row["id"] == record_id), None)
                     require(row is not None, "normalize requires an existing record")
@@ -2668,6 +2680,15 @@ def import_evidence_records(run_dir, *, notes=None, today=None):
                             "import conflict: " + record_id + " differs from journaled record")
                     current_events = row.get("outcomes", [])
                     current_proven = import_proven_carryovers(current, record_id, current_events)
+                    current_derived = derived_counters(source.outcome)
+                    current_totals = record_counters(source)
+                    current_counts = {key: sum(1 for event, ok in zip(current_events, current_proven)
+                                               if ok and event.get("counter") == key)
+                                      for key in ("helpful", "harmful", "neutral")}
+                    overflow = [key for key in ("helpful", "harmful", "neutral")
+                                if current_counts[key] > max(0, current_totals[key] - current_derived[key])]
+                    require(not overflow, "import conflict: " + record_id
+                            + " counters below already journaled carry-over")
                     row["outcomes"] = [event for event, ok in zip(current_events, current_proven) if not ok]
                     row["counters"] = explicit_counters
                     return {EVIDENCE_RECORDS_PATH: encode_json(data, pretty=True) + "\n"}, {}

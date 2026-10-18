@@ -27,8 +27,82 @@ import verification_evidence as evidence
 import journal_io
 
 
+COMPAT_ROOT = Path(__file__).resolve().parents[1] / "testdata" / "compat"
+
+
+def dump_journal_database(path):
+    import sqlite3
+    connection = sqlite3.connect(path)
+    try:
+        tables = {}
+        for (table,) in connection.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"):
+            cursor = connection.execute(f"SELECT * FROM {table} ORDER BY rowid")
+            columns = tuple(description[0] for description in cursor.description)
+            tables[table] = (columns, [tuple(row) for row in cursor.fetchall()])
+        return tables
+    finally:
+        connection.close()
+
+
 class SemanticRequestRegressions(unittest.TestCase):
     """Caller errors must not allocate even a request envelope."""
+
+    def load_compat_fixture(self, root, name):
+        """Copy a historical fixture into a scratch dir; relocate only the two
+        environment roots (run_state.source_root/logical_root) and prove nothing
+        else in the database changed. Fixture files are checksum-verified before
+        and stay immutable after."""
+        import hashlib
+        import shutil
+        import sqlite3
+        fixture_dir = COMPAT_ROOT / name
+        manifest = json.loads((fixture_dir / "manifest.json").read_text(encoding="utf-8"))
+        for relative, expected in manifest["files"].items():
+            data = (fixture_dir / relative).read_bytes()
+            self.assertEqual(hashlib.sha256(data).hexdigest(), expected,
+                             f"compat fixture {name} corrupted: {relative}")
+        target = root / "compat" / name
+        target.mkdir(parents=True)
+        shutil.copytree(fixture_dir / "run", target / "run")
+        notes = None
+        if (fixture_dir / "notes.md").exists():
+            shutil.copy(fixture_dir / "notes.md", target / "notes.md")
+            notes = target / "notes.md"
+        source = target / "source"
+        source.mkdir()
+        database = target / "run" / ".journal" / "state.sqlite3"
+        before = dump_journal_database(database)
+        connection = sqlite3.connect(database)
+        try:
+            connection.execute("UPDATE run_state SET source_root=?, logical_root=? WHERE id=1",
+                               (str(source), str((target / "run").resolve())))
+            connection.commit()
+        finally:
+            connection.close()
+        after = dump_journal_database(database)
+        self.assertEqual(set(before), set(after))
+        for table, (columns, rows) in before.items():
+            self.assertEqual(columns, after[table][0])
+            if table == "run_state":
+                (old_row,), (new_row,) = rows, after[table][1]
+                for column, old_value, new_value in zip(columns, old_row, new_row):
+                    if column in {"source_root", "logical_root"}:
+                        continue
+                    self.assertEqual(old_value, new_value, f"run_state.{column} changed")
+            else:
+                self.assertEqual(rows, after[table][1], f"{table} changed")
+        snapshot = journal_io.JournalSnapshot.open(target / "run")
+        self.assertEqual(dict(snapshot.archives), {})
+        self.assertFalse(any(key.startswith("artifacts/workspaces/") for key in snapshot.documents))
+
+        def assert_intact():
+            for relative, expected in manifest["files"].items():
+                data = (fixture_dir / relative).read_bytes()
+                self.assertEqual(hashlib.sha256(data).hexdigest(), expected,
+                                 f"compat fixture {name} mutated: {relative}")
+
+        return target / "run", notes, source, manifest, assert_intact
+
 
     def test_public_noncontract_acceptance_retains_surface_proofs(self):
         import tempfile
@@ -1574,6 +1648,240 @@ keep me
             self.assertEqual(snapshot.read_bytes("artifacts/memory/evidence-records.json"), before)
             self.assertIsNone(snapshot.operation_receipt("import-evidence-normalize-partial-two"))
             self.assertEqual(conflict_notes.read_text(encoding="utf-8"), before_notes)
+
+    def test_compat_060_covers_merge_handoff_receipt_and_report_markers(self):
+        """Fixture written by the real 0.6.0 writer: report receipt carries no handoff_sha256."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            run, _notes, _source, manifest, assert_intact = self.load_compat_fixture(Path(directory).resolve(),
+                                                                                     "060-covers")
+            snapshot = journal_io.JournalSnapshot.open(run)
+            receipts = [json.loads(raw)["result"] for raw in snapshot.receipts.values()]
+            report = next(result for result in receipts if result.get("report"))
+            self.assertNotIn("handoff_sha256", report)
+            handoff = next(result for result in receipts if result.get("handoff") == "handoffs/worker.md")
+            self.assertIn("handoff_sha256", handoff)
+            self.assertEqual(journal_io.handoff_covers(snapshot, "worker"),
+                             {"Architecture Invariants": ["monolith"], "Contract Drift": ["api-service"]})
+            assert_intact()
+
+    def test_compat_062_partial_import_resumes_without_doubling(self):
+        """Fixture written by the real 0.6.2 writer, crashed after the first of two carry-overs."""
+        import tempfile
+        from evidence_records import parse_notes
+        with tempfile.TemporaryDirectory() as directory:
+            run, notes, source, manifest, assert_intact = self.load_compat_fixture(Path(directory).resolve(),
+                                                                                   "062-partial")
+            snapshot = journal_io.JournalSnapshot.open(run)
+            receipt = snapshot.operation_receipt("import-evidence-counter-legacy-rec-helpful-0")
+            self.assertIsNotNone(receipt)
+            self.assertEqual(receipt["payload_sha256"],
+                             "f36e06fc99ee7e7bc516a42bbedc977292db0c717ef09a9ebea85a0fca52a3d1")
+            row = json.loads(snapshot.read_text("artifacts/memory/evidence-records.json"))["records"][0]
+            self.assertEqual(len(row["outcomes"]), 1)
+            self.assertNotIn("counters", row)
+            result = journal_io.import_evidence_records(run, notes=notes, today="2026-10-24")
+            self.assertEqual(result["imported"], ["legacy-rec"])
+            row = json.loads(journal_io.JournalSnapshot.open(run)
+                             .read_text("artifacts/memory/evidence-records.json"))["records"][0]
+            self.assertEqual(row["counters"], {"helpful": 3})
+            self.assertEqual(row["outcomes"], [])
+            self.assertIsNotNone(journal_io.JournalSnapshot.open(run)
+                                 .operation_receipt("import-evidence-normalize-legacy-rec"))
+            projected = source / ".agent-work" / "tasks" / "implementation-notes.md"
+            self.assertTrue(projected.is_file())
+            fields = parse_notes(projected.read_text(encoding="utf-8")).records[0].fields
+            self.assertEqual(fields["Helpful"], "3")
+            self.assertNotIn("### Evidence:", notes.read_text(encoding="utf-8"))
+            assert_intact()
+
+    def test_compat_062_legacy_complete_skip_and_reduced_source_conflicts(self):
+        """Fixture with a complete 0.6.2 import; reduced or stripped sources conflict."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            run, notes, source, manifest, assert_intact = self.load_compat_fixture(root, "062-complete")
+            before = journal_io.JournalSnapshot.open(run).read_bytes("artifacts/memory/evidence-records.json")
+            result = journal_io.import_evidence_records(run, notes=notes, today="2026-10-24")
+            self.assertEqual((result["imported"], result["skipped"]), ([], ["legacy-rec"]))
+            snapshot = journal_io.JournalSnapshot.open(run)
+            self.assertEqual(snapshot.read_bytes("artifacts/memory/evidence-records.json"), before)
+            self.assertIsNone(snapshot.operation_receipt("import-evidence-normalize-legacy-rec"))
+            self.assertNotIn("### Evidence:", notes.read_text(encoding="utf-8"))
+            for marker, replacement in (("3 -> 2", "Helpful: 2"), ("3 -> 0", "Helpful: 0"),
+                                        ("field removed", "Legacy: kept")):
+                with self.subTest(reduction=marker):
+                    reduced = root / ("reduced-" + marker.replace(" ", "_") + ".md")
+                    original = (COMPAT_ROOT / "062-complete" / "notes.md").read_text(encoding="utf-8")
+                    if replacement == "Legacy: kept":
+                        original = original.replace("Helpful: 3\n", "")
+                    else:
+                        original = original.replace("Helpful: 3", replacement)
+                    reduced.write_text(original, encoding="utf-8")
+                    with self.assertRaisesRegex(journal_io.JournalError,
+                                                "import conflict: legacy-rec counters below already journaled carry-over"):
+                        journal_io.import_evidence_records(run, notes=reduced, today="2026-10-25")
+                    self.assertEqual(reduced.read_text(encoding="utf-8"), original)
+                    self.assertEqual(journal_io.JournalSnapshot.open(run)
+                                     .read_bytes("artifacts/memory/evidence-records.json"), before)
+                    self.assertIsNone(journal_io.JournalSnapshot.open(run)
+                                      .operation_receipt("import-evidence-normalize-legacy-rec"))
+            assert_intact()
+
+    def test_compat_062_explicit_zero_normalizes_to_zero(self):
+        import tempfile
+        from evidence_records import parse_notes
+        with tempfile.TemporaryDirectory() as directory:
+            run, notes, source, manifest, assert_intact = self.load_compat_fixture(Path(directory).resolve(),
+                                                                                   "062-zero")
+            snapshot = journal_io.JournalSnapshot.open(run)
+            row = json.loads(snapshot.read_text("artifacts/memory/evidence-records.json"))["records"][0]
+            self.assertEqual(row["outcomes"], [])
+            self.assertNotIn("counters", row)
+            result = journal_io.import_evidence_records(run, notes=notes, today="2026-10-24")
+            self.assertEqual(result["imported"], ["legacy-rec"])
+            row = json.loads(journal_io.JournalSnapshot.open(run)
+                             .read_text("artifacts/memory/evidence-records.json"))["records"][0]
+            self.assertEqual(row["counters"], {"helpful": 0})
+            projected = source / ".agent-work" / "tasks" / "implementation-notes.md"
+            fields = parse_notes(projected.read_text(encoding="utf-8")).records[0].fields
+            self.assertEqual(fields["Helpful"], "0")
+            assert_intact()
+
+    def test_compat_062_ordinary_active_event_survives_normalization(self):
+        """Ф7: an ordinary active=false event before the first carry-over is not import evidence."""
+        import tempfile
+        from evidence_records import parse_notes
+        with tempfile.TemporaryDirectory() as directory:
+            run, notes, source, manifest, assert_intact = self.load_compat_fixture(Path(directory).resolve(),
+                                                                                   "062-active-event")
+            snapshot = journal_io.JournalSnapshot.open(run)
+            row = json.loads(snapshot.read_text("artifacts/memory/evidence-records.json"))["records"][0]
+            self.assertEqual([(event["counter"], event.get("active")) for event in row["outcomes"]],
+                             [("helpful", False), ("helpful", None)])
+            self.assertIsNotNone(snapshot.operation_receipt("ordinary-application"))
+            result = journal_io.import_evidence_records(run, notes=notes, today="2026-10-24")
+            self.assertEqual(result["imported"], ["legacy-rec"])
+            row = json.loads(journal_io.JournalSnapshot.open(run)
+                             .read_text("artifacts/memory/evidence-records.json"))["records"][0]
+            self.assertEqual(row["counters"], {"helpful": 3})
+            self.assertEqual(len(row["outcomes"]), 1)
+            self.assertEqual(row["outcomes"][0].get("active"), False)
+            projected = source / ".agent-work" / "tasks" / "implementation-notes.md"
+            fields = parse_notes(projected.read_text(encoding="utf-8")).records[0].fields
+            self.assertEqual((fields["Helpful"], fields["Active"]), ("4", "false"))
+            assert_intact()
+
+    def test_compat_062_crash_after_normalization_resumes_by_receipt(self):
+        """Normalization is recognized by its receipt; historical carry-over receipts persist."""
+        import tempfile
+        from evidence_records import parse_notes
+        with tempfile.TemporaryDirectory() as directory:
+            run, notes, source, manifest, assert_intact = self.load_compat_fixture(Path(directory).resolve(),
+                                                                                   "062-partial")
+            original_project = journal_io.project_memory
+            journal_io.project_memory = lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("crash"))
+            try:
+                with self.assertRaises(RuntimeError):
+                    journal_io.import_evidence_records(run, notes=notes, today="2026-10-24")
+            finally:
+                journal_io.project_memory = original_project
+            snapshot = journal_io.JournalSnapshot.open(run)
+            self.assertIsNotNone(snapshot.operation_receipt("import-evidence-normalize-legacy-rec"))
+            self.assertIsNotNone(snapshot.operation_receipt("import-evidence-counter-legacy-rec-helpful-0"))
+            row = json.loads(snapshot.read_text("artifacts/memory/evidence-records.json"))["records"][0]
+            self.assertEqual(row["counters"], {"helpful": 3})
+            self.assertEqual(row["outcomes"], [])
+            result = journal_io.import_evidence_records(run, notes=notes, today="2026-10-25")
+            self.assertEqual((result["imported"], result["skipped"]), ([], []))
+            projected = source / ".agent-work" / "tasks" / "implementation-notes.md"
+            fields = parse_notes(projected.read_text(encoding="utf-8")).records[0].fields
+            self.assertEqual(fields["Helpful"], "3")
+            normalize_ops = [key for key in journal_io.JournalSnapshot.open(run).receipts
+                             if key.startswith("import-evidence-normalize-")]
+            self.assertEqual(normalize_ops, ["import-evidence-normalize-legacy-rec"])
+            assert_intact()
+
+    def test_import_counters_threshold_boundaries_and_race(self):
+        """Ф8 boundary rows: zero derived-base counter overflow and a concurrent carry-over."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source = root / "source"
+            source.mkdir()
+            subprocess.run(["git", "init", "-q", str(source)], check=True)
+            run = source / ".agent-work/runs/threshold"
+            journal_io.initialize_journal(run, {}, source_root=source)
+            manual = root / "notes.md"
+            # A failure-outcome record has derived helpful base 0; one proven carry-over overflows.
+            manual.write_text("# Implementation Notes\n\n## Evidence Records\n\n### Evidence: zero-base\n\n"
+                              "Type: Failure\nProblem class: p\nContext: c\nApproach: a\nOutcome: failure\n"
+                              "Evidence: e\nReuse when: r\nDo not reuse when: s\nFollow-up: f\n", encoding="utf-8")
+            journal_io.write_entry(run, "evidence-record",
+                                   {"summary": "a", "status": "pass", "id": "zero-base",
+                                    "record_type": "Failure", "problem_class": "p", "context": "c",
+                                    "outcome": "failure", "evidence": ["e"], "reuse_when": "r",
+                                    "do_not_reuse_when": "s", "follow_up": "f",
+                                    "provenance": "import:2026-10-18"},
+                                   identifier="import-evidence-record-zero-base", defer_projection=True)
+            journal_io.write_entry(run, "evidence-record-outcome",
+                                   {"summary": "Imported counter carry-over", "status": "pass",
+                                    "id": "zero-base", "counter": "helpful", "evidence": ["notes.md"]},
+                                   identifier="import-evidence-counter-zero-base-helpful-0",
+                                   defer_projection=True)
+            before = journal_io.JournalSnapshot.open(run).read_bytes("artifacts/memory/evidence-records.json")
+            with self.assertRaisesRegex(journal_io.JournalError,
+                                        "import conflict: zero-base counters below already journaled carry-over"):
+                journal_io.import_evidence_records(run, notes=manual, today="2026-10-24")
+            self.assertEqual(journal_io.JournalSnapshot.open(run)
+                             .read_bytes("artifacts/memory/evidence-records.json"), before)
+            self.assertIsNone(journal_io.JournalSnapshot.open(run)
+                              .operation_receipt("import-evidence-normalize-zero-base"))
+            self.assertIn("### Evidence: zero-base", manual.read_text(encoding="utf-8"))
+            # Race: a concurrent proven carry-over lands between the pre-check and the mutation.
+            race_run = source / ".agent-work/runs/race"
+            journal_io.initialize_journal(race_run, {}, source_root=source)
+            race_notes = root / "race-notes.md"
+            race_notes.write_text("# Implementation Notes\n\n## Evidence Records\n\n### Evidence: race-rec\n\n"
+                                  "Type: Success\nProblem class: p\nContext: c\nApproach: a\nOutcome: success\n"
+                                  "Evidence: e\nReuse when: r\nDo not reuse when: s\nFollow-up: f\n"
+                                  "Helpful: 3\nCustom Field: keep me\n", encoding="utf-8")
+            request = {"summary": "a", "status": "pass", "id": "race-rec",
+                       "record_type": "Success", "problem_class": "p", "context": "c",
+                       "outcome": "success", "evidence": ["e"], "reuse_when": "r",
+                       "do_not_reuse_when": "s", "follow_up": "f", "provenance": "import:2026-10-18"}
+            journal_io.write_entry(race_run, "evidence-record", request,
+                                   identifier="import-evidence-record-race-rec", defer_projection=True)
+            for index in range(2):
+                journal_io.write_entry(race_run, "evidence-record-outcome",
+                                       {"summary": "Imported counter carry-over", "status": "pass",
+                                        "id": "race-rec", "counter": "helpful", "evidence": ["race-notes.md"]},
+                                       identifier=f"import-evidence-counter-race-rec-helpful-{index}",
+                                       defer_projection=True)
+            original_transact = journal_io.transact
+            injected = []
+            def concurrent(run_dir, identifier, payload, mutation, **kwargs):
+                if identifier == "import-evidence-normalize-race-rec" and not injected:
+                    injected.append(True)
+                    journal_io.write_entry(race_run, "evidence-record-outcome",
+                                           {"summary": "Imported counter carry-over", "status": "pass",
+                                            "id": "race-rec", "counter": "helpful", "evidence": ["race-notes.md"]},
+                                           identifier="import-evidence-counter-race-rec-helpful-2",
+                                           defer_projection=True)
+                return original_transact(run_dir, identifier, payload, mutation, **kwargs)
+            journal_io.transact = concurrent
+            try:
+                with self.assertRaisesRegex(journal_io.JournalError,
+                                            "import conflict: race-rec counters below already journaled carry-over"):
+                    journal_io.import_evidence_records(race_run, notes=race_notes, today="2026-10-24")
+            finally:
+                journal_io.transact = original_transact
+            snapshot = journal_io.JournalSnapshot.open(race_run)
+            row = json.loads(snapshot.read_text("artifacts/memory/evidence-records.json"))["records"][0]
+            self.assertEqual(len(row["outcomes"]), 3)
+            self.assertNotIn("counters", row)
+            self.assertIsNone(snapshot.operation_receipt("import-evidence-normalize-race-rec"))
+            self.assertIn("### Evidence: race-rec", race_notes.read_text(encoding="utf-8"))
 
     def test_check_process_does_not_hold_journal_writer_lock(self):
         import tempfile

@@ -1,0 +1,1 @@
+{"command": "semantic-write", "operation_id": "import-evidence-counter-legacy-rec-helpful-1", "payload": {"kind": "evidence-record-outcome", "request": {"counter": "helpful", "evidence": ["notes.md"], "id": "legacy-rec", "status": "pass", "summary": "Imported counter carry-over"}}, "run_uuid": "698be20e-0fac-4781-aede-3ee0214bee35"}

@@ -1,0 +1,1 @@
+{"command": "semantic-write", "operation_id": "covers-lane", "payload": {"kind": "lane", "request": {"critical": false, "execution_mode": "role-lane", "id": "worker", "lane_type": "implementation", "role": "python-worker", "status": "planned", "summary": "Planned worker", "wave": 1}}, "run_uuid": "800b0385-63be-481a-85db-ef0f9c29b493"}
