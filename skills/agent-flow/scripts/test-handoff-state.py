@@ -219,7 +219,7 @@ def declared_lane_projection_fixture():
         journal_io.write_entry(run_dir, "lane", {"id": "worker-b", "summary": "Declared worker lane",
                                                  "status": "planned", "lane_type": "implementation",
                                                  "role": "python-worker", "execution_mode": "role-lane",
-                                                 "wave": 1, "critical": False}, identifier="declare-worker-b")
+                                                 "wave": 1, "critical": False, "allowed_paths": ["src"]}, identifier="declare-worker-b")
         data = read_lane_map(run_dir)
         lane = next(lane for lane in data["lanes"] if lane["id"] == "worker-b")
         state = lane.get("handoff_state")
@@ -227,7 +227,27 @@ def declared_lane_projection_fixture():
             raise AssertionError(f"lane declaration must project queued handoff_state: {state}")
         if state.get("handoff") != "handoffs/worker-b.md" or state.get("to") != "worker-b":
             raise AssertionError(f"declared lane handoff_state fields mismatch: {state}")
-        print("PASS lane declarations project queued handoff_state")
+        # Explicit batch metadata switches a seeded task-mode lane to batch without any mode flag.
+        from task_workspace import prepare
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        prepare(run_dir, root, root / "workspace")
+        source = base.SyntheticSource()
+        source.sessions[base.ROOT_ID] = [{"type": "session_meta", "payload": {"id": base.ROOT_ID}}]
+        with redirect_stdout(StringIO()):
+            recorder.main(["--run-dir", str(run_dir), "--role", "orchestrator", "--execution-mode", "role-lane",
+                           "--stage", "verification", "--status", "active", "--summary", "Synthetic root fixture",
+                           "--verification-json", json.dumps({**base.empty_verification(), "task_kind": "change", "root_thread_id": base.ROOT_ID})],
+                          session_source=source)
+        with redirect_stdout(StringIO()):
+            recorder.main(["--run-dir", str(run_dir), "--role", "python-worker", "--execution-mode", "role-lane",
+                           "--lane-id", "worker-b", "--stage", "checks", "--status", "active",
+                           "--summary", "Fixture batch assignment event",
+                           "--batch-id", "batch-9", "--batch-item", "worker-b"], session_source=source)
+        lane = next(lane for lane in read_lane_map(run_dir)["lanes"] if lane["id"] == "worker-b")
+        state = lane.get("handoff_state")
+        if state.get("mode") != "batch" or state.get("batch") != {"id": "batch-9", "items": ["worker-b"]}:
+            raise AssertionError(f"batch parameters must override the seeded task mode: {state}")
+        print("PASS lane declarations project queued handoff_state and accept batch metadata")
 
 
 def obligation_replacement_projection_fixture():

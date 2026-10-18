@@ -130,6 +130,61 @@ class SemanticRequestRegressions(unittest.TestCase):
             self.assertEqual(journal_io.handoff_covers(journal_io.JournalSnapshot.open(legacy), "worker"),
                              {"Contract Drift": ["worker-a"]})
 
+    def test_covers_and_receipt_evidence_are_bound_to_current_bytes(self):
+        import sqlite3
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            run = root / "run"
+            journal_io.initialize_journal(run, {"checks.md": b"# Checks\n",
+                                                "checks/ev-a.md": b"proof a\n", "checks/ev-b.md": b"proof b\n"},
+                                          source_root=root)
+            self.register_synthetic_root(run)
+            for lane_id in ("worker-a", "worker-b"):
+                journal_io.write_entry(run, "lane", {"id": lane_id, "summary": "Planned worker", "status": "planned",
+                    "lane_type": "implementation", "role": "python-worker", "execution_mode": "role-lane",
+                    "wave": 1, "critical": False}, identifier="lane-" + lane_id)
+            # Receipt evidence follows only the exact handoff path; a foreign handoff receipt never matches.
+            journal_io.write_entry(run, "handoff", {"lane_id": "worker-a", "summary": "A done", "status": "pass",
+                "evidence": [{"path": "checks/ev-a.md"}]}, identifier="handoff-a")
+            journal_io.write_entry(run, "handoff", {"lane_id": "worker-b", "summary": "B done", "status": "pass",
+                "evidence": [{"path": "checks/ev-b.md"}]}, identifier="handoff-b")
+            snapshot = journal_io.JournalSnapshot.open(run)
+            sha_a = journal_io.digest(snapshot.read_bytes("checks/ev-a.md"))
+            self.assertEqual(journal_io.handoff_receipt_evidence(snapshot, "handoffs/worker-a.md"),
+                             {("checks/ev-a.md", sha_a)})
+            # A rewritten lane report supersedes stale covers receipts.
+            report_request = {"lane_id": "worker-a", "summary": "Worker report", "status": "pass",
+                              "sections": [{"section": "Contract Drift", "summary": "drift", "covers": ["api-service"]}]}
+            journal_io.write_entry(run, "lane-report", report_request, identifier="report-1")
+            snapshot = journal_io.JournalSnapshot.open(run)
+            self.assertEqual(journal_io.handoff_covers(snapshot, "worker-a").get("Contract Drift"), ["api-service"])
+            journal_io.write_entry(run, "lane-report",
+                                   {"lane_id": "worker-a", "summary": "Worker report rewritten", "status": "pass",
+                                    "sections": [{"section": "Architecture Invariants", "summary": "ok",
+                                                  "covers": ["monolith"]}]}, identifier="report-2")
+            snapshot = journal_io.JournalSnapshot.open(run)
+            covers = journal_io.handoff_covers(snapshot, "worker-a")
+            self.assertNotIn("Contract Drift", covers)
+            self.assertEqual(covers.get("Architecture Invariants"), ["monolith"])
+            # Legacy receipts without a hash are ignored; document markers remain the fallback.
+            connection = sqlite3.connect(run / ".journal/state.sqlite3")
+            try:
+                rows = connection.execute("SELECT operation_id, result FROM operations").fetchall()
+                for operation_id, raw in rows:
+                    result = json.loads(raw)
+                    if result.pop("handoff_sha256", None) is not None:
+                        connection.execute("UPDATE operations SET result=? WHERE operation_id=?",
+                                           (json.dumps(result), operation_id))
+                connection.commit()
+            finally:
+                connection.close()
+            snapshot = journal_io.JournalSnapshot.open(run)
+            self.assertEqual(journal_io.handoff_covers(snapshot, "worker-a"), covers)
+            # Legacy receipts without a hash still match strictly by handoff path.
+            self.assertEqual(journal_io.handoff_receipt_evidence(snapshot, "handoffs/worker-a.md"),
+                             {("checks/ev-a.md", sha_a)})
+
     def test_writer_generated_final_sections_cover_audit_required_ids(self):
         import tempfile
         from journal_structure import render_document
@@ -956,7 +1011,7 @@ keep me
             self.assertEqual(rows["legacy-b"]["extra"], {"Custom Field": "keep me"})
             again = journal_io.import_evidence_records(run, today="2026-10-18")
             self.assertEqual(again["imported"], [])
-            self.assertEqual(again["skipped"], ["legacy-a", "legacy-b"])
+            self.assertEqual(again["skipped"], [])
             self.assertEqual(notes.read_text(encoding="utf-8"), text)
             event = dict(timestamp="2026-01-01T00:00:00Z", stage="final", role="orchestrator",
                          stable_agent_name="Orchestrator", stable_agent_slug="orchestrator", status="blocked",
@@ -1007,6 +1062,74 @@ keep me
                                       "--notes", str(root / "missing.md")])
             self.assertEqual(caught.exception.code, 1)
             self.assertIn("notes file not found", stderr.getvalue())
+
+    def test_import_evidence_records_manual_zone_only_and_crash_recovery(self):
+        import tempfile
+        from evidence_records import parse_notes
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source = root / "source"
+            source.mkdir()
+            subprocess.run(["git", "init", "-q", str(source)], check=True)
+            notes = source / ".agent-work/tasks/implementation-notes.md"
+            notes.parent.mkdir(parents=True)
+            notes.write_text("# Implementation Notes\n\n## Evidence Records\n\n### Evidence: manual-one\n\n"
+                             "Type: Success\nProblem class: p\nContext: c\nApproach: a\nOutcome: success\n"
+                             "Evidence: e\nReuse when: r\nDo not reuse when: s\nFollow-up: f\n", encoding="utf-8")
+            first = source / ".agent-work/runs/first"
+            journal_io.initialize_journal(first, {}, source_root=source)
+            journal_io.write_entry(first, "evidence-record",
+                                   {"summary": "First run record", "status": "pass", "id": "journaled-one",
+                                    "record_type": "Success", "problem_class": "p", "context": "c",
+                                    "outcome": "success", "evidence": ["e"], "reuse_when": "r",
+                                    "do_not_reuse_when": "s", "follow_up": "f"}, identifier="first-record")
+            text = notes.read_text(encoding="utf-8")
+            self.assertIn("journaled-one", text)
+            # A second run imports only the manual zone; the generated block is not re-journaled.
+            second = source / ".agent-work/runs/second"
+            journal_io.initialize_journal(second, {}, source_root=source)
+            result = journal_io.import_evidence_records(second, today="2026-10-18")
+            self.assertEqual(result["imported"], ["manual-one"])
+            store = json.loads(journal_io.JournalSnapshot.open(second).read_text("artifacts/memory/evidence-records.json"))
+            self.assertEqual([row["id"] for row in store["records"]], ["manual-one"])
+            text = notes.read_text(encoding="utf-8")
+            parsed = parse_notes(text)
+            self.assertEqual({record.record_id for record in parsed.records}, {"journaled-one", "manual-one"})
+            self.assertEqual(text.count("### Evidence: journaled-one"), 1)
+            self.assertEqual(text.count("### Evidence: manual-one"), 1)
+            # A manual record whose id is already journaled by another run is rejected atomically.
+            third = source / ".agent-work/runs/third"
+            journal_io.initialize_journal(third, {}, source_root=source)
+            conflicted = source / ".agent-work/tasks/conflicted-notes.md"
+            conflicted.write_text("# Implementation Notes\n\n## Evidence Records\n\n### Evidence: journaled-one\n\n"
+                                  "Type: Success\nProblem class: p\nContext: c\nApproach: a\nOutcome: success\n"
+                                  "Evidence: e\nReuse when: r\nDo not reuse when: s\nFollow-up: f\n"
+                                  + text[text.index("<!-- agent-flow:"):], encoding="utf-8")
+            with self.assertRaisesRegex(journal_io.JournalError, "already journaled by another run"):
+                journal_io.import_evidence_records(third, notes=conflicted)
+            self.assertNotIn("artifacts/memory/evidence-records.json",
+                             journal_io.JournalSnapshot.open(third).documents)
+            # A crash after the store write still lets a rerun strip and project.
+            fourth = source / ".agent-work/runs/fourth"
+            journal_io.initialize_journal(fourth, {}, source_root=source)
+            crash_notes = root / "crash-notes.md"
+            crash_notes.write_text("# Implementation Notes\n\n## Evidence Records\n\n### Evidence: manual-two\n\n"
+                                   "Type: Success\nProblem class: p\nContext: c\nApproach: a\nOutcome: success\n"
+                                   "Evidence: e\nReuse when: r\nDo not reuse when: s\nFollow-up: f\n", encoding="utf-8")
+            original_project = journal_io.project_memory
+            journal_io.project_memory = lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("simulated crash"))
+            try:
+                with self.assertRaises(RuntimeError):
+                    journal_io.import_evidence_records(fourth, notes=crash_notes, today="2026-10-18")
+            finally:
+                journal_io.project_memory = original_project
+            store = json.loads(journal_io.JournalSnapshot.open(fourth).read_text("artifacts/memory/evidence-records.json"))
+            self.assertEqual([row["id"] for row in store["records"]], ["manual-two"])
+            self.assertNotIn("manual-two", crash_notes.read_text(encoding="utf-8"))
+            rerun = journal_io.import_evidence_records(fourth, notes=crash_notes, today="2026-10-19")
+            self.assertEqual(rerun["imported"], [])
+            projected = journal_io.memory_path(journal_io.JournalSnapshot.open(fourth), "evidence-record")
+            self.assertIn("### Evidence: manual-two", projected.read_text(encoding="utf-8"))
 
     def test_check_process_does_not_hold_journal_writer_lock(self):
         import tempfile

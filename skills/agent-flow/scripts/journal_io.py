@@ -76,7 +76,7 @@ def update_handoff_state(
         )
 
     state = normalize_existing_state(lane.get("handoff_state"))
-    selected_mode = mode or state.get("mode") or ("batch" if batch_id or batch_items else "task")
+    selected_mode = mode or ("batch" if batch_id or batch_items else None) or state.get("mode") or "task"
     if not isinstance(selected_mode, str):
         raise JournalError("handoff_state.mode must be a string")
     validate_mode(selected_mode)
@@ -1854,6 +1854,7 @@ def service_observation_projection(snapshot, kind, request, *, source=None):
             report = "checks/" + selected["id"] + ".md"
             documents[report] = render_document(kind, summary, status, {"evidence": refs, "sections": request.get("sections", [])})
             return documents, {"report": report, "evidence": refs,
+                               "handoff_sha256": digest(documents[report].encode()),
                                "covers": {row["section"]: list(row.get("covers", [])) for row in request.get("sections", [])}}
         if kind == "simplicity-scope":
             data["engineering_simplicity_scope"] = {"primary_surfaces": request["primary_surfaces"], "secondary_surfaces": request["secondary_surfaces"], "evidence": paths, "notes": summary}
@@ -2487,10 +2488,19 @@ def import_evidence_records(run_dir, *, notes=None, today=None):
     require(path.is_file(), "notes file not found: " + str(path))
     require(not path.is_symlink(), "memory target must not be a symlink")
     stamp = today or datetime.now().date().isoformat()
+    text = path.read_text(encoding="utf-8")
+    lines = text.splitlines(keepends=True)
+    block_lines = memory_block_line_flags(lines)
+    manual_text = "".join(line for line, inside in zip(lines, block_lines) if not inside)
+    block_ids = {line.strip()[len("### Evidence:"):].strip()
+                 for line, inside in zip(lines, block_lines)
+                 if inside and line.strip().startswith("### Evidence:")}
     try:
-        parsed = parse_notes(path.read_text(encoding="utf-8"))
+        parsed = parse_notes(manual_text)
     except EvidenceError as exc:
         raise JournalError("invalid Evidence Records in " + str(path) + ": " + str(exc)) from exc
+    conflicted = sorted(record.record_id for record in parsed.records if record.record_id in block_ids)
+    require(not conflicted, "evidence records already journaled by another run: " + ", ".join(conflicted))
     imported, skipped = [], []
     for record in parsed.records:
         store = load_evidence_records(JournalSnapshot.open(run_dir))
@@ -2544,9 +2554,14 @@ def import_evidence_records(run_dir, *, notes=None, today=None):
                             identifier=f"import-evidence-counter-{record.record_id}-{counter}-{index}",
                             defer_projection=True)
         imported.append(record.record_id)
-    if imported:
-        updated = strip_manual_evidence_records(path.read_text(encoding="utf-8"), set(imported))
+    store = load_evidence_records(JournalSnapshot.open(run_dir))
+    store_ids = {row["id"] for row in store["records"]}
+    moved = set(imported) | {record.record_id for record in parsed.records if record.record_id in store_ids}
+    if moved:
+        updated = strip_manual_evidence_records(path.read_text(encoding="utf-8"), moved)
         atomic_memory_write(path, updated.encode())
+    if store_ids:
+        # Repairable projection: a crashed earlier import is completed here.
         project_memory(JournalSnapshot.open(run_dir), "evidence-record", None)
     return {"notes": str(path), "imported": imported, "skipped": skipped}
 
@@ -3183,6 +3198,8 @@ def handoff_receipt_evidence(snapshot, handoff_path, *, boundary_path=None, hand
     Returns a {(path, sha256)} set, or None when no receipt declares evidence
     (legacy receipts and flat journals stay readable without it). Receipts
     recorded against different handoff bytes are not evidence for this one.
+    A receipt matches only by exact handoff path, or by exact boundary path
+    when one is given; a missing key never counts as a match.
     """
     if not snapshot.durable:
         return None
@@ -3191,7 +3208,7 @@ def handoff_receipt_evidence(snapshot, handoff_path, *, boundary_path=None, hand
         result = json.loads(raw).get("result", {})
         if not isinstance(result.get("evidence"), list):
             continue
-        if result.get("handoff") != handoff_path and result.get("boundary") != boundary_path:
+        if result.get("handoff") != handoff_path and not (boundary_path is not None and result.get("boundary") == boundary_path):
             continue
         receipt_sha = result.get("handoff_sha256")
         if handoff_sha256 is not None and receipt_sha is not None and receipt_sha != handoff_sha256:
@@ -3206,9 +3223,12 @@ def handoff_receipt_evidence(snapshot, handoff_path, *, boundary_path=None, hand
 def handoff_covers(snapshot, lane_id):
     """Declared section covers for one lane's handoff/report.
 
-    Receipts are the primary source (durable writer path); strict writer marker
-    lines in the document are the legacy/flat fallback. Returns None when the
-    lane has no covers data at all (legacy flat journals stay readable).
+    Receipts are the primary source (durable writer path), accepted only when
+    their handoff_sha256 binds them to the current document bytes; receipts of
+    superseded revisions and legacy receipts without a hash are ignored. Strict
+    writer marker lines in the document are the legacy/flat fallback. Returns
+    None when the lane has no covers data at all (legacy flat journals stay
+    readable).
     """
     paths = set()
     lane_map = json.loads(snapshot.documents.get("lane-map.json", b"{}"))
@@ -3226,8 +3246,12 @@ def handoff_covers(snapshot, lane_id):
         result = json.loads(raw).get("result", {})
         if not isinstance(result.get("covers"), dict):
             continue
-        if result.get("handoff") not in paths and result.get("report") not in paths:
+        matched = next((path for path in (result.get("handoff"), result.get("report")) if path in paths), None)
+        if matched is None:
             continue
+        receipt_sha = result.get("handoff_sha256")
+        if receipt_sha is None or not snapshot.exists(matched) or digest(snapshot.read_bytes(matched)) != receipt_sha:
+            continue  # stale or legacy receipts do not describe the current document bytes
         covers = covers or {}
         for section, ids in result["covers"].items():
             covers[section] = list(dict.fromkeys(ids))
