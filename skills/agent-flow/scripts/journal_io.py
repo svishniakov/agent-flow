@@ -2324,16 +2324,26 @@ def load_evidence_records(snapshot):
 
 
 def evidence_record_counters(row):
-    """Counters derive from the outcome chain, never from stored numbers."""
+    """Counters derive from the outcome chain, never from stored increments.
+
+    An explicit counter imported from a hand-written record is absolute: it
+    replaces the derived base for that counter (the base applies only when the
+    source carried no explicit field). Outcome events always add on top.
+    """
     from evidence_records import derived_counters
     totals = derived_counters(row["outcome"])
+    explicit = row.get("counters") or {}
+    for key in ("helpful", "harmful", "neutral"):
+        if key in explicit:
+            totals[key] = explicit[key]
     for event in row.get("outcomes", []):
         totals[event["counter"]] += 1
     return totals
 
 
 def evidence_record_active(row):
-    """Active comes from the latest outcome flag; import may seed inactive rows."""
+    """Active resolves as: latest outcome event with an `active` flag, then
+    the row-level flag, then the default (active)."""
     active = row.get("active", True)
     for event in row.get("outcomes", []):
         if "active" in event:
@@ -2368,6 +2378,11 @@ def render_evidence_records(snapshot):
 
 
 def evidence_record_row(request, existing=None):
+    """Row for an evidence-record write: request fields overwrite, everything
+    else is carried over from the existing row (runtime outcome history,
+    absolute imported counters, imported extra fields, active flag and any
+    optional field the request does not mention)."""
+    existing = existing or {}
     row = {"id": request["id"], "type": request["record_type"], "problem_class": request["problem_class"],
            "context": request["context"], "approach": request["summary"], "outcome": request["outcome"],
            "evidence": list(request["evidence"]), "reuse_when": request["reuse_when"],
@@ -2375,11 +2390,20 @@ def evidence_record_row(request, existing=None):
     for optional in ("section", "provenance", "verification"):
         if optional in request:
             row[optional] = request[optional]
+        elif optional in existing:
+            row[optional] = existing[optional]
     if "keywords" in request:
         row["keywords"] = list(request["keywords"])
-    if request.get("active") is False:
-        row["active"] = False
-    row["outcomes"] = list(existing.get("outcomes", [])) if existing else []
+    elif "keywords" in existing:
+        row["keywords"] = list(existing["keywords"])
+    if "active" in request:
+        row["active"] = request["active"]
+    elif "active" in existing:
+        row["active"] = existing["active"]
+    row["outcomes"] = list(existing.get("outcomes", []))
+    for carried in ("counters", "extra"):
+        if carried in existing:
+            row[carried] = existing[carried]
     return row
 
 
@@ -2478,6 +2502,59 @@ def atomic_memory_write(path, data):
             os.unlink(temporary)
 
 
+def import_stamp_free(value):
+    """The `import:<date>` stamp is transfer metadata, not record content."""
+    match = re.match(r"^import:\d{4}-\d{2}-\d{2}(?:; )?", value or "")
+    return value[match.end():] if match else (value or "")
+
+
+def import_content_fields(row):
+    """Source-content identity of a store row: request fields, user provenance and
+    imported extras. Runtime outcome history (rendered counters and Active) is
+    excluded — it is compared at row level, not by projection."""
+    fields = dict(evidence_record_fields(row))
+    for key in ("Helpful", "Harmful", "Neutral", "Active"):
+        fields.pop(key, None)
+    for key in (row.get("extra") or {}):
+        fields.pop(key, None)
+    user_provenance = import_stamp_free(fields.pop("Provenance", ""))
+    if user_provenance:
+        fields["Provenance"] = user_provenance
+    return fields
+
+
+def import_proven_carryovers(snapshot, record_id, events):
+    """Payload-proof legacy 0.6.2 carry-over outcome events, one receipt per event.
+
+    An event is carry-over evidence only when a saved `import-evidence-counter-*`
+    operation exists whose payload_sha256 matches the canonical payload rebuilt
+    from the event content (the exact 0.6.2 write_entry form) and whose result
+    names this record. Each receipt proves at most one event (1:1).
+    """
+    proven = [False] * len(events)
+    used = set()
+    for index, event in enumerate(events):
+        request = {"summary": event.get("summary"), "status": event.get("status"), "id": record_id,
+                   "counter": event.get("counter"), "evidence": list(event.get("evidence", []))}
+        payload = {"kind": "evidence-record-outcome", "request": request}
+        expected_sha = digest(encode_json(payload).encode())
+        number = 0
+        while True:
+            operation = f"import-evidence-counter-{record_id}-{event.get('counter')}-{number}"
+            receipt = snapshot.operation_receipt(operation)
+            if receipt is None:
+                break
+            number += 1
+            if operation in used:
+                continue
+            if (receipt.get("payload_sha256") == expected_sha
+                    and receipt.get("result", {}).get("record_id") == record_id):
+                used.add(operation)
+                proven[index] = True
+                break
+    return proven
+
+
 def import_evidence_records(run_dir, *, notes=None, today=None):
     """Move manual `## Evidence Records` entries into the journal-backed writer block."""
     from evidence_records import EvidenceError, derived_counters, normalize_active, parse_keywords, parse_notes, record_counters
@@ -2526,36 +2603,78 @@ def import_evidence_records(run_dir, *, notes=None, today=None):
                  "Do not reuse when", "Follow-up", "Section", "Keywords", "Provenance", "Verification",
                  "Helpful", "Harmful", "Neutral", "Active"}
         extra = {key: fields[key] for key in fields if key not in known}
-        explicit = record_counters(record)
-        base = derived_counters(record.outcome)
-        planned = [(counter, index) for counter in ("helpful", "harmful", "neutral")
-                   for index in range(max(0, explicit[counter] - base[counter]))]
+        explicit_counters = {}
+        for counter_field, counter_key in (("Helpful", "helpful"), ("Harmful", "harmful"), ("Neutral", "neutral")):
+            if counter_field in record.fields:
+                explicit_counters[counter_key] = record_counters(record)[counter_key]
         expected = evidence_record_row(request)
         if extra:
             expected["extra"] = extra
-        expected["outcomes"] = [{"counter": counter, "summary": "Imported counter carry-over",
-                                 "status": "pass", "evidence": [path.name]} for counter, _index in planned]
-        expected_fields = {key: value for key, value in evidence_record_fields(expected).items()
-                           if key != "Provenance"}
+        if explicit_counters:
+            expected["counters"] = explicit_counters
+        expected_fields = import_content_fields(expected)
         store = load_evidence_records(JournalSnapshot.open(run_dir))
         existing = next((row for row in store["records"] if row["id"] == record.record_id), None)
+        counters_written = False
         if existing is not None:
-            actual_fields = {key: value for key, value in evidence_record_fields(existing).items()
-                             if key != "Provenance"}
-            if actual_fields == expected_fields:
-                # Canonical content already journaled in full; safe to drop the manual copy.
-                skipped.append(record.record_id)
-                moved.add(record.record_id)
-                continue
-            actual_base = {key: value for key, value in existing.items()
-                           if key not in {"outcomes", "extra", "provenance"}}
-            expected_base = {key: value for key, value in expected.items()
-                             if key not in {"outcomes", "extra", "provenance"}}
-            actual_outcomes = existing.get("outcomes", [])
-            consistent = (actual_base == expected_base
-                          and existing.get("extra", extra) == extra
-                          and actual_outcomes == expected["outcomes"][:len(actual_outcomes)])
-            require(consistent, "import conflict: " + record.record_id + " differs from journaled record")
+            # Conflict checks precede every existing-row branch, including skip+strip.
+            require(import_content_fields(existing) == expected_fields
+                    and existing.get("active", True) == expected.get("active", True)
+                    and not ("extra" in existing and existing["extra"] != extra)
+                    and not ("counters" in existing and existing["counters"] != explicit_counters),
+                    "import conflict: " + record.record_id + " differs from journaled record")
+            if "counters" in existing:
+                # New/normalized format. A present normalize receipt must match its
+                # source-derived payload; historical carry-over receipts stay untouched.
+                normalize_receipt = JournalSnapshot.open(run_dir).operation_receipt(
+                    "import-evidence-normalize-" + record.record_id)
+                if normalize_receipt is not None:
+                    expected_payload = {"kind": "evidence-record-normalize", "id": record.record_id,
+                                        "counters": existing["counters"]}
+                    require(normalize_receipt.get("payload_sha256") == digest(encode_json(expected_payload).encode()),
+                            "import conflict: " + record.record_id + " normalize receipt payload mismatch")
+                counters_written = True
+                if existing.get("extra", {}) == extra:
+                    # Runtime outcome history is not import content; nothing else is missing.
+                    skipped.append(record.record_id)
+                    moved.add(record.record_id)
+                    continue
+            else:
+                # Legacy 0.6.2 row: counters live as carry-over outcome events.
+                snapshot = JournalSnapshot.open(run_dir)
+                events = existing.get("outcomes", [])
+                proven = import_proven_carryovers(snapshot, record.record_id, events)
+                derived = derived_counters(record.outcome)
+                proven_count = {key: sum(1 for event, ok in zip(events, proven)
+                                         if ok and event.get("counter") == key)
+                                for key in explicit_counters}
+                legacy_complete = (existing.get("extra", {}) == extra
+                                   and all(derived[key] + proven_count[key] == explicit_counters[key]
+                                           for key in explicit_counters))
+                if legacy_complete:
+                    # Fully proven 0.6.2 carry-over chains render correctly as-is; no mutation.
+                    skipped.append(record.record_id)
+                    moved.add(record.record_id)
+                    continue
+                def normalize(current, *, expected=expected, extra=extra,
+                              explicit_counters=explicit_counters, record_id=record.record_id):
+                    data = load_evidence_records(current)
+                    row = next((row for row in data["records"] if row["id"] == record_id), None)
+                    require(row is not None, "normalize requires an existing record")
+                    require("counters" not in row, "record already normalized")
+                    require(import_content_fields(row) == import_content_fields(expected)
+                            and row.get("active", True) == expected.get("active", True)
+                            and not ("extra" in row and row["extra"] != extra),
+                            "import conflict: " + record_id + " differs from journaled record")
+                    current_events = row.get("outcomes", [])
+                    current_proven = import_proven_carryovers(current, record_id, current_events)
+                    row["outcomes"] = [event for event, ok in zip(current_events, current_proven) if not ok]
+                    row["counters"] = explicit_counters
+                    return {EVIDENCE_RECORDS_PATH: encode_json(data, pretty=True) + "\n"}, {}
+                transact(run_dir, "import-evidence-normalize-" + record.record_id,
+                         {"kind": "evidence-record-normalize", "id": record.record_id,
+                          "counters": explicit_counters}, normalize, lifecycle="memory")
+                counters_written = True
         else:
             write_entry(run_dir, "evidence-record", request,
                         identifier="import-evidence-record-" + record.record_id, defer_projection=True)
@@ -2572,17 +2691,21 @@ def import_evidence_records(run_dir, *, notes=None, today=None):
                 return {EVIDENCE_RECORDS_PATH: encode_json(data, pretty=True) + "\n"}, {}
             transact(run_dir, "import-evidence-extra-" + record.record_id,
                      {"kind": "evidence-record-extra", "id": record.record_id}, patch_extra, lifecycle="memory")
-        for counter, index in planned:
-            write_entry(run_dir, "evidence-record-outcome",
-                        {"summary": "Imported counter carry-over", "status": "pass", "id": record.record_id,
-                         "counter": counter, "evidence": [path.name]},
-                        identifier=f"import-evidence-counter-{record.record_id}-{counter}-{index}",
-                        defer_projection=True)
+        if explicit_counters and not counters_written:
+            def patch_counters(current, counters=explicit_counters):
+                data = load_evidence_records(current)
+                row = next(row for row in data["records"] if row["id"] == record.record_id)
+                row["counters"] = counters
+                return {EVIDENCE_RECORDS_PATH: encode_json(data, pretty=True) + "\n"}, {}
+            transact(run_dir, "import-evidence-counters-" + record.record_id,
+                     {"kind": "evidence-record-counters", "id": record.record_id}, patch_counters, lifecycle="memory")
         final_row = next(row for row in load_evidence_records(JournalSnapshot.open(run_dir))["records"]
                          if row["id"] == record.record_id)
-        final_fields = {key: value for key, value in evidence_record_fields(final_row).items()
-                        if key != "Provenance"}
-        require(final_fields == expected_fields, "import did not complete for " + record.record_id)
+        require(import_content_fields(final_row) == expected_fields
+                and final_row.get("active", True) == expected.get("active", True)
+                and final_row.get("extra", {}) == extra
+                and (not explicit_counters or final_row.get("counters") == explicit_counters),
+                "import did not complete for " + record.record_id)
         imported.append(record.record_id)
         moved.add(record.record_id)
     if moved:
@@ -3250,15 +3373,17 @@ def handoff_receipt_evidence(snapshot, handoff_path, *, boundary_path=None, hand
 
 
 def handoff_covers(snapshot, lane_id):
-    """Declared section covers for one lane's handoff/report.
+    """Declared section covers for one lane's handoff/report documents.
 
-    Receipts are the primary source (durable writer path), accepted only when
-    their handoff_sha256 binds them to the current document bytes; receipts of
-    superseded revisions and legacy receipts without a hash are ignored, and an
-    empty receipt covers mapping does not block the fallback. Strict writer
-    marker lines in the document are the legacy/flat fallback. Returns None
-    when the lane has no covers data at all (legacy flat journals stay
-    readable).
+    Authority resolves per document: a receipt whose handoff_sha256 binds it to
+    the current document bytes contributes its covers — an empty mapping is
+    data (coverage declared and empty), so validators must report missing
+    required sections. Without a hash-bound receipt, strict writer marker lines
+    of the current document are read (receipts of superseded revisions never
+    count; 0.6.0 lane-report receipts predate the hash binding, and
+    writer-rendered markers carry the same request facts). Results merge across
+    documents; None means no covers data anywhere (legacy/flat journals stay
+    readable and keep their already-validated JSON facts).
     """
     paths = set()
     lane_map = json.loads(snapshot.documents.get("lane-map.json", b"{}"))
@@ -3272,40 +3397,42 @@ def handoff_covers(snapshot, lane_id):
                 paths.add(record["handoff"])
     paths.add("checks/" + lane_id + ".md")
     covers = None
-    for raw in snapshot.receipts.values():
-        result = json.loads(raw).get("result", {})
-        if not isinstance(result.get("covers"), dict):
-            continue
-        matched = next((path for path in (result.get("handoff"), result.get("report")) if path in paths), None)
-        if matched is None:
-            continue
-        receipt_sha = result.get("handoff_sha256")
-        if receipt_sha is None or not snapshot.exists(matched) or digest(snapshot.read_bytes(matched)) != receipt_sha:
-            continue  # stale or legacy receipts do not describe the current document bytes
-        covers = covers or {}
-        for section, ids in result["covers"].items():
-            covers[section] = list(dict.fromkeys(ids))
-    if covers:
-        return covers
-    parsed = {}
     for path in sorted(paths):
-        if not snapshot.exists(path):
-            continue
-        lines = snapshot.read_text(path).splitlines()
-        if not any(COVER_MARKER.match(line) for line in lines):
-            continue  # legacy document without marker lines stays skipped
-        section = None
-        for line in lines:
-            heading = re.match(r"^#{2,6}\s+(.+?)\s*#*$", line)
-            if heading:
-                section = heading.group(1)
-                parsed.setdefault(section, [])
-                continue
-            if section is not None:
-                marker = COVER_MARKER.match(line)
-                if marker and marker.group(1) not in parsed[section]:
-                    parsed[section].append(marker.group(1))
-    return parsed or None
+        document_covers = None
+        if snapshot.durable:
+            current_sha = digest(snapshot.read_bytes(path)) if snapshot.exists(path) else None
+            for raw in snapshot.receipts.values():
+                result = json.loads(raw).get("result", {})
+                if not isinstance(result.get("covers"), dict):
+                    continue
+                if path not in (result.get("handoff"), result.get("report")):
+                    continue
+                receipt_sha = result.get("handoff_sha256")
+                if receipt_sha is None or receipt_sha != current_sha:
+                    continue  # stale or legacy receipts do not describe the current document bytes
+                document_covers = document_covers or {}
+                for section, ids in result["covers"].items():
+                    document_covers[section] = list(dict.fromkeys(document_covers.get(section, []) + ids))
+        if document_covers is None and snapshot.exists(path):
+            lines = snapshot.read_text(path).splitlines()
+            if any(COVER_MARKER.match(line) for line in lines):
+                document_covers = {}
+                section = None
+                for line in lines:
+                    heading = re.match(r"^#{2,6}\s+(.+?)\s*#*$", line)
+                    if heading:
+                        section = heading.group(1)
+                        document_covers.setdefault(section, [])
+                        continue
+                    if section is not None:
+                        marker = COVER_MARKER.match(line)
+                        if marker and marker.group(1) not in document_covers[section]:
+                            document_covers[section].append(marker.group(1))
+        if document_covers is not None:
+            covers = covers or {}
+            for section, ids in document_covers.items():
+                covers[section] = list(dict.fromkeys(covers.get(section, []) + ids))
+    return covers
 
 
 def author_boundary_artifact(snapshot, lane_id, declaration):

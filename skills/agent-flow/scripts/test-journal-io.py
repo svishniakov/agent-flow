@@ -1006,8 +1006,8 @@ keep me
             store = json.loads(snapshot.read_text("artifacts/memory/evidence-records.json"))
             rows = {row["id"]: row for row in store["records"]}
             self.assertEqual(rows["legacy-a"]["active"], False)
-            self.assertEqual([event["counter"] for event in rows["legacy-a"]["outcomes"]],
-                             ["helpful", "helpful"])
+            self.assertEqual(rows["legacy-a"]["counters"], {"helpful": 3})
+            self.assertEqual(rows["legacy-a"]["outcomes"], [])
             self.assertEqual(rows["legacy-b"]["extra"], {"Custom Field": "keep me"})
             again = journal_io.import_evidence_records(run, today="2026-10-18")
             self.assertEqual(again["imported"], [])
@@ -1144,6 +1144,7 @@ keep me
             manual_text = ("# Implementation Notes\n\n## Evidence Records\n\n### Evidence: partial-one\n\n"
                            "Type: Success\nProblem class: p\nContext: c\nApproach: a\nOutcome: success\n"
                            "Evidence: e\nReuse when: r\nDo not reuse when: s\nFollow-up: f\n"
+                           "Provenance: source-run\n"
                            "Helpful: 3\nActive: false\nCustom Field: keep me\n")
             notes = root / "notes.md"
             notes.write_text(manual_text, encoding="utf-8")
@@ -1162,6 +1163,7 @@ keep me
             store = json.loads(journal_io.JournalSnapshot.open(run).read_text("artifacts/memory/evidence-records.json"))
             row = store["records"][0]
             self.assertNotIn("extra", row)
+            self.assertNotIn("counters", row)
             self.assertEqual(row["outcomes"], [])
             self.assertEqual(notes.read_text(encoding="utf-8"), manual_text)
             # The rerun completes the missing stages under the same deterministic operation ids.
@@ -1170,7 +1172,8 @@ keep me
             store = json.loads(journal_io.JournalSnapshot.open(run).read_text("artifacts/memory/evidence-records.json"))
             row = store["records"][0]
             self.assertEqual(row["extra"], {"Custom Field": "keep me"})
-            self.assertEqual([event["counter"] for event in row["outcomes"]], ["helpful", "helpful"])
+            self.assertEqual(row["counters"], {"helpful": 3})
+            self.assertEqual(row["outcomes"], [])
             self.assertEqual(row["active"], False)
             self.assertNotIn("### Evidence: partial-one", notes.read_text(encoding="utf-8"))
             projected = journal_io.memory_path(journal_io.JournalSnapshot.open(run), "evidence-record")
@@ -1178,6 +1181,7 @@ keep me
                       for record in parse_notes(projected.read_text(encoding="utf-8")).records}
             self.assertEqual(parsed["partial-one"].fields["Helpful"], "3")
             self.assertEqual(parsed["partial-one"].fields["Custom Field"], "keep me")
+            self.assertEqual(parsed["partial-one"].fields["Provenance"], "import:2026-10-18; source-run")
             self.assertEqual(parsed["partial-one"].fields["Active"], "false")
             again = journal_io.import_evidence_records(run, notes=notes, today="2026-10-20")
             self.assertEqual((again["imported"], again["skipped"]), ([], []))
@@ -1205,6 +1209,40 @@ keep me
                                         "import conflict: already-there differs from journaled record"):
                 journal_io.import_evidence_records(run, notes=notes_conflict)
             self.assertEqual(notes_conflict.read_text(encoding="utf-8"), conflict_text)
+            # Explicit zero counters are absolute: the derived base must not leak through.
+            notes_zero = root / "notes-zero.md"
+            notes_zero.write_text("# Implementation Notes\n\n## Evidence Records\n\n### Evidence: zero-helpful\n\n"
+                                  "Type: Success\nProblem class: p\nContext: c\nApproach: a\nOutcome: success\n"
+                                  "Evidence: e\nReuse when: r\nDo not reuse when: s\nFollow-up: f\nHelpful: 0\n",
+                                  encoding="utf-8")
+            journal_io.import_evidence_records(run, notes=notes_zero, today="2026-10-18")
+            store = json.loads(journal_io.JournalSnapshot.open(run).read_text("artifacts/memory/evidence-records.json"))
+            zero = next(row for row in store["records"] if row["id"] == "zero-helpful")
+            self.assertEqual(zero["counters"], {"helpful": 0})
+            self.assertEqual(zero["outcomes"], [])
+            self.assertNotIn("### Evidence:", notes_zero.read_text(encoding="utf-8"))
+            projected = journal_io.memory_path(journal_io.JournalSnapshot.open(run), "evidence-record")
+            zero_fields = {record.record_id: record
+                           for record in parse_notes(projected.read_text(encoding="utf-8")).records}["zero-helpful"].fields
+            self.assertEqual(zero_fields["Helpful"], "0")
+            # User provenance is content: same id with a different source conflicts.
+            notes_prov_a = root / "notes-prov-a.md"
+            notes_prov_a.write_text("# Implementation Notes\n\n## Evidence Records\n\n### Evidence: prov-record\n\n"
+                                    "Type: Success\nProblem class: p\nContext: c\nApproach: a\nOutcome: success\n"
+                                    "Evidence: e\nReuse when: r\nDo not reuse when: s\nFollow-up: f\n"
+                                    "Provenance: source-A\n", encoding="utf-8")
+            prov_a_text = notes_prov_a.read_text(encoding="utf-8")
+            journal_io.import_evidence_records(run, notes=notes_prov_a, today="2026-10-18")
+            store = json.loads(journal_io.JournalSnapshot.open(run).read_text("artifacts/memory/evidence-records.json"))
+            prov = next(row for row in store["records"] if row["id"] == "prov-record")
+            self.assertEqual(prov["provenance"], "import:2026-10-18; source-A")
+            notes_prov_b = root / "notes-prov-b.md"
+            notes_prov_b.write_text(prov_a_text.replace("source-A", "source-B"), encoding="utf-8")
+            prov_b_text = notes_prov_b.read_text(encoding="utf-8")
+            with self.assertRaisesRegex(journal_io.JournalError,
+                                        "import conflict: prov-record differs from journaled record"):
+                journal_io.import_evidence_records(run, notes=notes_prov_b, today="2026-10-19")
+            self.assertEqual(notes_prov_b.read_text(encoding="utf-8"), prov_b_text)
 
     def test_covers_fall_back_to_markers_for_pre_hash_receipts(self):
         """0.6.0-style journal: lane-report receipt without handoff_sha256, handoff receipt with empty covers."""
@@ -1240,6 +1278,302 @@ keep me
             self.assertEqual(stripped, 1)
             snapshot = journal_io.JournalSnapshot.open(run)
             self.assertEqual(journal_io.handoff_covers(snapshot, "worker"), {"Contract Drift": ["api-service"]})
+
+    def test_covers_empty_receipt_is_data_and_per_document_resolution(self):
+        import sqlite3
+        import tempfile
+        covers_validator = load("covers_validator", "validate-run.py")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            run = root / "run"
+            journal_io.initialize_journal(run, {"checks.md": b"# Checks\n"}, source_root=root)
+            self.register_synthetic_root(run)
+            for lane_id in ("worker-a", "worker-b"):
+                journal_io.write_entry(run, "lane", {"id": lane_id, "summary": "Planned worker", "status": "planned",
+                    "lane_type": "implementation", "role": "python-worker", "execution_mode": "role-lane",
+                    "wave": 1, "critical": False}, identifier="lane-" + lane_id)
+            # A hash-bound receipt with empty covers is data: coverage declared and empty.
+            journal_io.write_entry(run, "handoff", {"lane_id": "worker-a", "summary": "Work done",
+                                                    "status": "pass"}, identifier="handoff-a")
+            snapshot = journal_io.JournalSnapshot.open(run)
+            self.assertEqual(journal_io.handoff_covers(snapshot, "worker-a"), {})
+            errors = []
+            covers_validator.require_handoff_covers(snapshot, {"handoff": "handoffs/worker-a.md"}, "worker-a",
+                                                    "worker-a", "Contract Drift", ["api-service"], errors)
+            self.assertEqual(errors, ["lane-map.json: lane worker-a handoff covers missing section: Contract Drift"])
+            # Per-document resolution: receipt-bound handoff covers plus marker covers of a
+            # pre-hash (0.6.0-style) lane-report receipt merge across documents.
+            journal_io.write_entry(run, "handoff", {"lane_id": "worker-b", "summary": "Work done", "status": "pass",
+                "sections": [{"section": "Architecture Invariants", "summary": "ok", "covers": ["monolith"]}]},
+                identifier="handoff-b")
+            journal_io.write_entry(run, "lane-report",
+                                   {"lane_id": "worker-b", "summary": "Worker report", "status": "pass",
+                                    "sections": [{"section": "Contract Drift", "summary": "drift",
+                                                  "covers": ["api-service"]}]}, identifier="report-b")
+            connection = sqlite3.connect(run / ".journal/state.sqlite3")
+            try:
+                rows = connection.execute("SELECT operation_id, result FROM operations").fetchall()
+                stripped = 0
+                for operation_id, raw in rows:
+                    result = json.loads(raw)
+                    if "report" in result and result.pop("handoff_sha256", None) is not None:
+                        connection.execute("UPDATE operations SET result=? WHERE operation_id=?",
+                                           (json.dumps(result), operation_id))
+                        stripped += 1
+                connection.commit()
+            finally:
+                connection.close()
+            self.assertEqual(stripped, 1)
+            snapshot = journal_io.JournalSnapshot.open(run)
+            self.assertEqual(journal_io.handoff_covers(snapshot, "worker-b"),
+                             {"Architecture Invariants": ["monolith"], "Contract Drift": ["api-service"]})
+
+    def test_evidence_record_edit_carries_non_request_state(self):
+        import tempfile
+        from evidence_records import parse_notes
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source = root / "source"
+            source.mkdir()
+            subprocess.run(["git", "init", "-q", str(source)], check=True)
+            run = source / ".agent-work/runs/edit-carry"
+            journal_io.initialize_journal(run, {}, source_root=source)
+            manual = root / "notes.md"
+            manual.write_text("# Implementation Notes\n\n## Evidence Records\n\n### Evidence: carried\n\n"
+                              "Type: Success\nProblem class: p\nContext: c\nApproach: old approach\nOutcome: success\n"
+                              "Evidence: e\nReuse when: r\nDo not reuse when: s\nFollow-up: f\n"
+                              "Section: harness\nKeywords: alpha, beta\nVerification: cmd\n"
+                              "Helpful: 3\nActive: false\nCustom Field: keep me\n", encoding="utf-8")
+            journal_io.import_evidence_records(run, notes=manual, today="2026-10-18")
+            # Editing the approach must not drop counters, extra, optionals or the active flag.
+            journal_io.write_entry(run, "evidence-record",
+                                   {"summary": "new approach", "status": "pass", "id": "carried",
+                                    "record_type": "Success", "problem_class": "p", "context": "c",
+                                    "outcome": "success", "evidence": ["e"], "reuse_when": "r",
+                                    "do_not_reuse_when": "s", "follow_up": "f"}, identifier="edit-1")
+            row = json.loads(journal_io.JournalSnapshot.open(run)
+                             .read_text("artifacts/memory/evidence-records.json"))["records"][0]
+            self.assertEqual(row["approach"], "new approach")
+            self.assertEqual(row["counters"], {"helpful": 3})
+            self.assertEqual(row["extra"], {"Custom Field": "keep me"})
+            self.assertEqual(row["active"], False)
+            self.assertEqual((row["section"], row["keywords"]), ("harness", ["alpha", "beta"]))
+            self.assertEqual((row["provenance"], row["verification"]), ("import:2026-10-18", "cmd"))
+            projected = journal_io.memory_path(journal_io.JournalSnapshot.open(run), "evidence-record")
+            fields = parse_notes(projected.read_text(encoding="utf-8")).records[0].fields
+            self.assertEqual((fields["Helpful"], fields["Active"], fields["Custom Field"]),
+                             ("3", "false", "keep me"))
+            # An explicit active value overwrites the row flag; outcome events still win over the row.
+            journal_io.write_entry(run, "evidence-record",
+                                   {"summary": "new approach", "status": "pass", "id": "carried",
+                                    "record_type": "Success", "problem_class": "p", "context": "c",
+                                    "outcome": "success", "evidence": ["e"], "reuse_when": "r",
+                                    "do_not_reuse_when": "s", "follow_up": "f", "active": True},
+                                   identifier="edit-2")
+            row = json.loads(journal_io.JournalSnapshot.open(run)
+                             .read_text("artifacts/memory/evidence-records.json"))["records"][0]
+            self.assertEqual(row["active"], True)
+            journal_io.write_entry(run, "evidence-record-outcome",
+                                   {"summary": "Disabled after reuse", "status": "fail", "id": "carried",
+                                    "counter": "harmful", "evidence": ["e"], "active": False},
+                                   identifier="edit-outcome")
+            row = json.loads(journal_io.JournalSnapshot.open(run)
+                             .read_text("artifacts/memory/evidence-records.json"))["records"][0]
+            self.assertEqual(row["active"], True)
+            self.assertFalse(journal_io.evidence_record_active(row))
+            fields = parse_notes(journal_io.memory_path(journal_io.JournalSnapshot.open(run), "evidence-record")
+                                 .read_text(encoding="utf-8")).records[0].fields
+            self.assertEqual((fields["Helpful"], fields["Harmful"], fields["Active"]), ("3", "1", "false"))
+
+    def test_import_evidence_records_legacy_062_carry_over_normalization(self):
+        """0.6.2 carry-over chains: payload-proven resume, normalization and conflicts."""
+        import tempfile
+        from evidence_records import parse_notes
+        PINNED_COUNTER_PAYLOAD = "f36e06fc99ee7e7bc516a42bbedc977292db0c717ef09a9ebea85a0fca52a3d1"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source = root / "source"
+            source.mkdir()
+            subprocess.run(["git", "init", "-q", str(source)], check=True)
+            def manual_text(record_id):
+                return ("# Implementation Notes\n\n## Evidence Records\n\n### Evidence: " + record_id + "\n\n"
+                        "Type: Success\nProblem class: p\nContext: c\nApproach: a\nOutcome: success\n"
+                        "Evidence: e\nReuse when: r\nDo not reuse when: s\nFollow-up: f\nHelpful: 3\n")
+            notes = root / "notes.md"
+
+            def fresh_run(name):
+                run = source / ".agent-work/runs" / name
+                journal_io.initialize_journal(run, {}, source_root=source)
+                return run
+
+            def legacy_row(run, record_id, carry_overs, *, extra_op_ids=()):
+                request = {"summary": "a", "status": "pass", "id": record_id,
+                           "record_type": "Success", "problem_class": "p", "context": "c",
+                           "outcome": "success", "evidence": ["e"], "reuse_when": "r",
+                           "do_not_reuse_when": "s", "follow_up": "f", "provenance": "import:2026-10-18"}
+                journal_io.write_entry(run, "evidence-record", request,
+                                       identifier="import-evidence-record-" + record_id, defer_projection=True)
+                for index in range(carry_overs):
+                    journal_io.write_entry(run, "evidence-record-outcome",
+                                           {"summary": "Imported counter carry-over", "status": "pass",
+                                            "id": record_id, "counter": "helpful",
+                                            "evidence": ["notes.md"]},
+                                           identifier=extra_op_ids[index] if index < len(extra_op_ids)
+                                           else f"import-evidence-counter-{record_id}-helpful-{index}",
+                                           defer_projection=True)
+
+            def row_of(run, record_id):
+                store = json.loads(journal_io.JournalSnapshot.open(run)
+                                   .read_text("artifacts/memory/evidence-records.json"))
+                return next(row for row in store["records"] if row["id"] == record_id)
+
+            def projected_helpful(run, record_id):
+                projected = journal_io.memory_path(journal_io.JournalSnapshot.open(run), "evidence-record")
+                parsed = parse_notes(projected.read_text(encoding="utf-8"))
+                return next(record for record in parsed.records
+                            if record.record_id == record_id).fields["Helpful"]
+
+            # (а) partial 0.6.2 (1 of 2 carry-over events) resumes to 3 without doubling.
+            run = fresh_run("partial")
+            notes.write_text(manual_text("legacy-rec"), encoding="utf-8")
+            legacy_row(run, "legacy-rec", 1)
+            receipt = journal_io.JournalSnapshot.open(run).operation_receipt(
+                "import-evidence-counter-legacy-rec-helpful-0")
+            self.assertEqual(receipt["payload_sha256"], PINNED_COUNTER_PAYLOAD)
+            result = journal_io.import_evidence_records(run, notes=notes, today="2026-10-19")
+            self.assertEqual(result["imported"], ["legacy-rec"])
+            row = row_of(run, "legacy-rec")
+            self.assertEqual(row["counters"], {"helpful": 3})
+            self.assertEqual(row["outcomes"], [])
+            self.assertEqual(projected_helpful(run, "legacy-rec"), "3")
+            snapshot = journal_io.JournalSnapshot.open(run)
+            self.assertIsNotNone(snapshot.operation_receipt("import-evidence-normalize-legacy-rec"))
+            self.assertEqual(result["skipped"], [])
+            # (е) legacy-complete: skip + strip without any mutation of the row.
+            run = fresh_run("complete")
+            notes.write_text(manual_text("legacy-full"), encoding="utf-8")
+            legacy_row(run, "legacy-full", 2)
+            before = journal_io.JournalSnapshot.open(run).read_bytes("artifacts/memory/evidence-records.json")
+            result = journal_io.import_evidence_records(run, notes=notes, today="2026-10-20")
+            self.assertEqual((result["imported"], result["skipped"]), ([], ["legacy-full"]))
+            after = journal_io.JournalSnapshot.open(run)
+            self.assertEqual(after.read_bytes("artifacts/memory/evidence-records.json"), before)
+            self.assertIsNone(after.operation_receipt("import-evidence-normalize-legacy-full"))
+            self.assertNotIn("### Evidence:", notes.read_text(encoding="utf-8"))
+            # (в) a real application between attempts stays on top of the absolute counters.
+            journal_io.write_entry(run, "evidence-record-outcome",
+                                   {"summary": "Applied again", "status": "pass", "id": "legacy-full",
+                                    "counter": "helpful", "evidence": ["notes.md"]},
+                                   identifier="real-application", defer_projection=True)
+            notes.write_text(manual_text("legacy-full"), encoding="utf-8")
+            result = journal_io.import_evidence_records(run, notes=notes, today="2026-10-21")
+            self.assertEqual(result["skipped"], ["legacy-full"])
+            self.assertEqual(projected_helpful(run, "legacy-full"), "4")
+            self.assertEqual(len(row_of(run, "legacy-full")["outcomes"]), 3)
+            # (ж) legacy-complete with changed source content refuses and keeps everything.
+            notes.write_text(manual_text("legacy-full").replace("Approach: a", "Approach: edited"), encoding="utf-8")
+            before = journal_io.JournalSnapshot.open(run).read_bytes("artifacts/memory/evidence-records.json")
+            with self.assertRaisesRegex(journal_io.JournalError, "import conflict: legacy-full"):
+                journal_io.import_evidence_records(run, notes=notes, today="2026-10-22")
+            self.assertEqual(journal_io.JournalSnapshot.open(run)
+                             .read_bytes("artifacts/memory/evidence-records.json"), before)
+            self.assertIn("### Evidence: legacy-full", notes.read_text(encoding="utf-8"))
+            # (д)+(з) an unproven carry-over-looking event is kept; one receipt proves one event.
+            run = fresh_run("unproven")
+            notes.write_text(manual_text("legacy-mixed"), encoding="utf-8")
+            legacy_row(run, "legacy-mixed", 2,
+                       extra_op_ids=("import-evidence-counter-legacy-mixed-helpful-0", "foreign-op"))
+            result = journal_io.import_evidence_records(run, notes=notes, today="2026-10-23")
+            self.assertEqual(result["imported"], ["legacy-mixed"])
+            row = row_of(run, "legacy-mixed")
+            self.assertEqual(row["counters"], {"helpful": 3})
+            self.assertEqual(len(row["outcomes"]), 1)
+            self.assertEqual(row["outcomes"][0]["summary"], "Imported counter carry-over")
+            self.assertEqual(projected_helpful(run, "legacy-mixed"), "4")
+
+    def test_import_evidence_records_legacy_062_normalize_crash_and_conflict(self):
+        """(б) crash right after normalization resumes by receipt; (г) conflict precedes it."""
+        import tempfile
+        from evidence_records import parse_notes
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source = root / "source"
+            source.mkdir()
+            subprocess.run(["git", "init", "-q", str(source)], check=True)
+            run = source / ".agent-work/runs/normalize-crash"
+            journal_io.initialize_journal(run, {}, source_root=source)
+            manual_text = ("# Implementation Notes\n\n## Evidence Records\n\n### Evidence: partial-two\n\n"
+                           "Type: Success\nProblem class: p\nContext: c\nApproach: a\nOutcome: success\n"
+                           "Evidence: e\nReuse when: r\nDo not reuse when: s\nFollow-up: f\n"
+                           "Helpful: 3\nCustom Field: keep me\n")
+            notes = root / "notes.md"
+            notes.write_text(manual_text, encoding="utf-8")
+            request = {"summary": "a", "status": "pass", "id": "partial-two",
+                       "record_type": "Success", "problem_class": "p", "context": "c",
+                       "outcome": "success", "evidence": ["e"], "reuse_when": "r",
+                       "do_not_reuse_when": "s", "follow_up": "f", "provenance": "import:2026-10-18"}
+            journal_io.write_entry(run, "evidence-record", request,
+                                   identifier="import-evidence-record-partial-two", defer_projection=True)
+            journal_io.write_entry(run, "evidence-record-outcome",
+                                   {"summary": "Imported counter carry-over", "status": "pass",
+                                    "id": "partial-two", "counter": "helpful", "evidence": ["notes.md"]},
+                                   identifier="import-evidence-counter-partial-two-helpful-0",
+                                   defer_projection=True)
+            # Crash the extra stage right after normalization committed.
+            original_transact = journal_io.transact
+            def flaky(run_dir, identifier, payload, mutation, **kwargs):
+                if identifier == "import-evidence-extra-partial-two":
+                    raise RuntimeError("simulated crash")
+                return original_transact(run_dir, identifier, payload, mutation, **kwargs)
+            journal_io.transact = flaky
+            try:
+                with self.assertRaises(RuntimeError):
+                    journal_io.import_evidence_records(run, notes=notes, today="2026-10-19")
+            finally:
+                journal_io.transact = original_transact
+            snapshot = journal_io.JournalSnapshot.open(run)
+            self.assertIsNotNone(snapshot.operation_receipt("import-evidence-normalize-partial-two"))
+            row = json.loads(snapshot.read_text("artifacts/memory/evidence-records.json"))["records"][0]
+            self.assertEqual(row["counters"], {"helpful": 3})
+            self.assertEqual(row["outcomes"], [])
+            self.assertNotIn("extra", row)
+            self.assertEqual(notes.read_text(encoding="utf-8"), manual_text)
+            # Rerun recognizes the normalized row by its receipt and completes the stages.
+            result = journal_io.import_evidence_records(run, notes=notes, today="2026-10-20")
+            self.assertEqual(result["imported"], ["partial-two"])
+            row = json.loads(journal_io.JournalSnapshot.open(run)
+                             .read_text("artifacts/memory/evidence-records.json"))["records"][0]
+            self.assertEqual(row["extra"], {"Custom Field": "keep me"})
+            self.assertEqual(row["counters"], {"helpful": 3})
+            self.assertEqual(row["outcomes"], [])
+            projected = journal_io.memory_path(journal_io.JournalSnapshot.open(run), "evidence-record")
+            fields = parse_notes(projected.read_text(encoding="utf-8")).records[0].fields
+            self.assertEqual((fields["Helpful"], fields["Custom Field"]), ("3", "keep me"))
+            # A second rerun is a clean skip; the historical carry-over receipt stays in history.
+            snapshot = journal_io.JournalSnapshot.open(run)
+            self.assertIsNotNone(snapshot.operation_receipt("import-evidence-counter-partial-two-helpful-0"))
+            result = journal_io.import_evidence_records(run, notes=notes, today="2026-10-21")
+            self.assertEqual((result["imported"], result["skipped"]), ([], []))
+            # (г) a content conflict refuses before any normalization mutates the legacy row.
+            conflict_run = source / ".agent-work/runs/normalize-conflict"
+            journal_io.initialize_journal(conflict_run, {}, source_root=source)
+            conflict_notes = root / "conflict-notes.md"
+            conflict_notes.write_text(manual_text.replace("partial-two", "partial-two").replace(
+                "Context: c", "Context: changed"), encoding="utf-8")
+            request = {"summary": "a", "status": "pass", "id": "partial-two",
+                       "record_type": "Success", "problem_class": "p", "context": "c",
+                       "outcome": "success", "evidence": ["e"], "reuse_when": "r",
+                       "do_not_reuse_when": "s", "follow_up": "f", "provenance": "import:2026-10-18"}
+            journal_io.write_entry(conflict_run, "evidence-record", request,
+                                   identifier="import-evidence-record-partial-two", defer_projection=True)
+            before = journal_io.JournalSnapshot.open(conflict_run).read_bytes("artifacts/memory/evidence-records.json")
+            before_notes = conflict_notes.read_text(encoding="utf-8")
+            with self.assertRaisesRegex(journal_io.JournalError, "import conflict: partial-two"):
+                journal_io.import_evidence_records(conflict_run, notes=conflict_notes, today="2026-10-22")
+            snapshot = journal_io.JournalSnapshot.open(conflict_run)
+            self.assertEqual(snapshot.read_bytes("artifacts/memory/evidence-records.json"), before)
+            self.assertIsNone(snapshot.operation_receipt("import-evidence-normalize-partial-two"))
+            self.assertEqual(conflict_notes.read_text(encoding="utf-8"), before_notes)
 
     def test_check_process_does_not_hold_journal_writer_lock(self):
         import tempfile
