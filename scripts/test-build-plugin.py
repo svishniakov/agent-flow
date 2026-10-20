@@ -7,6 +7,7 @@ import importlib.util
 import json
 import os
 import re
+from contextlib import closing
 from pathlib import Path
 import shutil
 import sqlite3
@@ -80,8 +81,13 @@ class PluginBuild(unittest.TestCase):
         codex_home = self.base / "plugin-lifecycle-codex"
         (codex_home / "sessions").mkdir(parents=True)
         thread_id = "00000000-0000-4000-8000-000000000001"
-        (codex_home / "sessions" / (thread_id + ".jsonl")).write_text(
+        rollout = codex_home / "sessions" / (thread_id + ".jsonl")
+        rollout.write_text(
             json.dumps({"type": "session_meta", "payload": {"id": thread_id, "cwd": str(project)}}) + "\n")
+        with closing(sqlite3.connect(codex_home / "state_5.sqlite")) as connection:
+            connection.execute("CREATE TABLE threads (id TEXT PRIMARY KEY, rollout_path TEXT)")
+            connection.execute("INSERT INTO threads VALUES (?, ?)", (thread_id, str(rollout)))
+            connection.commit()
         environment["CODEX_HOME"] = str(codex_home)
         requirements = project / "plan.md"
         requirements.write_text("# Archive check\n\n## Критерии приёмки\n\n- Installed task starts.\n")

@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 import copy
 import json
+import os
+import sqlite3
+from contextlib import closing
 from pathlib import Path
 import subprocess
 import sys
@@ -111,6 +114,28 @@ class EvidenceTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.f = Fixture(self.temporary.name)
 
+    def native_source(self):
+        temporary = tempfile.TemporaryDirectory(prefix='af-native-evidence-')
+        self.addCleanup(temporary.cleanup)
+        home = Path(temporary.name).resolve()
+        (home / 'sessions').mkdir()
+        with closing(sqlite3.connect(home / 'state_5.sqlite')) as connection:
+            connection.execute('CREATE TABLE threads (id TEXT PRIMARY KEY, rollout_path TEXT, agent_path TEXT, source TEXT)')
+        environment = patch.dict(os.environ, {'CODEX_HOME': str(home)})
+        environment.start()
+        self.addCleanup(environment.stop)
+        return CodexSessionSource(), home
+
+    def indexed_session(self, home, thread_id, events, *, suffix='', agent_path=None):
+        path = home / 'sessions' / ('rollout-' + thread_id + suffix + '.jsonl')
+        path.write_text(''.join(json.dumps(event) + '\n' for event in events), encoding='utf-8')
+        metadata = next(event['payload'] for event in events if event['type'] == 'session_meta')
+        with closing(sqlite3.connect(home / 'state_5.sqlite')) as connection:
+            connection.execute('INSERT OR REPLACE INTO threads VALUES (?, ?, ?, ?)',
+                               (thread_id, str(path), agent_path, json.dumps(metadata.get('source', {}))))
+            connection.commit()
+        return path
+
     def test_real_root_author_and_independent_native_reports(self):
         self.f.completed()
         self.assertEqual(validate_acceptance(self.f.snapshot(), self.f.source), [])
@@ -147,18 +172,117 @@ class EvidenceTests(unittest.TestCase):
             native_references(self.f.snapshot(), 'qa', self.f.source)
 
     def test_canonical_task_path_resolves_actual_uuid_and_role(self):
-        directory = self.f.root / 'native'
-        directory.mkdir()
-        events = session(QA_ID, 'qa-verifier', cwd=self.f.root)
+        source, home = self.native_source()
+        events = session(QA_ID, 'qa-verifier', {'status': 'failed'}, cwd=self.f.root)
         meta = events[0]['payload']
         meta['agent_path'] = '/root/qa'
         meta['source']['subagent']['thread_spawn']['agent_path'] = '/root/qa'
-        path = directory / ('rollout-' + QA_ID + '.jsonl')
-        path.write_text(''.join(json.dumps(event) + '\n' for event in events))
-        with patch.object(CodexSessionSource, 'session_dir', return_value=directory):
-            self.assertEqual(CodexSessionSource().resolve_session('/root/qa', ROOT_ID, 'qa-verifier')['codex_thread_id'], QA_ID)
-            with self.assertRaisesRegex(JournalError, 'agent_role mismatch'):
-                CodexSessionSource().resolve_session('/root/qa', ROOT_ID, 'reviewer')
+        path = self.indexed_session(home, QA_ID, events, suffix='_' + REVIEWER_ID, agent_path='/root/qa')
+        self.assertEqual(source.resolve_session('/root/qa', ROOT_ID, 'qa-verifier')['codex_thread_id'], QA_ID)
+        observed = native_references(self.f.snapshot(), 'qa', source)
+        self.assertTrue(observed['completed'])
+        self.assertEqual(observed['observations'][0]['ref'], self.f.ref(QA_ID))
+        with self.assertRaisesRegex(JournalError, 'agent_role mismatch'):
+            source.resolve_session('/root/qa', ROOT_ID, 'reviewer')
+        with self.assertRaisesRegex(JournalError, 'source task path missing or ambiguous'):
+            source.resolve_session('/root/qa', REVIEWER_ID, 'qa-verifier')
+        meta['source']['subagent']['thread_spawn']['parent_thread_id'] = REVIEWER_ID
+        path.write_text(''.join(json.dumps(event) + '\n' for event in events), encoding='utf-8')
+        with self.assertRaisesRegex(JournalError, 'conflicting source parent_thread_id'):
+            source.resolve_session('/root/qa', ROOT_ID, 'qa-verifier')
+
+    def test_canonical_task_path_ignores_missing_rollout_of_another_root(self):
+        source, home = self.native_source()
+        for thread, parent in ((REVIEWER_ID, QA_ID), (QA_ID, ROOT_ID)):
+            events = session(thread, 'qa-verifier', root=parent, cwd=self.f.root)
+            meta = events[0]['payload']
+            meta['agent_path'] = '/root/qa'
+            meta['source']['subagent']['thread_spawn']['agent_path'] = '/root/qa'
+            path = self.indexed_session(home, thread, events, agent_path='/root/qa')
+            if parent != ROOT_ID:
+                path.unlink()
+        self.assertEqual(source.resolve_session('/root/qa', ROOT_ID, 'qa-verifier')['codex_thread_id'], QA_ID)
+
+    def test_index_selects_current_root_edits_over_old_filename(self):
+        source, home = self.native_source()
+        self.indexed_session(home, ROOT_ID, session(ROOT_ID, 'python-worker', cwd=self.f.root, turn='old'))
+        self.indexed_session(home, ROOT_ID, self.f.source.sessions[ROOT_ID], suffix='_' + QA_ID)
+        index_before = (home / 'state_5.sqlite').read_bytes()
+        observed = native_references(self.f.snapshot(), 'author', source)
+        self.assertEqual(observed['turn_id'], ROOT_ID + '-turn')
+        self.assertEqual(observed['observations'], [{
+            'ref': self.f.ref(ROOT_ID), 'name': 'apply_patch', 'success': True,
+            'authored_paths': [str(self.f.product)],
+        }])
+        report = {'status': 'completed', 'summary': 'Implemented result',
+                  'authored_paths': [str(self.f.product)], 'evidence': [self.f.ref(ROOT_ID)]}
+        accepted = accept_report(self.f.snapshot(), self.f.known['author'],
+                                 {'turn_id': observed['turn_id'], 'report': report}, source)
+        self.assertEqual(accepted['authored_paths'], [str(self.f.product)])
+        self.assertEqual((home / 'state_5.sqlite').read_bytes(), index_before)
+
+    def test_index_reads_plain_filename_and_rejects_foreign_actions(self):
+        source, home = self.native_source()
+        self.indexed_session(home, ROOT_ID, self.f.source.sessions[ROOT_ID])
+        observed = native_references(self.f.snapshot(), 'author', source)
+        self.assertEqual(observed['observations'][0]['ref'], self.f.ref(ROOT_ID))
+        self.assertTrue(observed['observations'][0]['success'])
+        child = session(QA_ID, 'python-worker', cwd=self.f.root, patch='*** Update File: result.py\n')
+        self.indexed_session(home, QA_ID, child, suffix='_' + REVIEWER_ID)
+        report = {'status': 'completed', 'summary': 'Not my edit',
+                  'authored_paths': [str(self.f.product)], 'evidence': [self.f.ref(QA_ID)]}
+        with self.assertRaisesRegex(JournalError, 'authored path has no native edit evidence'):
+            accept_report(self.f.snapshot(), self.f.known['author'],
+                          {'turn_id': observed['turn_id'], 'report': report}, source)
+
+    def test_index_failure_never_falls_back_to_old_file(self):
+        source, home = self.native_source()
+        old = self.indexed_session(home, ROOT_ID, self.f.source.sessions[ROOT_ID])
+        index = home / 'state_5.sqlite'
+        with closing(sqlite3.connect(index)) as connection:
+            connection.execute('DELETE FROM threads')
+            connection.commit()
+        with self.assertRaisesRegex(JournalError, 'execution unconfirmed:.*missing or ambiguous in Codex index'):
+            source.read(ROOT_ID)
+        self.indexed_session(home, ROOT_ID, self.f.source.sessions[ROOT_ID], suffix='_' + QA_ID).unlink()
+        with self.assertRaisesRegex(JournalError, 'execution unconfirmed: unreadable source session'):
+            source.read(ROOT_ID)
+        self.indexed_session(home, ROOT_ID, session(QA_ID, 'qa-verifier'), suffix='_' + QA_ID)
+        with self.assertRaisesRegex(JournalError, 'execution unconfirmed: missing or conflicting session metadata'):
+            source.read(ROOT_ID)
+        index.unlink()
+        with self.assertRaisesRegex(JournalError, 'execution unconfirmed: cannot read Codex source index'):
+            source.read(ROOT_ID)
+        self.assertFalse(index.exists())
+        self.assertTrue(old.is_file())
+
+    def test_index_rejects_paths_outside_native_sessions(self):
+        source, home = self.native_source()
+        path = self.indexed_session(home, ROOT_ID, self.f.source.sessions[ROOT_ID])
+        outside = home / 'export.jsonl'
+        path.rename(outside)
+        with closing(sqlite3.connect(home / 'state_5.sqlite')) as connection:
+            connection.execute('UPDATE threads SET rollout_path = ?', (str(outside),))
+            connection.commit()
+        with self.assertRaisesRegex(JournalError, 'execution unconfirmed:.*outside native sessions'):
+            source.read(ROOT_ID)
+        path.symlink_to(outside)
+        with closing(sqlite3.connect(home / 'state_5.sqlite')) as connection:
+            connection.execute('UPDATE threads SET rollout_path = ?', (str(path),))
+            connection.commit()
+        with self.assertRaisesRegex(JournalError, 'execution unconfirmed:.*outside native sessions'):
+            source.read(ROOT_ID)
+
+    def test_index_rejects_ambiguous_canonical_task_path(self):
+        source, home = self.native_source()
+        for thread in (QA_ID, REVIEWER_ID):
+            events = session(thread, 'qa-verifier', cwd=self.f.root)
+            meta = events[0]['payload']
+            meta['agent_path'] = '/root/qa'
+            meta['source']['subagent']['thread_spawn']['agent_path'] = '/root/qa'
+            self.indexed_session(home, thread, events, agent_path='/root/qa')
+        with self.assertRaisesRegex(JournalError, 'execution unconfirmed: source task path missing or ambiguous'):
+            source.resolve_session('/root/qa', ROOT_ID, 'qa-verifier')
 
     def test_child_author_reads_native_answer_not_request_body(self):
         assignment = {**self.f.known['author'], 'agent_id': QA_ID}

@@ -4,6 +4,8 @@ import hashlib
 import json
 import os
 import re
+import sqlite3
+from contextlib import closing
 from pathlib import Path
 from agent_config import default_agents_dir, read_frontmatter, role_config, resolve_role_path
 from journal_io import JournalError, event_time, source_time
@@ -34,50 +36,52 @@ def public_content(content) -> tuple[list[dict], bool]:
 
 
 class CodexSessionSource:
-    """Read only files whose names contain the requested UUID, never exports."""
+    """Read the current native session selected by the Codex index, never exports."""
 
     def session_dir(self) -> Path:
         codex_dir = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))).expanduser()
         return codex_dir / "sessions"
+
+    def _index_rows(self, query, parameters):
+        index = (self.session_dir().parent / 'state_5.sqlite').resolve()
+        try:
+            with closing(sqlite3.connect(index.as_uri() + '?mode=ro', uri=True)) as connection:
+                return connection.execute(query, parameters).fetchall()
+        except (OSError, sqlite3.Error) as exc:
+            raise EvidenceError(f'execution unconfirmed: cannot read Codex source index: {exc}') from exc
 
     def resolve_session(self, agent_path, root_id, role):
         require(isinstance(agent_path, str) and re.fullmatch(r'/root(?:/[a-z0-9_]+)+', agent_path),
                 'agent_id must be an exact canonical task path')
         require(isinstance(root_id, str) and UUID.fullmatch(root_id), 'root agent ID must be a Codex UUID')
         matches = []
-        try:
-            for path in self.session_dir().glob('**/*.jsonl'):
-                file_id = path.stem[-36:]
-                if not UUID.fullmatch(file_id):
-                    continue
-                with path.open(encoding='utf-8') as handle:
-                    for line in handle:
-                        event = json.loads(line)
-                        if event.get('type') != 'session_meta':
-                            continue
-                        meta = event.get('payload', {})
-                        if meta.get('id') != file_id:
-                            continue
-                        records = (meta, child_spawn(meta))
-                        if any(record.get('agent_path') == agent_path for record in records) and any(record.get('parent_thread_id') == root_id for record in records):
-                            require(all(record.get('agent_path') == agent_path for record in records), 'conflicting source agent_path metadata')
-                            require(all(record.get('parent_thread_id') == root_id for record in records), 'conflicting source parent_thread_id metadata')
-                            require(all(record.get('agent_role') == role for record in records), 'source agent_role mismatch')
-                            matches.append(file_id)
-                        break
-        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-            raise EvidenceError('execution unconfirmed: unreadable session metadata during resolution') from exc
+        candidates = self._index_rows(
+            "SELECT id FROM threads WHERE agent_path = ? AND json_extract(source, '$.subagent.thread_spawn.parent_thread_id') = ?",
+            (agent_path, root_id))
+        for (thread_id,) in candidates:
+            _, meta = own_metadata(self.read(thread_id), thread_id)
+            records = (meta, child_spawn(meta))
+            if any(record.get('agent_path') == agent_path for record in records) and any(record.get('parent_thread_id') == root_id for record in records):
+                require(all(record.get('agent_path') == agent_path for record in records), 'execution unconfirmed: conflicting source agent_path metadata')
+                require(all(record.get('parent_thread_id') == root_id for record in records), 'execution unconfirmed: conflicting source parent_thread_id metadata')
+                require(all(record.get('agent_role') == role for record in records), 'execution unconfirmed: source agent_role mismatch')
+                matches.append(thread_id)
         require(len(matches) == 1, 'execution unconfirmed: source task path missing or ambiguous')
         session_metadata(self.read(matches[0]), matches[0], root_id, role, source=self)
         return {'codex_thread_id': matches[0], 'root_thread_id': root_id, 'agent_path': agent_path}
 
     def read(self, thread_id: str, *, event_indices=()) -> list[dict]:
         require(isinstance(thread_id, str) and UUID.fullmatch(thread_id), "invalid Codex thread ID")
-        paths = list(self.session_dir().glob(f"**/*{thread_id}.jsonl"))
-        require(len(paths) == 1, f"execution unconfirmed: source session {thread_id} missing or ambiguous")
+        rows = self._index_rows('SELECT rollout_path FROM threads WHERE id = ?', (thread_id,))
+        require(len(rows) == 1, f"execution unconfirmed: source session {thread_id} missing or ambiguous in Codex index")
+        require(isinstance(rows[0][0], str) and bool(rows[0][0]),
+                f"execution unconfirmed: source session {thread_id} has no rollout_path")
         events = []
         try:
-            with paths[0].open(encoding="utf-8", newline="") as handle:
+            path = Path(rows[0][0])
+            require(path.is_absolute() and path.resolve().is_relative_to(self.session_dir().resolve()),
+                    f"execution unconfirmed: source session {thread_id} is outside native sessions")
+            with path.open(encoding="utf-8", newline="") as handle:
                 for index, line in enumerate(handle, 1):
                     event = json.loads(line)
                     require(isinstance(event, dict), "source event must be an object")
@@ -117,6 +121,7 @@ class CodexSessionSource:
                     events.append(filtered)
         except (OSError, UnicodeError, json.JSONDecodeError) as exc:
             raise EvidenceError(f"execution unconfirmed: unreadable source session {thread_id}") from exc
+        own_metadata(events, thread_id)
         return events
 
 

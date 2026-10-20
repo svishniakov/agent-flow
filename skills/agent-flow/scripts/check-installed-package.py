@@ -7,8 +7,10 @@ import argparse
 import importlib.util
 import json
 import os
+from contextlib import closing
 from pathlib import Path
 import shlex
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -30,9 +32,14 @@ def check_runtime(root):
         codex_home = base / "codex"
         (codex_home / "sessions").mkdir(parents=True)
         thread_id = "00000000-0000-4000-8000-000000000001"
-        (codex_home / "sessions" / (thread_id + ".jsonl")).write_text(
+        rollout = codex_home / "sessions" / (thread_id + ".jsonl")
+        rollout.write_text(
             json.dumps({"type": "session_meta", "payload": {"id": thread_id, "cwd": str(project)}}) + "\n",
             encoding="utf-8")
+        with closing(sqlite3.connect(codex_home / "state_5.sqlite")) as connection:
+            connection.execute("CREATE TABLE threads (id TEXT PRIMARY KEY, rollout_path TEXT)")
+            connection.execute("INSERT INTO threads VALUES (?, ?)", (thread_id, str(rollout)))
+            connection.commit()
         environment["CODEX_HOME"] = str(codex_home)
         git = subprocess.run(["git", "init", "-q", "--template=", str(project)], env=environment,
                              capture_output=True, text=True, timeout=30)
