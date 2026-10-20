@@ -25,9 +25,6 @@ from agent_skill_deps import (
 )
 
 
-DEFAULT_REPORT = "agent-deps-report.json"
-
-
 def print_human_report(report: dict) -> None:
     summary = report["summary"]
     print(
@@ -52,46 +49,6 @@ def print_human_report(report: dict) -> None:
     print("\nUse --install-plan for install instructions. No skills are installed unless --guided-install is used.")
 
 
-def print_missing_by_role(report: dict) -> None:
-    rows = [row for row in report["roles"] if row["missing_skills"]]
-    if not rows:
-        print("No roles have missing skills in this scope.")
-        return
-    print("Missing by role:")
-    for row in rows:
-        print(f"- {row['name']}: {', '.join(row['missing_skills'])}")
-
-
-def save_json_report(report: dict, output_path: Path) -> None:
-    output_path = output_path.expanduser().resolve()
-    output_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(f"saved: {output_path}")
-
-
-def build_reports(roles: list, installed: dict, registry: dict | None, target: str) -> dict[str, dict]:
-    reports = {
-        "core": build_report(roles, installed, registry, scope="core", target=target),
-        "full": build_report(roles, installed, registry, scope="full", target=target),
-    }
-    reports.update(
-        {
-            f"role:{role.name}": build_report(roles, installed, registry, scope=f"role:{role.name}", target=target)
-            for role in roles
-        }
-    )
-    return reports
-
-
-def choose_target(default_target: str) -> str | None:
-    raw_target = input(f"Target: global|project [auto: {default_target}]: ").strip() or default_target
-    if raw_target == "auto":
-        raw_target = default_target
-    if raw_target not in {"global", "project"}:
-        print(f"unknown target: {raw_target}", file=sys.stderr)
-        return None
-    return raw_target
-
-
 def reload_report(roles: list, registry: dict | None, scope: str, target: str, skill_roots: list[Path], plugin_caches: list[Path]) -> dict:
     installed = build_installed_index(skill_roots, plugin_caches)
     return build_report(roles, installed, registry, scope=scope, target=target)
@@ -111,8 +68,6 @@ def prompt_report(
     installed: dict,
     registry: dict | None,
     target: str,
-    skill_roots: list[Path],
-    plugin_caches: list[Path],
     post_install: bool = False,
 ) -> int:
     report = build_report(roles, installed, registry, scope="core", target=target)
@@ -207,8 +162,6 @@ def main() -> int:
             installed,
             registry,
             args.target,
-            skill_roots,
-            plugin_caches,
             post_install=args.post_install,
         )
 

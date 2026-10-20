@@ -46,9 +46,8 @@ def export_commit(source, commit_sha, destination):
     listing = subprocess.run(["git", "-C", str(source), "ls-tree", "-rz", commit_sha],
                              capture_output=True)
     require(listing.returncode == 0, "cannot list commit tree: " + listing.stderr.decode(errors="replace").strip())
-    batch = subprocess.Popen(["git", "-C", str(source), "cat-file", "--batch"],
-                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    try:
+    with subprocess.Popen(["git", "-C", str(source), "cat-file", "--batch"],
+                          stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE) as batch:
         for record in listing.stdout.split(b"\0"):
             if not record:
                 continue
@@ -78,11 +77,10 @@ def export_commit(source, commit_sha, destination):
                 target.write_bytes(data)
                 if mode == b"100755":
                     target.chmod(0o755)
-    finally:
         batch.stdin.close()
+        error = batch.stderr.read().decode(errors="replace").strip()
         batch.wait()
-    require(batch.returncode == 0,
-            "cannot read commit blobs: " + batch.stderr.read().decode(errors="replace").strip())
+        require(batch.returncode == 0, "cannot read commit blobs: " + error)
 
 
 def plugin_files(source, release_tag=None):

@@ -228,8 +228,8 @@ def verify_conversation_ancestry(source, thread_id: str, root_id: str, conversat
         ancestor_id = parent
 
 
-def session_metadata(events, thread_id: str, root_id: str, role: str, *, source):
-    index, meta = own_metadata(events, thread_id)
+def session_metadata(events, thread_id: str, root_id: str, role: str, *, source) -> None:
+    _, meta = own_metadata(events, thread_id)
     spawn = child_spawn(meta)
     require(isinstance(spawn, dict) and bool(spawn), "execution unconfirmed: not a child session")
     for record in (meta, spawn):
@@ -238,25 +238,21 @@ def session_metadata(events, thread_id: str, root_id: str, role: str, *, source)
     if meta.get("session_id") is not None:
         if meta["session_id"] not in (thread_id, root_id):
             verify_conversation_ancestry(source, thread_id, root_id, meta["session_id"])
-    return index, meta
 
 
 def completed_turn(source, thread_id: str, turn_id: str, root_id: str, role: str, *, current=True) -> dict:
     events = source.read(thread_id)
-    meta_index, _ = session_metadata(events, thread_id, root_id, role, source=source)
-    from validation_inputs import captured
-    inputs = getattr(source, "inputs", None)
-    expected = captured(inputs, "role-model:" + role, lambda: role_config(
-        read_frontmatter(resolve_role_path(default_agents_dir(), role), inputs=inputs), role)["model"])
+    session_metadata(events, thread_id, root_id, role, source=source)
+    expected = role_config(
+        read_frontmatter(resolve_role_path(default_agents_dir(), role)), role)["model"]
     require(isinstance(turn_id, str) and bool(turn_id), "completion_turn_id missing")
     active = None
     contexts = []
     finals = []
     completions = []
     last_started = None
-    started_event = None
     started_at = None
-    for event_index, event in _own_session_events(source, events, thread_id):
+    for _, event in _own_session_events(source, events, thread_id):
         payload = event.get("payload", {})
         kind = event.get("type")
         if kind == "event_msg" and payload.get("type") == "task_started":
@@ -265,7 +261,6 @@ def completed_turn(source, thread_id: str, turn_id: str, root_id: str, role: str
             last_started = active
             if active == turn_id:
                 contexts, finals = [], []
-                started_event = event_index
                 started_at, _ = event_time(event, "started_at")
         elif active == turn_id and kind == "turn_context":
             require(payload.get("turn_id") == turn_id, "foreign turn_context in selected turn")
@@ -287,10 +282,7 @@ def completed_turn(source, thread_id: str, turn_id: str, root_id: str, role: str
                 completed_at, completed_before = observed.event_at, observed.event_before
                 require(completed_before > started_at if completed_before is not None else completed_at >= started_at,
                         "source completion is before its own task_started")
-                completions.append({"answer": answer, "completed_at": completed_at,
-                                    "published_at": observed.observed_at, "time_origin": observed.event_origin,
-                                    "completed_before": completed_before, "task_started_event": started_event,
-                                    "task_complete_event": event_index, "session_meta_event": meta_index + 1})
+                completions.append({"answer": answer})
             active = None
     require(len(completions) == 1, "execution unconfirmed: own completed turn missing or ambiguous")
     require(not current or last_started == turn_id and active is None, "selected completion is stale or continuation is unfinished")

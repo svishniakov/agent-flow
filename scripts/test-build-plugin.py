@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -308,6 +309,41 @@ class ReleaseBuild(unittest.TestCase):
     def verify(self, path):
         files, version = builder.release_files(self.source, self.sha, self.tag)
         return builder.verify_archive(path, files, version)
+
+    def test_export_closes_pipes_on_success_and_write_failure(self):
+        popen = subprocess.Popen
+        for fail_write in (False, True):
+            with self.subTest(fail_write=fail_write):
+                processes = []
+
+                def start_process(*args, **kwargs):
+                    process = popen(*args, **kwargs)
+                    if "--batch" in args[0]:
+                        processes.append(process)
+                    return process
+
+                destination = self.base / f"export-pipes-{fail_write}"
+                if fail_write:
+                    destination.write_text("not a directory")
+                try:
+                    with patch.object(builder.subprocess, "Popen", side_effect=start_process):
+                        if fail_write:
+                            with self.assertRaises(OSError):
+                                builder.export_commit(self.source, self.sha, destination)
+                        else:
+                            builder.export_commit(self.source, self.sha, destination)
+                            self.assertEqual((destination / "README.md").read_bytes(),
+                                             (self.source / "README.md").read_bytes())
+                    self.assertEqual(len(processes), 1)
+                    process = processes[0]
+                    self.assertIsNotNone(process.returncode)
+                    for stream in (process.stdin, process.stdout, process.stderr):
+                        self.assertTrue(stream.closed)
+                finally:
+                    for process in processes:
+                        for stream in (process.stdin, process.stdout, process.stderr):
+                            stream.close()
+                        process.wait()
 
     def test_release_cli_builds_verified_single_archive(self):
         output = self.base / "release-cli"

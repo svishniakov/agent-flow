@@ -318,6 +318,20 @@ class EvidenceTests(unittest.TestCase):
         self.f.source.sessions[QA_ID] = original[:-1]
         self.assertIn('completed turn missing', ';'.join(validate_acceptance(self.f.snapshot(), self.f.source)))
 
+    def test_completion_before_start_is_rejected(self):
+        self.f.completed()
+        self.assertEqual(validate_acceptance(self.f.snapshot(), self.f.source), [])
+        events = self.f.source.sessions[QA_ID]
+        for started_at, completed_at in (
+            ('2026-10-19T10:00:00+00:00', '2026-10-19T09:59:59+00:00'),
+            (100, 99),
+        ):
+            with self.subTest(started_at=started_at, completed_at=completed_at):
+                events[1]['payload']['started_at'] = started_at
+                events[-1]['payload']['completed_at'] = completed_at
+                self.assertIn('source completion is before its own task_started',
+                              ';'.join(validate_acceptance(self.f.snapshot(), self.f.source)))
+
     def test_author_path_permission_and_changed_coverage(self):
         self.f.known['author']['allowed_paths'] = [str(self.f.root / 'other.py')]
         with self.assertRaisesRegex(JournalError, 'outside assignment'):

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import json
 import os
@@ -96,12 +95,6 @@ def sync_directory(path):
         os.fsync(fd)
     finally:
         os.close(fd)
-
-
-def sync_file(fd):
-    os.fsync(fd)
-    if sys.platform == "darwin":
-        fcntl.fcntl(fd, getattr(fcntl, "F_FULLFSYNC", 51))
 
 
 def durable_mkdir(path):
@@ -261,9 +254,6 @@ class JournalSnapshot:
         if key not in self.documents:
             raise FileNotFoundError(f"unpublished journal document: {key}")
         return self.documents[key]
-
-    def read_text(self, path):
-        return self.read_bytes(path).decode("utf-8")
 
     def json(self, path):
         return json.loads(self.read_bytes(path))

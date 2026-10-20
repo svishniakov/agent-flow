@@ -152,6 +152,60 @@ class RepositoryChecks(unittest.TestCase):
         self.assertIn("active.md", errors)
         self.assertEqual(backup.read_bytes(), original)
 
+    def test_main_limits_qa_reviewer_bans_to_current_instructions(self):
+        forbidden = (
+            "continue with role lanes or solo checks",
+            "fallback to solo",
+            "if unavailable, use role-lane review",
+        )
+        excluded = (
+            self.package / "docs/implementation/history.md",
+            self.package / "docs/adr/decision.md",
+            self.package / "scripts/test-example.py",
+            self.package / "testdata/example.json",
+            self.package / "agents/identities.json",
+            self.package / "references/example.md.bak",
+            self.repo / "README.md",
+        )
+        for path in excluded:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("\n".join(forbidden))
+        originals = {path: path.read_bytes() for path in excluded}
+        active = ("SKILL.md", "agents/reviewer.md", "references/delegation.md",
+                  "docs/en/agent-flow.md", "docs/ru/agent-flow.md")
+        for relative in active:
+            path = self.package / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('Architecture Profiles\n"schema_version": 3\n')
+        guards = ("run_step", "run_skills_cli_layout_guard", "run_skills_cli_discovery_guard",
+                  "run_skills_cli_install_guard", "run_golden_trace_artifacts_guard",
+                  "run_readme_markdown_guard", "run_retired_blocking_rules_guard",
+                  "run_role_prompt_dedup_guard")
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(patch.object(self.checks, "check_environment", return_value={}))
+            for name in guards:
+                stack.enter_context(patch.object(self.checks, name, return_value=0))
+            code, _, errors = self.capture(self.checks.main)
+            self.assertEqual(code, 0, errors)
+            for relative in active:
+                path = self.package / relative
+                original = path.read_text()
+                for needle in forbidden:
+                    with self.subTest(path=relative, needle=needle):
+                        path.write_text(needle)
+                        code, _, errors = self.capture(self.checks.main)
+                        self.assertEqual(code, 1)
+                        self.assertIn(relative, errors)
+                path.write_text(original)
+            self.assertEqual(originals, {path: path.read_bytes() for path in excluded})
+            for path in (excluded[2], self.repo / "README.md"):
+                with self.subTest(personal_path=path):
+                    path.write_text("/Users/" + "ucnlejumper")
+                    code, _, errors = self.capture(self.checks.main)
+                    self.assertEqual(code, 1)
+                    self.assertIn("FAIL personal path guard", errors)
+                    path.write_bytes(originals[path])
+
     def test_main_continues_after_readme_failure(self):
         (self.repo / "README.md").unlink()
         names = ("run_step", "run_skills_cli_layout_guard", "run_skills_cli_discovery_guard",

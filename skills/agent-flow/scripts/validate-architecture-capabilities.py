@@ -49,7 +49,6 @@ def main() -> int:
         args.registry.expanduser().resolve(),
         matrix_path=args.matrix.expanduser().resolve(),
         agent_skills_path=args.agent_skills.expanduser().resolve(),
-        validate_skills=True,
         require_full_matrix_coverage=not args.allow_partial_matrix_coverage,
     )
     if errors:

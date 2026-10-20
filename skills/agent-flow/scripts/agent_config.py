@@ -104,9 +104,7 @@ def resolve_role_path(agents_dir: Path, role: str) -> Path:
     return agents_dir / f"{role}.md"
 
 
-def read_frontmatter(path: Path, *, inputs=None) -> dict[str, str]:
-    if inputs is not None:
-        return parse_frontmatter(inputs.file(path).decode("utf-8"), path)
+def read_frontmatter(path: Path) -> dict[str, str]:
     if not path.exists():
         raise AgentConfigError(f"missing role file: {path}")
     if not path.is_file():

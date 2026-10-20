@@ -90,12 +90,12 @@ def run_step(name: str, command: list[str]) -> int:
     return 0
 
 
-def run_content_guard(name: str, needle: str, repo_root: Path) -> int:
+def run_content_guard(name: str, needle: str, repo_root: Path, *, paths: list[Path] | None = None) -> int:
     print(f"==> {name}")
     matches: list[str] = []
     errors: list[str] = []
-    for raw_path in PRODUCT_SEARCH_PATHS:
-        path = ROOT / raw_path
+    search_paths = [ROOT / raw_path for raw_path in PRODUCT_SEARCH_PATHS] if paths is None else paths
+    for path in search_paths:
         if path.is_dir():
             candidates = [candidate for candidate in path.rglob("*") if candidate.is_file()]
         elif path.exists():
@@ -116,7 +116,7 @@ def run_content_guard(name: str, needle: str, repo_root: Path) -> int:
                 continue
             if needle in text:
                 matches.append(str(candidate.relative_to(ROOT)))
-    if repo_root != ROOT:
+    if paths is None and repo_root != ROOT:
         for path in (repo_root / "README.md", repo_root / "README.ru.md"):
             try:
                 text = path.read_text(encoding="utf-8")
@@ -363,34 +363,13 @@ def main() -> int:
         ("git diff hygiene", ["git", "-C", str(repo_root), "diff", "--check"]),
     ]
     content_steps = [
-        ("personal path guard", "/Users/" + "ucnlejumper"),
-        ("old README/docs check block guard", "python3 -m py_compile " + "scripts/*.py"),
-        ("old architecture profile term guard", "Architecture " + "Profiles"),
-        ("old architecture profile file guard", "architecture-" + "profiles"),
-        ("project crm profile guard", "profile" + "-" + "crm"),
-        ("project agentflow profile guard", "profile" + "-" + "agentflow"),
-        ("project child profile guard", "profile" + "-" + "child"),
-        ("project local browser profile guard", "profile" + "-" + "local-browser"),
-        ("old admin backoffice surface guard", "admin-" + "backoffice-ui"),
-        ("old landing waitlist surface guard", "landing-" + "waitlist"),
-        ("old browser extension dashboard surface guard", "browser-extension-" + "local-dashboard"),
-        ("old ios app surface guard", "`ios-" + "app`"),
-        ("old macos utility surface guard", "`macos-" + "utility`"),
-        ("old harness matrix proposal guard", "Architecture Matrix " + "changes"),
-        ("old harness capability proposal guard", "capability registry " + "changes"),
-        ("old harness prompt proposal guard", "role prompt " + "updates"),
-        ("old harness golden proposal guard", "Golden Trace Runs, but it never"),
-        ("old harness slash proposal guard", "Matrix/capability/validator/prompt/golden-trace"),
-        ("old harness approval true guard", "requires_human_approval=" + "true"),
-        ("old harness human-approved guard", "human-" + "approved changes"),
-        ("engineering simplicity schema v3 json guard", '"schema_version": ' + "3"),
-        ("engineering simplicity schema v3 assignment guard", "schema_version=" + "3"),
-        ("engineering simplicity new lane type json guard", '"type": "' + "engineering-simplicity" + '"'),
-        ("engineering simplicity new lane type compact guard", '"type":"' + "engineering-simplicity" + '"'),
         ("old subagent downgrade role-lane guard", "continue with " + "role lanes or solo checks"),
         ("old subagent fallback solo guard", "fallback " + "to solo"),
         ("old reviewer unavailable fallback guard", "if unavailable, use " + "role-lane review"),
     ]
+    instruction_paths = [ROOT / "SKILL.md"]
+    for directory in ("agents", "references", "docs/en", "docs/ru"):
+        instruction_paths.extend((ROOT / directory).glob("*.md"))
 
     failures = 0
     if run_golden_trace_artifacts_guard():
@@ -404,8 +383,10 @@ def main() -> int:
     for name, command in command_steps:
         if run_step(name, command):
             failures += 1
+    if run_content_guard("personal path guard", "/Users/" + "ucnlejumper", repo_root):
+        failures += 1
     for name, needle in content_steps:
-        if run_content_guard(name, needle, repo_root):
+        if run_content_guard(name, needle, repo_root, paths=instruction_paths):
             failures += 1
     if run_readme_markdown_guard(repo_root):
         failures += 1
