@@ -1,992 +1,258 @@
-"""Capture full product trees through pinned descriptors and retain task results."""
-from contextlib import contextmanager
 import hashlib
 import json
 import os
 from pathlib import Path
-import posixpath
 import stat
 import subprocess
-import sys
-import unicodedata
-import uuid
-import base64
-import tempfile
 
-from journal_io import JournalError, JournalSnapshot, sync_file, capture_file, operation_id, transact
+from journal_io import JournalError
+from workspace_scope import canonical_path, path_allowed, selected_roots
 
 
 WorkspaceError = JournalError
 DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
-FILE_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
 
 
-def require(condition, message):
-    if not condition:
-        raise WorkspaceError(message)
+def digest(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"),
+                                     ensure_ascii=True).encode()).hexdigest()
 
 
-def encode(value):
-    return json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode()
+def git(root, *args):
+    result = subprocess.run(["git", "-C", str(root), *args], capture_output=True,
+                            env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"})
+    if result.returncode:
+        raise WorkspaceError(result.stderr.decode(errors="replace").strip() or "Git command failed")
+    return result.stdout
 
 
-def manifest_digest(manifest):
-    return hashlib.sha256(encode(manifest)).hexdigest()
+def is_git_root(path):
+    return path.is_dir() and (path / ".git").exists()
 
 
-def manifest_delta(baseline, candidate):
-    old, new = baseline["entries"], candidate["entries"]
-    return {name: {"before": old.get(name), "after": new.get(name)}
-            for name in sorted(old.keys() | new.keys()) if old.get(name) != new.get(name)}
+def stable(metadata):
+    return (metadata.st_dev, metadata.st_ino, metadata.st_mode, metadata.st_size,
+            metadata.st_mtime_ns, metadata.st_ctime_ns)
 
 
-def identity(metadata):
-    return metadata.st_dev, metadata.st_ino, metadata.st_mode
-
-
-def stability(metadata):
-    return (*identity(metadata), metadata.st_size, metadata.st_mtime_ns, metadata.st_ctime_ns)
-
-
-def basename(name):
-    require(isinstance(name, str) and name not in {"", ".", ".."} and "/" not in name and "\0" not in name,
-            f"invalid descriptor basename: {name!r}")
-    try:
-        name.encode("utf-8")
-    except UnicodeError as exc:
-        raise WorkspaceError(f"unrepresentable filesystem name: {name!r}") from exc
-    return name
-
-
-def preflight():
-    require(sys.platform in {"darwin", "linux"}, "workspace requires local Darwin/Linux descriptor support")
-    for function in (os.open, os.stat, os.mkdir, os.readlink, os.symlink):
-        require(function in os.supports_dir_fd, f"workspace dir_fd unavailable: {function.__name__}")
-    require(os.scandir in os.supports_fd, "workspace scandir(fd) unavailable")
-
-
-def notify(barrier, phase, **context):
-    if barrier:
-        barrier(phase, context)
-
-
-@contextmanager
-def root_descriptor(path, *, barrier=None, destination=False, expected=None):
-    """Walk from /; a selected root cannot be replaced by resolving its name again."""
-    path = Path(path).absolute()
-    selected = path.lstat()
-    require(stat.S_ISDIR(selected.st_mode), f"root must be a real directory: {path}")
-    require(expected is None or list(identity(selected)[:2]) == list(expected), f"registered root identity changed: {path}")
+def directory_descriptor(path):
     descriptor = os.open("/", DIRECTORY_FLAGS)
-    chain = []
     try:
-        for name in path.parts[1:]:
-            name = basename(name)
-            before = os.stat(name, dir_fd=descriptor, follow_symlinks=False)
-            require(stat.S_ISDIR(before.st_mode), f"root parent is not a real directory: {name}")
-            notify(barrier, "root-before-open", path=str(path), name=name, parent_fd=descriptor, destination=destination)
-            child = os.open(name, DIRECTORY_FLAGS, dir_fd=descriptor)
-            try:
-                require(identity(os.fstat(child)) == identity(before), f"root parent changed before open: {name}")
-                require(identity(os.stat(name, dir_fd=descriptor, follow_symlinks=False)) == identity(before),
-                        f"root parent changed after open: {name}")
-            except BaseException:
-                os.close(child)
-                raise
-            chain.append((descriptor, name, identity(before)))
-            descriptor = child
-        require(identity(os.fstat(descriptor)) == identity(selected), f"selected root identity changed: {path}")
-        notify(barrier, "root-opened", path=str(path), fd=descriptor, destination=destination)
-        yield descriptor
-        for parent, name, expected in chain:
-            require(identity(os.stat(name, dir_fd=parent, follow_symlinks=False)) == expected,
-                    f"selected root parent changed: {path}")
-    finally:
-        os.close(descriptor)
-        for parent, _, _ in reversed(chain):
-            os.close(parent)
-
-
-def directory_names(fd):
-    os.lseek(fd, 0, os.SEEK_SET)
-    with os.scandir(fd) as entries:
-        names = sorted(entry.name for entry in entries)
-    normalized = [unicodedata.normalize("NFC", name).casefold() for name in names]
-    require(len(set(normalized)) == len(names), "directory contains colliding names")
-    return names
-
-
-def validate_link(path, target):
-    try:
-        target.encode("utf-8")
-    except UnicodeError as exc:
-        raise WorkspaceError(f"unrepresentable symlink target: {path!r}") from exc
-    require(target and not posixpath.isabs(target), f"escaping symlink: {path!r} -> {target!r}")
-    resolved = posixpath.normpath(posixpath.join(posixpath.dirname(path), target))
-    require(resolved != ".." and not resolved.startswith("../"), f"escaping symlink: {path!r} -> {target!r}")
-
-
-def validate_link_graph(entries):
-    for name, entry in entries.items():
-        if entry["type"] != "symlink":
-            continue
-        pending = name.split("/")
-        resolved, expansions = [], 0
-        while pending:
-            part = pending.pop(0)
-            if part in {"", "."}:
-                continue
-            if part == "..":
-                require(bool(resolved), f"escaping symlink chain: {name!r}")
-                resolved.pop()
-                continue
-            candidate = "/".join([*resolved, part])
-            target = entries.get(candidate)
-            if target is not None and target["type"] == "symlink":
-                expansions += 1
-                require(expansions <= 40, f"unsupported symlink cycle: {name!r}")
-                pending = target["target"].split("/") + pending
-            else:
-                resolved.append(part)
-
-
-def scan_tree(root, *, exclusions=(), copy_to=None, barrier=None, expected_source=None, expected_destination=None, sync_source=False, allow_symlinks=True, link_policy=None, check_link_graph=True, merge_directories=False):
-    """Inventory every entry; optional copy reads and hashes each verified file FD once.
-
-    Exclusions are exact paths selected by the workspace protocol, never ignore globs.
-    The test barrier observes FD identities before reads/writes and can inject races.
-    """
-    preflight()
-    root = Path(root).absolute()
-    excluded = {Path(path).absolute() for path in exclusions}
-    entries = {}
-
-    def walk(source_fd, relative, destination_fd=None):
-        directory_before = os.fstat(source_fd)
-        require(directory_before.st_mode & 0o444 and directory_before.st_mode & 0o111,
-                f"unreadable directory: {relative or '.'}")
-        names = directory_names(source_fd)
-        for name in names:
-            basename(name)
-            path = f"{relative}/{name}" if relative else name
-            if root / path in excluded:
-                continue
-            require(name != ".git", f"unsupported nested repository: {path}")
-            before = os.stat(name, dir_fd=source_fd, follow_symlinks=False)
-            mode = stat.S_IMODE(before.st_mode)
-            notify(barrier, "source-before-open", path=path, parent_fd=source_fd, metadata=before)
-            if stat.S_ISDIR(before.st_mode):
-                child = os.open(name, DIRECTORY_FLAGS, dir_fd=source_fd)
-                target = None
-                try:
-                    require(identity(os.fstat(child)) == identity(before), f"directory changed before open: {path}")
-                    notify(barrier, "source-directory-opened", path=path, fd=child, parent_fd=source_fd)
-                    require(stability(os.fstat(child)) == stability(before), f"directory changed after open: {path}")
-                    if destination_fd is not None:
-                        notify(barrier, "destination-before-directory", path=path, parent_fd=destination_fd)
-                        try:
-                            os.mkdir(name, 0o700, dir_fd=destination_fd)
-                        except FileExistsError:
-                            require(merge_directories, f"destination directory already exists: {path}")
-                        named = os.stat(name, dir_fd=destination_fd, follow_symlinks=False)
-                        require(stat.S_ISDIR(named.st_mode), f"destination directory is not real: {path}")
-                        target = os.open(name, DIRECTORY_FLAGS, dir_fd=destination_fd)
-                        require(identity(os.fstat(target)) == identity(named), f"destination directory replaced: {path}")
-                        opened = os.fstat(target)
-                        notify(barrier, "destination-directory-opened", path=path, fd=target, parent_fd=destination_fd)
-                        require(stability(os.fstat(target)) == stability(opened), f"destination directory changed: {path}")
-                    entries[path] = {"type": "directory", "mode": mode}
-                    walk(child, path, target)
-                    require(stability(os.stat(name, dir_fd=source_fd, follow_symlinks=False)) == stability(before),
-                            f"source directory entry changed: {path}")
-                    if target is not None:
-                        require(identity(os.stat(name, dir_fd=destination_fd, follow_symlinks=False)) == identity(os.fstat(target)),
-                                f"destination directory entry changed: {path}")
-                        os.fchmod(target, mode)
-                        os.fsync(target)
-                finally:
-                    os.close(child)
-                    if target is not None:
-                        os.close(target)
-            elif stat.S_ISREG(before.st_mode):
-                require(mode & 0o444, f"unreadable file: {path}")
-                descriptor = os.open(name, FILE_FLAGS, dir_fd=source_fd)
-                output = None
-                try:
-                    opened = os.fstat(descriptor)
-                    require(stat.S_ISREG(opened.st_mode) and stability(opened) == stability(before),
-                            f"file changed before first read: {path}")
-                    if destination_fd is not None:
-                        notify(barrier, "destination-before-file", path=path, parent_fd=destination_fd)
-                        output = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
-                                         0o600, dir_fd=destination_fd)
-                        require(stat.S_ISREG(os.fstat(output).st_mode), f"destination is not a regular file: {path}")
-                        notify(barrier, "destination-file-opened", path=path, fd=output, parent_fd=destination_fd)
-                        require(identity(os.stat(name, dir_fd=destination_fd, follow_symlinks=False)) == identity(os.fstat(output)),
-                                f"destination file entry changed: {path}")
-                    checksum = hashlib.sha256()
-                    while True:
-                        require(stability(os.fstat(source_fd)) == stability(directory_before), f"source parent changed: {path}")
-                        notify(barrier, "source-before-read", path=path, fd=descriptor, parent_fd=source_fd)
-                        data = os.read(descriptor, 1024 * 1024)
-                        if not data:
-                            break
-                        notify(barrier, "source-read-buffer", path=path, fd=descriptor, data=data)
-                        checksum.update(data)
-                        if output is not None:
-                            view = memoryview(data)
-                            while view:
-                                written = os.write(output, view)
-                                require(written > 0, f"destination write did not advance: {path}")
-                                view = view[written:]
-                    require(stability(os.fstat(descriptor)) == stability(before)
-                            and stability(os.stat(name, dir_fd=source_fd, follow_symlinks=False)) == stability(before),
-                            f"source file changed during read: {path}")
-                    if sync_source:
-                        sync_file(descriptor)
-                    entries[path] = {"type": "file", "mode": mode, "sha256": checksum.hexdigest()}
-                    if output is not None:
-                        os.fchmod(output, mode)
-                        sync_file(output)
-                        require(identity(os.stat(name, dir_fd=destination_fd, follow_symlinks=False)) == identity(os.fstat(output)),
-                                f"destination file entry changed: {path}")
-                finally:
-                    os.close(descriptor)
-                    if output is not None:
-                        os.close(output)
-            elif stat.S_ISLNK(before.st_mode):
-                require(allow_symlinks, f"unsupported Git metadata symlink: {path}")
-                target = os.readlink(name, dir_fd=source_fd)
-                if link_policy is not None:
-                    target = link_policy(path, target, before)
-                else:
-                    validate_link(path, target)
-                require(stability(os.stat(name, dir_fd=source_fd, follow_symlinks=False)) == stability(before),
-                        f"symlink changed while reading: {path}")
-                if target is None:
-                    excluded.add(root / path)
-                    continue
-                entries[path] = {"type": "symlink", "mode": mode, "target": target}
-                if destination_fd is not None:
-                    notify(barrier, "destination-before-link", path=path, parent_fd=destination_fd)
-                    os.symlink(target, name, dir_fd=destination_fd)
-                    require(os.readlink(name, dir_fd=destination_fd) == target, f"destination link changed: {path}")
-            else:
-                raise WorkspaceError(f"unsupported special file: {path}")
-        require(directory_names(source_fd) == names and stability(os.fstat(source_fd)) == stability(directory_before),
-                f"source directory changed during scan: {relative or '.'}")
-        if sync_source:
-            os.fsync(source_fd)
-        if destination_fd is not None:
-            os.fsync(destination_fd)
-
-    try:
-        with root_descriptor(root, barrier=barrier, expected=expected_source) as source_fd:
-            if copy_to is None:
-                walk(source_fd, "")
-            else:
-                with root_descriptor(copy_to, barrier=barrier, destination=True, expected=expected_destination) as destination_fd:
-                    require(identity(os.fstat(source_fd))[:2] != identity(os.fstat(destination_fd))[:2], "copy roots alias")
-                    walk(source_fd, "", destination_fd)
-    except OSError as exc:
-        raise WorkspaceError(f"incomplete workspace inventory: {exc}") from exc
-    if check_link_graph:
-        validate_link_graph(entries)
-    return {"version": 1, "entries": entries,
-            "exclusions": sorted(str(path.relative_to(root)) for path in excluded if path.is_relative_to(root))}
-
-
-def git_command(source, *arguments, check=True, input_data=None):
-    environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
-    environment.update({"GIT_OPTIONAL_LOCKS": "0", "GIT_TERMINAL_PROMPT": "0",
-                        "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
-                        "GIT_ATTR_NOSYSTEM": "1"})
-    command = ["git", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=" + os.devnull,
-               "-c", "core.attributesFile=" + os.devnull, "-c", "protocol.allow=never",
-               "-c", "protocol.file.allow=never", "-c", "submodule.recurse=false"]
-    filters = subprocess.run([*command, "config", "--null", "--name-only", "--get-regexp", r"^filter\."],
-                             cwd=source, env=environment, capture_output=True)
-    require(filters.returncode in {0, 1}, "cannot inspect Git filter configuration")
-    drivers = {os.fsdecode(key).rsplit(".", 1)[0] for key in filters.stdout.split(b"\0") if key}
-    for driver in sorted(drivers):
-        for option, value in (("clean", ""), ("smudge", ""), ("process", ""), ("required", "false")):
-            command.extend(["-c", f"{driver}.{option}={value}"])
-    command.extend(arguments)
-    result = subprocess.run(command, cwd=source, env=environment, capture_output=True, input=input_data)
-    require(not check or result.returncode == 0, f"workspace git command failed: {arguments!r}: {os.fsdecode(result.stderr)}")
-    return result
-
-
-def discover_git(source, *, barrier=None):
-    source = Path(source).absolute()
-    with root_descriptor(source) as descriptor:
-        root_identity = list(identity(os.fstat(descriptor))[:2])
-        control = os.stat(".git", dir_fd=descriptor, follow_symlinks=False)
-    gitfile = None
-    if stat.S_ISDIR(control.st_mode):
-        git_dir = source / ".git"
-    else:
-        require(stat.S_ISREG(control.st_mode), "source Git control entry must be a directory or regular gitfile")
-        gitfile = read_owned(source, ".git", expected=root_identity, barrier=barrier)
-        require(gitfile.startswith(b"gitdir: ") and gitfile.count(b"\n") <= 1, "unsupported Git control file")
-        value = os.fsdecode(gitfile.removeprefix(b"gitdir: ").removesuffix(b"\n"))
-        require(bool(value), "empty Git control path")
-        git_dir = Path(os.path.normpath(source / value))
-    with root_descriptor(git_dir, expected=list(identity(control)[:2]) if gitfile is None else None) as descriptor:
-        git_identity = list(identity(os.fstat(descriptor))[:2])
-        names = directory_names(descriptor)
-    common_file = read_owned(git_dir, "commondir", expected=git_identity, barrier=barrier) if "commondir" in names else None
-    common = git_dir
-    if common_file is not None:
-        require(common_file and common_file.count(b"\n") <= 1, "unsupported Git common directory file")
-        common = Path(os.path.normpath(git_dir / os.fsdecode(common_file.removesuffix(b"\n"))))
-    with root_descriptor(common) as descriptor:
-        common_identity = list(identity(os.fstat(descriptor))[:2])
-    return {"root": str(source), "root_identity": root_identity, "git_dir": str(git_dir), "git_identity": git_identity,
-            "common_dir": str(common), "common_identity": common_identity,
-            "gitfile_sha256": hashlib.sha256(gitfile).hexdigest() if gitfile is not None else None,
-            "commondir_sha256": hashlib.sha256(common_file).hexdigest() if common_file is not None else None}
-
-
-@contextmanager
-def git_scratch():
-    temporary_root = Path("/private/tmp" if sys.platform == "darwin" else "/tmp")
-    with root_descriptor(temporary_root):
-        with tempfile.TemporaryDirectory(prefix="agent-flow-git-", dir=temporary_root) as directory:
-            yield Path(directory)
-
-
-def capture_git(source, scratch, *, barrier=None):
-    """Copy the bounded Git layout through FDs; Git sees only private scratch."""
-    roots = discover_git(source, barrier=barrier)
-    own, common = Path(roots["git_dir"]), Path(roots["common_dir"])
-    destination = scratch / ".git"
-    create_directory(scratch, ".git")
-    captured = {}
-    parent_identities = {str(common): roots["common_identity"], str(own): roots["git_identity"]}
-    def optional_file(parent, name, output=None):
-        expected = parent_identities.get(str(parent))
-        with root_descriptor(parent, expected=expected) as descriptor:
-            if name not in directory_names(descriptor):
-                return None
-        data = read_owned(parent, name, expected=expected, barrier=barrier)
-        captured[str(parent) + "/" + name] = hashlib.sha256(data).hexdigest()
-        if output is not None:
-            write_owned(output, name, data)
-        return data
-    config = optional_file(common, "config")
-    require(config is not None, "source Git config is missing")
-    parsed = git_command(scratch, "config", "--file", "-", "--no-includes", "--null", "--list", input_data=config).stdout
-    settings = {}
-    for entry in parsed.split(b"\0"):
-        if entry:
-            key, _, value = entry.partition(b"\n")
-            settings[os.fsdecode(key).lower()] = os.fsdecode(value)
-    version = settings.get("core.repositoryformatversion", "0")
-    require(version in {"0", "1"}, "unsupported Git repository format")
-    extensions = {key: value for key, value in settings.items() if key.startswith("extensions.")}
-    require(set(extensions) <= {"extensions.objectformat", "extensions.refstorage", "extensions.worktreeconfig"},
-            "unsupported Git repository extension")
-    object_format = extensions.get("extensions.objectformat", "sha1")
-    require(object_format in {"sha1", "sha256"}, "unsupported Git object format")
-    require(extensions.get("extensions.refstorage", "files") == "files", "unsupported Git ref storage")
-    generated = "[core]\nrepositoryformatversion = " + ("1" if object_format == "sha256" else "0") + "\nbare = false\nfilemode = true\n"
-    if object_format == "sha256":
-        generated += "[extensions]\nobjectformat = sha256\n"
-    write_owned(destination, "config", generated.encode())
-    for directory in ("objects", "refs"):
-        origin = common / directory
-        target = destination / directory
-        create_directory(destination, directory)
-        excludes = [origin / name for name in ("bisect", "rewritten", "worktree")] if directory == "refs" and own != common else []
-        with root_descriptor(common, expected=roots["common_identity"]) as descriptor:
-            selected = os.stat(directory, dir_fd=descriptor, follow_symlinks=False)
-            require(stat.S_ISDIR(selected.st_mode), "Git objects and refs must be real directories")
-            captured[str(origin)] = scan_tree(origin, exclusions=excludes, copy_to=target, barrier=barrier,
-                                               expected_source=list(identity(selected)[:2]), allow_symlinks=False)
-        if directory == "objects":
-            require(not any(name.endswith(".promisor") for name in captured[str(origin)]["entries"]),
-                    "unsupported Git promisor object dependency")
-    info = destination / "objects/info"
-    for name in ("alternates", "http-alternates"):
-        if info.exists():
-            data = optional_file(info, name)
-            require(not data, "source Git uses external object alternates")
-            captured.pop(str(info) + "/" + name, None)
-    for name in ("packed-refs", "shallow"):
-        optional_file(common, name, destination)
-    head = optional_file(own, "HEAD", destination)
-    require(head is not None, "source Git HEAD is missing")
-    index = optional_file(own, "index", destination)
-    optional_file(own, "config.worktree")
-    with root_descriptor(own, expected=roots["git_identity"]) as descriptor:
-        names = directory_names(descriptor)
-    for name in names:
-        if name.startswith("sharedindex."):
-            optional_file(own, name, destination)
-    if own != common and "refs" in names:
-        with root_descriptor(own, expected=roots["git_identity"]) as descriptor:
-            own_refs_identity = list(identity(os.stat("refs", dir_fd=descriptor, follow_symlinks=False))[:2])
-        with root_descriptor(own / "refs", expected=own_refs_identity) as descriptor:
-            ref_names = directory_names(descriptor)
-            for name in ("bisect", "rewritten", "worktree"):
-                origin = own / "refs" / name
-                if name in ref_names:
-                    selected = os.stat(name, dir_fd=descriptor, follow_symlinks=False)
-                    create_directory(destination / "refs", name)
-                    captured[str(origin)] = scan_tree(origin, copy_to=destination / "refs" / name, barrier=barrier,
-                                                       expected_source=list(identity(selected)[:2]), allow_symlinks=False)
-    require(discover_git(source, barrier=barrier) == roots, "source Git roots changed during capture")
-    roots.update(index_sha256=hashlib.sha256(index).hexdigest() if index is not None else None,
-                 metadata_digest=manifest_digest(captured), source_config_sha256=hashlib.sha256(config).hexdigest(), object_format=object_format,
-                 metadata_profile="private-fd-snapshot-fixed-config-v2")
-    return roots
-
-
-def query_git(scratch, metadata, *, full=False, declared_gitlinks=()):
-    gitlinks = git_command(scratch, "ls-files", "--stage", "-z").stdout
-    for entry in gitlinks.split(b"\0"):
-        if entry.startswith(b"160000 "):
-            name = os.fsdecode(entry.partition(b"\t")[2])
-            require(name in declared_gitlinks, "unsupported submodule; declare initialized nested Git source: " + name)
-    head = git_command(scratch, "rev-parse", "--verify", "HEAD", check=False)
-    require(head.returncode in {0, 128}, "cannot read captured HEAD")
-    refs = git_command(scratch, "show-ref", "--head", check=False)
-    require(refs.returncode in {0, 1}, "cannot read captured refs")
-    git_command(scratch, "fsck", "--connectivity-only", "--no-reflogs")
-    result = {**metadata, "head": head.stdout.decode().strip() if head.returncode == 0 else None,
-              "refs_base64": base64.b64encode(refs.stdout).decode()}
-    if full:
-        commands = {"status": ("status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignored"),
-                    "staged": ("diff", "--cached", "--raw", "-z", "--no-ext-diff", "--no-textconv"),
-                    "unstaged": ("diff", "--raw", "-z", "--no-ext-diff", "--no-textconv")}
-        for name, command in commands.items():
-            if declared_gitlinks:
-                command = (*command, "--ignore-submodules=all")
-            result[name + "_base64"] = base64.b64encode(git_command(scratch, *command).stdout).decode()
-    return result
-
-
-def git_identity(source):
-    """Metadata-only diagnostic; no product scan or live Git subprocess."""
-    with git_scratch() as scratch:
-        return query_git(scratch, capture_git(source, scratch))
-
-
-def create_directory(parent, name, *, expected=None):
-    with root_descriptor(parent, destination=True, expected=expected) as descriptor:
-        os.mkdir(basename(name), 0o700, dir_fd=descriptor)
-        created = os.stat(name, dir_fd=descriptor, follow_symlinks=False)
-        os.fsync(descriptor)
-        return list(identity(created)[:2])
-
-
-def write_owned(directory, name, data, *, expected=None):
-    with root_descriptor(directory, destination=True, expected=expected) as descriptor:
-        output = os.open(basename(name), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
-                         0o600, dir_fd=descriptor)
-        try:
-            created_identity = list(identity(os.fstat(output))[:2])
-            view = memoryview(data)
-            while view:
-                written = os.write(output, view)
-                require(written > 0, "owned metadata write did not advance")
-                view = view[written:]
-            sync_file(output)
-        finally:
-            os.close(output)
-        require(list(identity(os.stat(name, dir_fd=descriptor, follow_symlinks=False))[:2]) == created_identity,
-                "owned metadata entry changed during write")
-        os.fsync(descriptor)
-        return created_identity
-
-
-def read_owned(directory, name, *, expected=None, expected_file=None, barrier=None):
-    with root_descriptor(directory, expected=expected) as parent:
-        parent_before = stability(os.fstat(parent))
-        before = os.stat(basename(name), dir_fd=parent, follow_symlinks=False)
-        require(stat.S_ISREG(before.st_mode), "owned metadata is not a regular file")
-        require(expected_file is None or stability(before) == expected_file,
-                "selected file changed before read")
-        notify(barrier, "git-before-open", path=name, parent_fd=parent, metadata=before)
-        descriptor = os.open(name, FILE_FLAGS, dir_fd=parent)
-        try:
-            require(stability(os.fstat(descriptor)) == stability(before), "owned metadata changed before read")
-            notify(barrier, "git-file-opened", path=name, fd=descriptor, parent_fd=parent)
-            chunks = []
-            while True:
-                require(stability(os.fstat(parent)) == parent_before, "owned metadata parent changed during read")
-                chunk = os.read(descriptor, 1024 * 1024)
-                if not chunk:
-                    break
-                notify(barrier, "git-read-buffer", path=name, fd=descriptor, data=chunk)
-                chunks.append(chunk)
-            require(stability(os.fstat(parent)) == parent_before, "owned metadata parent changed during read")
-            require(stability(os.fstat(descriptor)) == stability(before) ==
-                    stability(os.stat(name, dir_fd=parent, follow_symlinks=False)), "owned metadata changed during read")
-            return b"".join(chunks)
-        finally:
+        for part in Path(path).parts[1:]:
+            child = os.open(part, DIRECTORY_FLAGS, dir_fd=descriptor)
             os.close(descriptor)
+            descriptor = child
+        return descriptor
+    except BaseException:
+        os.close(descriptor)
+        raise
 
 
-def observed_identity(path, inputs=None):
-    from validation_inputs import captured
-    def read():
-        require(Path(path).exists(), f"retained root missing; supply unverified: {path}")
-        with root_descriptor(path) as descriptor:
-            return list(identity(os.fstat(descriptor))[:2])
-    return captured(inputs, "directory-identity:" + str(path), read)
+def observation(root, name):
+    root = Path(root)
+    relative = Path(name)
+    if relative.is_absolute() or ".." in relative.parts:
+        raise WorkspaceError(f"unsafe inventory path: {name}")
+    base = root if root.is_dir() and not root.is_symlink() else root.parent
+    parts = relative.parts if base == root else (root.name,)
+    descriptors = [directory_descriptor(base)]
+    try:
+        for part in parts[:-1]:
+            descriptors.append(os.open(part, DIRECTORY_FLAGS, dir_fd=descriptors[-1]))
+        leaf = parts[-1] if parts else "."
+        before = os.stat(leaf, dir_fd=descriptors[-1], follow_symlinks=False)
+        entry = {"root": str(root), "path": relative.as_posix()}
+        if stat.S_ISLNK(before.st_mode):
+            entry.update(type="symlink", target=os.readlink(leaf, dir_fd=descriptors[-1]))
+        elif stat.S_ISDIR(before.st_mode):
+            entry.update(type="directory")
+        elif stat.S_ISREG(before.st_mode):
+            fd = os.open(leaf, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
+                         dir_fd=descriptors[-1])
+            try:
+                if stable(os.fstat(fd)) != stable(before):
+                    raise WorkspaceError(f"file changed before reading: {root / relative}")
+                checksum = hashlib.sha256()
+                while chunk := os.read(fd, 1024 * 1024):
+                    checksum.update(chunk)
+                if stable(os.fstat(fd)) != stable(before):
+                    raise WorkspaceError(f"file changed while reading: {root / relative}")
+                entry.update(type="file", sha256=checksum.hexdigest(), mode=stat.S_IMODE(before.st_mode))
+            finally:
+                os.close(fd)
+        else:
+            raise WorkspaceError(f"unsupported input type: {root / relative}")
+        if stable(os.stat(leaf, dir_fd=descriptors[-1], follow_symlinks=False)) != stable(before):
+            raise WorkspaceError(f"input changed during inventory: {root / relative}")
+        return entry
+    finally:
+        for fd in reversed(descriptors):
+            os.close(fd)
 
 
-def observed_owned(root, name, expected, inputs=None):
-    from validation_inputs import captured
-    return captured(inputs, "owned:" + str(root) + "/" + name,
-                    lambda: read_owned(root, name, expected=observed_identity(root, inputs)))
+def excluded(path, roots, run_dir):
+    return ".git" in path.parts or any(path == other or path.is_relative_to(other) for other in roots) or (
+        run_dir is not None and (path == run_dir or path.is_relative_to(run_dir)))
 
 
-def workspace_inventory(root, manifest, expected, *, workspace=None, barrier=None):
-    if workspace is not None and workspace.get("version") == 2:
-        from workspace_scope import scoped_inventory
-        scope = workspace["task_scope"]
-        return scoped_inventory(root, manifest["exclusions"], [Path(item["source"]) for item in scope["product_roots"]],
-                                Path(scope["anchor"]), {item["relative_path"]: item for item in scope["context_exclusions"]},
-                                barrier=barrier, expected=expected)
-    return scan_tree(root, exclusions=[root / name for name in manifest["exclusions"]],
-                     expected_source=expected, barrier=barrier)
+def walk_names(root, start, nested, run_dir):
+    path = root / start
+    if excluded(path, nested, run_dir) or not os.path.lexists(path):
+        return []
+    if not path.is_symlink() and path.is_dir():
+        if start != Path(".") and (path / ".git").exists():
+            raise WorkspaceError(f"nested Git root must be explicitly selected: {path}")
+        result = []
+        fd = directory_descriptor(path)
+        try:
+            before = os.fstat(fd)
+            with os.scandir(fd) as entries:
+                children = sorted(entry.name for entry in entries)
+            after = path.lstat()
+            if (before.st_dev, before.st_ino) != (after.st_dev, after.st_ino):
+                raise WorkspaceError(f"directory changed during inventory: {path}")
+        finally:
+            os.close(fd)
+        for child in children:
+            result.extend(walk_names(root, start / child, nested, run_dir))
+        return result
+    return [start.as_posix()]
 
 
-def observed_tree(root, manifest, expected, barrier=None, inputs=None, workspace=None):
-    """Capture a current root pin; historic expected IDs have no validity lifetime."""
-    from validation_inputs import captured
-    return captured(inputs, "tree:" + str(root), lambda: workspace_inventory(
-        root, manifest, observed_identity(root, inputs), workspace=workspace, barrier=barrier))
-
-
-def verify_baseline(workspace, *, barrier=None, inputs=None):
-    validate_owner(workspace, workspace["run_uuid"], inputs=inputs)
-    baseline = Path(workspace["baseline_root"])
-    observed_identity(baseline, inputs)
-    expected = workspace["baseline_manifest"]
-    actual = observed_tree(baseline, expected, workspace["baseline_identity"], barrier, inputs, workspace)
-    same_tree(expected, actual, "retained baseline changed")
-    require(manifest_digest(actual) == workspace["baseline_digest"], "baseline digest mismatch")
-    require(observed_owned(baseline.parent, "baseline-manifest.json", workspace["attempt_identity"], inputs) == encode(expected), "retained baseline manifest changed")
-    return actual
-
-
-def checked_document(snapshot, result):
-    raw = snapshot.read_bytes(result["document"])
-    require(hashlib.sha256(raw).hexdigest() == result["sha256"], "registered workspace document changed")
-    return json.loads(raw)
-
-
-def registered_workspace(snapshot, *, require_sealed=False):
-    preparations = [snapshot.operation_receipt(name) for name in snapshot.receipts
-                    if name == "workspace-prepare" or name.startswith("workspace-prepare-")]
-    receipt = max(preparations, key=lambda item: item["revision"]) if preparations else None
-    if receipt is None:
-        require(not require_sealed, "change requires registered and sealed workspace")
-        return None
-    workspace = checked_document(snapshot, receipt["result"])
-    seals = [snapshot.operation_receipt(name) for name in snapshot.receipts if name.startswith("workspace-seal-")]
-    for receipt in sorted(seals, key=lambda item: item["revision"], reverse=True):
-        retained = checked_document(snapshot, receipt["result"])
-        if (retained["workspace_id"] == workspace["workspace_id"] and
-                retained.get("workspace_revision", 0) == workspace.get("workspace_revision", 0)):
-            workspace["seal"] = retained
-            break
-    require(not require_sealed or "seal" in workspace, "change requires sealed workspace candidate")
-    return workspace
-
-
-def validate_owner(workspace, run_uuid, *, inputs=None):
-    validate_metadata_identity(workspace.get("metadata_scope"), inputs=inputs)
-    bundle = Path(workspace["bundle"])
-    observed_identity(bundle, inputs)
-    owner = json.loads(observed_owned(bundle, "owner.json", workspace["bundle_identity"], inputs))
-    require({key: owner.get(key) for key in ("run_uuid", "workspace_id")} ==
-            {"run_uuid": run_uuid, "workspace_id": workspace["workspace_id"]} and
-            set(owner) <= {"run_uuid", "workspace_id", "root_identity"},
-            "foreign workspace ownership")
-    return bundle
-
-
-def validate_metadata_identity(binding, *, inputs=None):
-    if binding is None:
-        return
-    for name in ("source", "metadata", "git", "common"):
-        observed_identity(binding[name + "_root"], inputs)
-
-
-def capture_metadata_scope(snapshot, source, metadata, request, session_source):
-    if request is None:
-        return None
-    from verification_evidence import (verify_reference, completed_turn, completion_follows,
-                                       require_own_reviewer_handoff)
-    require(set(request) == {"namespace", "authorized_source", "scope_ref", "qa_proof_ref", "reviewer_proof_ref"},
-            "metadata scope requires namespace, authorized source and all three references")
-    require(request["namespace"] == "agent-flow-runtime", "unsupported metadata namespace")
-    require(request["authorized_source"] == str(source), "metadata authorized source differs from selected source")
-    summary = json.loads(snapshot.read_text("delegation-summary.json"))
-    require(isinstance(summary, dict) and isinstance(summary.get("verification"), dict), "metadata scope requires registered verification")
-    verification = summary["verification"]
-    require(isinstance(verification.get("root_thread_id"), str), "metadata scope requires registered root thread")
-    root_id = verification["root_thread_id"]
-    scope_digest = verify_reference(snapshot.artifact_root, request["scope_ref"], snapshot=snapshot)
-    captured = []
-    identities = set(verification.get("author_thread_ids", [])) | {root_id}
-    for key, role in (("qa_proof_ref", "qa-verifier"), ("reviewer_proof_ref", "reviewer")):
-        reference = request[key]
-        verify_reference(snapshot.artifact_root, reference, snapshot=snapshot)
-        proof = json.loads(snapshot.read_bytes(reference["path"]))
-        require(isinstance(proof, dict) and isinstance(proof.get("thread_id"), str) and
-                isinstance(proof.get("completion_turn_id"), str) and isinstance(proof.get("completion"), dict),
-                "metadata proof requires source thread, turn and completion facts")
-        thread, turn = proof["thread_id"], proof["completion_turn_id"]
-        require(thread not in identities, "metadata scope requires independent QA and reviewer")
-        identities.add(thread)
-        completion = completed_turn(session_source, thread, turn, root_id, role)
-        require(json.loads(json.dumps(completion, default=str)) == proof["completion"], "metadata proof differs from raw completion facts")
-        answer = completion["answer"]
-        require(answer.get("verdict") == "passed" and answer.get("reviewed_result_hash") == scope_digest,
-                "metadata completion does not accept the exact scope")
-        verify_reference(snapshot.artifact_root, {"path": answer["handoff"], "sha256": answer["handoff_sha256"]}, snapshot=snapshot)
-        captured.append(completion)
-    qa, reviewer = captured
-    require_own_reviewer_handoff(snapshot.artifact_root, reviewer["answer"]["handoff"], qa["answer"]["handoff"], snapshot=snapshot)
-    require(reviewer["answer"].get("qa_handoff_sha256") == qa["answer"]["handoff_sha256"] and
-            completion_follows(reviewer, qa), "metadata reviewer must follow and reference accepted QA")
-    metadata_root = source / ".agent-work"
-    namespace_identity = observed_identity(metadata_root, snapshot.external_inputs)
-    binding = {"request": request, "source_root": str(source), "source_identity": metadata["root_identity"],
-               "metadata_root": str(metadata_root), "metadata_identity": namespace_identity,
-               "reason": "explicit accepted Agent Flow runtime namespace"}
-    for name, path in (("git", metadata["git_dir"]), ("common", metadata["common_dir"])):
-        binding[name + "_root"] = path
-        binding[name + "_identity"] = observed_identity(path, snapshot.external_inputs)
-    return binding
-
-
-def workspace_exclusions(source, snapshot, destination, metadata, binding=None):
-    paths = {source / ".git"}
-    if binding is not None:
-        validate_metadata_identity(binding)
-        paths.add(Path(binding["metadata_root"]))
-    for path in (Path(metadata["git_dir"]), Path(metadata["common_dir"]), snapshot.artifact_root, destination):
-        if path.is_relative_to(source) and path != source:
-            paths.add(path)
-    return tuple(sorted(paths))
-
-
-def same_tree(expected, actual, message):
-    require(expected == actual, message)
-
-
-def default_destination(snapshot):
-    run = Path(snapshot.logical_root).absolute()
-    if run.parent.name == "runs" and run.parent.parent.name == ".agent-work":
-        return run.parent.parent / "workspaces" / (run.name + "-" + snapshot.run_uuid)
-    return run / ("workspace-" + snapshot.run_uuid)
-
-
-def prepare(run_dir, source, destination=None, *, context_roots=(), identifier=None, metadata_scope=None, session_source=None, barrier=None):
-    sources = list(source) if isinstance(source, (list, tuple)) else [source]
-    require(bool(sources), "workspace requires at least one product source")
-    snapshot = JournalSnapshot.open(run_dir)
-    existing = registered_workspace(snapshot)
-    if destination is None:
-        destination = Path(existing["bundle"]) if existing is not None else default_destination(snapshot)
-        if existing is None and not destination.parent.exists():
-            # Only the exact canonical workspaces parent is created, through pinned descriptors.
-            create_directory(destination.parent.parent, destination.parent.name)
-    if identifier:
-        operation = identifier if identifier.startswith("workspace-prepare-") else "workspace-prepare-" + identifier
-        receipt = snapshot.operation_receipt(operation)
-        if receipt is not None:
-            retained = checked_document(snapshot, receipt["result"])
-            if retained.get("version") == 1:
-                require(len(sources) == 1 and not context_roots, "operation ID payload conflict")
-                payload = {"source": str(Path(sources[0]).absolute()), "destination": str(Path(destination).absolute())}
-                binding = retained.get("metadata_scope")
-                require((binding["request"] if binding else None) == metadata_scope, "operation ID payload conflict")
-                if binding is not None:
-                    payload["metadata_scope"] = binding
-                operation_id(run_dir, "workspace-prepare", payload, identifier=operation)
-                verify_baseline(retained)
-                return retained
-    existing = registered_workspace(snapshot)
-    if len(sources) > 1 or context_roots or existing is not None and existing.get("version") == 2:
-        from workspace_scope import prepare_scope
-        return prepare_scope(run_dir, sources, destination, context_roots=context_roots, identifier=identifier,
-                             metadata_scope=metadata_scope, session_source=session_source, barrier=barrier)
-    return _prepare_single(run_dir, sources[0], destination, identifier=identifier, metadata_scope=metadata_scope,
-                           session_source=session_source, barrier=barrier)
-
-
-def _prepare_single(run_dir, source, destination, *, identifier=None, metadata_scope=None, session_source=None, barrier=None):
-    snapshot = JournalSnapshot.open(run_dir)
-    require(snapshot.durable and not snapshot.closed, "workspace prepare requires an open durable journal")
-    source, destination = Path(source).absolute(), Path(destination).absolute()
-    payload = {"source": str(source), "destination": str(destination)}
-    existing = registered_workspace(snapshot)
-    if existing is not None:
-        require(existing["source"] == str(source) and existing["bundle"] == str(destination), "workspace root binding cannot change")
-        existing_scope = existing.get("metadata_scope")
-        require((existing_scope["request"] if existing_scope else None) == metadata_scope,
-                "registered metadata scope cannot change")
-        verify_baseline(existing)
-        validate_metadata_identity(existing.get("metadata_scope"))
-        if metadata_scope is not None:
-            from verification_evidence import CodexSessionSource
-            current_binding = capture_metadata_scope(snapshot, source, discover_git(source), metadata_scope,
-                                                     session_source or CodexSessionSource())
-            require(current_binding["request"] == existing["metadata_scope"]["request"],
-                    "registered metadata evidence changed")
-        return existing
-    require(not snapshot.archives, "recovered workspace identity is frozen; start a new run to prepare workspace")
-    from journal_lifecycle import capture_validation, freeze_validation
-    from dataclasses import replace
-    snapshot, captured_source = capture_validation(snapshot, session_source=session_source)
-    metadata = discover_git(source, barrier=barrier)
-    binding = capture_metadata_scope(snapshot, source, metadata, metadata_scope, captured_source)
-    if binding is not None:
-        payload["metadata_scope"] = binding
-    operation = identifier if identifier and identifier.startswith("workspace-prepare-") else "workspace-prepare-" + identifier if identifier else "workspace-prepare"
-    identifier = operation_id(run_dir, "workspace-prepare", payload, identifier=operation)
-    freeze_validation(snapshot, captured_source)
-    workspace_id = str(uuid.uuid5(uuid.NAMESPACE_URL, snapshot.run_uuid + str(source) + str(destination)))
-    owner = {"run_uuid": snapshot.run_uuid, "workspace_id": workspace_id}
-    if destination.exists():
-        owner["root_identity"] = list(identity(destination.lstat())[:2])
-        retained_owner = json.loads(read_owned(destination, "owner.json", expected=owner["root_identity"]))
-        require({key: retained_owner.get(key) for key in ("run_uuid", "workspace_id")} ==
-                {key: owner[key] for key in ("run_uuid", "workspace_id")}, "destination is not owned by this workspace")
+def root_inventory(root, all_roots, run_dir, excluded_files=()):
+    base = Path(root["path"])
+    nested = [Path(other["path"]) for other in all_roots
+              if other["path"] != str(base) and Path(other["path"]).is_relative_to(base)]
+    if base.is_symlink() or not base.is_dir():
+        names = ["."] if os.path.lexists(base) else []
     else:
-        owner["root_identity"] = create_directory(destination.parent, destination.name)
-        write_owned(destination, "owner.json", encode(owner), expected=owner["root_identity"])
-    attempt = destination / ("prepare-" + str(uuid.uuid4()))
-    attempt_identity = create_directory(destination, attempt.name, expected=owner["root_identity"])
-    baseline, working = attempt / "baseline", attempt / "working"
-    baseline_identity = create_directory(attempt, baseline.name, expected=attempt_identity)
-    metadata = discover_git(source, barrier=barrier)
-    exclusions = workspace_exclusions(source, snapshot, destination, metadata, binding)
-    notify(barrier, "prepare-before-copy", source=str(source), attempt=str(attempt))
-    first = scan_tree(source, exclusions=exclusions, copy_to=baseline, barrier=barrier,
-                      expected_source=metadata["root_identity"], expected_destination=baseline_identity)
-    relative_exclusions = first["exclusions"]
-    same_tree(first, scan_tree(source, exclusions=exclusions, barrier=barrier), "source changed during prepare")
-    copied = scan_tree(baseline, exclusions=[baseline / name for name in relative_exclusions], barrier=barrier)
-    same_tree(first, copied, "baseline differs from full source inventory")
-    notify(barrier, "prepare-before-git-copy", source=str(source), attempt=str(attempt), working=str(working))
-    working_identity = create_directory(attempt, working.name, expected=attempt_identity)
-    scan_tree(baseline, exclusions=[baseline / name for name in relative_exclusions], copy_to=working, barrier=barrier,
-              expected_source=baseline_identity, expected_destination=working_identity)
-    with git_scratch() as scratch:
-        captured_metadata = capture_git(source, scratch, barrier=barrier)
-        scan_tree(baseline, exclusions=[baseline / name for name in relative_exclusions], copy_to=scratch, barrier=barrier,
-                  expected_source=baseline_identity)
-        metadata = query_git(scratch, captured_metadata, full=True)
-        git_destination_identity = create_directory(working, ".git", expected=working_identity)
-        scan_tree(scratch / ".git", copy_to=working / ".git", barrier=barrier,
-                  expected_destination=git_destination_identity)
-        same_tree(scan_tree(scratch / ".git"), scan_tree(working / ".git", expected_source=git_destination_identity),
-                  "retained Git metadata changed during copy")
-    same_tree(first, scan_tree(working, exclusions=[working / name for name in relative_exclusions], barrier=barrier),
-              "working copy differs from full baseline")
-    same_tree(first, scan_tree(source, exclusions=exclusions, expected_source=metadata["root_identity"], barrier=barrier),
-              "source changed before workspace publication")
-    with git_scratch() as scratch:
-        require(capture_git(source, scratch, barrier=barrier) == captured_metadata,
-                "source Git metadata changed during prepare")
-    write_owned(attempt, "baseline-manifest.json", encode(first), expected=attempt_identity)
-    workspace = {"version": 1, "workspace_id": workspace_id, "run_uuid": snapshot.run_uuid,
-                 "source": str(source), "bundle": str(destination), "bundle_identity": list(identity(destination.lstat())[:2]),
-                 "baseline_root": str(baseline), "working_root": str(working),
-                 "baseline_identity": baseline_identity, "working_identity": working_identity, "attempt_identity": attempt_identity,
-                 "source_metadata": metadata, "metadata_scope": binding, "baseline_manifest": first, "baseline_digest": manifest_digest(first)}
-    document = f"artifacts/workspaces/{workspace_id}/prepare.json"
-    raw = encode(workspace)
-    notify(barrier, "prepare-before-publication", workspace=workspace)
-    def publish(current):
-        require(current.revision == snapshot.revision, "workspace prepare preconditions changed")
-        current = replace(current, external_inputs=snapshot.external_inputs)
-        require(registered_workspace(current) is None, "workspace already registered")
-        require(capture_metadata_scope(current, source, metadata, metadata_scope, captured_source) == binding,
-                "metadata binding changed before prepare publication")
-        return {document: raw}, {"document": document, "sha256": hashlib.sha256(raw).hexdigest()}
-    transact(run_dir, identifier, payload, publish)
-    notify(barrier, "prepare-after-publication", workspace=workspace)
-    return workspace
-
-
-def seal(run_dir, *, identifier=None, barrier=None):
-    snapshot = JournalSnapshot.open(run_dir)
-    require(snapshot.durable and not snapshot.closed, "workspace seal requires an open durable journal")
-    workspace = registered_workspace(snapshot)
-    require(workspace is not None, "prepare workspace before seal")
-    current_scope_digest(workspace)
-    bundle = validate_owner(workspace, snapshot.run_uuid)
-    verify_baseline(workspace, barrier=barrier)
-    working = Path(workspace["working_root"])
-    working_identity = observed_identity(working)
-    bundle_identity = observed_identity(bundle)
-    relative_exclusions = workspace["baseline_manifest"]["exclusions"]
-    exclusions = [working / name for name in relative_exclusions]
-    current = workspace_inventory(working, workspace["baseline_manifest"], working_identity, workspace=workspace, barrier=barrier)
-    if "seal" in workspace and current == workspace["seal"]["candidate_manifest"] and identifier is None:
-        verify_candidate(workspace, barrier=barrier)
-        return workspace["seal"]
-    identifier = identifier or str(uuid.uuid4())
-    operation = identifier if identifier.startswith("workspace-seal-") else "workspace-seal-" + identifier
-    payload = {"workspace_id": workspace["workspace_id"], "candidate_manifest_digest": manifest_digest(current)}
-    if workspace.get("version") == 2:
-        payload["workspace_revision"] = workspace["workspace_revision"]
-        payload["task_scope_digest"] = workspace["task_scope"]["digest"]
-    operation_id(run_dir, "workspace-seal", payload, identifier=operation)
-    old = snapshot.operation_receipt(operation)
-    if old is not None:
-        retained = checked_document(snapshot, old["result"])
-        verify_candidate({**workspace, "seal": retained}, barrier=barrier)
-        return retained
-    candidate_id = str(uuid.uuid5(uuid.NAMESPACE_URL, snapshot.run_uuid + operation))
-    container = bundle / ("candidate-" + candidate_id)
-    if container.exists():
-        require(json.loads(read_owned(container, "owner.json")) == {"run_uuid": snapshot.run_uuid, "candidate_id": candidate_id},
-                "foreign candidate directory")
-        container = bundle / ("candidate-" + candidate_id + "-" + str(uuid.uuid4()))
-    container_identity = create_directory(bundle, container.name, expected=bundle_identity)
-    write_owned(container, "owner.json", encode({"run_uuid": snapshot.run_uuid, "candidate_id": candidate_id}), expected=container_identity)
-    candidate = container / "tree"
-    candidate_identity = create_directory(container, candidate.name, expected=container_identity)
-    notify(barrier, "seal-before-copy", working=str(working), candidate=str(candidate))
-    copied = scan_tree(working, exclusions=exclusions, copy_to=candidate, barrier=barrier,
-                       expected_source=working_identity, expected_destination=candidate_identity)
-    same_tree(current, copied, "working tree changed before candidate copy")
-    same_tree(current, workspace_inventory(working, workspace["baseline_manifest"], working_identity, workspace=workspace, barrier=barrier), "working tree changed during seal")
-    captured = workspace_inventory(candidate, workspace["baseline_manifest"], candidate_identity, workspace=workspace, barrier=barrier)
-    same_tree(current, captured, "retained candidate differs from working tree")
-    delta = manifest_delta(workspace["baseline_manifest"], captured)
-    sealed = {"version": 2, "result_hash_version": 5, "workspace_id": workspace["workspace_id"], "candidate_id": candidate_id, "operation_id": operation,
-              "candidate_root": str(candidate), "candidate_identity": candidate_identity, "container_identity": container_identity,
-              "candidate_manifest": captured, "candidate_digest": manifest_digest(captured),
-              "baseline_digest": workspace["baseline_digest"], "delta": delta, "changed_paths": sorted(delta)}
-    if workspace.get("version") == 2:
-        sealed.update(workspace_revision=workspace["workspace_revision"], task_scope_digest=workspace["task_scope"]["digest"])
-    write_owned(container, "manifest.json", encode(captured), expected=container_identity)
-    write_owned(container, "delta.json", encode(delta), expected=container_identity)
-    document = f"artifacts/workspaces/{workspace['workspace_id']}/seals/{candidate_id}.json"
-    raw = encode(sealed)
-    notify(barrier, "seal-before-publication", sealed=sealed)
-    def publish(current_snapshot):
-        registered = registered_workspace(current_snapshot)
-        require(registered is not None and registered["workspace_id"] == workspace["workspace_id"], "workspace binding changed")
-        require(registered.get("workspace_revision") == workspace.get("workspace_revision"), "workspace revision changed during seal")
-        current_scope_digest(registered)
-        return {document: raw}, {"document": document, "sha256": hashlib.sha256(raw).hexdigest()}
-    transact(run_dir, operation, payload, publish)
-    notify(barrier, "seal-after-publication", sealed=sealed)
-    return sealed
-
-
-def verify_candidate(workspace, *, barrier=None, inputs=None):
-    verify_baseline(workspace, barrier=barrier, inputs=inputs)
-    sealed = workspace.get("seal")
-    require(sealed is not None, "workspace has no sealed candidate")
-    marker = sealed.get("result_hash_version")
-    require(type(marker) is int and marker == 5, "unsupported result_hash_version")
-    if workspace.get("version") == 2:
-        require(sealed.get("workspace_revision") == workspace["workspace_revision"], "sealed candidate belongs to stale workspace revision")
-        require(sealed.get("task_scope_digest") == current_scope_digest(workspace, inputs=inputs), "sealed candidate scope changed")
-    candidate = Path(sealed["candidate_root"])
-    observed_identity(candidate.parent, inputs)
-    require(json.loads(observed_owned(candidate.parent, "owner.json", sealed["container_identity"], inputs)) ==
-            {"run_uuid": workspace["run_uuid"], "candidate_id": sealed["candidate_id"]}, "candidate ownership changed")
-    require(observed_owned(candidate.parent, "manifest.json", sealed["container_identity"], inputs) == encode(sealed["candidate_manifest"]), "candidate manifest changed")
-    require(observed_owned(candidate.parent, "delta.json", sealed["container_identity"], inputs) == encode(sealed["delta"]), "candidate delta changed")
-    observed_identity(candidate, inputs)
-    manifest = observed_tree(candidate, sealed["candidate_manifest"], sealed["candidate_identity"], barrier, inputs, workspace)
-    same_tree(manifest, sealed["candidate_manifest"], "sealed candidate changed; obtain current acceptance")
-    require(manifest_digest(manifest) == sealed["candidate_digest"], "sealed candidate digest mismatch")
-    return sealed
-
-
-def current_scope_digest(workspace, *, inputs=None):
-    if workspace.get("version") != 2:
-        return None
-    from workspace_scope import verify_context
-    scope = workspace["task_scope"]
-    require(manifest_digest({key: value for key, value in scope.items() if key != "digest"}) == scope["digest"],
-            "workspace scope provenance changed")
-    verify_context(workspace, inputs=inputs)
-    return scope["digest"]
-
-
-def inspect(run_dir):
-    snapshot = JournalSnapshot.open(run_dir)
-    workspace = registered_workspace(snapshot)
-    require(workspace is not None, "workspace is not prepared")
-    validate_owner(workspace, snapshot.run_uuid)
-    if "seal" in workspace:
-        verify_candidate(workspace)
-    else:
-        verify_baseline(workspace)
-    return workspace
-
-
-def delivery(run_dir, *, identifier=None, session_source=None):
-    """Publish locations of the retained, currently accepted full candidate."""
-    from verification_evidence import result_hash, delivery_scope
-    from journal_lifecycle import capture_validation, freeze_validation, load_validator
-    from journal_io import _transact
-    from dataclasses import replace
-    snapshot, source = capture_validation(JournalSnapshot.open(run_dir), session_source=session_source)
-    validator_bytes = snapshot.external_inputs.file(Path(__file__).with_name("validate-run.py"))
-    validator = load_validator(validator_bytes)
-    def acceptance(current):
-        errors = validator.validate_product_acceptance(Path(run_dir), session_source=source, snapshot=current)
-        require(not errors, "delivery validation failed: " + "; ".join(errors))
-        registered = registered_workspace(current, require_sealed=True)
-        verify_candidate(registered, inputs=current.external_inputs)
-        summary = json.loads(current.read_text("delegation-summary.json"))
-        return registered, result_hash(Path(run_dir), summary["verification"], snapshot=current)
-    workspace, accepted_hash = acceptance(snapshot)
-    summary = json.loads(snapshot.read_text("delegation-summary.json"))
-    scope = delivery_scope(snapshot, summary=summary)
-    freeze_validation(snapshot, source)
-    sealed = workspace["seal"]
-    lines = ["# Результат задачи", "", "Полная сохранённая копия: " + sealed["candidate_root"], "", "Изменённые пути:"]
-    if scope is not None:
-        lines.extend(["", "Принят локальный результат: local-deliverable.", "Исходная внешняя цель остаётся незавершённой.",
-                      "Исходное задание: " + json.dumps(summary["verification"]["task_scope"], ensure_ascii=False, sort_keys=True),
-                      "Непроверенный external follow-up: " + json.dumps(scope["external_followup"], ensure_ascii=False, sort_keys=True), ""])
-    for name, change in sealed["delta"].items():
-        kind = "добавлен" if change["before"] is None else "удалён" if change["after"] is None else "изменён"
-        lines.append("- " + kind + ": " + json.dumps(name, ensure_ascii=True))
-    text = "\n".join(lines) + "\n"
-    container = Path(sealed["candidate_root"]).parent
-    if (container / "delivery.md").exists():
-        require(read_owned(container, "delivery.md", expected=observed_identity(container)) == text.encode(), "retained delivery description changed")
-    else:
-        write_owned(container, "delivery.md", text.encode(), expected=observed_identity(container))
-    result = {"generation": snapshot.generation, "validator_version": 2, "validator_sha256": hashlib.sha256(validator_bytes).hexdigest(),
-              "workspace_id": workspace["workspace_id"], "candidate_id": sealed["candidate_id"],
-              "result_hash": accepted_hash, "candidate_root": sealed["candidate_root"],
-              "baseline_root": workspace["baseline_root"], "baseline_manifest": str(Path(workspace["baseline_root"]).parent / "baseline-manifest.json"),
-              "candidate_manifest": str(container / "manifest.json"), "delta": str(container / "delta.json"),
-              "description": str(container / "delivery.md"), "changed_paths": sealed["changed_paths"]}
-    if scope is not None:
-        result["delivery_scope"] = scope
-    payload = {"candidate_id": sealed["candidate_id"], "result_hash": accepted_hash}
-    operation = operation_id(run_dir, "workspace-delivery", payload,
-                             identifier=identifier or "workspace-delivery-" + sealed["candidate_id"])
-    document = f"artifacts/workspaces/{workspace['workspace_id']}/delivery/{sealed['candidate_id']}.json"
-    def publish(current):
-        require((current.run_uuid, current.revision, current.generation) ==
-                (snapshot.run_uuid, snapshot.revision, snapshot.generation), "delivery preconditions changed")
-        current = replace(current, external_inputs=snapshot.external_inputs)
-        registered, digest = acceptance(current)
-        require(registered["seal"]["candidate_id"] == sealed["candidate_id"] and digest == accepted_hash,
-                "acceptance changed before delivery publication")
-        return {document: encode(result)}, result
-    _transact(run_dir, operation, payload, publish, replay_guard=publish, lifecycle="delivery")
+        names = ([os.fsdecode(name) for name in git(base, "ls-files", "--cached", "--others",
+                                                    "--exclude-standard", "-z").split(b"\0") if name]
+                 if is_git_root(base) else [])
+        if "include" not in root and not is_git_root(base):
+            names = walk_names(base, Path("."), nested, run_dir)
+        for name in root.get("include", []):
+            if not path_allowed({"roots": [root]}, base / name):
+                raise WorkspaceError(f"included path traverses a symbolic parent: {base / name}")
+            names.extend(walk_names(base, Path(name), nested, run_dir))
+    result = []
+    for name in sorted(set(names)):
+        path = base / name
+        if str(path) in excluded_files or excluded(path, nested, run_dir) or not os.path.lexists(path):
+            continue
+        if path != base and path.is_dir() and not path.is_symlink() and (path / ".git").exists():
+            raise WorkspaceError(f"nested Git root must be explicitly selected: {path}")
+        try:
+            result.append(observation(base, name))
+        except OSError as exc:
+            raise WorkspaceError(f"cannot inventory {path}: {exc}") from exc
     return result
+
+
+def current_inventory(scope, run_dir=None):
+    run = canonical_path(run_dir) if run_dir is not None else None
+    for path in scope.get("memory", []):
+        if not Path(path).is_file() or Path(path).is_symlink():
+            raise WorkspaceError(f"memory input must be an existing regular file: {path}")
+    entries = [entry for root in scope["roots"]
+               for entry in root_inventory(root, scope["roots"], run, scope.get("memory", []))]
+    return sorted(entries, key=lambda entry: (entry["root"], entry["path"]))
+
+
+def bind_workspace(source_root, roots=None, context=None, run_dir=None, memory=None):
+    source = Path(source_root).resolve()
+    if not is_git_root(source):
+        raise WorkspaceError("source_root must be a Git checkout root")
+    selected = selected_roots(source, roots)
+    scope = {"source_root": str(source), "roots": selected,
+             "context": sorted({str(canonical_path(path)) for path in context or []}), "git": {},
+             "memory": sorted({str(canonical_path(path)) for path in memory or []})}
+    for path in scope["memory"]:
+        if not Path(path).is_file() or Path(path).is_symlink():
+            raise WorkspaceError(f"memory input must be an existing regular file: {path}")
+    for path in scope["context"]:
+        if not os.path.lexists(path):
+            raise WorkspaceError(f"context input does not exist: {path}")
+    for root in selected:
+        path = Path(root["path"])
+        if is_git_root(path):
+            scope["git"][str(path)] = {
+                "head": git(path, "rev-parse", "--revs-only", "HEAD").decode().strip() or None,
+                "status": git(path, "status", "--porcelain=v1", "-z").decode(errors="surrogateescape")}
+    scope["initial"] = current_inventory(scope, run_dir)
+    context_roots = [{"path": path} for path in scope["context"]]
+    for root in context_roots:
+        root_inventory(root, context_roots, None, scope["memory"])
+    return scope
+
+
+def expand_workspace(scope, roots=None, context=None, run_dir=None):
+    expanded = json.loads(json.dumps(scope))
+    merged = {root["path"]: root for root in scope["roots"]}
+    for value in roots or []:
+        root = selected_roots(value["path"], [value])[0]
+        previous = merged.get(root["path"])
+        if previous is not None and "include" in previous and "include" in root:
+            root = {"path": root["path"], "include": sorted(set(previous["include"]) | set(root["include"]))}
+        elif previous is not None and "include" in previous and is_git_root(Path(root["path"])):
+            root = previous
+        elif previous is not None and "include" not in previous and not is_git_root(Path(root["path"])):
+            root = previous
+        merged[root["path"]] = root
+    expanded["roots"] = sorted(merged.values(), key=lambda root: root["path"])
+    expanded["context"] = sorted(set(scope["context"]) | {str(canonical_path(path)) for path in context or []})
+    for path in context or []:
+        if not os.path.lexists(canonical_path(path)):
+            raise WorkspaceError(f"context input does not exist: {path}")
+    old = {}
+    for entry in scope["initial"]:
+        absolute = Path(entry["root"]) / entry["path"]
+        owner = max((root["path"] for root in expanded["roots"]
+                     if absolute == Path(root["path"]) or absolute.is_relative_to(root["path"])), key=len)
+        moved = {**entry, "root": owner, "path": absolute.relative_to(owner).as_posix()}
+        old[(owner, moved["path"])] = moved
+    git_names = {root["path"]: {os.fsdecode(name) for name in git(Path(root["path"]), "ls-files", "--cached",
+                                                                "--others", "--exclude-standard", "-z").split(b"\0") if name}
+                 for root in scope["roots"] if is_git_root(Path(root["path"]))}
+    for entry in current_inventory(expanded, run_dir):
+        absolute = Path(entry["root"]) / entry["path"]
+        previously_covered = False
+        for root in scope["roots"]:
+            base = Path(root["path"])
+            if absolute != base and not absolute.is_relative_to(base):
+                continue
+            relative = absolute.relative_to(base)
+            explicit = any(relative == Path(name) or relative.is_relative_to(name)
+                           for name in root.get("include", []))
+            automatic = (relative.as_posix() in git_names[root["path"]] if root["path"] in git_names
+                         else "include" not in root)
+            previously_covered = previously_covered or explicit or automatic
+        if not previously_covered and (entry["root"], entry["path"]) not in old:
+            old[(entry["root"], entry["path"])] = entry
+    expanded["initial"] = sorted(old.values(), key=lambda entry: (entry["root"], entry["path"]))
+    for root in expanded["roots"]:
+        path = Path(root["path"])
+        if str(path) not in expanded["git"] and is_git_root(path):
+            expanded["git"][str(path)] = {
+                "head": git(path, "rev-parse", "--revs-only", "HEAD").decode().strip() or None,
+                "status": git(path, "status", "--porcelain=v1", "-z").decode(errors="surrogateescape")}
+    context_roots = [{"path": path} for path in expanded["context"]]
+    for root in context_roots:
+        root_inventory(root, context_roots, None, expanded.get("memory", []))
+    return expanded
+
+
+def changed_paths(scope, run_dir=None):
+    before = {(item["root"], item["path"]): item for item in scope["initial"]}
+    after = {(item["root"], item["path"]): item for item in current_inventory(scope, run_dir)}
+    return sorted({str(Path(root) / name) for root, name in before.keys() | after.keys()
+                   if before.get((root, name)) != after.get((root, name))})
+
+
+def workspace_fingerprint(scope, requirements_digest, run_dir=None):
+    context = [{"path": path} for path in scope["context"]]
+    observations = [entry for root in context
+                    for entry in root_inventory(root, context, None, scope.get("memory", []))]
+    return digest({"roots": scope["roots"], "context": context, "requirements": requirements_digest,
+                   "memory": scope.get("memory", []), "inventory": current_inventory(scope, run_dir),
+                   "context_inventory": observations})

@@ -37,7 +37,7 @@ def find_repo_root(start: Path) -> Path:
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 GOLDEN_TRACE_MANIFEST = ROOT / "testdata" / "golden-traces" / "manifest.json"
-ROLE_PROMPT_INPUT_MARKER = "Use the delegation packet as the source of truth"
+ROLE_PROMPT_CONTRACT = "references/traceable-runs.md"
 PRODUCT_SEARCH_PATHS = [
     "README.md",
     "README.ru.md",
@@ -64,9 +64,7 @@ ROOT_TEST_SCRIPTS = (
 )
 TEST_EXTRA_ARGS = {
     "test-journal-lifecycle.py": ["-B"],
-    "test-journal-recovery.py": ["-B"],
 }
-EXCLUDED_TESTS: tuple[str, ...] = ()
 
 
 
@@ -244,8 +242,8 @@ def run_skills_cli_install_guard(repo_root: Path) -> int:
         )
         output = result.stdout + result.stderr
         installed = Path(raw_home) / ".agents" / "skills" / "agent-flow"
-        legacy_installed = Path(raw_home) / ".codex" / "skills" / "agent-flow"
-        skill_root = installed if installed.exists() else legacy_installed
+        codex_installed = Path(raw_home) / ".codex" / "skills" / "agent-flow"
+        skill_root = installed if installed.exists() else codex_installed
         missing = ["SKILL.md"] if not (skill_root / "SKILL.md").is_file() else []
         missing.extend(dirname for dirname in REQUIRED_SKILLS_CLI_DIRS if not (skill_root / dirname).is_dir())
         if result.returncode or missing:
@@ -258,46 +256,23 @@ def run_skills_cli_install_guard(repo_root: Path) -> int:
     return 0
 
 
-def git_tracked_paths_under(path: Path) -> set[str]:
-    relative = path.relative_to(ROOT).as_posix()
-    try:
-        result = subprocess.run(
-            ["git", "ls-files", "--cached", f"{relative}/**"],
-            cwd=ROOT, text=True, capture_output=True, check=False,
-        )
-    except OSError as exc:
-        raise CheckError(f"Cannot run git ls-files: {exc}") from exc
-    if result.returncode:
-        raise CheckError(f"git ls-files failed (exit {result.returncode}): {result.stderr.strip()}")
-    return {line for line in result.stdout.splitlines() if line}
-
-
 def run_golden_trace_artifacts_guard() -> int:
-    print("==> golden trace artifacts packaging guard")
-    data = json.loads(GOLDEN_TRACE_MANIFEST.read_text(encoding="utf-8"))
-    failures: list[str] = []
-    for case in data.get("cases", []):
-        if case.get("mode", "full") != "full":
-            continue
-        raw_path = case.get("path")
-        if not isinstance(raw_path, str) or not raw_path:
-            continue
-        run_dir = (GOLDEN_TRACE_MANIFEST.parent / raw_path).resolve()
-        artifacts_dir = run_dir / "artifacts"
-        try:
-            tracked_paths = git_tracked_paths_under(artifacts_dir)
-        except CheckError as exc:
-            print(f"FAIL golden trace artifacts packaging guard: {exc}", file=sys.stderr)
-            return 1
-        if not artifacts_dir.is_dir() or not tracked_paths:
-            failures.append(raw_path)
-    if failures:
-        print("FAIL golden trace artifacts packaging guard", file=sys.stderr)
-        print("Each full golden trace must track at least one file under artifacts/.", file=sys.stderr)
-        for failure in failures:
-            print(f"- {failure}/artifacts", file=sys.stderr)
+    print("==> golden trace fixture guard")
+    try:
+        data = json.loads(GOLDEN_TRACE_MANIFEST.read_text(encoding="utf-8"))
+        cases = data["cases"]
+        if not isinstance(cases, list) or not cases:
+            raise ValueError("golden trace cases must be a non-empty array")
+        root = GOLDEN_TRACE_MANIFEST.parent.resolve()
+        for case in cases:
+            path = root / case["path"]
+            if path.is_symlink() or not path.resolve().is_relative_to(root) or not path.is_file():
+                raise ValueError(f"missing or unsafe golden trace fixture: {case['path']}")
+            json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        print(f"FAIL golden trace fixture guard: {exc}", file=sys.stderr)
         return 1
-    print("PASS golden trace artifacts packaging guard")
+    print("PASS golden trace fixture guard")
     return 0
 
 
@@ -340,9 +315,10 @@ def run_role_prompt_dedup_guard() -> int:
     failures: list[str] = []
     for path in sorted((ROOT / "agents").glob("*.md")):
         text = path.read_text(encoding="utf-8")
-        marker_count = text.count(ROLE_PROMPT_INPUT_MARKER)
-        if marker_count != 1:
-            failures.append(f"{path.relative_to(ROOT)}: expected one delegation source-of-truth marker, found {marker_count}")
+        guidance = re.findall(r"(?ms)^## Execution guidance\s*\n(.*?)(?=^## |\Z)", text)
+        marker_count = sum(section.count(ROLE_PROMPT_CONTRACT) for section in guidance)
+        if len(guidance) != 1 or marker_count != 1:
+            failures.append(f"{path.relative_to(ROOT)}: execution guidance must reference the shared report contract once, found {marker_count}")
         if "Delegation packet must include:" in text:
             failures.append(f"{path.relative_to(ROOT)}: repeats the canonical delegation packet contract")
     if failures:
@@ -373,7 +349,6 @@ def main() -> int:
     test_steps = [
         (path.name, [sys.executable, *TEST_EXTRA_ARGS.get(path.name, []), f"scripts/{path.name}"])
         for path in sorted(SCRIPTS.glob("test-*.py"))
-        if path.name not in EXCLUDED_TESTS
     ]
     command_steps = [
         *[(name, [sys.executable, str(repo_root / "scripts" / name)]) for name in ROOT_TEST_SCRIPTS],

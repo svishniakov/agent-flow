@@ -1,48 +1,16 @@
-# Bundled Subagents
+# Существующие роли
 
-Для нового `change` сначала подготовьте отдельный workspace, перед QA сохраните полный кандидат через `task-workspace.py seal`, после приёмки выдайте его через `delivery`. Авторы работают в `working_root`, QA/reviewer проверяют один `candidate_root`; пишущие проверки используют расходную копию. Полный порядок: [рабочая копия и выдача результата](traceable-runs.md#полная-рабочая-копия-и-выдача-результата).
+Роли находятся в `agents/<role>.md`, идентичности — в `agents/agent-identities.json`. Выбирайте существующую роль по ответственности; отдельное назначение той же роли не требует нового role file.
 
-Публикуйте run-артефакты штатными командами журнала; личные файлы служат входом `journal.py publish`, чтение выполняется через `journal.py read`. Прямое редактирование файлов run или экспорта не публикует изменения. Порядок публикации и повторов описан в [Traceable Runs](traceable-runs.md#публикация-и-чтение-журнала).
+Порядок запуска, модели и пакет задания: [delegation.md](delegation.md). Один завершённый native-ответ становится одним принятым отчётом по [traceable-runs.md](traceable-runs.md).
 
-Agent Flow ships with these subagent definitions in `agents/<role>.md`.
-They are used after the orchestrator selects a `standard` or `release` budget and decides delegation is worth the coordination cost, or after the user explicitly asks for subagents.
-If no spawn tool is available, use the same role guidance as a solo checklist or role lane only when that still satisfies the task.
+Для положительного завершения изменения файлов нужны независимые реальные `qa-verifier` и `reviewer` при любом масштабе. Остальные агенты добавляются по пользе для задачи. Недоступная обязательная роль не заменяется переименованием root или другого агента.
 
-Для изменения файлов обязательны отдельные `qa-verifier` и `reviewer` при любом
-budget. Они являются прямыми дочерними сессиями root и не совпадают с авторами.
-`reviewer.qa` может быть именем назначения `reviewer`; канонический `agent_type`
-остаётся `reviewer`. При недоступных сессиях положительный итог блокируется.
-Реальные роль, модель и собственный завершённый ход проверяются по контракту
-`delegation-summary.json.verification` из `references/traceable-runs.md`.
-
-В каждое назначение передавайте полные инструкции выбранной роли и актуальные
-доказательства. Если spawn возвращает только canonical path, разрешайте UUID
-через recorder `--resolve-session --agent-path`, используя уже записанный root UUID.
-После QA сразу зарегистрируйте его собственный итог; reviewer запускается после
-успешной записи QA. Ошибка регистрации не меняет модель, reasoning или счётчик.
-
-Stable identities and Codex display nicknames live in `agents/agent-identities.json`.
-
-Run `python3 "$AF_PACKAGE/scripts/sync-codex-agent-config.py" --output-dir .codex/agents` from a target project to sync project-scoped Codex custom-agent files. Use `--output-dir ~/.codex/agents` only when the same Agent Flow role names should be visible across all local Codex projects. Synced files map Agent Flow role frontmatter to Codex fields: `name`, `description`, `model`, `model_reasoning_effort`, `developer_instructions`, and `nickname_candidates`.
-
-Role lifecycle guidance lives in `references/role-catalog.md`: use cases, exclusions, overlap notes, and the rule against one-off roles.
-
-Role frontmatter `skills:` is a dependency demand, not an install command. Use listed skills only when they are available in the current environment. If a listed skill is missing, follow the role instructions directly, record the gap when relevant, and continue within the delegation packet.
-
-Canonical install metadata lives in `registries/agent-skills.json`: tier, role usage, aliases, target paths, prompts, plugin/manual notes, and allowlisted commands. Run `python3 "$AF_PACKAGE/scripts/check-agent-deps.py" --post-install` after clone, or `--scope core --install-plan` / `--scope full --install-plan` for a non-interactive audit. The checker never performs silent installs. `--guided-install` requires explicit confirmation and executes only allowlisted `git`/`local` commands; `plugin`, `prompt`, and `manual` entries are printed only.
-
-Role frontmatter also defines runtime model settings:
-
-- `model` and `reasoning_effort`: default values passed to `spawn_agent`.
-- `service_tier`: optional default service tier passed only when present.
-- `escalation_model` must match `model`; `escalation_reasoning_effort` and `escalation_service_tier` retain their existing trigger-based selection.
-- `escalation_triggers`: inline list of task/risk triggers that activate escalation through `agent_config.py --trigger <trigger>`.
-
-Run `python3 "$AF_PACKAGE/scripts/validate-agent-config.py"` and `python3 "$AF_PACKAGE/scripts/validate-role-catalog.py"` after editing role files.
+Skills в frontmatter выбираются по предмету поручения. Их список не разрешает установку и не требует запускать все инструменты.
 
 ## Core orchestration and planning
 
-- `orchestrator` - Agent Flow orchestration support subagent for routing, dependency gate checks, sequencing, trace hygiene, delegation packets, verification evidence, and final integration under the explicit Agent Flow invocation model.
+- `orchestrator` - Agent Flow orchestration support subagent for routing, dependency gate checks, sequencing, report integrity, delegation packets, verification evidence, and final integration under the explicit Agent Flow invocation model.
 - `product-manager` - Product subagent for turning an idea into scope, audience, problem, value, constraints, non-goals, PRD frame, and acceptance criteria.
 - `architect` - Architecture subagent for implementation plans, module boundaries, dependencies, sequencing, ownership, risk, and verification criteria.
 - `researcher` - Research subagent for documentation, APIs, SDKs, external sources, local examples, constraints, comparisons, and source-backed findings.
@@ -67,7 +35,7 @@ Run `python3 "$AF_PACKAGE/scripts/validate-agent-config.py"` and `python3 "$AF_P
 - `design-orchestrator` - Design orchestration subagent for UI, UX, visual systems, references, Pencil, Figma, Stitch, and DESIGN.md routing.
 - `ui-reference-researcher` - UI reference research subagent for landing pages, dashboards, back-office tools, bots, mobile screens, SaaS, game UI, and design systems.
 - `ui-ux-design-director` - Design-director subagent for choosing a UI/UX concept from project context, audience, references, brand, and implementation constraints.
-- `ui-ux-designer` - Neural UI/UX design subagent for turning prompts, PRDs, and product constraints into generated screens, flows, prototypes, design specs, and implementation handoff.
+- `ui-ux-designer` - Neural UI/UX design subagent for turning prompts, PRDs, and product constraints into generated screens, flows, prototypes, design specs, and implementation report.
 - `design-documenter` - Design documentation subagent for creating and updating docs/design/DESIGN.md as the contract between concept, implementation, and verification.
 - `pencil-designer` - Pencil MCP design implementation subagent for approved DESIGN.md work in .pen files, variables, layout, screenshots, exports, and visual validation.
 - `design-asset-generator` - Visual asset generation subagent for approved DESIGN.md work: hero images, product mockups, illustrations, empty states, icons, and brand visuals.

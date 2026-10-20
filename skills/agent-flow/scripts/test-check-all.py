@@ -185,12 +185,31 @@ class RepositoryChecks(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("agents/orchestrator.md: retired rule", errors)
 
+    def test_role_guidance_references_shared_contract_without_repeating_it(self):
+        agents = self.package / "agents"
+        agents.mkdir()
+        role = agents / "reviewer.md"
+        current = ("# reviewer\n\n## Execution guidance\n\n"
+                   "Read `references/traceable-runs.md` for the current report contract.\n\n"
+                   "## Output Contract\n\nUse `references/traceable-runs.md` for report fields.\n")
+        role.write_text(current)
+        self.assertEqual(self.capture(self.checks.run_role_prompt_dedup_guard)[0], 0)
+        for text in (current.replace("Read `references/traceable-runs.md` for the current report contract.", "Use your own format."),
+                     current.replace("Read `references/traceable-runs.md`", "Read `references/traceable-runs.md` and `references/traceable-runs.md`"),
+                     current + "\n## Execution guidance\n\nRead `references/traceable-runs.md` again.\n",
+                     current + "\nDelegation packet must include:\nCopied canonical fields.\n"):
+            with self.subTest(text=text):
+                role.write_text(text)
+                code, _, errors = self.capture(self.checks.run_role_prompt_dedup_guard)
+                self.assertEqual(code, 1)
+                self.assertIn("reviewer.md", errors)
+
     def test_runtime_suites_remain_planned_and_failures_propagate(self):
         guards = ("run_skills_cli_layout_guard", "run_skills_cli_discovery_guard", "run_skills_cli_install_guard",
                   "run_golden_trace_artifacts_guard", "run_content_guard",
                   "run_retired_blocking_rules_guard", "run_role_prompt_dedup_guard")
         scripts = self.package / "scripts"
-        for name in ("test-alpha.py", "test-beta.py", "test-journal-recovery.py"):
+        for name in ("test-alpha.py", "test-beta.py", "test-journal-lifecycle.py"):
             (scripts / name).write_text("print('fixture')\n")
         with contextlib.ExitStack() as stack:
             stack.enter_context(patch.object(self.checks, "check_environment", return_value={}))
@@ -204,16 +223,16 @@ class RepositoryChecks(unittest.TestCase):
         commands = [call.args[1] for call in calls]
         for script in ("test-build-plugin.py", "test-check-index.py", "test-skill-release.py"):
             self.assertTrue(any(command[-1].endswith("scripts/" + script) for command in commands), script)
-        discovered = [name for name in planned if name in {"test-alpha.py", "test-beta.py", "test-journal-recovery.py"}]
-        self.assertEqual(discovered, ["test-alpha.py", "test-beta.py", "test-journal-recovery.py"])
-        recovery = commands[planned.index("test-journal-recovery.py")]
-        self.assertIn("-B", recovery)
+        discovered = [name for name in planned if name in {"test-alpha.py", "test-beta.py", "test-journal-lifecycle.py"}]
+        self.assertEqual(discovered, ["test-alpha.py", "test-beta.py", "test-journal-lifecycle.py"])
+        lifecycle = commands[planned.index("test-journal-lifecycle.py")]
+        self.assertIn("-B", lifecycle)
         self.assertNotIn("-B", commands[planned.index("test-alpha.py")])
         self.assertTrue(any(command[:2] == [calls[0].args[1][0], "-m"] for command in commands), "py_compile step")
         self.assertEqual(code, 1)
         self.assertIn("FAILED 1 check(s)", errors)
 
-    def test_excluded_tests_are_not_planned(self):
+    def test_every_discovered_test_is_planned(self):
         (self.package / "scripts/test-included.py").write_text("print('fixture')\n")
         (self.package / "scripts/test-excluded.py").write_text("print('fixture')\n")
         guards = ("run_skills_cli_layout_guard", "run_skills_cli_discovery_guard", "run_skills_cli_install_guard",
@@ -223,12 +242,11 @@ class RepositoryChecks(unittest.TestCase):
             stack.enter_context(patch.object(self.checks, "check_environment", return_value={}))
             for name in guards:
                 stack.enter_context(patch.object(self.checks, name, return_value=0))
-            stack.enter_context(patch.object(self.checks, "EXCLUDED_TESTS", ("test-excluded.py",)))
             steps = stack.enter_context(patch.object(self.checks, "run_step", return_value=0))
             code, _, errors = self.capture(self.checks.main)
         planned = [call.args[0] for call in steps.call_args_list]
         self.assertIn("test-included.py", planned)
-        self.assertNotIn("test-excluded.py", planned)
+        self.assertIn("test-excluded.py", planned)
         self.assertEqual(code, 0, errors)
 
     def test_missing_environment_stops_before_running_any_check(self):
@@ -253,28 +271,26 @@ class RepositoryChecks(unittest.TestCase):
         with patch.object(self.checks.subprocess, "run", side_effect=FileNotFoundError("missing tool")):
             self.assertEqual(self.capture(self.checks.run_step, "fixture", ["fixture"])[0], 1)
 
-    def test_artifacts_must_be_tracked_and_git_errors_stay_errors(self):
+    def test_golden_fixture_is_required_without_staging(self):
         traces = self.package / "testdata/golden-traces"
-        artifacts = traces / "valid/fixture/artifacts"
-        artifacts.mkdir(parents=True)
-        (traces / "manifest.json").write_text(json.dumps({"cases": [{"path": "valid/fixture", "mode": "full"}]}))
-        sentinel = artifacts / ".gitkeep"
-        sentinel.touch()
+        traces.mkdir(parents=True)
+        (traces / "manifest.json").write_text(json.dumps({"cases": [{"path": "completed.json"}]}))
         code, _, _ = self.capture(self.checks.run_golden_trace_artifacts_guard)
         self.assertEqual(code, 1)
-        self.git("add", ".")
+        fixture = traces / "completed.json"
+        fixture.write_text(json.dumps({"status": "completed"}))
         code, _, _ = self.capture(self.checks.run_golden_trace_artifacts_guard)
         self.assertEqual(code, 0)
-        self.git("rm", "--cached", str(sentinel))
+        fixture.write_text("invalid JSON")
         code, _, _ = self.capture(self.checks.run_golden_trace_artifacts_guard)
         self.assertEqual(code, 1)
-        error = subprocess.CompletedProcess(["git"], 128, "", "fatal: index unavailable")
-        with patch.object(self.checks.subprocess, "run", return_value=error):
-            code, _, err = self.capture(self.checks.run_golden_trace_artifacts_guard)
+        fixture.unlink()
+        outside = self.repo / "outside.json"
+        outside.write_text("{}")
+        fixture.symlink_to(outside)
+        code, _, err = self.capture(self.checks.run_golden_trace_artifacts_guard)
         self.assertEqual(code, 1)
-        self.assertIn("index unavailable", err)
-        self.assertNotIn("- valid/fixture/artifacts", err)
-        self.assertNotIn("must track", err)
+        self.assertIn("unsafe", err)
 
 
 if __name__ == "__main__":

@@ -1,1 +1,0 @@
-{"command": "semantic-write", "operation_id": "covers-report", "payload": {"kind": "lane-report", "request": {"lane_id": "worker", "sections": [{"covers": ["api-service"], "section": "Contract Drift", "summary": "drift"}], "status": "pass", "summary": "Worker report"}}, "run_uuid": "800b0385-63be-481a-85db-ef0f9c29b493"}

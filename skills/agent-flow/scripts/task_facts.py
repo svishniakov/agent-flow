@@ -8,7 +8,6 @@ from collections.abc import Mapping
 from typing import Any
 
 
-TASK_FACTS_SCHEMA_VERSION = 1
 ROLE_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 ALLOWED_SURFACES = {
     "backend",

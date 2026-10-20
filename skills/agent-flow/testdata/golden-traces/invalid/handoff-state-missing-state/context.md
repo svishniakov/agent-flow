@@ -1,3 +1,0 @@
-# Context
-
-Validate required state.

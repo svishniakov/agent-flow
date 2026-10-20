@@ -5,7 +5,7 @@ facets. It is not a project profile catalog and does not create one architect
 per repository. Source projects may inform the matrix, but handoffs use neutral
 facet names.
 
-Use the matrix when the Architecture Gate (входит в: Architecture Contract Gate, Architecture Design Mode, Architecture Capability Router, Architecture Context Propagation, Architecture Execution Control, Architecture Approval Gate) applies and product type,
+Use the matrix when the architecture review applies and product type,
 application surface, stack, or risk changes the architecture constraints.
 
 ## Router
@@ -24,35 +24,10 @@ Selection rules:
 - do not create or select facets from repository names, customer names, local
   paths, or one-off project labels;
 - prefer a small set of facets from different axes over one broad pseudo-profile;
-- if no facet adds constraints, say so in the architecture handoff and use the
-  base Architecture Contract sections.
+- if no facet adds a constraint, use the ordinary task report without adding
+  architecture sections.
 
-Architecture handoffs should include:
-
-- selected matrix facets in `Selected Architecture`;
-- rejected architecture options or unused facets in `Rejected Alternatives`;
-- facet-driven ownership in `Module Boundaries` and `Worker Ownership`;
-- facet-driven invariants in `Forbidden Changes`, `QA Gates`, `Reviewer
-  Checklist`, and `Stop Conditions`.
-
-Traceable schema v2 records selected facets in `lane-map.json`:
-
-```json
-"architecture_context": {
-  "product_context": ["saas-service"],
-  "application_surface": ["backend-service"],
-  "architecture_pattern": ["monolith"],
-  "stack_runtime": ["go"],
-  "risk_gates": ["migrations"],
-  "verification_gates": ["unit", "integration"]
-}
-```
-
-When `architecture_contract_required=true`, all six axes are present. Axes may
-be empty arrays only when they add no constraints, but the whole context must
-select at least one facet. `validate-run.py` parses the allowed facet ids from
-this markdown file and checks that each selected facet appears in the
-architecture handoff `Selected Architecture` section.
+Record only task-relevant conclusions in the architect report or reference the existing project decision. No separate serialized matrix is required.
 
 ## Matrix Axes
 
@@ -78,7 +53,7 @@ architecture handoff `Selected Architecture` section.
 - `child-education`: curriculum, learning progress, child-safe UX, accessibility,
   parent controls, audio, motion, and offline use.
 - `agent-orchestration`: role routing, worker lanes, handoffs, traceable runs,
-  validation, Evidence Records, and local memory learning.
+  validation, current reports, and project memory.
 
 ### Application Surface
 
@@ -328,24 +303,14 @@ architecture handoff `Selected Architecture` section.
 - `visual-design-source-comparison`: screenshot or visual comparison against the
   approved design source.
 
-## Contract Output Shape
+## Applying Selected Questions
 
-When matrix facets apply, the architecture handoff should record them in this
-shape:
+Use only the facets that affect the task's constraints or verification. Explain
+their conclusions in the existing author or architect report, or reference an
+existing project decision. There is no mandatory section bundle or second matrix.
 
-```md
-## Selected Architecture
-- Matrix facets:
-  - Product Context: `...`
-  - Application Surface: `...`
-  - Architecture Pattern: `...`
-  - Stack Runtime: `...`
-  - Risk Gates: `...`
-  - Verification Gates: `...`
-```
-
-If `crypto-payments` or blockchain payment facets apply, the same section must
-also record:
+For `crypto-payments` or blockchain payment work, check the following questions
+when they affect the selected scope:
 
 - chains and networks: TON, TRON, Ethereum/EVM, testnet/mainnet split, and chain
   ids where applicable;
@@ -366,6 +331,4 @@ also record:
   contract-interface fixtures, reconciliation replay, custody/secrets review,
   and fee/resource simulation when those facets are selected.
 
-The matrix makes the Architecture Contract specific enough for workers, QA, and
-reviewer to enforce, and schema v2 makes the selected context machine-checkable
-through `architecture_context`.
+Use the selected questions to make constraints and checks concrete. Do not create a second report or copy conclusions into a separate matrix.

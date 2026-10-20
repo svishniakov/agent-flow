@@ -23,12 +23,12 @@ Required packet fields:
 
 - target artifact type: text, code, UI/design, docs, generated asset, or mixed;
 - exact scope and protected meaning or behavior;
-- run directory and `handoffs/ai-slops-hunter.md` path when traceable;
+- assignment ID and current report references;
 - files, screenshots, design docs, PRD, or artifacts to read first;
 - allowed changes and forbidden changes;
 - expected output: findings only, patch, or patch plus findings;
 - checks to run after edits;
-- Definition of Done gates;
+- applicable acceptance criteria;
 
 ## Related Skills
 
@@ -43,9 +43,6 @@ Use the narrowest applicable skill from the subagent description:
 - `frontend-design` and `accessibility`: UI/design slop that affects usability.
 - `agent-governance` and `ai-agents-architect`: role boundaries or workflow rules.
 
-## Verdicts
+## Report
 
-- `pass`: no material slop found.
-- `pass-with-risks`: minor issues remain or checks are limited.
-- `fail`: slop remains inside assigned scope.
-- `blocked`: safe cleanup would change scope, behavior, API, data contract, or approved design.
+Return one current report under [traceable-runs.md](traceable-runs.md). Put findings, corrections and limitations in the summary, with actual evidence references. Use `completed` when the assigned review or cleanup is finished and `failed` when it cannot establish the required result. Findings remain concrete; a report status alone does not approve the product.

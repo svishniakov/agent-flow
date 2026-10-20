@@ -14,13 +14,13 @@ python3 scripts/sync-codex-agent-config.py --output-dir .codex/agents
 
 Use `--output-dir ~/.codex/agents` for personal global agents. Restart or reload the Codex client if the synced roles do not appear in the current `spawn_agent` schema.
 
-In large traceable runs, one role can be used several times as separate lanes. For example, `qa-verifier` can separately cover `qa-verifier:admin-rbac`, `qa-verifier:live-feed`, and `qa-verifier:pii`; the distinction lives in `lane-map.json`, handoffs, and trace metadata, not in new role files.
+One role can serve several distinct assignments. SQLite stores their responsibilities and single current reports; no new role files or duplicate maps are needed.
 
 ## Core orchestration and planning
 
 ### orchestrator
 
-The Agent Flow orchestration support role. It helps the main agent choose the flow, internal budget, trace policy, work sequence, dependency gate result, and verification criteria. It prepares delegation packets, integrates handoffs, watches the Definition of Done, and checks that the final response is backed by evidence.
+The Agent Flow orchestration support role. It helps the main agent choose the flow, internal budget, evidence scope, work sequence, dependency gate result, and verification criteria. It prepares delegation packets, integrates reports, watches the Definition of Done, and checks that the final response is backed by evidence.
 
 It must not activate Agent Flow by itself or invent public modes. It launches subagents only after internal workflow selection, dependency gate clearance, and a usefulness check.
 

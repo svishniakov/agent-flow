@@ -1,652 +1,249 @@
-"""Pure assignment checks shared by journal publication and run diagnostics."""
+from __future__ import annotations
+
 import json
 import re
-import hashlib
-import html
-from functools import lru_cache
+import subprocess
+from pathlib import Path
 
+from journal_io import JournalError, JournalSnapshot, capture_file, digest, encode_json, logical_path, require, transact
 
-MODES = {"subagent", "role-lane"}
-UUID = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", re.I)
-TERMINAL = {"pass", "pass-with-risks", "blocked", "fail"}
-STATUSES = {"planned", "spawned", "active", "timed-out", "replaced", *TERMINAL}
-
-# Caller vocabulary is deliberately independent from archived domain states.
-STATUS_MEANINGS = {
-    "planned": "Assignment is declared; execution has not started.",
-    "active": "Execution is in progress; spawned is a stage with this status.",
-    "pass": "The stated work completed successfully; verification requires actual evidence.",
-    "pass-with-risks": "Work completed with explicitly reported remaining risks.",
-    "blocked": "Work cannot proceed; this is a valid substantive outcome.",
-    "fail": "Work failed; this is a valid substantive outcome.",
-    "timed-out": "Execution exceeded its allowed time; obligation remains unresolved.",
-    "replaced": "Another assignment replaces this execution; responsibility requires explicit resolution.",
-}
-CALLER_STATUSES = frozenset(STATUS_MEANINGS)
-HANDOFF_STATE_BY_CALLER_STATUS = {"planned": "queued", "active": "accepted", "pass": "completed", "pass-with-risks": "completed", "blocked": "blocked", "fail": "failed", "timed-out": "blocked", "replaced": "blocked"}
-HANDOFF_DOMAIN_STATUSES = frozenset(HANDOFF_STATE_BY_CALLER_STATUS.values())
-EVENT_STATUS_RULES = {"spawned": {"active"}, "handoff": {"pass", "pass-with-risks"}, "blocked": {"blocked"}, "fail": {"fail"}, "timed-out": {"timed-out"}}
-RESERVED_EVENT_COMMANDS = {"final": "journal finalize", "reopen": "journal reopen", "spawn": "stage spawned"}
-RESERVED_EVENT_STAGES = frozenset(RESERVED_EVENT_COMMANDS)
-TERMINAL_KINDS = {"handoff", "final", "check", "architecture-outcome"}
-DOCUMENT_PATHS = {"task": "run.md", "plan": "plan.md", "progress": "progress.md", "final": "final.md", "lesson": "lesson.md"}
 REQUEST_FIELDS = {
-    "event": {"summary": "string", "status": "status", "stage": "string", "role": "string",
-              "lane_id": "string?", "evidence": "references?", "next_step": "string?", "commit_hash": "string?"},
-    "handoff": {"summary": "string", "status": "status", "lane_id": "string", "evidence": "references?"},
-    **{kind: {"summary": "string", "status": "status", "path": "string?", "evidence": "references?"}
-       for kind in ("task", "plan", "progress", "final", "lesson")},
-    "check": {"summary": "string", "status": "status", "command": "strings", "cwd": "string"},
+    "assignment": {"id", "role", "agent_id", "kind", "allowed_paths", "depends_on"},
+    "scope": {"roots", "context"},
+    "report": {"assignment_id", "completion_turn_id", "turn_id", "report"},
+    "check": {"id", "assignment_id", "command", "cwd", "timeout"},
 }
-
-DOCUMENT_PATHS.update({"route": "route.md", "decision": "decisions.md", "dod": "definition-of-done.md", "checks": "checks.md", "simplicity-scope": "checks/engineering-simplicity-scope.md"})
-REQUEST_FIELDS.update({kind: {"summary": "string", "status": "status"} for kind in ("route", "decision", "dod", "checks")})
-SERVICE_FIELDS = {
-    "claim": {"id": "string", "subjects": "strings", "owner_lane": "nullable-string?", "reviewed_by": "nullable-string?", "section": "string?", "evidence": "marker-evidence?"},
-    "acceptance": {"id": "string", "source": "string", "subjects": "strings", "contract_types": "string-list", "surface_expectations": "expectations", "evidence": "surface-evidence?", "negative_fixture_evidence": "surface-evidence?"},
-    "risk": {"id": "string", "category": "string", "impact": "string", "affected_scope": "string", "owner_lane": "string", "detected_by": "string", "evidence": "references"},
-    "resolution": {"risk_id": "string", "resolution_type": "string", "effect": "string", "verification": "string", "owner_lane": "string", "verified_by": "nullable-string?", "reviewed_by": "nullable-string?", "evidence": "references?"},
-    "resolution-attempt": {"risk_id": "string", "id": "string", "resolution_type": "string", "effect": "string", "verification": "string", "owner_lane": "string", "verified_by": "nullable-string?", "reviewed_by": "nullable-string?", "evidence": "references?", "blocked_reason": "string?", "rollback": "rollback?", "lesson": "lesson-observation?"},
-    "senior-qa-recovery": {"risk_id": "string", "lane_id": "string", "decision": "string", "recheck": "string", **{key: "string-list" for key in ("covered_acceptance_criteria", "missing_acceptance_criteria", "ambiguous_acceptance_criteria", "added_acceptance_criteria", "external_blockers", "test_cases", "edge_cases", "negative_cases", "regression_cases", "integration_cases", "data_state_cases", "environment_cases")}, "evidence": "references"},
-    **{kind: {"risk_id": "string", "lane_id": "string", "decision": "string", "instruction": "string", "forbidden_repeat": "strings", "evidence": "references"} for kind in ("architect-recovery", "supervising-recovery")},
-    "readiness-attempt": {"id": "string", "lane_id": "string", "blockers": "string-list", "approval_requests": "string-list?", "evidence": "references?"},
-    "readiness-gate": {"attempt_id": "string", "axis": "string", "facet": "string", "check": "string", "evidence": "references", "approval_request": "string?"},
-    "readiness-approval": {"id": "string", "affected_gates": "strings", "commands": "commands", "manual_instruction": "string", "decision": "string?", "source_event": "integer?", "source_quote": "string?"},
-    "readiness-execution": {"request_id": "string", "check_id": "string"},
-    "continuation": {"checkpoint": "checkpoint", "readiness_lane": "string", "qa_recheck_lane": "nullable-string?", "reviewer_recheck_lane": "nullable-string?", "historical_worker_lanes": "string-list", "new_worker_lanes": "string-list", "revalidated_lanes": "string-list"},
-    "continuation-blocker": {"id": "string", "evidence": "references"},
-    "harness-finding": {"id": "string", "finding_type": "string", "problem_class": "string", "architecture_context": "string-list", "architecture_capabilities": "string-list", "outcome": "string", "lesson": "string", "reuse_when": "string", "do_not_reuse_when": "string", "evidence": "references"},
-    "harness-proposal": {"id": "string", "finding_id": "string", "proposal_type": "string", "evidence": "references"},
-    "harness-evaluation": {"evidence": "references", "reviewed_by": "nullable-string?"},
-    "lane": {"id": "string", "lane_type": "string", "role": "string", "execution_mode": "string", "wave": "integer", "critical": "boolean", "allowed_paths": "strings?", "forbidden_paths": "string-list?"},
-    "lane-compliance": {"lane_id": "string", "sections": "strings", "matrix_facets": "string-list", "needs_recheck": "boolean", "recheck_lane": "nullable-string?"},
-    "lane-simplicity": {"lane_id": "string", "checked_checks": "strings", "action": "string?", "evidence": "references?", "retained": "retained?"},
-    "lane-scope": {"lane_id": "string", "primary_surfaces": "string-list", "secondary_surfaces": "string-list", "evidence": "references"},
-    "simplicity-scope": {"primary_surfaces": "string-list", "secondary_surfaces": "string-list", "evidence": "references"},
-    "lane-gate": {"lane_id": "string", "axis": "string", "facet": "string", "check": "string", "evidence": "references"},
-    "lane-report": {"lane_id": "string", "sections": "sections?", "evidence": "references?"},
-    "evidence-record": {"id": "string", "record_type": "string", "problem_class": "string", "context": "string",
-                        "outcome": "string", "evidence": "strings", "reuse_when": "string", "do_not_reuse_when": "string",
-                        "follow_up": "string", "section": "string?", "keywords": "string-list?", "provenance": "string?",
-                        "verification": "string?", "active": "boolean?"},
-    "evidence-record-outcome": {"id": "string", "counter": "string", "evidence": "strings", "active": "boolean?"},
-}
-REQUEST_FIELDS.update({kind: {"summary": "string", "status": "status", **fields} for kind, fields in SERVICE_FIELDS.items()})
-REQUEST_FIELDS["handoff"]["sections"] = "sections?"
-REQUEST_FIELDS["architecture-outcome"] = {"summary": "string", "status": "status", "lane_id": "string",
-    "decision": "string", "sections": "sections", "claim_evidence_ids": "string-list?",
-    "acceptance_criteria_ids": "string-list?", "evidence": "references?", "completion_turn_id": "string?"}
-SERVICE_KINDS = frozenset(SERVICE_FIELDS) - {"lane-report", "simplicity-scope"}
-SERVICE_STATUS_RULES = {"lane": {"planned"}, "readiness-approval": {"planned", "active", "pass", "blocked"},
-    "continuation-blocker": {"pass", "pass-with-risks"},
-    "readiness-execution": {"pass", "fail"}, "harness-evaluation": {"active", "pass", "pass-with-risks", "blocked", "fail"},
-    "continuation": {"planned", "active", "pass", "pass-with-risks", "blocked", "fail"},
-    **{kind: {"pass", "pass-with-risks", "blocked", "fail"} for kind in ("senior-qa-recovery", "architect-recovery", "supervising-recovery")}}
-RECOVERY_NEGATIVE_DECISIONS = {
-    "senior-qa-recovery": {"criteria-blocked"},
-    "architect-recovery": {"blocked"},
-    "supervising-recovery": {"confirmed-final-block", "external-blocker", "fail"},
-}
+ASSIGNMENT_KINDS = {"author", "qa", "reviewer", "analysis"}
+REPORT_STATUSES = {"completed", "failed"}
+IDENTIFIER = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}")
 
 
-def recovery_decisions(kind, status):
-    choices = set(semantic_enums()[kind]["decision"])
-    negative = RECOVERY_NEGATIVE_DECISIONS[kind]
-    return choices - negative if status in {"pass", "pass-with-risks"} else choices & negative
+def encoded(value):
+    return (encode_json(value) + "\n").encode()
 
 
-COVERED_SECTIONS = frozenset({
-    "Engineering Simplicity", "Boundary Evidence", "Architecture Compliance", "Architecture Invariants",
-    "Engineering Simplicity Scope", "Architecture Matrix Mismatches", "Contract Drift",
-    "Risk Mitigation Review", "Risk Resolution Verification", "Risk Resolution Review",
-    "Continuation Revalidation", "Continuation Review", "Harness Evaluation Review",
-    "Senior QA Test Design Review", "Resolution Architect Review", "Supervising Architect Review",
-})
-
-
-NESTED_FIELDS = {
-    "marker-evidence": {"path": "string", "markers": "strings"},
-    "surface-evidence": {"path": "string", "markers": "strings", "surface": "string", "polarity": "string", "proof_kind": "string"},
-    "expectations": {"surface": "string", "polarity": "string", "proof_kinds": "strings"},
-    "sections": {"section": "string", "summary": "string", "covers": "string-list?"},
-    "retained": {"kind": "string", "capability": "string"},
-    "commands": {"cwd": "string", "command": "string", "source": "string"},
-    "rollback": {"disposition": "string", "summary": "string", "evidence": "references?"},
-    "lesson-observation": {"disposition": "string", "classification": "string", "summary": "string", "forbidden_repeat": "strings"},
-    "checkpoint": {"lane_id": "string", "snapshot": "string"},
-}
-
-
-@lru_cache(maxsize=1)
-def domain_validator():
-    """Reuse the existing validator and its enums; no parallel schema registry."""
-    from importlib.util import module_from_spec, spec_from_file_location
-    from pathlib import Path
-    spec = spec_from_file_location("journal_domain_validator", Path(__file__).with_name("validate-run.py"))
-    module = module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def semantic_enums():
-    validator = domain_validator()
-    from evidence_records import ALLOWED_OUTCOMES, ALLOWED_SECTIONS, ALLOWED_TYPES
-    return {"architecture-outcome": {"decision": sorted(validator.ARCHITECTURE_DESIGN_DECISION_STATUSES)},
-            "risk": {"category": sorted(validator.RISK_MITIGATION_CATEGORIES)},
-            "resolution": {"resolution_type": sorted(validator.RISK_RESOLUTION_TYPES), "effect": ["fix", "mitigate", "contain"]},
-            "resolution-attempt": {"resolution_type": sorted(validator.RISK_RESOLUTION_TYPES), "effect": ["fix", "mitigate", "contain"], "blocked_reason": sorted(validator.BLOCKED_RESOLUTION_REASONS)},
-            "senior-qa-recovery": {"decision": sorted(validator.SENIOR_QA_REVIEW_STATUSES), "recheck": sorted(validator.SENIOR_QA_RECHECK_RESULTS)},
-            "architect-recovery": {"decision": sorted(validator.ARCHITECT_REVIEW_DECISIONS)},
-            "supervising-recovery": {"decision": sorted(validator.SUPERVISING_ARCHITECT_REVIEW_DECISIONS)},
-            "harness-finding": {"finding_type": sorted(validator.HARNESS_FINDING_TYPES), "outcome": sorted(validator.HARNESS_OUTCOMES)},
-            "harness-proposal": {"proposal_type": sorted(validator.HARNESS_PROPOSAL_TYPES)},
-            "readiness-approval": {"decision": ["approve", "decline"]},
-            "lane": {"lane_type": sorted(validator.LANE_TYPES), "execution_mode": sorted(validator.AGENT_EXECUTION_MODES)},
-            "lane-simplicity": {"checked_checks": validator.ENGINEERING_SIMPLICITY_REQUIRED_CHECKS},
-            "lane-compliance": {"sections": validator.ARCHITECTURE_CONTRACT_SECTIONS},
-            "acceptance": {"contract_types": sorted(validator.CONTRACT_NEGATIVE_FIXTURE_TYPES)},
-            "evidence-record": {"record_type": sorted(ALLOWED_TYPES), "outcome": sorted(ALLOWED_OUTCOMES),
-                                "section": sorted(ALLOWED_SECTIONS)},
-            "evidence-record-outcome": {"counter": ["helpful", "harmful", "neutral"]}}
-
-
-def nested_choices():
-    validator = domain_validator()
-    surfaces = {"surface": sorted(validator.ACCEPTANCE_TRACEABILITY_SURFACES), "polarity": sorted(validator.ACCEPTANCE_TRACEABILITY_POLARITIES)}
-    sections = {value for key, value in vars(validator).items() if key.endswith("_SECTION") and type(value) is str}
-    sections.update(validator.ARCHITECTURE_CONTRACT_SECTIONS)
-    sections.update(validator.ARCHITECTURE_DESIGN_BRIEF_SECTIONS)
-    sections.update({"Architecture Invariants", "Boundary Evidence", "Engineering Simplicity", "Architecture Compliance", "DoD", "Risks", "Commands", "Files Changed"})
-    return {
-        "surface-evidence": {**surfaces, "proof_kind": sorted(validator.ACCEPTANCE_TRACEABILITY_PROOF_KINDS)},
-        "expectations": {**surfaces, "proof_kinds": sorted(validator.ACCEPTANCE_TRACEABILITY_PROOF_KINDS)},
-        "rollback": {"disposition": sorted(validator.ROLLBACK_STATUSES)},
-        "lesson-observation": {"disposition": sorted(validator.BLOCKED_LESSON_STATUSES), "classification": sorted(validator.BLOCKED_RESOLUTION_REASONS)},
-        "sections": {"section": sorted(sections)},
-        "retained": {"kind": ["abstraction", "dependency"]},
-    }
-
-
-def validate_nested(field_type, value, name):
-    """Only the finite intent shapes declared by this package are accepted."""
-    if field_type == "nullable-string":
-        if value is not None and (type(value) is not str or not value.strip()):
-            raise ValueError(name + " must be a string or null")
-    elif field_type == "integer":
-        if type(value) is not int or value < 0:
-            raise ValueError(name + " must be a non-negative integer")
-    elif field_type == "boolean":
-        if type(value) is not bool:
-            raise ValueError(name + " must be a boolean")
-    elif field_type == "string-list":
-        if type(value) is not list or any(type(item) is not str or not item.strip() for item in value):
-            raise ValueError(name + " must contain only strings")
-    else:
-        shapes = NESTED_FIELDS
-        if field_type not in shapes:
-            raise ValueError("unknown field type: " + field_type)
-        rows = value if field_type in {"marker-evidence", "surface-evidence", "expectations", "sections", "commands", "retained"} else [value]
-        if type(rows) is not list:
-            raise ValueError(name + " must be an array")
-        for row in rows:
-            validate_fields(row, shapes[field_type])
-            for field, allowed in nested_choices().get(field_type, {}).items():
-                values = row[field] if type(row[field]) is list else [row[field]]
-                if any(choice not in allowed for choice in values):
-                    raise ValueError(name + "." + field + " has an unknown semantic choice")
-            if field_type == "sections":
-                covers = row.get("covers", [])
-                if len(set(covers)) != len(covers):
-                    raise ValueError(name + ".covers must not repeat ids")
-                for value in covers:
-                    if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", value):
-                        raise ValueError(name + ".covers ids must be kebab-case")
-                if row["section"] in COVERED_SECTIONS and not covers:
-                    raise ValueError(name + ": section " + row["section"] + " requires non-empty covers")
-
-
-def validate_fields(request, fields):
-    if type(request) is not dict:
-        raise ValueError("request must be an object")
-    unknown = set(request) - set(fields)
-    if unknown:
-        raise ValueError("unknown request fields: " + ", ".join(sorted(unknown)))
-    for name, field_type in fields.items():
-        if name not in request:
-            if not field_type.endswith("?"):
-                raise ValueError(name + " is required")
-            continue
-        value = request[name]
-        base = field_type.rstrip("?")
-        if base in {"string", "status"}:
-            if type(value) is not str or (name != "next_step" and not value.strip()):
-                raise ValueError(name + " must be a non-empty string")
-            if base == "status" and value not in CALLER_STATUSES:
-                raise ValueError("unknown caller status: " + value)
-        elif base == "strings":
-            if type(value) is not list or not value or any(type(item) is not str or not item.strip() for item in value):
-                raise ValueError(name + " must contain non-empty strings")
-        elif base == "references":
-            if type(value) is not list or any(type(ref) is not dict or set(ref) != {"path"} or
-                    type(ref["path"]) is not str or not ref["path"].strip() for ref in value):
-                raise ValueError("evidence must contain objects with only a string path")
-        else:
-            validate_nested(base, value, name)
-
-
-def validate_request(kind, request):
-    """Pure public input validation; called before request allocation or writes."""
-    if type(kind) is not str or kind not in REQUEST_FIELDS:
-        raise ValueError("unknown journal request kind")
-    validate_fields(request, REQUEST_FIELDS[kind])
-    if kind == "architecture-outcome":
-        if request["decision"] not in semantic_enums()[kind]["decision"]:
-            raise ValueError("unknown architecture decision")
-        if request["status"] in {"blocked", "fail"} and request["decision"] == "approved":
-            raise ValueError("negative architecture outcome cannot approve")
-        headings = [row["section"] for row in request["sections"]]
-        if len(headings) != len(architecture_sections()) or set(headings) != set(architecture_sections()):
-            raise ValueError("architecture outcome requires every section exactly once")
-        for name in ("claim_evidence_ids", "acceptance_criteria_ids"):
-            values = request.get(name, [])
-            if len(set(values)) != len(values) or any(not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", value) for value in values):
-                raise ValueError(name + " requires unique kebab-case IDs")
-        if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", request["lane_id"]):
-            raise ValueError("lane_id must be kebab-case")
-    if kind == "lane":
-        from agent_config import default_agents_dir, resolve_role_path, read_frontmatter, role_config
-        path = resolve_role_path(default_agents_dir(), request["role"])
-        if not path.is_file():
-            raise ValueError("unknown registered role: " + request["role"])
-        role_config(read_frontmatter(path), request["role"])
-    if kind == "check" and ("\x00" in request["cwd"] or any("\x00" in value for value in request["command"])):
-        raise ValueError("check command/cwd cannot contain NUL")
-    if kind == "readiness-approval":
-        supplied = {key for key in ("decision", "source_event", "source_quote") if key in request}
-        if supplied and supplied != {"decision", "source_event", "source_quote"} or request["status"] in {"pass", "blocked"} and not supplied:
-            raise ValueError("approval observation requires decision, source_event and source_quote together")
-        if supplied and (request["source_event"] < 1 or request["decision"] != ("approve" if request["status"] == "pass" else "decline") or request["status"] not in {"pass", "blocked"}):
-            raise ValueError("approval decision/status/source_event mismatch")
-    if kind in SERVICE_FIELDS:
-        if request["status"] not in SERVICE_STATUS_RULES.get(kind, CALLER_STATUSES):
-            raise ValueError(kind + " has an invalid caller status")
-        if kind in RECOVERY_NEGATIVE_DECISIONS and request["decision"] not in recovery_decisions(kind, request["status"]):
-            raise ValueError("recovery decision differs from caller status")
-        for name, allowed in semantic_enums().get(kind, {}).items():
-            if name in request:
-                values = request[name] if type(request[name]) is list else [request[name]]
-                if any(value not in allowed for value in values):
-                    raise ValueError(name + " has an unknown semantic choice")
-        if kind == "evidence-record" and "keywords" in request:
-            from evidence_records import KEBAB_OR_LOWER_TOKEN
-            if any(not KEBAB_OR_LOWER_TOKEN.fullmatch(keyword) for keyword in request["keywords"]):
-                raise ValueError("keywords must be comma-separated lowercase/kebab tokens")
-        for name in ("id", "attempt_id", "risk_id", "lane_id"):
-            if name in request and not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", request[name]):
-                raise ValueError(name + " must be kebab-case")
-        if "axis" in request and request["axis"] not in {"risk_gates", "verification_gates"}:
-            raise ValueError("unknown gate axis")
-    if kind == "event":
-        if request["stage"] == "blocked-checkpoint" and (not request.get("lane_id") or request["role"] != "orchestrator" or request["status"] != "blocked"):
-            raise ValueError("blocked-checkpoint requires an orchestrator lane and blocked status")
-        if "commit_hash" in request and not re.fullmatch(r"[0-9a-fA-F]{40}", request["commit_hash"]):
-            raise ValueError("commit_hash must be a 40-character hex commit hash")
-        if request["stage"] in RESERVED_EVENT_STAGES:
-            raise ValueError("stage " + request["stage"] + " requires " + RESERVED_EVENT_COMMANDS[request["stage"]])
-        statuses = EVENT_STATUS_RULES
-        if request["stage"] in statuses and request["status"] not in statuses[request["stage"]]:
-            raise ValueError("stage/status mismatch")
-    if kind in TERMINAL_KINDS and request["status"] not in TERMINAL:
-        raise ValueError(kind + " requires a terminal caller status")
-    if "path" in request and request["path"] != DOCUMENT_PATHS.get(kind):
-        raise ValueError("document target is writer-owned")
-    return dict(request)
+def record_id(value):
+    require(isinstance(value, str) and IDENTIFIER.fullmatch(value), "id must contain letters, digits, underscores or hyphens")
+    return value
 
 
 def request_contract():
-    validator = domain_validator()
-    return {"statuses": sorted(CALLER_STATUSES), "status_meanings": STATUS_MEANINGS,
-            "review_subjects": {"product-result": {"kind": "product-result"}, "requirements-plan": {
-                "kind": "requirements-plan", "sources": [{"key": "journal:plan.md", "sha256": "writer-generated"}], "digest": "writer-generated"}},
-            "preliminary_readiness_gate_fields": ["axis", "facet", "check", "readiness", "evidence", "notes"],
-            "preliminary_readiness_gates": {"input": "--readiness-gates-file: JSON array; every row has exactly these fields",
-                "axis": ["risk_gates", "verification_gates"], "facet": "selected facet of the named lane-map architecture_context axis",
-                "readiness": sorted(validator.VERIFICATION_GATE_READINESS_STATUSES),
-                "check": "nonempty substantive string", "notes": "nonempty substantive string",
-                "evidence": "nonempty array: plain {path, sha256?: assertion}, or tool {path: artifacts/attachment, source_event: positive integer, source_call_id?: nonempty exact assertion, source_part?: zero-based nonnegative integer for public text blocks, sha256?: assertion}. Python captures exact own raw text and adds SHA/call_id; requires accepted source evidence",
-                "tool_result": {"content": "nonempty array of exactly {type: text, text: nonempty string}", "isError": "optional boolean; true rejects positive proof", "structuredContent": "optional object", "_meta": "optional object", "constraints": "selected text must be one JSON CallToolResult with only these keys; no wrappers/media/substrings. Own reviewing turn after input freeze; source_part forbidden for string function output. Source proves outer observed bytes; QA confirms applicability."},
-                "example": [{"axis": "verification_gates", "facet": "unit", "check": "Selected unit command executed in disposable copy", "readiness": "ready",
-                    "evidence": [{"path": "checks/command-example.json"}, {"path": "checks/command-example.output"}], "notes": "QA confirms applicability to pinned contract and config"}]},
-            "constraints": {kind: {"statuses": sorted(SERVICE_STATUS_RULES.get(kind, TERMINAL if kind in TERMINAL_KINDS else CALLER_STATUSES)),
-                                    "path": DOCUMENT_PATHS.get(kind),
-                                    "route": "source-checked finalize" if kind == "final" else "semantic writer",
-                                    **({"decision_by_status": {status: sorted(recovery_decisions(kind, status)) for status in SERVICE_STATUS_RULES[kind]}} if kind in RECOVERY_NEGATIVE_DECISIONS else {}),
-                                    **({"required_sections": architecture_sections(), "decision_by_status": {
-                                        status: sorted(semantic_enums()[kind]["decision"] if status in {"pass", "pass-with-risks"} else {"needs-revision", "rejected"})
-                                        for status in TERMINAL}} if kind == "architecture-outcome" else {}),
-                                    **({"stage_status": {stage: sorted(values) for stage, values in EVENT_STATUS_RULES.items()}, "reserved_stages": sorted(RESERVED_EVENT_STAGES)} if kind == "event" else {})}
-                            for kind in REQUEST_FIELDS},
-            "fields": REQUEST_FIELDS,
-            "nested_fields": NESTED_FIELDS, "nested_choices": nested_choices(), "semantic_choices": semantic_enums(),
-            "examples": {kind: request_example(kind) for kind in REQUEST_FIELDS}}
+    return {
+        "records": {kind: sorted(fields) for kind, fields in REQUEST_FIELDS.items()},
+        "assignment_kinds": sorted(ASSIGNMENT_KINDS),
+        "report_statuses": sorted(REPORT_STATUSES),
+        "report_required": ["status", "summary", "evidence"],
+        "author_fields": ["authored_paths"],
+        "qa_fields": ["fingerprint", "criteria"],
+        "reviewer_fields": ["fingerprint", "qa"],
+        "native_evidence": ["thread_id", "turn_id", "call_id"],
+        "artifact_evidence": ["path", "sha256"],
+        "read": ["summary", "result", "requirements", "native/ID", "task.json", "scope.json",
+                 "assignments/ID.json", "reports/ID.json", "checks/ID.json", "final.json"],
+        "check": "Executes command once; records actual cwd, exit code, output and unchanged result fingerprint. A missing receipt after interruption requires inspecting native execution before retrying.",
+        "report": "Child: assignment_id + completion_turn_id. Root author: assignment_id + turn_id + report with native edit evidence.",
+    }
 
 
-def request_example(kind):
-    def value(name, field_type):
-        if field_type in NESTED_FIELDS:
-            row = {key: value(key, type_name) for key, type_name in NESTED_FIELDS[field_type].items() if not type_name.endswith("?")}
-            return [row] if field_type in {"marker-evidence", "surface-evidence", "expectations", "sections", "commands"} else row
-        if field_type == "status":
-            allowed = SERVICE_STATUS_RULES.get(kind, TERMINAL if kind in TERMINAL_KINDS else CALLER_STATUSES)
-            return "active" if "active" in allowed else "planned" if "planned" in allowed else "pass"
-        if field_type == "boolean":
-            return False
-        if field_type == "integer":
-            return 1
-        if field_type == "nullable-string":
-            return None
-        if field_type == "references":
-            return [{"path": "artifacts/logs/command.stdout"}]
-        if field_type in {"strings", "string-list"}:
-            return ["unit-test"] if name == "proof_kinds" else [] if field_type == "string-list" else ["example"]
-        return {"id": "record-example", "risk_id": "risk-example", "lane_id": "qa-example", "attempt_id": "readiness-example",
-                "cwd": "/private/tmp", "stage": "progress", "role": "orchestrator", "section": "Architecture Invariants",
-                "surface": "service", "polarity": "positive", "proof_kind": "unit-test", "axis": "verification_gates"}.get(name, "Meaningful text")
-    result = {name: value(name, field_type) for name, field_type in REQUEST_FIELDS[kind].items() if not field_type.endswith("?")}
-    for name, allowed in semantic_enums().get(kind, {}).items():
-        if name in result:
-            result[name] = [allowed[0]] if type(result[name]) is list else allowed[0]
-    if kind == "check":
-        result["command"] = ["python3", "-V"]
-    if kind in RECOVERY_NEGATIVE_DECISIONS:
-        result["decision"] = sorted(recovery_decisions(kind, result["status"]))[0]
-    if kind == "architecture-outcome":
-        result["sections"] = [{"section": heading, "summary": "Meaningful " + heading + " outcome"} for heading in architecture_sections()]
-    return result
+def validate_request(kind, request):
+    require(kind in REQUEST_FIELDS, "unknown record kind: " + str(kind))
+    require(isinstance(request, dict), "request must be an object")
+    require(not set(request) - REQUEST_FIELDS[kind],
+            "unknown request fields: " + ", ".join(sorted(set(request) - REQUEST_FIELDS[kind])))
 
 
-def architecture_sections():
-    validator = domain_validator()
-    return list(dict.fromkeys([*validator.ARCHITECTURE_DESIGN_BRIEF_SECTIONS, *validator.ARCHITECTURE_CONTRACT_SECTIONS]))
+def replay(snapshot, identifier, payload):
+    prior = snapshot.operation_receipt(identifier)
+    if prior is not None:
+        require(prior["payload_sha256"] == digest(encode_json(payload).encode()), "operation ID payload conflict")
+    return prior
 
 
-def render_architecture_outcome(request, evidence, facets, capabilities):
-    text = render_document("architecture-outcome", request["summary"], request["status"], {"evidence": evidence})
-    summaries = {row["section"]: row["summary"] for row in request["sections"]}
-    for heading in architecture_sections():
-        text += "\n## " + heading + "\n\n" + literal_content(summaries[heading]) + "\n"
-        if heading == "Decision":
-            text += "\nStatus: " + request["decision"] + "\n"
-        if heading in {"Selected Matrix Facets", "Selected Architecture"}:
-            text += "".join("- Matrix Facet: `" + literal_label(value) + "`\n" for value in facets)
-        if heading in {"Execution Plan", "Selected Architecture"}:
-            text += "".join("- Capability: `" + literal_label(value) + "`\n" for value in capabilities)
-        if heading in {"QA Gates", "Reviewer Checklist"}:
-            for field, label in (("claim_evidence_ids", "Claim Evidence"), ("acceptance_criteria_ids", "Acceptance Criteria")):
-                text += "".join("- " + label + ": `" + value + "`\n" for value in request.get(field, []))
-    return text
+def assignments(snapshot):
+    return {Path(name).stem: json.loads(data) for name, data in snapshot.documents.items()
+            if name.startswith("assignments/") and name.endswith(".json")}
 
 
-def literal_content(text):
-    """Keep narrative inside a Markdown quote, outside machine structure."""
-    lines = html.escape(text, quote=False).splitlines()
-    return "\n".join("> " + line for line in lines) or "> "
+def overlap(left, right):
+    return left == right or left.is_relative_to(right) or right.is_relative_to(left)
 
 
-def literal_label(text):
-    """Represent exact metadata on one line without active Markdown/HTML."""
-    label = json.dumps(text, ensure_ascii=False)[1:-1]
-    label = "".join(json.dumps(char, ensure_ascii=True)[1:-1] if char.splitlines() != [char] else char for char in label)
-    return html.escape(label, quote=False).replace("`", "&#96;")
-
-
-def render_document(kind, summary, status, metadata=None):
-    validate_request("progress", {"summary": summary, "status": status})
-    metadata = metadata or {}
-    summary = literal_content(summary)
-    verdict = "ship" if kind == "final" and status == "pass" else status
-    text = "# " + kind.capitalize() + "\n\n" + ("Verdict: " if kind == "final" else "Status: ") + verdict + "\n\n" + summary + "\n"
-    if kind == "task":
-        text = "# Run\n\nStatus: " + status + "\n\n## Task Scope\n\n" + summary + "\n"
-    elif kind == "plan":
-        text = "# Plan\n\nStatus: " + status + "\n\n## Execution Plan\n\n" + summary + "\n"
-    if metadata.get("evidence"):
-        text += "\n## Evidence\n\n" + "".join("- " + literal_label(ref["path"]) + " sha256=" + ref["sha256"] + "\n" for ref in metadata["evidence"])
-    for section in metadata.get("sections", []):
-        text += "\n## " + section["section"] + "\n\n"
-        for covered in section.get("covers", []):
-            text += "- Covers: `" + literal_label(covered) + "`\n"
-        text += literal_content(section["summary"]) + "\n"
-    return text
-
-
-SERVICE_DOCUMENTS = {"claim-evidence.json", "acceptance-traceability.json", "risk-mitigations.json", "risk-resolutions.json", "verification-readiness.json", "continuation-summary.json", "harness-evaluation.json", "lane-map.json"}
-
-
-def writer_owned_path(path, *, lane_ids=()):
-    return path in {*DOCUMENT_PATHS.values(), *SERVICE_DOCUMENTS, "timeline.jsonl", "delegation-summary.json", "final.md", "task.md", "context.md", "manifest.md", "artifacts.json", "artifacts/source-references.json", "checks/coverage-matrix.md"} or (
-        path.startswith("agents/") and path.endswith("/trace.jsonl")) or path.startswith(("handoffs/", "checks/command-", "checks/lane-boundary-", "artifacts/memory/", "artifacts/workspaces/", "artifacts/lifecycle/", "artifacts/checkpoints/")) or path in {
-            "checks/" + lane_id + ".md" for lane_id in lane_ids} or path in {"checks/" + name.replace(".json", ".md") for name in SERVICE_DOCUMENTS}
-
-
-def normalized(value):
-    return value.replace("_", "-") if isinstance(value, str) else None
-
-
-def canonical_role(value):
-    return "reviewer" if value == "reviewer.qa" else value
-
-
-def archived_assignment_facts(snapshot, *, include_native=False):
-    """Read immutable archived inventories, never trust a record's own claims."""
-    from journal_recovery import assignments
-    if not include_native:
-        return {}
-    facts = {}
-    for identifier in snapshot.archives:
-        archived = snapshot.archive(identifier)
-        summary = json.loads(archived.documents.get("delegation-summary.json", b"{}"))
-        modes = {row["lane_id"]: mode for group, mode in (("subagents", "subagent"), ("role_lanes", "role-lane"))
-                 for row in summary.get(group, [])}
-        for lane_id, original in assignments(archived).items():
-            lane = original["lane"] or {}
-            if not original["summary"] and not original["events"] and lane.get("status") == "planned" and not any(
-                    lane.get(key) is not None for key in ("codex_thread_id", "trace")):
+def assignment_record(snapshot, request, source=None):
+    from agent_config import default_agents_dir, read_frontmatter, resolve_role_path
+    from task_workspace import path_allowed
+    from verification_evidence import CodexSessionSource, own_metadata, session_metadata
+    identifier = record_id(request.get("id"))
+    kind = request.get("kind")
+    require(kind in ASSIGNMENT_KINDS, "invalid assignment kind")
+    role = request.get("role")
+    require(isinstance(role, str), "role must be a string")
+    read_frontmatter(resolve_role_path(default_agents_dir(), role))
+    require(kind != "qa" or role == "qa-verifier", "QA assignment requires qa-verifier")
+    require(kind != "reviewer" or role == "reviewer", "reviewer assignment requires reviewer")
+    agent_id = request.get("agent_id")
+    source = source or CodexSessionSource()
+    root_id = snapshot.identities["root_agent_id"]
+    if agent_id == "/root":
+        agent_id = root_id
+    elif isinstance(agent_id, str) and agent_id.startswith("/root/"):
+        agent_id = source.resolve_session(agent_id, root_id, role)["codex_thread_id"]
+    events = source.read(agent_id)
+    if agent_id == root_id:
+        own_metadata(events, root_id)
+        require(kind in {"author", "analysis"}, "QA and reviewer must be independent child agents")
+    else:
+        session_metadata(events, agent_id, root_id, role, source=source)
+    paths = request.get("allowed_paths", [])
+    require(isinstance(paths, list) and all(isinstance(p, str) and Path(p).is_absolute() for p in paths),
+            "allowed_paths must be absolute paths")
+    require(kind != "author" or bool(paths), "author assignment requires allowed_paths")
+    for path in paths:
+        require(path_allowed(snapshot.json("scope.json"), path), "assignment path outside product scope: " + path)
+    depends = request.get("depends_on", [])
+    require(isinstance(depends, list) and all(isinstance(item, str) for item in depends), "depends_on must be assignment IDs")
+    current = assignments(snapshot)
+    require(identifier not in depends and set(depends) <= current.keys(), "assignment dependencies must already exist")
+    record = {"id": identifier, "kind": kind, "role": role, "agent_id": agent_id,
+              "allowed_paths": sorted(set(paths)), "depends_on": sorted(set(depends))}
+    require(identifier not in current or current[identifier] == record,
+            "assignment already exists; declare a new assignment for a different responsibility")
+    if kind == "author":
+        for other_id, other in current.items():
+            if other_id == identifier or other["kind"] != "author":
                 continue
-            first = original["events"][0]["event"] if original["events"] else {}
-            facts[lane_id] = {**original, "mode": modes.get(lane_id, lane.get("execution_mode", first.get("execution_mode")))}
-    return facts
+            if any(overlap(Path(a), Path(b)) for a in paths for b in other["allowed_paths"]):
+                require(other_id in depends and snapshot.exists("reports/" + other_id + ".json"),
+                        "overlapping author paths require a predecessor report and explicit dependency")
+    return record
 
 
-def assignment_errors(documents, *, history=None):
-    """Check intermediate state using only supplied journal bytes."""
-    errors = []
-    history = history or {}
+def execute_check(snapshot, request):
+    from task_workspace import path_allowed
+    from verification_evidence import result_fingerprint
+    identifier = record_id(request.get("id"))
+    assignment_id = record_id(request.get("assignment_id"))
+    assignment = snapshot.json("assignments/" + assignment_id + ".json")
+    command = request.get("command")
+    require(isinstance(command, list) and command and all(isinstance(value, str) and value for value in command),
+            "command must be a nonempty argv array")
+    raw_cwd = request.get("cwd")
+    require(isinstance(raw_cwd, str) and Path(raw_cwd).is_absolute(), "cwd must be an absolute directory")
+    cwd = Path(raw_cwd)
+    require(cwd.is_dir() and path_allowed(snapshot.json("scope.json"), raw_cwd)
+            and path_allowed(snapshot.json("scope.json"), str(cwd.resolve())), "check cwd outside product scope")
+    timeout = request.get("timeout", 300)
+    require(type(timeout) is int and timeout > 0, "timeout must be a positive integer")
+    path = "checks/" + identifier + ".json"
+    require(not snapshot.exists(path), "check ID already exists; use a new ID for a new execution")
+    before = result_fingerprint(snapshot)
+    try:
+        result = subprocess.run(command, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                timeout=timeout, check=False)
+    except subprocess.TimeoutExpired as exc:
+        raise JournalError("check timed out; inspect native execution before any retry") from exc
+    require(result_fingerprint(snapshot) == before, "check changed product inputs; inspect changes before recording a new check")
+    output = "artifacts/checks/" + identifier + ".log"
+    return path, output, result.stdout, {
+        "assignment_id": assignment_id, "command": command, "cwd": str(cwd),
+        "exit_code": result.returncode, "fingerprint": before,
+        "output": {"path": output, "sha256": digest(result.stdout)},
+    }, assignment
 
-    def historical_identity(lane_id, identity, mode, *, supplied_only=False):
-        fact = history.get(lane_id)
-        if fact is None or normalized(mode) != normalized(fact["mode"]):
-            return False
-        original = fact["summary"] or fact["lane"] or (fact["events"][0]["event"] if fact["events"] else {})
-        return all(identity.get(key) == original.get(key) for key in ("role", "codex_thread_id", "trace")
-                   if key in original and (not supplied_only or key in identity))
 
-    def historical_status(lane_id, value):
-        fact = history.get(lane_id, {})
-        return any(item.get("status") == value for item in [fact.get("summary") or {}, fact.get("lane") or {},
-                   *[entry["event"] for entry in fact.get("events", [])]])
+def write_entry(run_dir, kind, request, *, identifier, source=None):
+    from task_workspace import expand_workspace
+    from verification_evidence import accept_report, result_fingerprint
+    validate_request(kind, request)
+    require(isinstance(identifier, str) and bool(identifier.strip()), "operation-id is required")
+    payload = {"kind": kind, "request": request}
+    snapshot = JournalSnapshot.open(run_dir)
+    prior = replay(snapshot, identifier, payload)
+    if prior is not None:
+        return prior
+    require(not snapshot.exists("final.json"), "task is already finalized")
+    prepared_check = execute_check(snapshot, request) if kind == "check" else None
+    prepared_report = None
+    if kind == "report":
+        assignment_id = record_id(request.get("assignment_id"))
+        prepared_report = accept_report(snapshot, snapshot.json("assignments/" + assignment_id + ".json"), request, source=source)
+    if kind == "assignment":
+        assignment_record(snapshot, request, source)
 
-    def historical_thread(lane_id, value):
-        fact = history.get(lane_id, {})
-        original = fact.get("summary") or fact.get("lane") or (fact["events"][0]["event"] if fact.get("events") else {})
-        return original.get("codex_thread_id") == value
+    def publish(current):
+        if kind == "assignment":
+            body = assignment_record(current, request, source)
+            path = "assignments/" + body["id"] + ".json"
+        elif kind == "scope":
+            body = expand_workspace(current.json("scope.json"), request.get("roots"), request.get("context"),
+                                    run_dir=current.logical_root)
+            path = "scope.json"
+        elif kind == "report":
+            assignment_id = record_id(request.get("assignment_id"))
+            assignment = current.json("assignments/" + assignment_id + ".json")
+            require(assignment == snapshot.json("assignments/" + assignment_id + ".json"), "assignment changed before publication")
+            body = accept_report(current, assignment, request, source=source)
+            require(body == prepared_report, "report inputs changed before publication")
+            path = "reports/" + assignment_id + ".json"
+        else:
+            path, output, output_bytes, body, assignment = prepared_check
+            require(current.json("assignments/" + body["assignment_id"] + ".json") == assignment,
+                    "check assignment changed before publication")
+            require(result_fingerprint(current) == body["fingerprint"], "check result is stale before publication")
+            require(not current.exists(path), "check ID already exists; use a new ID for a new execution")
+            body = {**body, "operation_id": identifier}
+            data = encoded(body)
+            return {path: data, output: output_bytes}, {"path": path, "sha256": digest(data), "exit_code": body["exit_code"]}
+        data = encoded(body)
+        return {path: data}, {"path": path, "sha256": digest(data)}
 
-    def document(path, default):
-        try:
-            return json.loads(documents[path]) if documents.get(path) is not None else default
-        except (ValueError, TypeError) as exc:
-            errors.append(f"{path}: invalid JSON: {exc}")
-            return default
+    return transact(run_dir, identifier, payload, publish)
 
-    lane_map = document("lane-map.json", {})
-    summary = document("delegation-summary.json", {})
-    if not isinstance(lane_map, dict) or not isinstance(summary, dict):
-        return errors + ["lane-map.json and delegation-summary.json must be objects"]
-    lanes = {}
-    raw_lanes = lane_map.get("lanes", [])
-    if not isinstance(raw_lanes, list):
-        return errors + ["lane-map.json.lanes must be an array"]
-    for lane in raw_lanes:
-        if not isinstance(lane, dict):
-            errors.append("lane-map.json.lanes entry must be an object")
-            continue
-        lane_id = lane.get("id")
-        if not isinstance(lane_id, str) or not lane_id.strip():
-            errors.append(f"lane-map.json lane .id invalid: {lane_id!r}")
-            continue
-        if lane_id in lanes:
-            errors.append(f"lane-map.json duplicate lane id: {lane_id}")
-        lanes[lane_id] = lane
-        old_lane = historical_identity(lane_id, lane, lane.get("execution_mode"), supplied_only=True)
-        if "status" in lane and normalized(lane["status"]) not in STATUSES and not (old_lane and historical_status(lane_id, lane["status"])):
-            errors.append(f"lane {lane_id}.status invalid: {lane['status']!r}")
-        declared = normalized(lane.get("status")) in STATUSES
-        if ("execution_mode" in lane or declared) and normalized(lane.get("execution_mode")) not in MODES:
-            errors.append(f"lane {lane_id}.execution_mode invalid: {lane.get('execution_mode')!r}")
-        if ("role" in lane or declared) and (not isinstance(lane.get("role"), str) or
-                                           not re.fullmatch(r"[a-z0-9][a-z0-9._-]*", lane["role"])):
-            errors.append(f"lane {lane_id}.role invalid: {lane.get('role')!r}")
-    records = {}
-    for group, mode in (("subagents", "subagent"), ("role_lanes", "role-lane")):
-        entries = summary.get(group, [])
-        if not isinstance(entries, list):
-            errors.append(f"delegation-summary.json.{group} must be an array")
-            continue
-        for record in entries:
-            if not isinstance(record, dict):
-                errors.append(f"delegation-summary.json.{group} entry must be an object")
-                continue
-            lane_id = record.get("lane_id")
-            if not isinstance(lane_id, str) or not lane_id.strip():
-                errors.append(f"delegation-summary.json.{group}.lane_id invalid: {lane_id!r}")
-                continue
-            if lane_id in records:
-                errors.append(f"delegation-summary.json duplicate lane_id: {lane_id}")
-            records[lane_id] = (record, mode)
-            from verification_evidence import review_subject_kind
-            try:
-                review_subject_kind(record)
-            except ValueError as exc:
-                errors.append(f"assignment {lane_id}: {exc}")
-            old_record = historical_identity(lane_id, record, mode)
-            if "status" in record and normalized(record["status"]) not in STATUSES and not (old_record and historical_status(lane_id, record["status"])):
-                errors.append(f"assignment {lane_id}.status invalid: {record['status']!r}")
-            if not isinstance(record.get("role"), str) or not re.fullmatch(r"[a-z0-9][a-z0-9._-]*", record["role"]):
-                errors.append(f"assignment {lane_id}.role invalid: {record.get('role')!r}")
-            lane = lanes.get(lane_id)
-            if "lane-map.json" in documents and lane is None and not old_record:
-                errors.append(f"assignment {lane_id}: unknown lane "
-                              f"(role={record.get('role')!r}, mode={mode!r}, "
-                              f"thread={record.get('codex_thread_id')!r}, status={record.get('status')!r})")
-            if lane is not None:
-                for field in ("review_subject", "review_input_operation_id"):
-                    if record.get(field) != lane.get(field) or (field in record) != (field in lane):
-                        errors.append(f"assignment {lane_id}.{field} differs from lane")
-                if canonical_role(lane.get("role")) != canonical_role(record.get("role")):
-                    errors.append(f"assignment {lane_id}.role {record.get('role')!r} differs from lane {lane.get('role')!r}")
-                if normalized(lane.get("execution_mode")) != mode:
-                    errors.append(f"assignment {lane_id}.execution_mode {mode!r} differs from lane {lane.get('execution_mode')!r}")
-                if record.get("status") is not None and lane.get("status") is not None and normalized(lane["status"]) not in {"timed-out", "replaced"} and normalized(record["status"]) != normalized(lane["status"]):
-                    errors.append(f"assignment {lane_id}.status {record['status']!r} differs from lane {lane['status']!r}")
-                if lane.get("codex_thread_id") is not None and lane["codex_thread_id"] != record.get("codex_thread_id"):
-                    errors.append(f"assignment {lane_id}.codex_thread_id {record.get('codex_thread_id')!r} differs from lane {lane['codex_thread_id']!r}")
-                if lane.get("trace") is not None and lane["trace"] != record.get("trace"):
-                    errors.append(f"assignment {lane_id}.trace {record.get('trace')!r} differs from lane {lane['trace']!r}")
-            planned = record.get("status") == "planned" or lane is not None and lane.get("status") == "planned"
-            if mode == "subagent" and not planned and not (old_record and historical_thread(lane_id, record.get("codex_thread_id"))) and not (isinstance(record.get("codex_thread_id"), str) and
-                                         UUID.fullmatch(record["codex_thread_id"])):
-                errors.append(f"assignment {lane_id}.codex_thread_id invalid: {record.get('codex_thread_id')!r}")
-    for lane_id, lane in lanes.items():
-        if normalized(lane.get("status")) in {"active", "spawned", *TERMINAL} and lane_id not in records and not historical_identity(lane_id, lane, lane.get("execution_mode"), supplied_only=True):
-            errors.append(f"lane {lane_id}.status {lane['status']!r} requires assignment registration")
-    timeline = []
-    trace_events = {}
-    for path, raw in documents.items():
-        if path != "timeline.jsonl" and not (path.startswith("agents/") and path.endswith("/trace.jsonl")):
-            continue
-        if raw is None:
-            continue
-        for number, line in enumerate(raw.splitlines(), 1):
-            if not line.strip():
-                continue
-            try:
-                event = json.loads(line)
-            except (ValueError, TypeError):
-                errors.append(f"{path}:{number}: invalid event JSON")
-                continue
-            if not isinstance(event, dict):
-                errors.append(f"{path}:{number}: event must be an object")
-                continue
-            trace_events.setdefault(path, []).append(event)
-            lane_id = event.get("lane_id")
-            if lane_id is None or lane_id == "":
-                continue
-            if not isinstance(lane_id, str):
-                errors.append(f"{path}:{number}: lane_id invalid: {lane_id!r}")
-                continue
-            registration, registered_mode = records.get(lane_id, ({}, None))
-            if (not registration or historical_identity(lane_id, registration, registered_mode)) and any(
-                    entry["path"] == path and entry["index"] == number and entry["event"] == event
-                    for entry in history.get(lane_id, {}).get("events", [])):
-                if path == "timeline.jsonl":
-                    timeline.append(event)
-                continue
-            record, mode = records.get(lane_id, ({}, None))
-            if mode is None:
-                errors.append(f"{path}:{number}: assignment {lane_id} is unregistered")
-                continue
-            for field in ("review_subject", "review_input_operation_id"):
-                if record.get(field) != event.get(field) or (field in record) != (field in event):
-                    errors.append(f"{path}:{number}: assignment {lane_id}.{field} differs from registration")
-            for field, expected in (("role", record.get("role")), ("execution_mode", mode)):
-                normalize = canonical_role if field == "role" else normalized
-                if normalize(event.get(field)) != normalize(expected):
-                    errors.append(f"{path}:{number}: assignment {lane_id}.{field} {event.get(field)!r} differs from registration {expected!r}")
-            if mode == "subagent" and event.get("codex_thread_id") != record.get("codex_thread_id"):
-                errors.append(f"{path}:{number}: assignment {lane_id}.codex_thread_id {event.get('codex_thread_id')!r} differs from registration {record.get('codex_thread_id')!r}")
-            if path == "timeline.jsonl":
-                timeline.append(event)
-    for event in timeline:
-        path = event.get("agent_trace")
-        if path:
-            if not isinstance(path, str):
-                errors.append(f"assignment {event['lane_id']}.agent_trace invalid: {path!r}")
-                continue
-            if event not in trace_events.get(path, []):
-                errors.append(f"assignment {event['lane_id']}: timeline event missing from {path}")
-    for lane_id, (record, mode) in records.items():
-        path = record.get("trace")
-        planned = record.get("status") == "planned" or lanes.get(lane_id, {}).get("status") == "planned"
-        old_record = historical_identity(lane_id, record, mode)
-        if not path:
-            if not planned and not old_record:
-                errors.append(f"assignment {lane_id}.trace required "
-                              f"(role={record.get('role')!r}, thread={record.get('codex_thread_id')!r})")
-            continue
-        if not isinstance(path, str):
-            errors.append(f"assignment {lane_id}.trace invalid: {path!r}")
-            continue
-        events = [event for event in trace_events.get(path, []) if event.get("lane_id") == lane_id]
-        if mode == "subagent" and not planned and not old_record and not any(event.get("stage") == "spawned" for event in events):
-            errors.append(f"assignment {lane_id}: registered assignment requires spawned trace in {path} "
-                          f"(role={record.get('role')!r}, thread={record.get('codex_thread_id')!r})")
-        if events and record.get("status") is not None and normalized(record["status"]) not in {"timed-out", "replaced"} and normalized(record["status"]) != normalized(events[-1].get("status")):
-            errors.append(f"assignment {lane_id}.status {record['status']!r} differs from latest trace {events[-1].get('status')!r}")
-        if path.startswith("agents/") and path.endswith("/trace.jsonl"):
-            timeline_events = [event for event in timeline if event.get("lane_id") == lane_id]
-            if events != timeline_events:
-                fingerprint = lambda values: hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
-                errors.append(f"assignment {lane_id}: ordered timeline/trace events differ: "
-                              f"timeline count={len(timeline_events)} sha256={fingerprint(timeline_events)}, "
-                              f"trace={path} count={len(events)} sha256={fingerprint(events)}")
-    return errors
+
+def publish_artifact(run_dir, name, source_path, *, identifier):
+    logical_path(name)
+    require(name.startswith("artifacts/") and not name.startswith("artifacts/checks/"),
+            "publish requires an artifact path outside writer-owned checks")
+    snapshot = JournalSnapshot.open(run_dir)
+    payload = {"kind": "artifact", "path": name, "source": str(Path(source_path).absolute())}
+    prior = replay(snapshot, identifier, payload)
+    if prior is not None:
+        return prior
+    data = capture_file(Path(source_path))
+
+    def publish(current):
+        require(not current.exists(name) or current.read_bytes(name) == data,
+                "artifact already exists with different bytes; use a new name")
+        return {name: data}, {"path": name, "sha256": digest(data)}
+
+    return transact(run_dir, identifier, payload, publish)
+
+
+def read_record(snapshot, name):
+    from task_workspace import changed_paths
+    from verification_evidence import requirements, result_fingerprint
+    if name.startswith("native/"):
+        from verification_evidence import native_references
+        return native_references(snapshot, record_id(name.removeprefix("native/")))
+    if name == "requirements":
+        return requirements(snapshot)
+    if name == "result":
+        return {"fingerprint": result_fingerprint(snapshot),
+                "changed_paths": changed_paths(snapshot.json("scope.json"), run_dir=snapshot.logical_root)}
+    if name == "summary":
+        return {"task": snapshot.json("task.json"), "assignments": list(assignments(snapshot).values()),
+                "reports": [{"path": key, "sha256": digest(data), "status": json.loads(data)["status"],
+                             "summary": json.loads(data)["summary"]}
+                            for key, data in sorted(snapshot.documents.items()) if key.startswith("reports/")],
+                "final": snapshot.json("final.json") if snapshot.exists("final.json") else None}
+    return snapshot.json(name)
+
+
+def markdown_view(value):
+    if isinstance(value, dict) and "status" in value and "summary" in value:
+        lines = ["# " + value["status"], "", value["summary"]]
+        if value.get("reason"):
+            lines.extend(["", value["reason"]])
+        for evidence in value.get("evidence", []):
+            lines.append("\n- " + encode_json(evidence))
+        return "\n".join(lines) + "\n"
+    return "```json\n" + json.dumps(value, ensure_ascii=False, indent=2) + "\n```\n"

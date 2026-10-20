@@ -23,6 +23,8 @@ Use it to:
 
 Describe the result you need and any constraints. Include the relevant plan or files when available.
 
+Work happens in the actual checkout without mandatory source copies. Each agent has one current report in SQLite, and the orchestrator summarizes it. File-changing tasks require independent QA and review. Final appears only when work ends as completed or failed.
+
 ## Installation
 
 Choose one of two options.
@@ -55,18 +57,6 @@ python3 ~/.agents/skills/agent-flow/scripts/sync-codex-agent-config.py --output-
 ```
 
 If a run reports outdated roles, do not continue that task — sync and start a
-new one. Tasks started before the sync stay bound to the old roles.
-
-Notable breaking changes:
-
-- **0.3.0**: journals written by 0.1.x/0.2.x are archival. There is no
-  migration; finish or abandon old runs and start new ones.
-- **0.4.0**: the helper scripts `append-timeline.py`, `record-lane-boundary.py`
-  and `record-handoff-state.py` were removed; their functions moved into the
-  unified journal writer and worker conclusion calls.
-- **0.5.0**: audit sections in handoffs must declare covered ids through the
-  `covers` field; phrase-matching acceptance was removed.
-- **0.6.0**: distribution and development tooling slimmed down; only the Codex
-  plugin ZIP is published.
+new one. Previous tasks are not resumed or migrated after an update. To Do, Lessons and Implementation Notes remain project memory.
 
 [Skill instructions](skills/agent-flow/SKILL.md) · [License](LICENSE)

@@ -1,64 +1,24 @@
-# Agent Flow Internal Flows
+# Выбор flow
 
-Use internal flows after the user explicitly starts a task through Agent Flow, and while continuing that active task. The initial instruction may appear anywhere in the latest request. Apply the Invocation Model in `SKILL.md`; quotations, links, and questions about the name do not start a new flow. These flows are not public modes.
+Используйте этот справочник только внутри явно вызванного Agent Flow. Название скилла в вопросе или ссылке не запускает процесс.
 
-Do not use this file as preflight to initiate an unrequested workflow. A new Agent Flow task requires a user-visible invocation; an active task continues without a repeated marker until the user cancels or replaces it, including after context recovery.
+Выберите минимальный путь к проверяемому результату:
 
-Agent Flow does not use the separate `brainstorming` skill. If scope is unclear, handle that through intake, route, and the selected internal flow.
+| Flow | Работа |
+| --- | --- |
+| `quick-check-flow` | Короткая консультация или чтение факта; без обязательного журнала |
+| `bugfix-flow` | Воспроизведение, причина, локальное исправление, проверка регрессии |
+| `feature-flow` | Требования, реализация, относящиеся к ним проверки |
+| `docs-flow` | Изменение документа и проверка его содержания |
+| `design-flow` | Направление дизайна, реализация, visual QA |
+| `ci-release-flow` | CI или разрешённая поставка с фактическими результатами проверок |
+| `review-flow` | Находки с местом, условием возникновения и последствиями |
+| `initiative-flow` | Уточнение идеи до проверенного результата |
 
-## Flow Selection
+Это способы организации работы, а не разные API или форматы журналов.
 
-Choose the smallest flow that can produce a verified result.
+Для инициативы уточните цель, границы и критерии, затем решите существенные архитектурные и дизайнерские вопросы, подготовьте план и реализуйте его. PRD, ADR и DESIGN создаются только если нужны проекту; полный пакет документов не является самоцелью.
 
-Read `workflow-patterns.md` when the selected flow needs a repeatable internal
-shape: fan-out, adversarial verification, tournament, quarantine, or loop. These
-patterns refine a flow; they are not separate public modes.
+Перед выполнением нового или существенно изменённого плана получите requirements review существующего QA. Для изменения файлов завершите работу независимыми QA и reviewer по общему контракту.
 
-| Flow | Use when | Typical output |
-| --- | --- | --- |
-| `quick-check-flow` | One command, short lookup, tiny explanation | Answer, command output, or brief note |
-| `bugfix-flow` | Bug report, failing test, regression, broken workflow | Repro, root cause, fix, regression check |
-| `feature-flow` | New product/code capability with bounded scope | Plan, implementation, tests, summary |
-| `docs-flow` | PRD, specs, README, design docs, process docs | Draft or updated docs with review notes |
-| `design-flow` | UI, UX, Pencil, Figma, screenshots, visual assets | Approved design source, implementation notes, visual QA |
-| `ci-release-flow` | CI, deploy, release, package, secret-sensitive pipeline | Logs, fix, verification, residual risk |
-| `review-flow` | Code/docs/design review requested by user | Findings first, severity order, file/line refs |
-| `initiative-flow` | Small idea must become a finished project outcome | Discovery through final handoff |
-
-## Initiative Flow
-
-Use `initiative-flow` when the user brings a rough idea and expects the agent team to drive it to a complete result.
-
-Sequence:
-
-1. Intake: goal, audience, constraints, success criteria.
-2. Product shaping: PRD or brief, out-of-scope, acceptance criteria.
-3. Architecture: system boundaries, data flow, risks.
-4. Design route if UI/UX is involved.
-5. Implementation plan.
-6. Product changes by the main agent by default for `light`; bounded workers are allowed for `standard` and `release` when they add value.
-7. QA and verification scaled to the selected budget.
-8. AI-slop checklist for user-facing surfaces.
-9. Reviewer pass for release/high-risk work or explicit request; architecture-sensitive review needs an architect-owned contract first.
-10. Final handoff with evidence and risks.
-
-If the user explicitly asks for a full document package, use at least `standard` budget unless scope is tiny. The package should include PRD or brief, architecture notes, design route when UI/UX is involved, implementation plan, checks, and final handoff. Do not create full trace artifacts for `light` budget unless the user explicitly asks for durable artifacts.
-
-Ask approval only when the next step would lock a product/design direction, spend money, change external state, handle secrets, deploy, or expand scope.
-
-## Scope Growth
-
-Unmarked solo requests do not auto-upgrade into Agent Flow. If any of these appears during solo work, handle it solo when reasonable. If it is too broad or risky, ask the user whether to invoke Agent Flow:
-
-- more than one related step;
-- product/code/doc change with regression risk;
-- external service or credential;
-- independent work that would benefit from subagents;
-- user-facing text or UI;
-- unclear acceptance criteria.
-
-Inside an Agent Flow-invoked request, choose the smallest internal flow that covers the expanded scope.
-
-Inside Agent Flow, choose subagent variants only when the selected budget is
-`standard` or `release`, or when the user explicitly asked for subagents. Do not
-infer authorization from pattern choice for `light` work.
+Если область выросла, пересмотрите план и владельцев. Не превращайте невызванный обычный запрос в Agent Flow автоматически.

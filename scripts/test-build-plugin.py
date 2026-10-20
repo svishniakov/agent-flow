@@ -71,61 +71,51 @@ class PluginBuild(unittest.TestCase):
                     builder.build(source, self.base / ("archive-" + missing))
                 self.assertEqual(list((self.base / ("archive-" + missing)).iterdir()), [])
 
-    def test_installed_plugin_creates_v3_journal_and_rejects_manual_final(self):
+    def test_installed_plugin_initializes_and_closes_current_task(self):
         package = self.install / "plugin/agent-flow/skills/agent-flow"
         project = self.base / "plugin-lifecycle"
         project.mkdir()
-        command = [sys.executable, "-B", str(package / "scripts/init-run.py"),
-                   "--repo", str(project), "--slug", "archive-check", "--mode", "compact"]
-        initialized = subprocess.run(command, capture_output=True, text=True)
-        self.assertEqual(initialized.returncode, 0, initialized.stdout + initialized.stderr)
-        run = Path(initialized.stdout.strip())
-        request = project / "progress-request.json"
-        request.write_text(json.dumps({"summary": "Installed lifecycle record", "status": "active"}))
-        recorded = subprocess.run([sys.executable, "-B", str(package / "scripts/journal.py"),
-                                   "--run-dir", str(run), "record", "--kind", "progress", "--request-file", str(request)],
-                                  capture_output=True, text=True)
-        self.assertEqual(recorded.returncode, 0, recorded.stdout + recorded.stderr)
-        read = subprocess.run([sys.executable, "-B", str(package / "scripts/journal.py"),
-                               "--run-dir", str(run), "read", "progress.md"], capture_output=True, text=True)
-        self.assertEqual(read.returncode, 0, read.stderr)
-        self.assertIn("Installed lifecycle record", read.stdout)
-        source, context = self.base / "plugin-source", self.base / "plugin-context"
-        source.mkdir()
-        context.mkdir()
-        (source / "product.txt").write_text("product\n")
-        (context / "context.txt").write_text("context\n")
         environment = {**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"}
-        for arguments in (("init", "-q"), ("add", "product.txt"),
-                          ("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
-                           "-c", "commit.gpgsign=false", "commit", "-qm", "fixture")):
-            git = subprocess.run(["git", "-C", str(source), *arguments], env=environment, capture_output=True, text=True)
-            self.assertEqual(git.returncode, 0, git.stderr)
-        prepared = subprocess.run([sys.executable, "-B", str(package / "scripts/task-workspace.py"),
-                                   "--run-dir", str(run), "prepare", "--source", str(source),
-                                   "--context-root", str(context), "--destination", str(self.base / "plugin-workspace")],
-                                  env=environment, capture_output=True, text=True)
-        self.assertEqual(prepared.returncode, 0, prepared.stdout + prepared.stderr)
-        self.assertEqual(json.loads(prepared.stdout)["version"], 2)
+        codex_home = self.base / "plugin-lifecycle-codex"
+        (codex_home / "sessions").mkdir(parents=True)
+        thread_id = "00000000-0000-4000-8000-000000000001"
+        (codex_home / "sessions" / (thread_id + ".jsonl")).write_text(
+            json.dumps({"type": "session_meta", "payload": {"id": thread_id, "cwd": str(project)}}) + "\n")
+        environment["CODEX_HOME"] = str(codex_home)
+        requirements = project / "plan.md"
+        requirements.write_text("# Archive check\n\n## Критерии приёмки\n\n- Installed task starts.\n")
+        git = subprocess.run(["git", "-C", str(project), "init", "-q", "--template="],
+                             env=environment, capture_output=True, text=True)
+        self.assertEqual(git.returncode, 0, git.stderr)
+        command = [sys.executable, "-B", str(package / "scripts/init-run.py"),
+                   "--repo", str(project), "--slug", "archive-check", "--summary", "Installed lifecycle",
+                   "--root-agent-id", thread_id,
+                   "--requirements", str(requirements), "--task-heading", "Archive check",
+                   "--operation-id", "installed-init"]
+        initialized = subprocess.run(command, env=environment, capture_output=True, text=True)
+        self.assertEqual(initialized.returncode, 0, initialized.stdout + initialized.stderr)
+        run = Path(json.loads(initialized.stdout)["run_dir"])
         with sqlite3.connect(run / ".journal/state.sqlite3") as connection:
-            before = connection.execute("SELECT version, revision FROM run_state").fetchone()
-        self.assertEqual(before[0], 3)
-        manual_request = project / "final-event-request.json"
-        manual_request.write_text(json.dumps({"summary": "Manual final must fail", "status": "pass",
-                                              "stage": "final", "role": "orchestrator"}))
+            self.assertEqual(connection.execute("SELECT path FROM documents WHERE path='final.json'").fetchall(), [])
+            before = connection.execute("SELECT revision FROM run_state").fetchone()
         manual = subprocess.run([sys.executable, "-B", str(package / "scripts/journal.py"),
-                                 "--run-dir", str(run), "record", "--kind", "event",
-                                 "--request-file", str(manual_request)],
+                                 "--run-dir", str(run), "record", "--kind", "final",
+                                 "--request-file", "-", "--operation-id", "manual-final"],
+                                input=json.dumps({"status": "completed", "summary": "Unverified final"}), env=environment,
                                 capture_output=True, text=True)
         self.assertNotEqual(manual.returncode, 0, manual.stdout + manual.stderr)
-        self.assertIn("finalize", manual.stdout + manual.stderr)
         with sqlite3.connect(run / ".journal/state.sqlite3") as connection:
-            self.assertEqual(before, connection.execute("SELECT version, revision FROM run_state").fetchone())
-        help_result = subprocess.run([sys.executable, "-B", str(package / "scripts/journal.py"),
-                                      "--run-dir", str(run), "finalize", "--help"],
-                                     capture_output=True, text=True)
-        self.assertEqual(help_result.returncode, 0, help_result.stderr)
-        self.assertIn("--expected-generation", help_result.stdout)
+            self.assertEqual(before, connection.execute("SELECT revision FROM run_state").fetchone())
+        closed = subprocess.run([sys.executable, "-B", str(package / "scripts/journal.py"), "--run-dir", str(run),
+                                 "finalize", "--status", "failed", "--summary", "Smoke stopped before implementation",
+                                 "--reason", "No product work is part of this installed-package smoke",
+                                 "--unverified", "Product acceptance", "--operation-id", "installed-final"],
+                                env=environment, capture_output=True, text=True)
+        self.assertEqual(closed.returncode, 0, closed.stdout + closed.stderr)
+        read = subprocess.run([sys.executable, "-B", str(package / "scripts/journal.py"),
+                               "--run-dir", str(run), "read", "final.json"], capture_output=True, text=True)
+        self.assertEqual(read.returncode, 0, read.stderr)
+        self.assertEqual(json.loads(read.stdout)["status"], "failed")
 
     def test_missing_required_entry_and_symlink_fail_before_output(self):
         source = self.copy_source("broken skill")

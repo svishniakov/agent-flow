@@ -1,0 +1,7 @@
+{
+  "scenario": "failed-partial",
+  "status": "failed",
+  "summary": "Stopped before acceptance",
+  "reason": "Required verification is unavailable",
+  "unverified": ["Result correctness"]
+}

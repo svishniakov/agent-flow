@@ -14,13 +14,13 @@ python3 scripts/sync-codex-agent-config.py --output-dir .codex/agents
 
 Для личной глобальной настройки используйте `--output-dir ~/.codex/agents`. Если роли не появились в текущей схеме `spawn_agent`, перезапустите или перезагрузите Codex client.
 
-В больших traceable runs одна роль может использоваться несколько раз как разные lanes. Например, `qa-verifier` может отдельно проверить `qa-verifier:admin-rbac`, `qa-verifier:live-feed` и `qa-verifier:pii`; различие фиксируется в `lane-map.json`, handoff и trace metadata, а не через новые role files.
+Одну роль можно использовать в нескольких назначениях с разной ответственностью. Назначения и единственные текущие отчёты хранятся в SQLite; новые role files и дублирующие карты для этого не нужны.
 
 ## Core orchestration and planning
 
 ### orchestrator
 
-Вспомогательный оркестратор Agent Flow. Помогает основному агенту выбрать flow, внутренний budget, trace policy, порядок работы, результат Dependency Gate и критерии проверки. Он готовит delegation packets, интегрирует handoffs, следит за Definition of Done и проверяет, что финальный ответ опирается на evidence.
+Вспомогательный оркестратор Agent Flow. Помогает основному агенту выбрать flow, внутренний budget, область доказательств, порядок работы, результат Dependency Gate и критерии проверки. Он готовит delegation packets, сводит отчёты, следит за Definition of Done и проверяет, что финальный ответ опирается на evidence.
 
 Не имеет права сам включать Agent Flow или придумывать публичные режимы. Субагентов запускает только после внутреннего выбора workflow, прохождения Dependency Gate и проверки пользы от делегирования.
 

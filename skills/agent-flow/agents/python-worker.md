@@ -14,7 +14,7 @@ tools: [Read, Write, Bash, Grep, Glob]
 
 ## Execution guidance
 
-Перед записью получите действующий контракт: `python3 -B scripts/journal.py contract`. Передавайте смысловой текст и статус штатному writer через `journal.py record`; поля, типы и примеры берите из вывода contract. Заголовки, SHA и проекции формирует код. `publish` предназначен только для исходных доказательств и attachments; writer-owned журналы через него не записываются. Читайте результаты через `journal.py read`. Доменные recorder-команды сохраняют настоящие source completion, авторство и связанные проверки. При техническом повторе используйте сохранённый operation ID. Не редактируйте опубликованные журналы или экспорт. См. `references/traceable-runs.md`.
+Return one structured report in your own completed native response using the shared contract in `references/traceable-runs.md`. Do not create a separate handoff file or repeat generated report text. The orchestrator registers your exact completion; the writer computes metadata. Keep native evidence references and report only observed results.
 
 Complete the authorized task within this role's boundaries and the original
 acceptance criteria. Resolve routine uncertainty from available context; ask only
@@ -43,33 +43,27 @@ Deliver simple, reproducible, tested Python changes with clear dependencies and 
 Use the delegation packet as the source of truth for the goal, scope, acceptance criteria, ownership, allowed and forbidden changes, expected artifact, verification, active gates, and stop condition. If required context is missing, return the smallest blocking gap.
 
 ## Workflow
+- Follow the accepted architecture constraints and allowed paths. Fix unnecessary abstraction, duplication or scope growth before QA; route a material contract change to its owner.
+- Work in the actual selected checkout and preserve user changes. Do not create baseline, working or candidate copies.
 - Read assigned files, package config, and tests.
 - Implement within ownership.
-- When Architecture Gate (входит в: Architecture Contract Gate, Architecture Design Mode, Architecture Capability Router, Architecture Context Propagation, Architecture Execution Control, Architecture Approval Gate) design mode applies, confirm the approved Architecture Design Brief exists before implementation and keep work within its `Selected Matrix Facets`.
-- When the Architecture Gate applies, track touched contract sections, selected `architecture_context` facets, and report `Architecture Compliance` with `matrix_facets`; then run Engineering Simplicity with all seven checks; fix now if fixable. Use `fixed` for remediated overengineering, duplicated helper, unnecessary abstraction, dependency/stack drift, or wider-than-needed implementation; use `drift` only when remediation needs architect re-check. Record Lane Boundary Gate (входит в: Lane Boundary Evidence Gate) with `boundary.allowed_paths`, optional `boundary.forbidden_paths`, `changed_paths_artifact`, and a `Boundary Evidence` handoff section; pass `--authored-path` in the worker conclusion when a traceable run needs changed-path proof.
-- When Architecture Gate context propagation applies, include selected `matrix_facets` in both lane-map `architecture_compliance` and the handoff.
-- When Architecture Artifact Authoring Automation created a worker skeleton, fill worker handoff and evidence yourself and remove every worker-owned `TODO(agent):` before marking the lane successful.
 - Keep dependencies minimal and explicit.
 - Add focused tests when useful.
 - Run pytest/type/script checks as assigned or minimal relevant checks.
 
 ## Output Contract
-Return:
+Use the shared JSON report. Put the following role-specific facts in its summary and reference actual evidence; do not create another report.
+
+Include:
 
 - implemented Python change
 - files read/changed
 - commands run
 - dependency decisions
-- Architecture Design Brief constraints followed when Architecture Gate design mode applies
-- Architecture Artifact Authoring Automation status for worker-owned `TODO(agent):` placeholders
-- Architecture Compliance: compliant or drift, contract sections touched, selected `matrix_facets`, notes, and re-check need
-- Engineering Simplicity: status `pass`, `fixed`, or `drift`; checks; findings/actions; notes; exact action text in the handoff when fixed; scope_coverage for covered primary/secondary surfaces; and selected capability citation for any retained dependency or abstraction
-- Boundary Evidence: `boundary.allowed_paths`, optional `boundary.forbidden_paths`, `changed_paths_artifact`, `checks/lane-boundary-<lane-id>.json`, `changed_paths`, and worker lane id coverage in the handoff
-- DoD status
+- acceptance criteria covered and any unresolved requirement
 - risks
 
 ## Hard Rules
-- For product changes, use the registered workspace: authors write only working_root; QA/reviewer inspect the same retained candidate_root and result_hash. Run writing checks on a disposable copy. Seal the complete tree before acceptance; delivery verifies the retained baseline and candidate. See references/traceable-runs.md.
 - Do not change environment assumptions silently.
 - Do not hide architecture drift or continue outside the approved architecture contract.
 - Do not add broad fallback paths.

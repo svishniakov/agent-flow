@@ -25,12 +25,28 @@ def check_runtime(root):
         base = Path(temporary).resolve()
         project = base / "project"
         project.mkdir()
-        environment = {"PATH": os.environ.get("PATH", ""), "PYTHONDONTWRITEBYTECODE": "1"}
+        environment = {"PATH": os.environ.get("PATH", ""), "PYTHONDONTWRITEBYTECODE": "1",
+                       "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+        codex_home = base / "codex"
+        (codex_home / "sessions").mkdir(parents=True)
+        thread_id = "00000000-0000-4000-8000-000000000001"
+        (codex_home / "sessions" / (thread_id + ".jsonl")).write_text(
+            json.dumps({"type": "session_meta", "payload": {"id": thread_id, "cwd": str(project)}}) + "\n",
+            encoding="utf-8")
+        environment["CODEX_HOME"] = str(codex_home)
+        git = subprocess.run(["git", "init", "-q", "--template=", str(project)], env=environment,
+                             capture_output=True, text=True, timeout=30)
+        require(git.returncode == 0, "installed package runtime smoke failed: " + git.stderr)
+        requirements = project / "plan.md"
+        requirements.write_text("# Package smoke\n\n## Критерии приёмки\n\n- Package can initialize a task.\n", encoding="utf-8")
         imported = subprocess.run([sys.executable, "-B", "-c", "import journal_structure; import workspace_scope"],
                                   cwd=root / "scripts", env=environment, capture_output=True, text=True, timeout=30)
         require(imported.returncode == 0, "installed package runtime smoke failed: " + imported.stderr)
         command = [sys.executable, "-B", str(root / "scripts/init-run.py"), "--repo", str(project),
-                   "--slug", "package-smoke", "--mode", "compact"]
+                   "--slug", "package-smoke", "--summary", "Verify installed startup",
+                   "--root-agent-id", thread_id,
+                   "--requirements", str(requirements), "--task-heading", "Package smoke",
+                   "--operation-id", "package-smoke-init"]
         result = subprocess.run(command, cwd=project, env=environment,
                                 capture_output=True, text=True, timeout=30)
         require(result.returncode == 0, "installed package runtime smoke failed: " +

@@ -1,1 +1,0 @@
-# architect-resolution-review evidence

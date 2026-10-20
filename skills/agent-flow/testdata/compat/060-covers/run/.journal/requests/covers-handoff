@@ -1,1 +1,0 @@
-{"command": "semantic-write", "operation_id": "covers-handoff", "payload": {"kind": "handoff", "request": {"lane_id": "worker", "sections": [{"covers": ["monolith"], "section": "Architecture Invariants", "summary": "ok"}], "status": "pass", "summary": "Work done"}}, "run_uuid": "800b0385-63be-481a-85db-ef0f9c29b493"}

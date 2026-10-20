@@ -1,0 +1,6 @@
+{
+  "scenario": "stale-qa",
+  "status": "completed",
+  "summary": "A result changed after QA must remain open",
+  "expected_error": "stale"
+}

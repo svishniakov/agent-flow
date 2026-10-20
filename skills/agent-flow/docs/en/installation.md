@@ -111,24 +111,11 @@ identify one source, disable the extra form before delegation.
 
 ### Updating the skill installed through npx
 
-Breaking change in 0.4.0: the standalone helper commands for appending
-timeline events, recording handoff state, and recording lane boundaries are
-removed. Commit events go through
-`journal.py record --kind event` with `commit_hash` in the request, handoff
-state is writer-computed at every assignment event, and boundary evidence is
-written atomically by the worker conclusion call with `--authored-path`.
-Update any saved runbooks or wrappers before starting a new run.
-
-Breaking change in 0.3.0: journals created by package versions before 0.3.0 use
-the old storage format and are archival — 0.3.0 does not read or convert them.
-After updating, start a new run; previous journals stay on disk only for
-external reference.
-
 Before updating, back up your entire installed skill, Codex settings and roles
 outside their installation directories. Skills CLI can replace the target;
 keep local additions in the backup and compare them before restoring any files.
 Repeat the npx installation and role setup above, resolve reported conflicts,
-and start a new task after the package check succeeds.
+and start a new chat after the package check succeeds. Previous runtime tasks are not resumed or migrated. To Do, Lessons and Implementation Notes remain ordinary project files.
 
 ### Updating the plugin
 

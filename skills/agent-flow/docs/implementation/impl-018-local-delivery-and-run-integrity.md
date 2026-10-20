@@ -3,9 +3,11 @@
 Document status: done
 Implementation status: done
 
+Историческое описание. Текущие правила работы с исходниками и приёмки находятся в [контракте выполнения](../../references/traceable-runs.md).
+
 Уточнение от 12 октября 2026 года: бессрочная зависимость от saved dev/ino,
 дублирующий `run_changed_files`, обязательная предварительная readiness-церемония
-и полный аудит как условие доставки заменены [контрактом приёмки продукта](../../references/traceable-runs.md#приёмка-продукта-и-аудит-журнала).
+и полный аудит как условие доставки заменены контрактом приёмки продукта.
 Новые seals используют hash v5; старые v1–4 воспроизводятся без миграции.
 Ниже сохранена историческая постановка. Обязательные локальные proof, scope,
 авторские границы и независимые QA/reviewer остаются условиями доставки.
@@ -27,9 +29,9 @@ Agent Flow должен принимать и выдавать проверен�
 
 - [validate-run.py](../../scripts/validate-run.py), `validate_acceptance_traceability_records`, строки 2778–2925, и `validate_claim_evidence_records`, 2929–3094: положительный финал требует `supported` у каждой записи, включая записи вне списка required IDs. Это не специальная зависимость от GitHub.
 - [verification_evidence.py](../../scripts/verification_evidence.py), `evaluate_obligations`, строки 286–379: проверяется принятие всех текущих обязательств. [validate-run.py](../../scripts/validate-run.py), `validate_verification_readiness`, 3876–4130, и проверка critical lanes, 6254–6270: внешние ограничения могут блокировать общий исход и через другие потребители.
-- [record-lane-boundary.py](../../scripts/record-lane-boundary.py), `capture_boundary`, строки 56–69: каждой lane записывается полный `sealed.changed_paths`. `validate_lane_boundary_artifact` и `validate_lane_boundary` в validator, строки 4483–4620, сверяют этот полный список с разрешениями одного автора.
+- `record-lane-boundary.py` (удалённая команда), `capture_boundary`, строки 56–69: каждой lane записывается полный `sealed.changed_paths`. `validate_lane_boundary_artifact` и `validate_lane_boundary` в validator, строки 4483–4620, сверяют этот полный список с разрешениями одного автора.
 - `validate_delegation_summary` в validator, строки 2152–2194, вычисляет проверенные `resolved` только для положительного финала, но всегда исключает `replaced` из ожидаемых текущих lanes. Историческая запись становится лишней при отрицательном финале.
-- [task-workspace.py](../../scripts/task-workspace.py), строка 18: `prepare` требует `--destination`. [task_workspace.py](../../scripts/task_workspace.py), `delivery`, строки 914–967, проверяет принятие и сохранённый candidate; [journal_io.py](../../scripts/journal_io.py), строки 1039–1040, требует закрытую generation для delivery.
+- `task-workspace.py` (удалённая команда), строка 18: `prepare` требует `--destination`. [task_workspace.py](../../scripts/task_workspace.py), `delivery`, строки 914–967, проверяет принятие и сохранённый candidate; [journal_io.py](../../scripts/journal_io.py), строки 1039–1040, требует закрытую generation для delivery.
 
 При подготовке диагностический Bun run revision 118 содержал проверенную замену
 `verification-readiness-1 → verification-readiness-2`, но получал ошибку coverage

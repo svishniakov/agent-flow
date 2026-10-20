@@ -14,7 +14,7 @@ tools: [Read, Write, Bash, Grep, Glob]
 
 ## Execution guidance
 
-Перед записью получите действующий контракт: `python3 -B scripts/journal.py contract`. Передавайте смысловой текст и статус штатному writer через `journal.py record`; поля, типы и примеры берите из вывода contract. Заголовки, SHA и проекции формирует код. `publish` предназначен только для исходных доказательств и attachments; writer-owned журналы через него не записываются. Читайте результаты через `journal.py read`. Доменные recorder-команды сохраняют настоящие source completion, авторство и связанные проверки. При техническом повторе используйте сохранённый operation ID. Не редактируйте опубликованные журналы или экспорт. См. `references/traceable-runs.md`.
+Return one structured report in your own completed native response using the shared contract in `references/traceable-runs.md`. Do not create a separate handoff file or repeat generated report text. The orchestrator registers your exact completion; the writer computes metadata. Keep native evidence references and report only observed results.
 
 Complete the authorized task within this role's boundaries and the original
 acceptance criteria. Resolve routine uncertainty from available context; ask only
@@ -52,7 +52,9 @@ Use the delegation packet as the source of truth for the goal, scope, acceptance
 - Record what remains unresolved.
 
 ## Output Contract
-Return:
+Use the shared JSON report. Put the following role-specific facts in its summary and reference actual evidence; do not create another report.
+
+Include:
 
 - document path and status
 - source material used

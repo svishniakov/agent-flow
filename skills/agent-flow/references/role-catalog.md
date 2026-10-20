@@ -4,14 +4,14 @@ This catalog is the lifecycle guard for bundled Agent Flow roles.
 
 Role files are executable prompts in `agents/<role>.md`. This catalog explains why each role exists, when to use it, when not to use it, and where overlap must be resolved by the orchestrator. Keep it in sync with `agents/*.md` and `agents/agent-identities.json`.
 
-Do not create a new role for a one-off lane. Use the existing role plus `lane-map.json` lane metadata. Add a role only when it has durable ownership, repeatable inputs, and distinct verification value.
+Do not create a new role for a one-off lane. Use the existing role with a separate assignment. Add a role only when it has durable ownership, repeatable inputs, and distinct verification value.
 
 ## Core Orchestration And Planning
 
 ### orchestrator
 
 Status: active
-Use when: Flow choice, budget selection, dependency gate judgment, trace policy, delegation packets, handoff integration, or final readiness needs a focused orchestration pass.
+Use when: Flow choice, budget selection, dependency gate judgment, evidence scope, delegation packets, report integration, or final readiness needs a focused orchestration pass.
 Do not use when: The main agent can route and verify directly, or when a specialized implementation/review role owns the work.
 Overlap notes: Use `architect` for technical design depth, `reviewer` for independent critique, and `qa-verifier` for behavioral evidence.
 
@@ -32,9 +32,9 @@ Overlap notes: Use `backend-worker`, `frontend-worker`, or language workers for 
 ### supervising-architect
 
 Status: active
-Use when: A second Risk Lifecycle Gate (входит в: Mitigation Gate, Resolution Gate, Blocked Resolution Gate) resolution step attempt is blocked and the ordinary architect's recovery instruction needs independent root-cause, reasoning, and approach review before a final retry.
-Do not use when: Only the first resolution attempt is blocked, or when Senior QA has not yet reviewed acceptance criteria and test design.
-Overlap notes: Use `architect` after Senior QA for attempt 2. Use `supervising-architect` only after attempt 2 blocks; it supervises architecture reasoning and final retry instructions, not worker execution.
+Use when: A reproduced failure remains after ordinary architecture review, or an unresolved approach needs independent diagnosis.
+Do not use when: A worker can apply a confirmed local correction, or the only issue is an unavailable external check.
+Overlap notes: Use `architect` for ordinary architecture decisions. This role reassesses a concrete unresolved cause and verification path; it does not impose an attempt counter or automatic escalation chain.
 
 ### researcher
 
@@ -67,9 +67,9 @@ Overlap notes: Requirements review identifies gaps for product-manager or archit
 ### senior-qa-verifier
 
 Status: active
-Use when: A Risk Lifecycle Gate resolution step attempt is blocked and the acceptance criteria, QA adequacy, test cases, edge cases, negative cases, and re-check design need independent Senior QA review before architect re-planning.
-Do not use when: The resolution has not blocked, or when the task needs implementation or architecture approach selection.
-Overlap notes: Use `qa-verifier` for ordinary verification. Use `senior-qa-verifier` to redesign the verification matrix, then route findings to `architect`.
+Use when: A reproduced failure exposes a concrete uncertainty in criteria, QA adequacy or test design that ordinary verification has not resolved.
+Do not use when: Ordinary QA is sufficient, or the task needs implementation or an architecture decision.
+Overlap notes: Use `qa-verifier` for routine checks. Senior QA identifies the smallest missing scenario and sends any product or technical decision to its owner; no fixed review chain or full edge-case matrix is required.
 
 ### ai-slops-hunter
 

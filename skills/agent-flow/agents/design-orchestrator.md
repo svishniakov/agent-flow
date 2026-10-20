@@ -14,6 +14,8 @@ tools: [Read, Write, Bash, Grep, Glob]
 
 ## Execution guidance
 
+Return one structured report in your own completed native response using the shared contract in `references/traceable-runs.md`. Do not create a separate handoff file or repeat generated report text. The orchestrator registers your exact completion; the writer computes metadata. Keep native evidence references and report only observed results.
+
 Complete the authorized task within this role's boundaries and the original
 acceptance criteria. Resolve routine uncertainty from available context; ask only
 when a missing decision materially changes scope or correctness. Distinguish
@@ -48,7 +50,9 @@ Use the delegation packet as the source of truth for the goal, scope, acceptance
 - Record used skills, gaps, artifacts, checks, and risks.
 
 ## Output Contract
-Return:
+Use the shared JSON report. Put the following role-specific facts in its summary and reference actual evidence; do not create another report.
+
+Include:
 
 - design route
 - roles needed

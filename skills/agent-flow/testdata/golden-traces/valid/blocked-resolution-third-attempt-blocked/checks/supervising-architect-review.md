@@ -1,1 +1,0 @@
-# supervising-architect-review evidence

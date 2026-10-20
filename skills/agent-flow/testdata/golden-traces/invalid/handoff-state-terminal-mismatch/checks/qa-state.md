@@ -1,3 +1,0 @@
-# QA Evidence
-
-pass
