@@ -3,6 +3,8 @@ from contextlib import redirect_stdout
 from importlib.util import module_from_spec, spec_from_file_location
 from io import BytesIO, StringIO, TextIOWrapper
 import json
+import sqlite3
+import subprocess
 from pathlib import Path
 import sys
 import tempfile
@@ -214,6 +216,265 @@ class JournalTests(unittest.TestCase):
             with self.assertRaisesRegex(JournalError, 'outside product scope'):
                 self.record('check', request, 'escaped-cwd')
         self.assert_unchanged(before)
+
+    def generation_request(self, text='generated = 3\n'):
+        return {'assignment_id': 'author', 'cwd': str(self.f.root), 'outputs': [str(self.f.product)],
+                'command': [sys.executable, '-B', '-c',
+                            'from pathlib import Path; Path("result.py").write_text(' + repr(text) + '); print("generated")']}
+
+    def test_generation_stores_changes_and_replay_never_executes(self):
+        request = self.generation_request()
+        first = self.record('generation', request, 'generate-result')
+        self.assertTrue(first['executed'])
+        receipt = first['receipt']
+        body = self.f.snapshot().json(receipt['result']['path'])
+        self.assertEqual(body['changes'][0]['path'], str(self.f.product))
+        self.assertEqual(body['changes'][0]['before']['sha256'], digest(b'answer = 2\n'))
+        self.assertEqual(body['changes'][0]['after']['sha256'], digest(b'generated = 3\n'))
+        self.assertEqual(self.f.snapshot().read_bytes(body['output']['path']), b'generated\n')
+        self.assertEqual(body['request'], request)
+        self.assertNotIn('executed', json.dumps(receipt))
+        before = self.f.snapshot()
+        with patch.object(writer, 'execute_generation', side_effect=AssertionError('replay launched generation')):
+            self.assertEqual(self.record('generation', request, 'generate-result'), {'executed': False, 'receipt': receipt})
+            with self.assertRaisesRegex(JournalError, 'payload conflict'):
+                self.record('generation', {**request, 'timeout': 10}, 'generate-result')
+        self.assert_unchanged(before)
+
+    def test_generation_busy_precedes_command_and_locked_replay_is_not_execution(self):
+        request = self.generation_request()
+        before = self.f.snapshot()
+        real_transact = writer.transact
+        def quick_transact(*args, **kwargs):
+            return real_transact(*args, **kwargs, timeout=0.01)
+        connection = sqlite3.connect(self.f.run / '.journal/state.sqlite3')
+        try:
+            connection.execute('BEGIN IMMEDIATE')
+            with patch.object(writer, 'transact', new=quick_transact), patch.object(
+                    writer, 'execute_generation', side_effect=AssertionError('busy launched generation')):
+                with self.assertRaisesRegex(JournalError, 'transaction failed'):
+                    self.record('generation', request, 'busy-generation')
+        finally:
+            connection.rollback()
+            connection.close()
+        self.assert_unchanged(before)
+        def competing(*args, **kwargs):
+            with patch.object(writer, 'transact', new=real_transact):
+                self.first_generation = self.record('generation', request, 'racing-generation')
+            return real_transact(*args, **kwargs)
+        with patch.object(writer, 'transact', new=competing):
+            replay = self.record('generation', request, 'racing-generation')
+        self.assertTrue(self.first_generation['executed'])
+        self.assertFalse(replay['executed'])
+        self.assertEqual(replay['receipt'], self.first_generation['receipt'])
+
+    def test_generation_refuses_outside_assignment_before_execution(self):
+        request = {**self.generation_request(), 'outputs': [str(self.f.plan)]}
+        before = self.f.snapshot()
+        with patch.object(writer.subprocess, 'run', side_effect=AssertionError('unowned generation executed')):
+            with self.assertRaisesRegex(JournalError, 'outside assignment'):
+                self.record('generation', request, 'unowned-generation')
+        self.assert_unchanged(before)
+
+    def test_generation_refuses_undeclared_changes_and_changed_requirements(self):
+        for target, content, error in (('extra.py', 'extra = 1', 'undeclared product'),
+                                       ('todo.md', self.f.plan.read_text().replace('Result is correct', 'Result changes'),
+                                        'changed context or requirements')):
+            with self.subTest(target=target):
+                before = self.f.snapshot()
+                old_plan = self.f.plan.read_text()
+                request = self.generation_request()
+                request['command'] = [sys.executable, '-B', '-c',
+                                      'from pathlib import Path; Path(' + repr(target) + ').write_text(' + repr(content) + ')']
+                try:
+                    with self.assertRaisesRegex(JournalError, error):
+                        self.record('generation', request, 'unexpected-' + Path(target).stem)
+                    self.assert_unchanged(before)
+                finally:
+                    if target == 'todo.md':
+                        self.f.plan.write_text(old_plan)
+                    else:
+                        (self.f.root / target).unlink(missing_ok=True)
+
+    def test_generation_noop_and_failed_execution_do_not_claim_changes(self):
+        request = self.generation_request('answer = 2\n')
+        result = self.record('generation', request, 'noop-generation')
+        self.assertEqual(self.f.snapshot().json(result['receipt']['result']['path'])['changes'], [])
+        request['command'] = [sys.executable, '-B', '-c', 'print("failed generator"); raise SystemExit(7)']
+        result = self.record('generation', request, 'failed-generation')
+        self.assertEqual(result['receipt']['result']['exit_code'], 7)
+        self.assertEqual(self.f.snapshot().json(result['receipt']['result']['path'])['changes'], [])
+
+    def test_generation_logs_cannot_be_published_as_user_artifacts(self):
+        with self.assertRaisesRegex(JournalError, 'writer-owned'):
+            writer.publish_artifact(self.f.run, 'artifacts/generations/forged.log', self.f.product, identifier='forge-log')
+
+    def native_generation(self, request, identifier, *, thread=base.ROOT_ID):
+        script = writer.generation_invocation(self.f.run, identifier, request)
+        process = subprocess.run(['/bin/zsh', '-lc', script], cwd=self.f.root, capture_output=True, text=True)
+        self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
+        envelope = json.loads(process.stdout)
+        item = {'type': 'CommandExecution', 'id': 'exec-' + identifier, 'status': 'completed', 'exit_code': 0,
+                'command': ['/bin/zsh', '-lc', script], 'cwd': self.f.root.as_uri(), 'aggregated_output': process.stdout}
+        event = {'type': 'event_msg', 'payload': {'type': 'item_completed', 'thread_id': thread,
+                                                'turn_id': thread + '-turn', 'item': item}}
+        events = self.f.source.sessions[thread]
+        index = -2 if events[-1]['payload'].get('type') == 'task_complete' else len(events)
+        events.insert(index, event)
+        result = envelope['receipt']['result']
+        ref = {'path': result['path'], 'sha256': result['sha256'],
+               'native': {'thread_id': thread, 'turn_id': thread + '-turn', 'item_id': item['id']}}
+        return ref, event
+
+    def test_generated_root_author_to_independent_acceptance_and_final(self):
+        import journal_lifecycle
+        ref, event = self.native_generation(self.generation_request(), 'root-generation')
+        observed = evidence.native_references(self.f.snapshot(), 'author', self.f.source)
+        self.assertEqual(observed['observations'][-1]['ref'], ref)
+        self.assertEqual(observed['observations'][-1]['authored_paths'], [str(self.f.product)])
+        request = self.report_request('author')
+        request['report']['evidence'] = [ref]
+        self.record('report', request, 'generated-author')
+        for key in ('qa', 'review'):
+            self.record('report', self.report_request(key), 'generated-' + key)
+        self.assertEqual(evidence.validate_acceptance(self.f.snapshot(), self.f.source), [])
+        native_home = tempfile.TemporaryDirectory(prefix='af-generation-native-')
+        self.addCleanup(native_home.cleanup)
+        home = Path(native_home.name)
+        (home / 'sessions').mkdir()
+        connection = sqlite3.connect(home / 'state_5.sqlite')
+        try:
+            connection.execute('CREATE TABLE threads (id TEXT PRIMARY KEY, rollout_path TEXT, agent_path TEXT, source TEXT)')
+            for thread, events in self.f.source.sessions.items():
+                path = home / 'sessions' / (thread + '.jsonl')
+                path.write_text(''.join(json.dumps(event) + '\n' for event in events))
+                connection.execute('INSERT INTO threads VALUES (?, ?, NULL, ?)', (thread, str(path), '{}'))
+            connection.commit()
+        finally:
+            connection.close()
+        environment = patch.dict(base.os.environ, {'CODEX_HOME': str(home)})
+        environment.start()
+        self.addCleanup(environment.stop)
+        native_source = evidence.CodexSessionSource()
+        self.assertEqual(evidence.native_references(self.f.snapshot(), 'author', native_source)['observations'][-1]['ref'], ref)
+        receipt = journal_lifecycle.finalize(self.f.run, identifier='generated-final', status='completed',
+                                            summary='Accepted generated result', source=native_source)
+        self.assertEqual(receipt['result']['status'], 'completed')
+        with self.assertRaisesRegex(JournalError, 'successful check or native inspection'):
+            evidence.verify_evidence(self.f.snapshot(), [ref], self.f.source, root_id=base.ROOT_ID, success_required=True)
+
+    def test_generation_requires_fresh_own_invocation_and_unchanged_output(self):
+        ref, event = self.native_generation(self.generation_request(), 'bound-generation')
+        item = event['payload']['item']
+        original_output, original_command = item['aggregated_output'], item['command']
+        request = self.report_request('author')
+        request['report']['evidence'] = [ref]
+        envelope = json.loads(original_output)
+        envelope['executed'] = False
+        item['aggregated_output'] = json.dumps(envelope)
+        with self.assertRaisesRegex(JournalError, 'not a replay'):
+            self.record('report', request, 'replayed-author')
+        item['aggregated_output'] = original_output
+        item['command'] = ['/bin/zsh', '-lc', 'printf ' + repr(original_output)]
+        with self.assertRaisesRegex(JournalError, 'canonical standalone'):
+            self.record('report', request, 'echoed-author')
+        item['command'] = original_command
+        self.f.product.write_text('different = 4\n')
+        with self.assertRaisesRegex(JournalError, 'no native edit evidence'):
+            self.record('report', request, 'stale-generated-author')
+        self.assertFalse(self.f.snapshot().exists('reports/author.json'))
+
+    def test_sequential_generations_keep_current_proof_for_each_output(self):
+        import journal_lifecycle
+        self.record('report', self.report_request('author'), 'initial-author')
+        second = self.f.root / 'second.py'
+        assignment = {**self.f.known['author'], 'id': 'batch', 'depends_on': ['author'],
+                      'allowed_paths': [str(self.f.product), str(second)]}
+        self.record('assignment', assignment, 'assign-batch')
+        request = {**self.generation_request(), 'assignment_id': 'batch',
+                   'outputs': [str(self.f.product), str(second)]}
+        request['command'][-1] += '; Path("second.py").write_text("value = 1\\n")'
+        first, _ = self.native_generation(request, 'generate-batch')
+        request = {**request, 'command': [sys.executable, '-c', 'from pathlib import Path; Path("second.py").write_text("value = 2\\n")'],
+                   'outputs': [str(second)]}
+        latest, _ = self.native_generation(request, 'correct-second')
+        self.assertEqual(evidence.generation_evidence(self.f.snapshot(), first, self.f.source), [str(self.f.product)])
+        report = {'status': 'completed', 'summary': 'Generated and corrected files',
+                  'authored_paths': [str(self.f.product), str(second)], 'evidence': [first]}
+        publication = {'assignment_id': 'batch', 'turn_id': base.ROOT_ID + '-turn', 'report': report}
+        with self.assertRaisesRegex(JournalError, 'no native edit evidence.*second.py'):
+            self.record('report', publication, 'incomplete-batch-proof')
+        report['evidence'].append(latest)
+        self.record('report', publication, 'batch-proof')
+        for key in ('qa', 'review'):
+            self.record('report', self.report_request(key), 'batch-' + key)
+        receipt = journal_lifecycle.finalize(self.f.run, identifier='batch-final', status='completed',
+                                            summary='Accepted both outputs', source=self.f.source)
+        self.assertEqual(receipt['result']['status'], 'completed')
+
+    def test_dependent_author_correction_requires_current_generation_coverage(self):
+        import journal_lifecycle
+        original, _ = self.native_generation(self.generation_request(), 'predecessor-generation')
+        request = self.report_request('author')
+        request['report']['evidence'] = [original]
+        self.record('report', request, 'predecessor-report')
+        child = '00000000-0000-4000-8000-000000000004'
+        assignment = {**self.f.known['author'], 'id': 'child', 'agent_id': child, 'depends_on': ['author']}
+        self.f.source.sessions[child] = base.session(child, 'python-worker', cwd=self.f.root)
+        self.record('assignment', assignment, 'assign-correction')
+        request = {**self.generation_request('generated = 4\n'), 'assignment_id': 'child'}
+        latest, event = self.native_generation(request, 'child-correction', thread=child)
+        report = {'status': 'completed', 'summary': 'Corrected generated result',
+                  'authored_paths': [str(self.f.product)], 'evidence': [latest]}
+        self.f.source.sessions[child] = base.session(child, 'python-worker', report, cwd=self.f.root)
+        self.f.source.sessions[child].insert(-2, event)
+        self.record('report', {'assignment_id': 'child', 'completion_turn_id': child + '-turn'}, 'correction-report')
+        self.f.product.write_text('unobserved = 5\n')
+        for key in ('qa', 'review'):
+            self.record('report', self.report_request(key), 'unobserved-' + key)
+        with self.assertRaisesRegex(JournalError, 'lack native author coverage'):
+            journal_lifecycle.finalize(self.f.run, identifier='unobserved-final', status='completed',
+                                       summary='Must refuse unknown edits', source=self.f.source)
+        self.assertFalse(self.f.snapshot().exists('final.json'))
+        self.f.product.write_text('generated = 4\n')
+        for key in ('qa', 'review'):
+            self.record('report', self.report_request(key), 'corrected-' + key)
+        receipt = journal_lifecycle.finalize(self.f.run, identifier='corrected-final', status='completed',
+                                            summary='Accepted dependent correction', source=self.f.source)
+        self.assertEqual(receipt['result']['status'], 'completed')
+
+    def test_generation_noop_and_failure_cannot_be_author_evidence(self):
+        ref, event = self.native_generation(self.generation_request('answer = 2\n'), 'no-write')
+        with self.assertRaisesRegex(JournalError, 'no observed file changes'):
+            evidence.verify_evidence(self.f.snapshot(), [ref], self.f.source, root_id=base.ROOT_ID)
+        request = self.generation_request()
+        request['command'][-1] += '; raise SystemExit(7)'
+        result = self.record('generation', request, 'failed-write')
+        receipt = result['receipt']
+        failed_ref = {'path': receipt['result']['path'], 'sha256': receipt['result']['sha256'], 'native': ref['native']}
+        with self.assertRaisesRegex(JournalError, 'command did not succeed'):
+            evidence.verify_evidence(self.f.snapshot(), [failed_ref], self.f.source, root_id=base.ROOT_ID)
+
+    def test_generated_child_cannot_claim_root_execution_through_replay(self):
+        child = '00000000-0000-4000-8000-000000000004'
+        self.record('report', self.report_request('author'), 'initial-root-author')
+        assignment = {**self.f.known['author'], 'id': 'child', 'agent_id': child, 'depends_on': ['author']}
+        self.f.source.sessions[child] = base.session(child, 'python-worker', cwd=self.f.root)
+        self.record('assignment', assignment, 'assign-generation-child')
+        request = {**self.generation_request(), 'assignment_id': 'child'}
+        root_ref, _ = self.native_generation(request, 'root-executed-for-child')
+        with self.assertRaisesRegex(JournalError, 'own author native execution'):
+            evidence.verify_evidence(self.f.snapshot(), [root_ref], self.f.source, root_id=base.ROOT_ID)
+        replay_ref, _ = self.native_generation(request, 'root-executed-for-child', thread=child)
+        with self.assertRaisesRegex(JournalError, 'not a replay'):
+            evidence.verify_evidence(self.f.snapshot(), [replay_ref], self.f.source, root_id=base.ROOT_ID)
+        request = {**self.generation_request('generated = 4\n'), 'assignment_id': 'child'}
+        own_ref, own_event = self.native_generation(request, 'child-execution', thread=child)
+        report = {'status': 'completed', 'summary': 'Generated current result', 'authored_paths': [str(self.f.product)], 'evidence': [own_ref]}
+        self.f.source.sessions[child] = base.session(child, 'python-worker', report, cwd=self.f.root)
+        self.f.source.sessions[child].insert(-2, own_event)
+        accepted = self.record('report', {'assignment_id': 'child', 'completion_turn_id': child + '-turn'}, 'generated-child-report')
+        self.assertEqual(accepted['result']['path'], 'reports/child.json')
 
     def test_artifact_immutable_bytes_and_evidence_reference(self):
         source = self.f.root.parent / (self.f.root.name + '-output')

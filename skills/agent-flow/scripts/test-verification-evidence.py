@@ -13,8 +13,8 @@ from unittest.mock import patch
 from agent_config import default_agents_dir, read_frontmatter, resolve_role_path, role_config
 from journal_io import JournalSnapshot, encode_json, initialize_journal, transact
 from task_workspace import bind_workspace
-from verification_evidence import (CodexSessionSource, JournalError, accept_report, native_references, native_tool, requirements, result_fingerprint,
-                                   sha256, validate_acceptance)
+from verification_evidence import (CodexSessionSource, JournalError, accept_report, native_item, native_references, native_tool, requirements, result_fingerprint,
+                                   sha256, validate_acceptance, verify_evidence)
 
 ROOT_ID = '00000000-0000-4000-8000-000000000001'
 QA_ID = '00000000-0000-4000-8000-000000000002'
@@ -52,6 +52,15 @@ def session(thread_id, role, answer=None, *, root=ROOT_ID, cwd=None, patch=None,
             {'type': 'event_msg', 'timestamp': '2026-10-19T10:00:01+00:00', 'payload': {'type': 'task_complete', 'turn_id': turn, 'last_agent_message': text}},
         ])
     return events
+
+
+def file_change(thread_id, path, *, status='completed'):
+    return {'type': 'event_msg', 'payload': {
+        'type': 'item_completed', 'thread_id': thread_id, 'turn_id': thread_id + '-turn',
+        'item': {'id': 'exec-native-patch', 'type': 'FileChange', 'status': status,
+                 'changes': {str(path): {'type': 'update', 'move_path': None, 'unified_diff': 'actual native patch'}},
+                 'stdout': '', 'stderr': ''},
+    }}
 
 
 class Fixture:
@@ -170,6 +179,118 @@ class EvidenceTests(unittest.TestCase):
         self.f.source.sessions[QA_ID][0]['payload']['parent_thread_id'] = REVIEWER_ID
         with self.assertRaisesRegex(JournalError, 'parent_thread_id mismatch'):
             native_references(self.f.snapshot(), 'qa', self.f.source)
+
+    def test_native_file_change_confirms_dynamic_patch_without_interpreting_javascript(self):
+        source, home = self.native_source()
+        events = copy.deepcopy(self.f.source.sessions[ROOT_ID])
+        events[3]['payload'].update(name='exec', input='const before = load("result.py"); text(await tools.apply_patch(before));')
+        events[4]['payload']['output'] = 'Script completed\nOutput:\n{}'
+        events.append(file_change(ROOT_ID, self.f.product))
+        path = self.indexed_session(home, ROOT_ID, events)
+        observed = native_references(self.f.snapshot(), 'author', source)
+        ref = {'thread_id': ROOT_ID, 'turn_id': ROOT_ID + '-turn', 'item_id': 'exec-native-patch'}
+        self.assertEqual(observed['observations'][-1], {
+            'ref': ref, 'name': 'FileChange', 'success': True, 'authored_paths': [str(self.f.product)]})
+        self.assertFalse(observed['observations'][0]['success'])
+        report = {'status': 'completed', 'summary': 'Implemented result',
+                  'authored_paths': [str(self.f.product)], 'evidence': [ref]}
+        accepted = accept_report(self.f.snapshot(), self.f.known['author'],
+                                 {'turn_id': ref['turn_id'], 'report': report}, source)
+        self.assertEqual(accepted['authored_paths'], [str(self.f.product)])
+        self.assertNotIn('unified_diff', json.dumps(observed))
+        with self.assertRaisesRegex(JournalError, 'successful check or native inspection'):
+            verify_evidence(self.f.snapshot(), [ref], source, root_id=ROOT_ID, success_required=True)
+        events.pop()
+        events[4]['payload']['output'] = json.dumps(file_change(ROOT_ID, self.f.product))
+        path.write_text(''.join(json.dumps(event) + '\n' for event in events))
+        with self.assertRaisesRegex(JournalError, 'native item missing'):
+            accept_report(self.f.snapshot(), self.f.known['author'],
+                          {'turn_id': ref['turn_id'], 'report': report}, source)
+
+    def test_native_file_change_rejects_failed_foreign_and_duplicate_items(self):
+        source, home = self.native_source()
+        ref = {'thread_id': ROOT_ID, 'turn_id': ROOT_ID + '-turn', 'item_id': 'exec-native-patch'}
+        report = {'status': 'completed', 'summary': 'Implemented result',
+                  'authored_paths': [str(self.f.product)], 'evidence': [ref]}
+        original = self.f.source.sessions[ROOT_ID] + [file_change(ROOT_ID, self.f.product)]
+        for alteration, message in (('failed', 'did not succeed'), ('foreign-thread', 'thread or turn mismatch'),
+                                    ('foreign-turn', 'thread or turn mismatch'), ('duplicate', 'ambiguous')):
+            with self.subTest(alteration=alteration):
+                events = copy.deepcopy(original)
+                item = events[-1]['payload']
+                if alteration == 'failed':
+                    item['item']['status'] = 'failed'
+                elif alteration == 'foreign-thread':
+                    item['thread_id'] = QA_ID
+                elif alteration == 'foreign-turn':
+                    item['turn_id'] = 'another-turn'
+                else:
+                    events.append(copy.deepcopy(events[-1]))
+                self.indexed_session(home, ROOT_ID, events)
+                with self.assertRaisesRegex(JournalError, message):
+                    accept_report(self.f.snapshot(), self.f.known['author'],
+                                  {'turn_id': ref['turn_id'], 'report': report}, source)
+                if alteration == 'failed':
+                    observed = native_references(self.f.snapshot(), 'author', source)
+                    self.assertFalse(observed['observations'][-1]['success'])
+                else:
+                    with self.assertRaisesRegex(JournalError, message):
+                        native_references(self.f.snapshot(), 'author', source)
+
+    def test_native_file_change_child_retains_role_parent_and_author_checks(self):
+        source, home = self.native_source()
+        self.indexed_session(home, ROOT_ID, self.f.source.sessions[ROOT_ID])
+        ref = {'thread_id': QA_ID, 'turn_id': QA_ID + '-turn', 'item_id': 'exec-native-patch'}
+        report = {'status': 'completed', 'summary': 'Implemented result',
+                  'authored_paths': [str(self.f.product)], 'evidence': [ref]}
+        events = session(QA_ID, 'python-worker', report, cwd=self.f.root)
+        events.insert(-2, file_change(QA_ID, self.f.product))
+        self.indexed_session(home, QA_ID, events)
+        assignment = dict(self.f.known['author'], agent_id=QA_ID)
+        accepted = accept_report(self.f.snapshot(), assignment, {'completion_turn_id': ref['turn_id']}, source)
+        self.assertEqual(accepted['authored_paths'], [str(self.f.product)])
+        with self.assertRaisesRegex(JournalError, 'agent_role'):
+            native_item(source, ref, root_id=ROOT_ID, role='reviewer')
+        with self.assertRaisesRegex(JournalError, 'parent_thread_id'):
+            native_item(source, ref, root_id=REVIEWER_ID, role='python-worker')
+        with self.assertRaisesRegex(JournalError, 'no native edit evidence'):
+            accept_report(self.f.snapshot(), self.f.known['author'],
+                          {'turn_id': ROOT_ID + '-turn', 'report': report}, source)
+
+    def test_native_image_outputs_remain_unavailable_without_breaking_listing(self):
+        source, home = self.native_source()
+        events = copy.deepcopy(self.f.source.sessions[ROOT_ID])
+        for kind in ('function', 'custom_tool'):
+            for content in ('image', 'mixed', 'flagged-text', 'flagged-array'):
+                call_id = kind + '-' + content
+                output = [{'type': 'input_image', 'image_url': 'data:image/png;base64,secret-image-bytes'}]
+                if content == 'mixed':
+                    output.insert(0, {'type': 'input_text', 'text': '{"exit_code":0}'})
+                if content == 'flagged-text':
+                    output = '{"exit_code":0}'
+                if content == 'flagged-array':
+                    output = [{'type': 'input_text', 'text': '{"exit_code":0}'}]
+                events.extend([
+                    {'type': 'response_item', 'payload': {'type': kind + '_call', 'call_id': call_id, 'name': 'exec_command', 'arguments': '{}'}},
+                    {'type': 'response_item', 'payload': {'type': kind + '_call_output', 'call_id': call_id, 'output': output,
+                                                        'output_unavailable': content.startswith('flagged-')}},
+                ])
+        self.indexed_session(home, ROOT_ID, events)
+        observed = native_references(self.f.snapshot(), 'author', source)
+        self.assertEqual(len(observed['observations']), 9)
+        self.assertTrue(observed['observations'][0]['success'])
+        self.assertNotIn('secret-image-bytes', json.dumps(observed))
+        self.assertNotIn('secret-image-bytes', json.dumps(source.read(ROOT_ID, event_indices=range(1, len(events) + 1))))
+        for item in observed['observations'][1:]:
+            self.assertFalse(item['success'])
+            self.assertEqual(item['authored_paths'], [])
+            self.assertIn('unavailable', item['reason'])
+            with self.assertRaisesRegex(JournalError, 'output unavailable'):
+                native_tool(source, item['ref'], root_id=ROOT_ID)
+        events.append(copy.deepcopy(events[-1]))
+        self.indexed_session(home, ROOT_ID, events)
+        with self.assertRaisesRegex(JournalError, 'ambiguous'):
+            native_references(self.f.snapshot(), 'author', source)
 
     def test_canonical_task_path_resolves_actual_uuid_and_role(self):
         source, home = self.native_source()

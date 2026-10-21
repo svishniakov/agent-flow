@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 import subprocess
+import sys
 from pathlib import Path
 
 from journal_io import JournalError, JournalSnapshot, capture_file, digest, encode_json, logical_path, require, transact
@@ -12,6 +14,7 @@ REQUEST_FIELDS = {
     "scope": {"roots", "context"},
     "report": {"assignment_id", "completion_turn_id", "turn_id", "report"},
     "check": {"id", "assignment_id", "command", "cwd", "timeout"},
+    "generation": {"assignment_id", "command", "cwd", "outputs", "timeout"},
 }
 ASSIGNMENT_KINDS = {"author", "qa", "reviewer", "analysis"}
 REPORT_STATUSES = {"completed", "failed"}
@@ -37,11 +40,16 @@ def request_contract():
         "qa_fields": ["fingerprint", "criteria"],
         "reviewer_fields": ["fingerprint", "qa"],
         "native_evidence": ["thread_id", "turn_id", "call_id"],
+        "native_item_evidence": ["thread_id", "turn_id", "item_id"],
+        "generation_evidence": ["path", "sha256", "native"],
         "artifact_evidence": ["path", "sha256"],
         "read": ["summary", "result", "requirements", "native/ID", "task.json", "scope.json",
-                 "assignments/ID.json", "reports/ID.json", "checks/ID.json", "final.json"],
+                 "assignments/ID.json", "reports/ID.json", "checks/ID.json", "generations/OPERATION_ID.json", "final.json"],
         "check": "Executes command once; records actual cwd, exit code, output and unchanged result fingerprint. A missing receipt after interruption requires inspecting native execution before retrying.",
         "report": "Child: assignment_id + completion_turn_id. Root author: assignment_id + turn_id + report with native edit evidence.",
+        "generation": "Executes once under BEGIN IMMEDIATE; only declared output files may change. Requires exclusive product editing. Replay returns executed:false and cannot prove authorship. Inspect execution before retrying without a receipt.",
+        "generation_invocation": {"python": sys.executable, "journal": str(Path(__file__).with_name("journal.py").resolve()),
+                                  "shell": "/bin/zsh", "login": True, "stdin_delimiter": "AF_GENERATION_REQUEST"},
     }
 
 
@@ -150,6 +158,71 @@ def execute_check(snapshot, request):
     }, assignment
 
 
+def generation_invocation(run_dir, identifier, request, python=None):
+    command = [python or sys.executable, "-B", str(Path(__file__).with_name("journal.py").resolve()),
+               "--run-dir", str(Path(run_dir).resolve()), "record", "--kind", "generation",
+               "--request-file", "-", "--operation-id", identifier]
+    return shlex.join(command) + " <<'AF_GENERATION_REQUEST'\n" + encode_json(request) + "\nAF_GENERATION_REQUEST"
+
+
+def generation_state(snapshot):
+    from task_workspace import current_inventory, root_inventory
+    from verification_evidence import requirements
+    scope = snapshot.json("scope.json")
+    inventory = {str(Path(entry["root"]) / entry["path"]): entry
+                 for entry in current_inventory(scope, snapshot.logical_root)}
+    roots = [{"path": path} for path in scope["context"]]
+    context = [entry for root in roots for entry in root_inventory(root, roots, None, scope.get("memory", []))]
+    return inventory, digest(encode_json({"context": context, "requirements": requirements(snapshot)["digest"]}).encode())
+
+
+def execute_generation(snapshot, request, identifier):
+    from workspace_scope import canonical_path, path_allowed
+    identifier = record_id(identifier)
+    assignment_id = record_id(request.get("assignment_id"))
+    assignment = snapshot.json("assignments/" + assignment_id + ".json")
+    require(assignment.get("kind") == "author", "generation requires an author assignment")
+    command, outputs = request.get("command"), request.get("outputs")
+    require(isinstance(command, list) and command and all(isinstance(value, str) and value for value in command),
+            "command must be a nonempty argv array")
+    require(isinstance(outputs, list) and outputs and all(isinstance(value, str) for value in outputs)
+            and len(outputs) == len(set(outputs)), "generation outputs must be a nonempty unique path list")
+    scope = snapshot.json("scope.json")
+    for value in outputs:
+        path = Path(value)
+        require(path.is_absolute() and str(canonical_path(path)) == value and path_allowed(scope, value),
+                "generation output outside product scope: " + value)
+        require(any(path == Path(allowed) or path.is_relative_to(allowed) for allowed in assignment["allowed_paths"]),
+                "generation output outside assignment: " + value)
+        require(not path.is_symlink() and (not path.exists() or path.is_file()), "generation output must be a regular file: " + value)
+    cwd = request.get("cwd")
+    require(isinstance(cwd, str) and Path(cwd).is_absolute() and Path(cwd).is_dir()
+            and path_allowed(scope, cwd) and path_allowed(scope, str(Path(cwd).resolve())), "generation cwd outside product scope")
+    timeout = request.get("timeout", 300)
+    require(type(timeout) is int and timeout > 0, "timeout must be a positive integer")
+    before, context = generation_state(snapshot)
+    try:
+        result = subprocess.run(command, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                timeout=timeout, check=False)
+    except subprocess.TimeoutExpired as exc:
+        raise JournalError("generation timed out; file changes remain; inspect native execution before any retry") from exc
+    after, current_context = generation_state(snapshot)
+    changed = sorted(path for path in before.keys() | after.keys() if before.get(path) != after.get(path))
+    require(context == current_context, "generation changed context or requirements; inspect file changes before any retry")
+    require(set(changed) <= set(outputs), "generation changed undeclared product paths: " + ", ".join(set(changed) - set(outputs)))
+    for path in outputs:
+        require(not Path(path).is_symlink() and (not Path(path).exists() or Path(path).is_file()),
+                "generation output must remain a regular file: " + path)
+        require(not Path(path).exists() or path in after, "generation output is not inventoried: " + path)
+    path = "generations/" + identifier + ".json"
+    output = "artifacts/generations/" + identifier + ".log"
+    body = {"operation_id": identifier, "request": request, "python": sys.executable, "exit_code": result.returncode,
+            "changes": [{"path": value, "before": before.get(value), "after": after.get(value)} for value in changed],
+            "output": {"path": output, "sha256": digest(result.stdout)}}
+    data = encoded(body)
+    return {path: data, output: result.stdout}, {"path": path, "sha256": digest(data), "exit_code": result.returncode}
+
+
 def write_entry(run_dir, kind, request, *, identifier, source=None):
     from task_workspace import expand_workspace
     from verification_evidence import accept_report, result_fingerprint
@@ -159,7 +232,7 @@ def write_entry(run_dir, kind, request, *, identifier, source=None):
     snapshot = JournalSnapshot.open(run_dir)
     prior = replay(snapshot, identifier, payload)
     if prior is not None:
-        return prior
+        return {"executed": False, "receipt": prior} if kind == "generation" else prior
     require(not snapshot.exists("final.json"), "task is already finalized")
     prepared_check = execute_check(snapshot, request) if kind == "check" else None
     prepared_report = None
@@ -168,8 +241,14 @@ def write_entry(run_dir, kind, request, *, identifier, source=None):
         prepared_report = accept_report(snapshot, snapshot.json("assignments/" + assignment_id + ".json"), request, source=source)
     if kind == "assignment":
         assignment_record(snapshot, request, source)
+    executed = False
 
     def publish(current):
+        nonlocal executed
+        if kind == "generation":
+            updates, result = execute_generation(current, request, identifier)
+            executed = True
+            return updates, result
         if kind == "assignment":
             body = assignment_record(current, request, source)
             path = "assignments/" + body["id"] + ".json"
@@ -196,13 +275,14 @@ def write_entry(run_dir, kind, request, *, identifier, source=None):
         data = encoded(body)
         return {path: data}, {"path": path, "sha256": digest(data)}
 
-    return transact(run_dir, identifier, payload, publish)
+    receipt = transact(run_dir, identifier, payload, publish)
+    return {"executed": executed, "receipt": receipt} if kind == "generation" else receipt
 
 
 def publish_artifact(run_dir, name, source_path, *, identifier):
     logical_path(name)
-    require(name.startswith("artifacts/") and not name.startswith("artifacts/checks/"),
-            "publish requires an artifact path outside writer-owned checks")
+    require(name.startswith("artifacts/") and not name.startswith(("artifacts/checks/", "artifacts/generations/")),
+            "publish requires an artifact path outside writer-owned checks and generations")
     snapshot = JournalSnapshot.open(run_dir)
     payload = {"kind": "artifact", "path": name, "source": str(Path(source_path).absolute())}
     prior = replay(snapshot, identifier, payload)

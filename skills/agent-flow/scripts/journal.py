@@ -14,7 +14,7 @@ def main(argv=None):
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("contract")
     record = commands.add_parser("record")
-    record.add_argument("--kind", required=True, choices=("assignment", "scope", "report", "check"))
+    record.add_argument("--kind", required=True, choices=("assignment", "scope", "report", "check", "generation"))
     record.add_argument("--request-file", required=True, help="JSON file or - for stdin.")
     record.add_argument("--operation-id", required=True)
     publish = commands.add_parser("publish")
@@ -57,6 +57,8 @@ def main(argv=None):
                 result = finalize(run_dir, identifier=args.operation_id, status=args.status,
                                   summary=args.summary, reason=args.reason, unverified=args.unverified)
         print(json.dumps(result, ensure_ascii=False, indent=2))
+        if args.command == "record" and args.kind == "generation" and result["receipt"]["result"]["exit_code"] != 0:
+            return 1
     except (JournalError, OSError, ValueError, KeyError) as exc:
         parser.exit(1, f"journal: {exc}\n")
     return 0

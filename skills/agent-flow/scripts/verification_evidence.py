@@ -94,6 +94,17 @@ class CodexSessionSource:
                         payload = {k: payload[k] for k in ("turn_id", "model") if k in payload}
                     elif kind == "event_msg" and payload.get("type") in {"task_started", "task_complete"}:
                         payload = {k: payload[k] for k in ("type", "turn_id", "last_agent_message", "started_at", "completed_at") if k in payload}
+                    elif kind == "event_msg" and payload.get("type") == "item_completed":
+                        item = payload.get("item", {})
+                        require(isinstance(item, dict), "native item must be an object")
+                        payload = {k: payload[k] for k in ("type", "thread_id", "turn_id") if k in payload}
+                        payload["item"] = {k: item[k] for k in ("type", "id", "status", "command", "cwd", "exit_code", "stdout", "stderr", "aggregated_output") if k in item}
+                        if item.get("type") == "FileChange":
+                            changes = item.get("changes")
+                            payload["item"]["changes"] = {
+                                path: {k: change[k] for k in ("type", "move_path", "unified_diff", "content") if k in change} if isinstance(change, dict) else change
+                                for path, change in changes.items()
+                            } if isinstance(changes, dict) else changes
                     elif kind == "response_item" and payload.get("type") == "message" and (
                         payload.get("role") == "assistant" and payload.get("phase") == "final_answer" or
                         index in event_indices and payload.get("role") in {"user", "assistant"}
@@ -105,12 +116,11 @@ class CodexSessionSource:
                         payload["content"], payload["content_unavailable"] = public_content(payload.get("content", []))
                     elif kind == "response_item" and payload.get("type") in {"custom_tool_call", "function_call"} and index in event_indices:
                         payload = {k: payload[k] for k in ("type", "call_id", "name", "input", "arguments") if k in payload}
-                    elif kind == "response_item" and payload.get("type") == "custom_tool_call_output" and index in event_indices:
-                        payload = {k: payload[k] for k in ("type", "call_id", "output") if k in payload}
+                    elif kind == "response_item" and payload.get("type") in {"custom_tool_call_output", "function_call_output"} and index in event_indices:
+                        payload = {k: payload[k] for k in ("type", "call_id", "output", "output_unavailable") if k in payload}
                         if not isinstance(payload.get("output"), str):
-                            payload["output"], payload["output_unavailable"] = public_content(payload.get("output"))
-                    elif kind == "response_item" and index in event_indices and payload.get("type") == "function_call_output":
-                        payload = {k: payload[k] for k in ("type", "call_id", "output") if k in payload}
+                            payload["output"], unavailable = public_content(payload.get("output"))
+                            payload["output_unavailable"] = bool(payload.get("output_unavailable") or unavailable)
                     else:
                         payload = {}
                     filtered = {"type": kind, "payload": payload}
@@ -338,8 +348,9 @@ def reports(snapshot):
             if name.startswith('reports/') and name.endswith('.json')}
 
 
-def native_tool(source, ref, *, root_id=None, role=None):
+def native_tool_record(source, ref, *, root_id=None, role=None):
     require(isinstance(ref, dict), 'evidence reference must be an object')
+    require('item_id' not in ref, 'native reference must select either call_id or item_id')
     thread, turn, call_id = (ref.get(key) for key in ('thread_id', 'turn_id', 'call_id'))
     require(all(isinstance(value, str) and value for value in (thread, turn, call_id)), 'native evidence requires thread_id, turn_id and call_id')
     events = source.read(thread)
@@ -362,13 +373,73 @@ def native_tool(source, ref, *, root_id=None, role=None):
             elif payload.get('type') in {'function_call_output', 'custom_tool_call_output'}:
                 outputs.append(payload)
     require(len(calls) == 1 and len(outputs) == 1, 'native tool call or output missing or ambiguous')
-    output = outputs[0].get('output')
+    return calls[0], outputs[0]
+
+
+def native_output_text(record):
+    if record.get('output_unavailable'):
+        return None
+    output = record.get('output')
     if isinstance(output, list):
         content, unavailable = public_content(output)
-        require(not unavailable, 'native tool output unavailable')
+        if unavailable:
+            return None
         output = ''.join(part['text'] for part in content)
-    require(isinstance(output, str) and bool(output.strip()), 'native tool output unavailable')
-    return calls[0], output
+    return output if isinstance(output, str) and output.strip() else None
+
+
+def native_tool(source, ref, *, root_id=None, role=None):
+    call, record = native_tool_record(source, ref, root_id=root_id, role=role)
+    output = native_output_text(record)
+    require(output is not None, 'native tool output unavailable')
+    return call, output
+
+
+def native_item(source, ref, *, root_id=None, role=None):
+    require(isinstance(ref, dict), 'evidence reference must be an object')
+    require('call_id' not in ref, 'native reference must select either call_id or item_id')
+    thread, turn, item_id = (ref.get(key) for key in ('thread_id', 'turn_id', 'item_id'))
+    require(all(isinstance(value, str) and value for value in (thread, turn, item_id)),
+            'native evidence requires thread_id, turn_id and item_id')
+    events = source.read(thread)
+    _, meta = own_metadata(events, thread)
+    if root_id and thread != root_id:
+        session_metadata(events, thread, root_id, role or meta.get('agent_role'), source=source)
+    elif root_id:
+        require(not meta.get('parent_thread_id') and not child_spawn(meta), 'root identity must be the actual source root')
+    active, matches = None, []
+    for _, event in _own_session_events(source, events, thread):
+        payload = event.get('payload', {})
+        if event.get('type') != 'event_msg':
+            continue
+        if payload.get('type') == 'task_started':
+            active = payload.get('turn_id')
+        elif payload.get('type') == 'task_complete':
+            active = None
+        elif payload.get('type') == 'item_completed' and payload.get('item', {}).get('id') == item_id:
+            require(active == turn and payload.get('turn_id') == turn and payload.get('thread_id') == thread,
+                    'native item thread or turn mismatch')
+            matches.append(payload['item'])
+    require(len(matches) == 1, 'native item missing or ambiguous')
+    require(matches[0].get('type') in {'FileChange', 'CommandExecution'}, 'unsupported native item type')
+    return matches[0]
+
+
+def native_file_change_paths(item):
+    require(item.get('type') == 'FileChange', 'native edit requires FileChange')
+    require(item.get('status') == 'completed', 'native edit did not succeed')
+    changes = item.get('changes')
+    require(isinstance(changes, dict) and bool(changes), 'native file changes missing')
+    paths = set()
+    for name, change in changes.items():
+        require(isinstance(name, str) and Path(name).is_absolute(), 'native file change path must be absolute')
+        require(isinstance(change, dict) and change.get('type') in {'add', 'update', 'delete'}, 'unsupported native file change')
+        paths.add(str(Path(name).absolute()))
+        target = change.get('move_path')
+        if target is not None:
+            require(isinstance(target, str) and Path(target).is_absolute(), 'native move path must be absolute')
+            paths.add(str(Path(target).absolute()))
+    return sorted(paths)
 
 
 def native_succeeded(call, output):
@@ -402,6 +473,68 @@ def native_patch_paths(call, output, cwd):
     return sorted(paths)
 
 
+def generation_evidence(snapshot, ref, source, *, assignment=None, item=None, current=True):
+    from journal_io import encode_json
+    from journal_structure import generation_invocation, record_id
+    from task_workspace import current_inventory
+    from workspace_scope import path_allowed
+    path = ref.get('path')
+    require(isinstance(path, str) and path.startswith('generations/') and path.endswith('.json'), 'generation evidence path required')
+    identifier = record_id(path.removeprefix('generations/').removesuffix('.json'))
+    require(snapshot.exists(path) and ref.get('sha256') == sha256(snapshot.read_bytes(path)), 'generation evidence bytes changed or missing')
+    body = snapshot.json(path)
+    request = body.get('request', {})
+    known = snapshot.json('assignments/' + record_id(request.get('assignment_id')) + '.json')
+    require(known.get('kind') == 'author' and (assignment is None or known == assignment), 'generation belongs to another assignment')
+    receipt = snapshot.operation_receipt(identifier)
+    require(receipt is not None and receipt['result'].get('path') == path and receipt['result'].get('sha256') == ref['sha256']
+            and receipt['payload_sha256'] == sha256(encode_json({'kind': 'generation', 'request': request}).encode())
+            and body.get('operation_id') == identifier, 'generation operation receipt missing or changed')
+    require(type(body.get('exit_code')) is int and body['exit_code'] == 0, 'generation command did not succeed')
+    native = ref.get('native')
+    require(isinstance(native, dict) and native.get('thread_id') == known['agent_id'], 'generation requires its own author native execution')
+    observed = item if item is not None else native_item(source, native, root_id=snapshot.identities['root_agent_id'], role=known['role'])
+    require(observed.get('type') == 'CommandExecution' and observed.get('status') == 'completed'
+            and type(observed.get('exit_code')) is int and observed['exit_code'] == 0, 'generation native execution did not succeed')
+    command = observed.get('command')
+    require(isinstance(command, list) and len(command) == 3 and command[:2] == ['/bin/zsh', '-lc']
+            and isinstance(command[2], str), 'generation requires the canonical standalone writer invocation')
+    python = body.get('python')
+    require(isinstance(python, str) and Path(python).is_absolute(), 'generation interpreter missing')
+    expected = generation_invocation(snapshot.logical_root, identifier, request, python)
+    prefix = expected.split('\n', 1)[0] + '\n'
+    suffix = '\nAF_GENERATION_REQUEST'
+    script = command[2].rstrip('\n')
+    require(script.startswith(prefix) and script.endswith(suffix), 'generation requires the canonical standalone writer invocation')
+    try:
+        supplied = json.loads(script[len(prefix):-len(suffix)])
+        envelope = json.loads(observed.get('aggregated_output', ''))
+    except (ValueError, TypeError) as exc:
+        raise JournalError('generation native request or receipt unavailable') from exc
+    require(encode_json(supplied) == encode_json(request), 'generation native request changed')
+    require(isinstance(envelope, dict) and set(envelope) == {'executed', 'receipt'}
+            and envelope['executed'] is True and encode_json(envelope['receipt']) == encode_json(receipt),
+            'generation requires actual execution, not a replay or another receipt')
+    output = body.get('output', {})
+    require(output.get('path') == 'artifacts/generations/' + identifier + '.log', 'generation output path changed')
+    verify_evidence(snapshot, [output], source, root_id=snapshot.identities['root_agent_id'])
+    changes = body.get('changes')
+    require(isinstance(changes, list) and changes, 'generation has no observed file changes')
+    scope = snapshot.json('scope.json')
+    inventory = {str(Path(entry['root']) / entry['path']): entry for entry in current_inventory(scope, snapshot.logical_root)} if current else {}
+    paths, seen = [], set()
+    for change in changes:
+        value = change.get('path')
+        require(isinstance(value, str) and value in request['outputs'] and path_allowed(scope, value), 'generation path outside product scope')
+        require(any(Path(value) == Path(allowed) or Path(value).is_relative_to(allowed) for allowed in known['allowed_paths']),
+                'generation path outside assignment')
+        require(value not in seen and change.get('before') != change.get('after'), 'generation changes must be unique and nonempty')
+        seen.add(value)
+        if not current or change.get('after') == inventory.get(value):
+            paths.append(value)
+    return paths
+
+
 def native_references(snapshot, assignment_id, source=None):
     source = source or CodexSessionSource()
     assignment = snapshot.json('assignments/' + assignment_id + '.json')
@@ -413,18 +546,21 @@ def native_references(snapshot, assignment_id, source=None):
         require(not metadata.get('parent_thread_id') and not child_spawn(metadata), 'root identity must be the actual source root')
     else:
         session_metadata(events, thread, root, assignment['role'], source=source)
-    turn, completed, calls, outputs = None, False, [], {}
+    turn, completed, calls, outputs, items = None, False, [], {}, []
     for _, event in _own_session_events(source, events, thread):
         payload = event.get('payload', {})
         if event.get('type') == 'event_msg' and payload.get('type') == 'task_started':
-            turn, completed, calls, outputs = payload.get('turn_id'), False, [], {}
+            turn, completed, calls, outputs, items = payload.get('turn_id'), False, [], {}, []
         elif event.get('type') == 'event_msg' and payload.get('type') == 'task_complete' and payload.get('turn_id') == turn:
             completed = True
+        elif turn is not None and not completed and event.get('type') == 'event_msg' and payload.get('type') == 'item_completed':
+            if payload.get('item', {}).get('type') in {'FileChange', 'CommandExecution'}:
+                items.append(payload['item'])
         elif turn is not None and not completed and event.get('type') == 'response_item':
             if payload.get('type') in {'custom_tool_call', 'function_call'}:
                 calls.append(payload)
             elif payload.get('type') in {'custom_tool_call_output', 'function_call_output'}:
-                outputs[payload.get('call_id')] = payload.get('output')
+                outputs[payload.get('call_id')] = payload
     require(isinstance(turn, str) and bool(turn), 'own source turn missing')
     if completed and thread != root:
         completed_turn(source, thread, turn, root, assignment['role'])
@@ -432,17 +568,52 @@ def native_references(snapshot, assignment_id, source=None):
     for call in calls:
         if call.get('call_id') not in outputs:
             continue
-        raw_output = outputs[call['call_id']]
+        raw_output = outputs[call['call_id']].get('output')
         if isinstance(raw_output, str) and not raw_output.strip():
             continue
         ref = {'thread_id': thread, 'turn_id': turn, 'call_id': call['call_id']}
-        observed_call, output = native_tool(source, ref, root_id=root, role=assignment['role'])
+        observed_call, record = native_tool_record(source, ref, root_id=root, role=assignment['role'])
+        output = native_output_text(record)
+        if output is None:
+            observations.append({'ref': ref, 'name': observed_call.get('name'), 'success': False,
+                                 'authored_paths': [], 'reason': 'native tool output unavailable for text verification'})
+            continue
         try:
             paths = native_patch_paths(observed_call, output, metadata.get('cwd', snapshot.source_root))
         except JournalError:
             paths = []
         observations.append({'ref': ref, 'name': observed_call.get('name'),
                              'success': bool(paths) or native_succeeded(observed_call, output), 'authored_paths': paths})
+    for item in items:
+        ref = {'thread_id': thread, 'turn_id': turn, 'item_id': item.get('id')}
+        observed = native_item(source, ref, root_id=root, role=assignment['role'])
+        if observed.get('type') == 'CommandExecution':
+            try:
+                envelope = json.loads(observed.get('aggregated_output', ''))
+            except (ValueError, TypeError):
+                continue
+            if not isinstance(envelope, dict) or not isinstance(envelope.get('receipt'), dict):
+                continue
+            result = envelope['receipt'].get('result', {})
+            if not isinstance(result, dict) or not isinstance(result.get('path'), str) or not result['path'].startswith('generations/'):
+                continue
+            reference = {'path': result['path'], 'sha256': result.get('sha256'), 'native': ref}
+            try:
+                paths = generation_evidence(snapshot, reference, source, assignment=assignment, item=observed)
+            except JournalError as exc:
+                observations.append({'ref': reference, 'name': 'generation', 'success': False, 'authored_paths': [], 'reason': str(exc)})
+            else:
+                observation = {'ref': reference, 'name': 'generation', 'success': bool(paths), 'authored_paths': paths}
+                if not paths:
+                    observation['reason'] = 'generation outputs are stale'
+                observations.append(observation)
+            continue
+        if observed.get('status') == 'completed':
+            paths = native_file_change_paths(observed)
+            observations.append({'ref': ref, 'name': 'FileChange', 'success': True, 'authored_paths': paths})
+        else:
+            observations.append({'ref': ref, 'name': 'FileChange', 'success': False,
+                                 'authored_paths': [], 'reason': 'native edit did not succeed'})
     return {'assignment_id': assignment_id, 'thread_id': thread, 'turn_id': turn,
             'completed': completed, 'observations': observations}
 
@@ -452,7 +623,9 @@ def verify_evidence(snapshot, refs, source, *, root_id, role=None, success_requi
     successful = False
     for ref in refs:
         require(isinstance(ref, dict), 'evidence reference must be an object')
-        if 'path' in ref:
+        if isinstance(ref.get('path'), str) and ref['path'].startswith('generations/'):
+            generation_evidence(snapshot, ref, source, current=False)
+        elif 'path' in ref:
             path = ref['path']
             require(isinstance(path, str) and path.startswith(('artifacts/', 'checks/')) and '..' not in Path(path).parts,
                     'evidence must name artifacts/ or checks/')
@@ -467,26 +640,41 @@ def verify_evidence(snapshot, refs, source, *, root_id, role=None, success_requi
                         and receipt['result'].get('sha256') == sha256(snapshot.read_bytes(path)), 'check operation receipt missing')
                 verify_evidence(snapshot, [check.get('output')], source, root_id=root_id)
                 successful = successful or check['exit_code'] == 0
+        elif 'item_id' in ref:
+            native_file_change_paths(native_item(source, ref, root_id=root_id, role=role))
         else:
             call, output = native_tool(source, ref, root_id=root_id, role=role)
             successful = successful or native_succeeded(call, output)
     require(not success_required or successful, 'passed criterion requires a successful check or native inspection')
 
 
-def authored_evidence(snapshot, assignment, report, source):
+def observed_author_paths(snapshot, assignment, report, source, *, turn, current=True):
+    root_id = snapshot.identities['root_agent_id']
+    observed = set()
+    for ref in report.get('evidence', []):
+        if isinstance(ref.get('path'), str) and ref['path'].startswith('generations/'):
+            require(ref.get('native', {}).get('turn_id') == turn, 'generation author turn mismatch')
+            observed.update(generation_evidence(snapshot, ref, source, assignment=assignment, current=current))
+            continue
+        if 'path' in ref or ref.get('thread_id') != assignment['agent_id']:
+            continue
+        if 'item_id' in ref:
+            require(ref.get('turn_id') == turn, 'native edit author turn mismatch')
+            observed.update(native_file_change_paths(native_item(source, ref, root_id=root_id, role=assignment['role'])))
+            continue
+        call, output = native_tool(source, ref, root_id=root_id, role=assignment['role'])
+        _, metadata = own_metadata(source.read(assignment['agent_id']), assignment['agent_id'])
+        observed.update(native_patch_paths(call, output, metadata.get('cwd', snapshot.source_root)))
+    return observed
+
+
+def authored_evidence(snapshot, assignment, report, source, *, turn, current=True):
     from workspace_scope import path_allowed
     paths = report.get('authored_paths')
     require(isinstance(paths, list) and len(paths) == len(set(paths)), 'author report requires unique authored_paths')
     scope = snapshot.json('scope.json')
     allowed = assignment.get('allowed_paths', [])
-    root_id = snapshot.identities['root_agent_id']
-    observed = set()
-    for ref in report.get('evidence', []):
-        if 'path' in ref or ref.get('thread_id') != assignment['agent_id']:
-            continue
-        call, output = native_tool(source, ref, root_id=root_id, role=assignment['role'])
-        _, metadata = own_metadata(source.read(assignment['agent_id']), assignment['agent_id'])
-        observed.update(native_patch_paths(call, output, metadata.get('cwd', snapshot.source_root)))
+    observed = observed_author_paths(snapshot, assignment, report, source, turn=turn, current=current)
     for value in paths:
         require(isinstance(value, str) and Path(value).is_absolute(), 'authored_paths must be absolute')
         path = Path(value).absolute()
@@ -524,10 +712,11 @@ def accept_report(snapshot, assignment, request, source=None, *, current=True):
     verify_evidence(snapshot, report.get('evidence'), source, root_id=root_id)
     kind = assignment['kind']
     if kind == 'author':
-        authored_evidence(snapshot, assignment, report, source)
+        authored_evidence(snapshot, assignment, report, source, turn=turn, current=current)
     if kind == 'analysis' and thread == root_id:
         require(any('path' not in ref and ref.get('thread_id') == thread
                     and ref.get('turn_id') == turn
+                    and 'item_id' not in ref
                     and native_succeeded(*native_tool(source, ref, root_id=root_id))
                     for ref in report['evidence']), 'root analysis requires its own successful native inspection')
     if kind in {'qa', 'reviewer'}:
@@ -538,7 +727,7 @@ def accept_report(snapshot, assignment, request, source=None, *, current=True):
         require(thread not in author_ids, 'QA/reviewer cannot be a product author')
         require(any('path' not in ref and ref.get('thread_id') == thread
                     and ref.get('turn_id') == turn
-                    and (report['status'] == 'failed' or native_succeeded(*native_tool(source, ref, root_id=root_id, role=assignment['role'])))
+                    and (report['status'] == 'failed' or 'item_id' not in ref and native_succeeded(*native_tool(source, ref, root_id=root_id, role=assignment['role'])))
                     for ref in report['evidence']), 'QA/reviewer requires its own successful native inspection')
     if kind == 'qa':
         expected = {item['id'] for item in requirements(snapshot)['criteria']}
@@ -576,7 +765,9 @@ def accept_report(snapshot, assignment, request, source=None, *, current=True):
                                       for key, item in assignments(snapshot).items() if item.get('kind') == 'author'
                                       and snapshot.exists('reports/' + key + '.json')}
     refs = [*report['evidence'], *(ref for outcome in report.get('criteria', {}).values() for ref in outcome.get('evidence', []))]
-    report['source']['evidence_sha256'] = [sha256(json.dumps([ref, *native_tool(source, ref, root_id=root_id)], sort_keys=True).encode())
+    refs = [ref['native'] if isinstance(ref.get('path'), str) and ref['path'].startswith('generations/') else ref for ref in refs]
+    report['source']['evidence_sha256'] = [sha256(json.dumps([ref, *([native_item(source, ref, root_id=root_id)] if 'item_id' in ref
+                                                                 else native_tool(source, ref, root_id=root_id))], sort_keys=True).encode())
                                          for ref in refs if 'path' not in ref]
     return report
 
@@ -605,7 +796,11 @@ def validate_acceptance(snapshot, source=None):
         authors = [item for key, item in known.items() if item.get('kind') == 'author']
         from task_workspace import changed_paths
         delta = set(changed_paths(snapshot.json('scope.json'), run_dir=snapshot.logical_root))
-        covered = {path for key, report in accepted.items() if known[key].get('kind') == 'author' for path in report.get('authored_paths', [])}
+        covered = set()
+        for key, report in accepted.items():
+            if known[key].get('kind') == 'author':
+                observed = observed_author_paths(snapshot, known[key], report, source, turn=report['source']['turn_id'])
+                covered.update(set(report.get('authored_paths', [])) & observed)
         require(delta <= covered, 'current product changes lack native author coverage: ' + ', '.join(sorted(delta - covered)))
         if authors or delta:
             require(any(item.get('kind') == 'qa' for item in known.values()), 'independent QA missing')
