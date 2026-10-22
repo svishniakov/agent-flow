@@ -77,9 +77,9 @@ class Fixture:
         self.source.sessions[ROOT_ID] = session(ROOT_ID, 'python-worker', cwd=self.root,
             patch='*** Begin Patch\n*** Update File: result.py\n@@\n-answer = 1\n+answer = 2\n*** End Patch')
         self.known = {
-            'author': {'id': 'author', 'kind': 'author', 'role': 'python-worker', 'agent_id': ROOT_ID, 'allowed_paths': [str(self.product)], 'depends_on': []},
-            'qa': {'id': 'qa', 'kind': 'qa', 'role': 'qa-verifier', 'agent_id': QA_ID, 'allowed_paths': [], 'depends_on': ['author']},
-            'review': {'id': 'review', 'kind': 'reviewer', 'role': 'reviewer', 'agent_id': REVIEWER_ID, 'allowed_paths': [], 'depends_on': ['qa']},
+            'author': {'id': 'author', 'kind': 'author', 'role': 'python-worker', 'agent_id': ROOT_ID, 'allowed_paths': [str(self.product)], 'depends_on': [], 'start_turn_id': ROOT_ID + '-turn'},
+            'qa': {'id': 'qa', 'kind': 'qa', 'role': 'qa-verifier', 'agent_id': QA_ID, 'allowed_paths': [], 'depends_on': ['review']},
+            'review': {'id': 'review', 'kind': 'reviewer', 'role': 'reviewer', 'agent_id': REVIEWER_ID, 'allowed_paths': [], 'depends_on': ['author']},
         }
         docs = {'task.json': encode_json({'summary': 'Sample', 'requirements': {'path': str(self.plan), 'task_heading': 'Sample', 'criteria_heading': 'Критерии приёмки'}}).encode(),
                 'scope.json': encode_json(self.scope).encode()}
@@ -102,8 +102,8 @@ class Fixture:
                 report = {'status': 'completed', 'summary': 'Checked result', 'fingerprint': result_fingerprint(self.snapshot()), 'evidence': [self.ref(self.known[key]['agent_id'], turn)]}
                 if key == 'qa':
                     report['criteria'] = {'ac-1': {'status': 'passed', 'evidence': [self.ref(QA_ID, turn)]}}
-                else:
-                    report['qa'] = {'assignment_id': 'qa', 'sha256': sha256(self.snapshot().read_bytes('reports/qa.json'))}
+            if key == 'qa':
+                report = {**report, 'reviewer': {'assignment_id': 'review', 'sha256': sha256(self.snapshot().read_bytes('reports/review.json'))}}
             thread = self.known[key]['agent_id']
             self.source.sessions[thread] = session(thread, self.known[key]['role'], report, cwd=self.root, turn=turn)
             request = {'completion_turn_id': turn or thread + '-turn'}
@@ -113,8 +113,12 @@ class Fixture:
         return canonical
 
     def completed(self):
-        for key in ('author', 'qa', 'review'):
+        for key in ('author', 'review', 'qa'):
             self.save(key)
+
+    def reviewed(self):
+        self.save('author')
+        self.save('review')
 
 
 class EvidenceTests(unittest.TestCase):
@@ -148,6 +152,12 @@ class EvidenceTests(unittest.TestCase):
     def test_real_root_author_and_independent_native_reports(self):
         self.f.completed()
         self.assertEqual(validate_acceptance(self.f.snapshot(), self.f.source), [])
+        review = self.f.snapshot().json('reports/review.json')
+        qa = self.f.snapshot().json('reports/qa.json')
+        self.assertEqual(review['source']['authors'], {'author': sha256(self.f.snapshot().read_bytes('reports/author.json'))})
+        self.assertEqual(qa['reviewer'], {'assignment_id': 'review', 'sha256': sha256(self.f.snapshot().read_bytes('reports/review.json'))})
+        self.assertNotIn('qa', review)
+        self.assertNotIn('authors', qa['source'])
 
     def test_native_reference_lookup_lists_completed_root_tools_only(self):
         events = self.f.source.sessions[ROOT_ID]
@@ -170,7 +180,7 @@ class EvidenceTests(unittest.TestCase):
             native_tool(self.f.source, {'thread_id': ROOT_ID, 'turn_id': ROOT_ID + '-turn', 'call_id': 'empty-message'})
 
     def test_native_reference_lookup_uses_completed_child_and_checks_identity(self):
-        self.f.save('author')
+        self.f.reviewed()
         self.f.save('qa')
         observed = native_references(self.f.snapshot(), 'qa', self.f.source)
         self.assertTrue(observed['completed'])
@@ -246,7 +256,7 @@ class EvidenceTests(unittest.TestCase):
         events = session(QA_ID, 'python-worker', report, cwd=self.f.root)
         events.insert(-2, file_change(QA_ID, self.f.product))
         self.indexed_session(home, QA_ID, events)
-        assignment = dict(self.f.known['author'], agent_id=QA_ID)
+        assignment = dict(self.f.known['author'], agent_id=QA_ID, start_turn_id=QA_ID + '-turn')
         accepted = accept_report(self.f.snapshot(), assignment, {'completion_turn_id': ref['turn_id']}, source)
         self.assertEqual(accepted['authored_paths'], [str(self.f.product)])
         with self.assertRaisesRegex(JournalError, 'agent_role'):
@@ -406,7 +416,7 @@ class EvidenceTests(unittest.TestCase):
             source.resolve_session('/root/qa', ROOT_ID, 'qa-verifier')
 
     def test_child_author_reads_native_answer_not_request_body(self):
-        assignment = {**self.f.known['author'], 'agent_id': QA_ID}
+        assignment = {**self.f.known['author'], 'agent_id': QA_ID, 'start_turn_id': QA_ID + '-turn'}
         report = {'status': 'completed', 'summary': 'Native author', 'authored_paths': [str(self.f.product)], 'evidence': [self.f.ref(QA_ID)]}
         self.f.source.sessions[QA_ID] = session(QA_ID, 'python-worker', report, cwd=self.f.root, patch='*** Update File: result.py\n')
         result = accept_report(self.f.snapshot(), assignment, {'completion_turn_id': QA_ID + '-turn', 'report': {'summary': 'Forged'}}, self.f.source)
@@ -429,7 +439,7 @@ class EvidenceTests(unittest.TestCase):
             self.f.save('author')
 
     def test_incomplete_and_stale_native_turn_refuse(self):
-        self.f.save('author')
+        self.f.reviewed()
         report = {'status': 'completed', 'summary': 'Incomplete', 'fingerprint': result_fingerprint(self.f.snapshot()), 'evidence': [self.f.ref(QA_ID)]}
         with self.assertRaisesRegex(JournalError, 'every acceptance criterion'):
             self.f.save('qa', report)
@@ -437,20 +447,21 @@ class EvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(JournalError, 'stale'):
             accept_report(self.f.snapshot(), self.f.known['qa'], {'completion_turn_id': QA_ID + '-turn'}, self.f.source)
 
-    def test_new_qa_final_cannot_reuse_inspection_from_earlier_turn(self):
-        self.f.save('author')
-        self.f.save('qa')
-        events = self.f.source.sessions[QA_ID]
-        body = json.loads(events[-1]['payload']['last_agent_message'])
-        new_turn = 'qa-new-turn'
-        events.extend([
-            {'type': 'event_msg', 'timestamp': '2026-10-19T10:01:00+00:00', 'payload': {'type': 'task_started', 'turn_id': new_turn}},
-            {'type': 'turn_context', 'payload': {'turn_id': new_turn, 'model': events[2]['payload']['model']}},
-            {'type': 'response_item', 'payload': {'type': 'message', 'role': 'assistant', 'phase': 'final_answer', 'content': [{'type': 'output_text', 'text': json.dumps(body)}]}},
-            {'type': 'event_msg', 'timestamp': '2026-10-19T10:01:01+00:00', 'payload': {'type': 'task_complete', 'turn_id': new_turn, 'last_agent_message': json.dumps(body)}},
-        ])
-        with self.assertRaisesRegex(JournalError, 'own successful native inspection'):
-            accept_report(self.f.snapshot(), self.f.known['qa'], {'completion_turn_id': new_turn}, self.f.source)
+    def test_new_qa_or_review_cannot_reuse_inspection_from_earlier_turn(self):
+        self.f.completed()
+        for key in ('review', 'qa'):
+            with self.subTest(assignment=key):
+                events = self.f.source.sessions[self.f.known[key]['agent_id']]
+                body = json.loads(events[-1]['payload']['last_agent_message'])
+                new_turn = key + '-new-turn'
+                events.extend([
+                    {'type': 'event_msg', 'timestamp': '2026-10-19T10:01:00+00:00', 'payload': {'type': 'task_started', 'turn_id': new_turn}},
+                    {'type': 'turn_context', 'payload': {'turn_id': new_turn, 'model': events[2]['payload']['model']}},
+                    {'type': 'response_item', 'payload': {'type': 'message', 'role': 'assistant', 'phase': 'final_answer', 'content': [{'type': 'output_text', 'text': json.dumps(body)}]}},
+                    {'type': 'event_msg', 'timestamp': '2026-10-19T10:01:01+00:00', 'payload': {'type': 'task_complete', 'turn_id': new_turn, 'last_agent_message': json.dumps(body)}},
+                ])
+                with self.assertRaisesRegex(JournalError, 'own successful native inspection'):
+                    accept_report(self.f.snapshot(), self.f.known[key], {'completion_turn_id': new_turn}, self.f.source)
 
     def test_source_change_and_author_report_replacement_invalidate_qa(self):
         self.f.completed()
@@ -460,6 +471,55 @@ class EvidenceTests(unittest.TestCase):
         report = {'status': 'completed', 'summary': 'Clarified implementation', 'authored_paths': [str(self.f.product)], 'evidence': [self.f.ref(ROOT_ID)]}
         self.f.save('author', report)
         self.assertIn('stale', ';'.join(validate_acceptance(self.f.snapshot(), self.f.source)))
+
+    def test_reviewer_report_replacement_invalidates_qa(self):
+        self.f.completed()
+        report = {'status': 'completed', 'summary': 'Clarified independent review',
+                  'fingerprint': result_fingerprint(self.f.snapshot()), 'evidence': [self.f.ref(REVIEWER_ID)]}
+        self.f.save('review', report)
+        self.assertIn('QA reviewer report changed', ';'.join(validate_acceptance(self.f.snapshot(), self.f.source)))
+
+    def test_root_corrects_report_next_turn_using_completed_own_edits(self):
+        self.f.source.sessions[ROOT_ID].append(file_change(ROOT_ID, self.f.product))
+        ref = {'thread_id': ROOT_ID, 'turn_id': ROOT_ID + '-turn', 'item_id': 'exec-native-patch'}
+        report = {'status': 'completed', 'summary': {'result': 'Implemented result'},
+                  'authored_paths': [str(self.f.product)], 'evidence': [ref]}
+        before = self.f.snapshot()
+        with self.assertRaisesRegex(JournalError, 'report summary required'):
+            self.f.save('author', report)
+        self.assertEqual(self.f.snapshot().revision, before.revision)
+        self.f.source.sessions[ROOT_ID].append({'type': 'event_msg', 'payload': {
+            'type': 'task_complete', 'turn_id': ROOT_ID + '-turn', 'last_agent_message': '{}'}})
+        turn = 'root-report-correction'
+        self.f.source.sessions[ROOT_ID].extend(session(ROOT_ID, 'python-worker', cwd=self.f.root, turn=turn)[1:3])
+        report['summary'] = 'Implemented result'
+        fingerprint = result_fingerprint(self.f.snapshot())
+        accepted = self.f.save('author', report, turn=turn)
+        self.assertEqual(accepted['source']['turn_id'], turn)
+        self.assertEqual(accepted['evidence'], [ref])
+        self.assertEqual(result_fingerprint(self.f.snapshot()), fingerprint)
+        observed = native_references(self.f.snapshot(), 'author', self.f.source)
+        self.assertEqual(observed['turn_id'], turn)
+        self.assertFalse(observed['completed'])
+        self.assertIn(ref, [item['ref'] for item in observed['observations']])
+
+    def test_author_rejects_unfinished_or_before_assignment_edit_turns(self):
+        events = self.f.source.sessions[ROOT_ID]
+        events.append(file_change(ROOT_ID, self.f.product))
+        turn = 'new-author-turn'
+        events.extend(session(ROOT_ID, 'python-worker', cwd=self.f.root, turn=turn)[1:3])
+        report = {'status': 'completed', 'summary': 'Claimed old edits', 'authored_paths': [str(self.f.product)],
+                  'evidence': [self.f.ref(ROOT_ID)]}
+        with self.assertRaisesRegex(JournalError, 'previous author turn is unfinished'):
+            self.f.save('author', report, turn=turn)
+        events.insert(-2, {'type': 'event_msg', 'payload': {
+            'type': 'task_complete', 'turn_id': ROOT_ID + '-turn', 'last_agent_message': '{}'}})
+        assignment = {**self.f.known['author'], 'start_turn_id': turn}
+        for ref in (self.f.ref(ROOT_ID), {'thread_id': ROOT_ID, 'turn_id': ROOT_ID + '-turn', 'item_id': 'exec-native-patch'}):
+            with self.subTest(ref=ref):
+                report['evidence'] = [ref]
+                with self.assertRaisesRegex(JournalError, 'native edit author turn outside assignment'):
+                    accept_report(self.f.snapshot(), assignment, {'turn_id': turn, 'report': report}, self.f.source)
 
     def test_criteria_checkbox_normalizes_but_text_change_invalidates(self):
         initial = requirements(self.f.snapshot())['digest']
@@ -491,7 +551,7 @@ class EvidenceTests(unittest.TestCase):
         self.assertIn('successful native inspection', ';'.join(validate_acceptance(self.f.snapshot(), self.f.source)))
 
     def test_unverified_criterion_accepts_missing_empty_or_valid_evidence(self):
-        self.f.save('author')
+        self.f.reviewed()
         for evidence in ({}, {'evidence': []}, {'evidence': [self.f.ref(QA_ID)]}):
             with self.subTest(evidence=evidence):
                 outcome = {'status': 'unverified', 'reason': 'Required runtime check is forbidden', **evidence}
@@ -504,7 +564,7 @@ class EvidenceTests(unittest.TestCase):
                 self.assertIn('assignment failed: qa', ';'.join(validate_acceptance(self.f.snapshot(), self.f.source)))
 
     def test_criterion_errors_identify_the_criterion(self):
-        self.f.save('author')
+        self.f.reviewed()
         cases = [
             ({'status': 'unverified'}, 'reason required'),
             ({'status': 'unverified', 'reason': ' ', 'evidence': [self.f.ref(QA_ID)]}, 'reason required'),
@@ -526,7 +586,7 @@ class EvidenceTests(unittest.TestCase):
                 self.assertFalse(self.f.snapshot().exists('reports/qa.json'))
 
     def test_narrative_attachment_alone_cannot_prove_criterion(self):
-        self.f.save('author')
+        self.f.reviewed()
         transact(self.f.run, 'attachment', {'artifact': 'narrative'},
                  lambda current: ({'artifacts/pass.txt': b'PASS'}, {}))
         report = {'status': 'completed', 'summary': 'Checked', 'fingerprint': result_fingerprint(self.f.snapshot()),
@@ -590,8 +650,8 @@ class EvidenceTests(unittest.TestCase):
         report = {'status': 'completed', 'summary': 'Implemented result', 'authored_paths': [str(self.f.product)],
                   'evidence': [self.f.ref(ROOT_ID), {'path': receipt['path'], 'sha256': receipt['sha256']}]}
         self.f.save('author', report)
-        self.f.save('qa')
         self.f.save('review')
+        self.f.save('qa')
         self.assertEqual(validate_acceptance(self.f.snapshot(), self.f.source), [])
 
     def test_old_uncited_failed_check_does_not_block_fresh_result(self):

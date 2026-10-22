@@ -32,7 +32,7 @@ class LifecycleTests(unittest.TestCase):
             finalize(self.f.run, identifier='new-final', status='completed', summary='Again', source=self.f.source)
 
     def test_failed_final_requires_reason_and_records_unverified(self):
-        self.f.save('author')
+        self.f.reviewed()
         report = {'status': 'failed', 'summary': 'Inspected available sources', 'reason': 'Tests forbidden by user',
                   'evidence': [self.f.ref(fixture.QA_ID)], 'fingerprint': fixture.result_fingerprint(self.f.snapshot()),
                   'criteria': {'ac-1': {'status': 'unverified', 'reason': 'Tests forbidden by user'}}}
@@ -42,33 +42,33 @@ class LifecycleTests(unittest.TestCase):
             finalize(self.f.run, identifier='failed', status='failed', summary='Stopped', unverified=['tests'])
         finalize(self.f.run, identifier='failed', status='failed', summary='Stopped', reason='Tests forbidden by user', unverified=['tests'])
         self.assertEqual(self.f.snapshot().json('final.json')['unverified'], ['tests'])
-        self.assertFalse(self.f.snapshot().exists('reports/review.json'))
+        self.assertEqual(self.f.snapshot().json('reports/review.json')['status'], 'completed')
 
-    def test_failed_qa_returns_to_author_before_review_and_completion(self):
-        self.f.save('author')
+    def test_failed_qa_returns_to_author_then_review_before_fresh_qa(self):
+        self.f.reviewed()
         report = {'status': 'failed', 'summary': 'Incorrect result', 'reason': 'Result must be 3',
                   'evidence': [self.f.ref(fixture.QA_ID)], 'fingerprint': fixture.result_fingerprint(self.f.snapshot()),
                   'criteria': {'ac-1': {'status': 'failed', 'evidence': [self.f.ref(fixture.QA_ID)]}}}
         self.f.save('qa', report)
         before = self.f.snapshot()
-        with self.assertRaisesRegex(JournalError, 'requires current completed QA'):
-            self.f.save('review')
         with self.assertRaisesRegex(JournalError, 'assignment failed: qa'):
             finalize(self.f.run, identifier='premature', status='completed', summary='Not ready', source=self.f.source)
         after = self.f.snapshot()
         self.assertEqual((after.revision, after.documents, after.operations),
                          (before.revision, before.documents, before.operations))
         self.f.product.write_text('answer = 3\n')
+        self.f.source.sessions[fixture.ROOT_ID].append({'type': 'event_msg', 'payload': {
+            'type': 'task_complete', 'turn_id': fixture.ROOT_ID + '-turn', 'last_agent_message': '{}'}})
         self.f.source.sessions[fixture.ROOT_ID].extend(fixture.session(
             fixture.ROOT_ID, 'python-worker', cwd=self.f.root, turn='author-correction',
             patch='*** Begin Patch\n*** Update File: result.py\n@@\n-answer = 2\n+answer = 3\n*** End Patch')[1:])
         self.f.save('author', turn='author-correction')
         with self.assertRaises(JournalError):
-            self.f.save('review')
+            self.f.save('qa', turn='qa-premature')
+        self.f.save('review', turn='review-correction')
         qa = self.f.save('qa', turn='qa-correction')
         self.assertNotEqual(qa['fingerprint'], report['fingerprint'])
         self.assertEqual(qa['source']['turn_id'], 'qa-correction')
-        self.f.save('review', turn='review-correction')
         finalize(self.f.run, identifier='corrected', status='completed', summary='Corrected and verified', source=self.f.source)
         final = self.f.snapshot().json('final.json')
         self.assertEqual(final['status'], 'completed')
@@ -83,6 +83,21 @@ class LifecycleTests(unittest.TestCase):
         with self.assertRaisesRegex(JournalError, 'stale'):
             finalize(self.f.run, identifier='final', status='completed', summary='Stale', source=self.f.source)
         self.assertFalse(self.f.snapshot().exists('final.json'))
+
+    def test_replaced_review_requires_fresh_qa_before_final(self):
+        self.f.completed()
+        previous_qa = self.f.snapshot().json('reports/qa.json')
+        report = {'status': 'completed', 'summary': 'Clarified code review',
+                  'fingerprint': fixture.result_fingerprint(self.f.snapshot()),
+                  'evidence': [self.f.ref(fixture.REVIEWER_ID, 'review-correction')]}
+        self.f.save('review', report, turn='review-correction')
+        with self.assertRaisesRegex(JournalError, 'QA reviewer report changed'):
+            finalize(self.f.run, identifier='stale-qa', status='completed', summary='Not ready', source=self.f.source)
+        self.assertFalse(self.f.snapshot().exists('final.json'))
+        self.assertEqual(self.f.snapshot().json('reports/qa.json'), previous_qa)
+        self.f.save('qa', turn='qa-after-review')
+        finalize(self.f.run, identifier='fresh-qa', status='completed', summary='Accepted', source=self.f.source)
+        self.assertEqual(self.f.snapshot().json('final.json')['status'], 'completed')
 
     def test_locked_revalidation_refuses_before_publication(self):
         self.f.completed()

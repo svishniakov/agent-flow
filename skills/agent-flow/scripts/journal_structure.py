@@ -37,8 +37,8 @@ def request_contract():
         "report_statuses": sorted(REPORT_STATUSES),
         "report_required": ["status", "summary", "evidence"],
         "author_fields": ["authored_paths"],
-        "qa_fields": ["fingerprint", "criteria"],
-        "reviewer_fields": ["fingerprint", "qa"],
+        "qa_fields": ["fingerprint", "criteria", "reviewer"],
+        "reviewer_fields": ["fingerprint"],
         "native_evidence": ["thread_id", "turn_id", "call_id"],
         "native_item_evidence": ["thread_id", "turn_id", "item_id"],
         "generation_evidence": ["path", "sha256", "native"],
@@ -46,7 +46,7 @@ def request_contract():
         "read": ["summary", "result", "requirements", "native/ID", "task.json", "scope.json",
                  "assignments/ID.json", "reports/ID.json", "checks/ID.json", "generations/OPERATION_ID.json", "final.json"],
         "check": "Executes command once; records actual cwd, exit code, output and unchanged result fingerprint. A missing receipt after interruption requires inspecting native execution before retrying.",
-        "report": "Child: assignment_id + completion_turn_id. Root author: assignment_id + turn_id + report with native edit evidence.",
+        "report": "summary is a nonempty string. Child: assignment_id + latest completion_turn_id. Root author: assignment_id + current turn_id + report. Author evidence may refer to completed turns from the assignment start_turn_id. Correct the report in the same assignment with a new operation ID; do not repeat edits or generation.",
         "generation": "Executes once under BEGIN IMMEDIATE; only declared output files may change. Requires exclusive product editing. Replay returns executed:false and cannot prove authorship. Inspect execution before retrying without a receipt.",
         "generation_invocation": {"python": sys.executable, "journal": str(Path(__file__).with_name("journal.py").resolve()),
                                   "shell": "/bin/zsh", "login": True, "stdin_delimiter": "AF_GENERATION_REQUEST"},
@@ -79,7 +79,7 @@ def overlap(left, right):
 def assignment_record(snapshot, request, source=None):
     from agent_config import default_agents_dir, read_frontmatter, resolve_role_path
     from task_workspace import path_allowed
-    from verification_evidence import CodexSessionSource, own_metadata, session_metadata
+    from verification_evidence import CodexSessionSource, _own_session_events, accepted_review, own_metadata, session_metadata
     identifier = record_id(request.get("id"))
     kind = request.get("kind")
     require(kind in ASSIGNMENT_KINDS, "invalid assignment kind")
@@ -113,6 +113,13 @@ def assignment_record(snapshot, request, source=None):
     require(identifier not in depends and set(depends) <= current.keys(), "assignment dependencies must already exist")
     record = {"id": identifier, "kind": kind, "role": role, "agent_id": agent_id,
               "allowed_paths": sorted(set(paths)), "depends_on": sorted(set(depends))}
+    if kind == "author":
+        started = [event["payload"].get("turn_id") for _, event in _own_session_events(source, events, agent_id)
+                   if event.get("type") == "event_msg" and event.get("payload", {}).get("type") == "task_started"]
+        start = current[identifier].get("start_turn_id") if identifier in current else started[-1] if started else None
+        require(isinstance(start, str) and bool(start) and started.count(start) == 1,
+                "author assignment start turn missing or ambiguous")
+        record["start_turn_id"] = start
     require(identifier not in current or current[identifier] == record,
             "assignment already exists; declare a new assignment for a different responsibility")
     if kind == "author":
@@ -122,6 +129,11 @@ def assignment_record(snapshot, request, source=None):
             if any(overlap(Path(a), Path(b)) for a in paths for b in other["allowed_paths"]):
                 require(other_id in depends and snapshot.exists("reports/" + other_id + ".json"),
                         "overlapping author paths require a predecessor report and explicit dependency")
+    if kind == "qa":
+        reviewers = [key for key in depends if current[key]["kind"] == "reviewer"]
+        require(bool(reviewers), "QA assignment requires a reviewer dependency")
+        for key in reviewers:
+            accepted_review(snapshot, key, source, qa_agent_id=agent_id)
     return record
 
 

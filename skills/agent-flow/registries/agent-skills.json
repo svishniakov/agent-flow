@@ -1808,6 +1808,31 @@
       }
     },
     {
+      "name": "golang-architect",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "architect"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.agents/skills/golang-architect",
+          "instructions": "Install `golang-architect` into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".agents/skills/golang-architect",
+          "instructions": "Install `golang-architect` into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Manually managed skill; no automatic installation command is configured. Skills CLI installs normally use ~/.agents/skills; legacy Codex installs under ~/.codex/skills are still scanned."
+      }
+    },
+    {
       "name": "golang-code-style",
       "aliases": [],
       "tier": "core",

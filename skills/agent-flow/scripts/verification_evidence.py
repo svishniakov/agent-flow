@@ -304,6 +304,41 @@ def completed_turn(source, thread_id: str, turn_id: str, root_id: str, role: str
     return completions[0]
 
 
+def author_turn_ids(source, assignment, *, turn=None, events=None):
+    thread = assignment['agent_id']
+    events = source.read(thread) if events is None else events
+    own_events = [event for _, event in _own_session_events(source, events, thread)]
+    started = [event['payload'].get('turn_id') for event in own_events
+               if event.get('type') == 'event_msg' and event.get('payload', {}).get('type') == 'task_started']
+    require(bool(started), 'author source turn missing')
+    start = assignment.get('start_turn_id')
+    turn = started[-1] if turn is None else turn
+    require(isinstance(start, str) and bool(start) and started.count(start) == 1,
+            'author assignment start turn missing or ambiguous')
+    require(isinstance(turn, str) and bool(turn) and started.count(turn) == 1,
+            'author report turn missing or ambiguous')
+    first, last = started.index(start), started.index(turn)
+    require(first <= last, 'author report precedes assignment start turn')
+    selected = started[first:last + 1]
+    require(all(isinstance(value, str) and value and started.count(value) == 1 for value in selected),
+            'author source turn missing or ambiguous')
+    completed, active = set(), None
+    for event in own_events:
+        payload = event.get('payload', {})
+        if event.get('type') != 'event_msg':
+            continue
+        if payload.get('type') == 'task_started':
+            active = payload.get('turn_id')
+        elif payload.get('type') == 'task_complete':
+            value = payload.get('turn_id')
+            if value in selected:
+                require(active == value and value not in completed, 'author completion missing or ambiguous')
+                completed.add(value)
+            active = None
+    require(all(value in completed for value in selected[:-1]), 'previous author turn is unfinished')
+    return selected
+
+
 
 def requirements(snapshot):
     task = snapshot.json('task.json')
@@ -546,32 +581,48 @@ def native_references(snapshot, assignment_id, source=None):
         require(not metadata.get('parent_thread_id') and not child_spawn(metadata), 'root identity must be the actual source root')
     else:
         session_metadata(events, thread, root, assignment['role'], source=source)
+    author_turns = author_turn_ids(source, assignment, events=events) if assignment['kind'] == 'author' else None
     turn, completed, calls, outputs, items = None, False, [], {}, []
+    started_turns = set()
     for _, event in _own_session_events(source, events, thread):
         payload = event.get('payload', {})
         if event.get('type') == 'event_msg' and payload.get('type') == 'task_started':
-            turn, completed, calls, outputs, items = payload.get('turn_id'), False, [], {}, []
+            turn, completed = payload.get('turn_id'), False
+            if isinstance(turn, str) and turn:
+                started_turns.add(turn)
+            if author_turns is None:
+                calls, outputs, items = [], {}, []
         elif event.get('type') == 'event_msg' and payload.get('type') == 'task_complete' and payload.get('turn_id') == turn:
             completed = True
+        elif author_turns is not None and turn not in author_turns:
+            continue
         elif turn is not None and not completed and event.get('type') == 'event_msg' and payload.get('type') == 'item_completed':
             if payload.get('item', {}).get('type') in {'FileChange', 'CommandExecution'}:
-                items.append(payload['item'])
+                if payload['item']['type'] == 'CommandExecution':
+                    item_turn, item_id = payload.get('turn_id'), payload['item'].get('id')
+                    require(all(isinstance(value, str) and value for value in (payload.get('thread_id'), item_turn, item_id)),
+                            'native evidence requires thread_id, turn_id and item_id')
+                    require(payload['thread_id'] == thread and item_turn in started_turns,
+                            'native item thread or turn mismatch')
+                    if item_turn != turn:
+                        continue
+                items.append((turn, payload['item']))
         elif turn is not None and not completed and event.get('type') == 'response_item':
             if payload.get('type') in {'custom_tool_call', 'function_call'}:
-                calls.append(payload)
+                calls.append((turn, payload))
             elif payload.get('type') in {'custom_tool_call_output', 'function_call_output'}:
-                outputs[payload.get('call_id')] = payload
+                outputs[turn, payload.get('call_id')] = payload
     require(isinstance(turn, str) and bool(turn), 'own source turn missing')
     if completed and thread != root:
         completed_turn(source, thread, turn, root, assignment['role'])
     observations = []
-    for call in calls:
-        if call.get('call_id') not in outputs:
+    for call_turn, call in calls:
+        if (call_turn, call.get('call_id')) not in outputs:
             continue
-        raw_output = outputs[call['call_id']].get('output')
+        raw_output = outputs[call_turn, call['call_id']].get('output')
         if isinstance(raw_output, str) and not raw_output.strip():
             continue
-        ref = {'thread_id': thread, 'turn_id': turn, 'call_id': call['call_id']}
+        ref = {'thread_id': thread, 'turn_id': call_turn, 'call_id': call['call_id']}
         observed_call, record = native_tool_record(source, ref, root_id=root, role=assignment['role'])
         output = native_output_text(record)
         if output is None:
@@ -584,8 +635,8 @@ def native_references(snapshot, assignment_id, source=None):
             paths = []
         observations.append({'ref': ref, 'name': observed_call.get('name'),
                              'success': bool(paths) or native_succeeded(observed_call, output), 'authored_paths': paths})
-    for item in items:
-        ref = {'thread_id': thread, 'turn_id': turn, 'item_id': item.get('id')}
+    for item_turn, item in items:
+        ref = {'thread_id': thread, 'turn_id': item_turn, 'item_id': item.get('id')}
         observed = native_item(source, ref, root_id=root, role=assignment['role'])
         if observed.get('type') == 'CommandExecution':
             try:
@@ -650,16 +701,17 @@ def verify_evidence(snapshot, refs, source, *, root_id, role=None, success_requi
 
 def observed_author_paths(snapshot, assignment, report, source, *, turn, current=True):
     root_id = snapshot.identities['root_agent_id']
+    allowed_turns = author_turn_ids(source, assignment, turn=turn)
     observed = set()
     for ref in report.get('evidence', []):
         if isinstance(ref.get('path'), str) and ref['path'].startswith('generations/'):
-            require(ref.get('native', {}).get('turn_id') == turn, 'generation author turn mismatch')
+            require(ref.get('native', {}).get('turn_id') in allowed_turns, 'generation author turn outside assignment')
             observed.update(generation_evidence(snapshot, ref, source, assignment=assignment, current=current))
             continue
         if 'path' in ref or ref.get('thread_id') != assignment['agent_id']:
             continue
+        require(ref.get('turn_id') in allowed_turns, 'native edit author turn outside assignment')
         if 'item_id' in ref:
-            require(ref.get('turn_id') == turn, 'native edit author turn mismatch')
             observed.update(native_file_change_paths(native_item(source, ref, root_id=root_id, role=assignment['role'])))
             continue
         call, output = native_tool(source, ref, root_id=root_id, role=assignment['role'])
@@ -681,6 +733,23 @@ def authored_evidence(snapshot, assignment, report, source, *, turn, current=Tru
         require(path_allowed(scope, str(path)), 'author path outside product scope: ' + value)
         require(any(path == Path(item) or path.is_relative_to(Path(item)) for item in allowed), 'author path outside assignment: ' + value)
         require(str(path) in observed, 'authored path has no native edit evidence: ' + value)
+
+
+def accepted_review(snapshot, key, source, *, qa_agent_id):
+    known = assignments(snapshot)
+    require(qa_agent_id not in {item['agent_id'] for item in known.values() if item['kind'] == 'author'},
+            'QA cannot be a product author')
+    require(isinstance(key, str) and key in known and known[key]['kind'] == 'reviewer',
+            'QA reviewer assignment missing')
+    assignment = known[key]
+    require(assignment['agent_id'] != qa_agent_id, 'QA must be independent from reviewer')
+    path = 'reports/' + key + '.json'
+    require(snapshot.exists(path), 'QA requires current completed review')
+    report = snapshot.json(path)
+    require(report.get('status') == 'completed' and report.get('fingerprint') == result_fingerprint(snapshot),
+            'QA requires current completed review')
+    revalidate_report(snapshot, assignment, report, source)
+    return report
 
 
 def accept_report(snapshot, assignment, request, source=None, *, current=True):
@@ -730,6 +799,13 @@ def accept_report(snapshot, assignment, request, source=None, *, current=True):
                     and (report['status'] == 'failed' or 'item_id' not in ref and native_succeeded(*native_tool(source, ref, root_id=root_id, role=assignment['role'])))
                     for ref in report['evidence']), 'QA/reviewer requires its own successful native inspection')
     if kind == 'qa':
+        reviewer = report.get('reviewer', {})
+        require(isinstance(reviewer, dict), 'QA reviewer reference required')
+        key = reviewer.get('assignment_id')
+        require(isinstance(key, str) and key in assignment.get('depends_on', []), 'QA requires a reviewer dependency')
+        accepted_review(snapshot, key, source, qa_agent_id=thread)
+        require(reviewer.get('sha256') == sha256(snapshot.read_bytes('reports/' + key + '.json')),
+                'QA reviewer report changed')
         expected = {item['id'] for item in requirements(snapshot)['criteria']}
         criteria = report.get('criteria')
         require(isinstance(criteria, dict) and set(criteria) == expected, 'QA must report every acceptance criterion')
@@ -749,18 +825,17 @@ def accept_report(snapshot, assignment, request, source=None, *, current=True):
         if report['status'] == 'completed':
             require(all(item['status'] == 'passed' for item in criteria.values()), 'completed QA requires passed criteria')
     if kind == 'reviewer':
-        qa = report.get('qa', {})
-        key = qa.get('assignment_id')
-        require(isinstance(key, str) and key in assignments(snapshot), 'reviewer QA assignment missing')
-        qa_assignment = assignments(snapshot)[key]
-        require(qa_assignment.get('kind') == 'qa' and qa_assignment['agent_id'] != thread, 'reviewer must be independent from QA')
-        path = 'reports/' + key + '.json'
-        require(snapshot.exists(path) and qa.get('sha256') == sha256(snapshot.read_bytes(path)), 'reviewer QA report changed')
-        accepted = json.loads(snapshot.read_bytes(path))
-        require(accepted.get('status') == 'completed' and accepted.get('fingerprint') == report['fingerprint'], 'reviewer requires current completed QA')
-        revalidate_report(snapshot, qa_assignment, accepted, source)
+        require('qa' not in report, 'reviewer report must not depend on QA')
+        for key, author in known.items():
+            if author['kind'] != 'author':
+                continue
+            path = 'reports/' + key + '.json'
+            require(snapshot.exists(path), 'reviewer author report missing: ' + key)
+            accepted = snapshot.json(path)
+            require(accepted.get('status') == 'completed', 'reviewer requires completed author report: ' + key)
+            revalidate_report(snapshot, author, accepted, source)
     report['source'] = {'thread_id': thread, 'turn_id': turn, 'root_author': thread == root_id}
-    if kind == 'qa':
+    if kind == 'reviewer':
         report['source']['authors'] = {key: sha256(snapshot.read_bytes('reports/' + key + '.json'))
                                       for key, item in assignments(snapshot).items() if item.get('kind') == 'author'
                                       and snapshot.exists('reports/' + key + '.json')}

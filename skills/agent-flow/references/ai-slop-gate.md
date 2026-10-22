@@ -1,6 +1,6 @@
 # AI Slop Gate
 
-Use this gate for user-facing text, UI/design, generated code, docs, tests, and public artifacts.
+Use this gate for document and product artifacts: UI/design, generated code, docs, tests, and public content. Ordinary chat replies, explanations, progress updates, review answers and drafts that exist only in chat are outside this gate, regardless of length or subject. Do not invoke `humanizer-ru` or `ai-slops-hunter` for them unless the user explicitly requests that check. Document review is still covered; its chat delivery does not require another pass.
 
 ## Route
 

@@ -55,14 +55,14 @@ Overlap notes: Use `design-documenter` for `docs/design/DESIGN.md`; use `ai-slop
 Status: active
 Use when: Implementation, plan, branch, or release readiness needs independent findings ordered by severity.
 Do not use when: The need is test execution, browser proof, or reproduction evidence.
-Overlap notes: Use `qa-verifier` for behavior checks; reviewer consumes QA evidence but does not replace it. For architecture-sensitive review, reviewer checks the diff against the architect-owned contract instead of replacing architect judgment.
+Overlap notes: Reviewer checks current code and author reports before product QA. After successful review, use `qa-verifier` for behavior checks against the same result. For architecture-sensitive review, reviewer checks the diff against the architect-owned contract instead of replacing architect judgment.
 
 ### qa-verifier
 
 Status: active
 Use when: Requirements and acceptance criteria need pre-development review (`qa.requirements`), or tests, logs, reproduction, browser/simulator smoke, regression checks, and readiness evidence are needed.
 Do not use when: The task is architectural critique or code review without execution evidence.
-Overlap notes: Requirements review identifies gaps for product-manager or architect without authoring their decisions. It does not replace final implementation QA. Use `reviewer` for independent risk analysis after QA evidence; use workers for code fixes.
+Overlap notes: Requirements review identifies gaps for product-manager or architect without authoring their decisions. It does not replace final implementation QA, which starts after successful independent `reviewer` approval. Use workers for code fixes, then review the correction before affected QA checks.
 
 ### senior-qa-verifier
 
