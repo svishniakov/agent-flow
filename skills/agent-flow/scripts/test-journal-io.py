@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import patch
 
 import journal_structure as writer
-from journal_io import JournalError, digest
+from journal_io import JournalError
 import verification_evidence as evidence
 
 
@@ -45,10 +45,9 @@ class JournalTests(unittest.TestCase):
         if key == 'author':
             report['authored_paths'] = [str(self.f.product)]
             return {'assignment_id': key, 'turn_id': thread + '-turn', 'report': report}
-        report['fingerprint'] = evidence.result_fingerprint(self.f.snapshot())
         if key == 'qa':
             report['criteria'] = {'ac-1': {'status': 'passed', 'evidence': [self.f.ref(thread)]}}
-            report['reviewer'] = {'assignment_id': 'review', 'sha256': digest(self.f.snapshot().read_bytes('reports/review.json'))}
+            report['reviewer'] = {'assignment_id': 'review'}
         self.f.source.sessions[thread] = base.session(thread, assignment['role'], report, cwd=self.f.root)
         return {'assignment_id': key, 'completion_turn_id': thread + '-turn'}
 
@@ -85,7 +84,7 @@ class JournalTests(unittest.TestCase):
         request = self.report_request('author')
         receipt = self.record('report', request, 'author-report')
         snapshot = self.f.snapshot()
-        self.assertEqual(receipt['result']['sha256'], digest(snapshot.read_bytes('reports/author.json')))
+        self.assertEqual(receipt['result'], {'path': 'reports/author.json'})
         report = snapshot.json('reports/author.json')
         self.assertTrue(report['source']['root_author'])
         self.assertEqual(report['evidence'], request['report']['evidence'])
@@ -126,29 +125,21 @@ class JournalTests(unittest.TestCase):
             receipt = self.record('report', self.report_request(key), key + '-report')
             snapshot = self.f.snapshot()
             self.assertEqual(receipt['result']['path'], 'reports/' + key + '.json')
-            self.assertEqual(receipt['result']['sha256'], digest(snapshot.read_bytes(receipt['result']['path'])))
+            self.assertTrue(snapshot.exists(receipt['result']['path']))
         self.assertEqual(evidence.validate_acceptance(self.f.snapshot(), self.f.source), [])
 
     def test_qa_assignment_and_report_require_current_completed_review(self):
         self.record('report', self.report_request('author'), 'author-report')
         report = {'status': 'completed', 'summary': 'Inspected result', 'evidence': [self.f.ref(base.QA_ID)],
-                  'fingerprint': evidence.result_fingerprint(self.f.snapshot()),
-                  'reviewer': {'assignment_id': 'review', 'sha256': '0' * 64},
+                  'reviewer': {'assignment_id': 'review'},
                   'criteria': {'ac-1': {'status': 'passed', 'evidence': [self.f.ref(base.QA_ID)]}}}
         request = {'assignment_id': 'qa', 'completion_turn_id': base.QA_ID + '-turn'}
-        for state in ('missing', 'failed', 'stale'):
+        for state in ('missing', 'failed'):
             with self.subTest(review=state):
                 if state == 'failed':
                     review = {'status': 'failed', 'summary': 'Review found a defect', 'reason': 'Result is incorrect',
-                              'fingerprint': evidence.result_fingerprint(self.f.snapshot()),
                               'evidence': [self.f.ref(base.REVIEWER_ID)]}
                     self.f.save('review', review)
-                elif state == 'stale':
-                    self.f.save('review')
-                    self.f.product.write_text('answer = 3\n')
-                    report['fingerprint'] = evidence.result_fingerprint(self.f.snapshot())
-                if self.f.snapshot().exists('reports/review.json'):
-                    report['reviewer']['sha256'] = digest(self.f.snapshot().read_bytes('reports/review.json'))
                 self.f.source.sessions[base.QA_ID] = base.session(base.QA_ID, 'qa-verifier', report, cwd=self.f.root)
                 before = self.f.snapshot()
                 with self.assertRaises(JournalError):
@@ -156,7 +147,8 @@ class JournalTests(unittest.TestCase):
                 with self.assertRaises(JournalError):
                     self.record('report', request, 'qa-' + state)
                 self.assert_unchanged(before)
-        self.f.product.write_text('answer = 2\n')
+        self.f.save('review')
+        (self.f.root / 'other-chat.md').write_text('Another task changed\n')
         self.record('assignment', self.f.known['qa'], 'assign-qa-after-review')
         self.record('report', self.report_request('qa'), 'qa-after-review')
         self.assertEqual(evidence.validate_acceptance(self.f.snapshot(), self.f.source), [])
@@ -165,8 +157,8 @@ class JournalTests(unittest.TestCase):
         self.record('report', self.report_request('author'), 'author-report')
         self.record('report', self.report_request('review'), 'review-report')
         report = {'status': 'failed', 'summary': 'Inspected available sources', 'reason': 'Runtime check is forbidden',
-                  'fingerprint': evidence.result_fingerprint(self.f.snapshot()), 'evidence': [self.f.ref(base.QA_ID)],
-                  'reviewer': {'assignment_id': 'review', 'sha256': digest(self.f.snapshot().read_bytes('reports/review.json'))},
+                  'evidence': [self.f.ref(base.QA_ID)],
+                  'reviewer': {'assignment_id': 'review'},
                   'criteria': {'ac-1': {'status': 'unverified'}}}
         request = {'assignment_id': 'qa', 'completion_turn_id': base.QA_ID + '-turn'}
         self.f.source.sessions[base.QA_ID] = base.session(base.QA_ID, 'qa-verifier', report, cwd=self.f.root)
@@ -181,7 +173,7 @@ class JournalTests(unittest.TestCase):
         self.assertEqual(accepted['criteria'], report['criteria'])
         self.assertEqual(accepted['status'], 'failed')
         self.assertEqual(receipt['result']['path'], 'reports/qa.json')
-        self.assertEqual(receipt['result']['sha256'], digest(self.f.snapshot().read_bytes('reports/qa.json')))
+        self.assertEqual(receipt['result'], {'path': 'reports/qa.json'})
 
     def test_locked_qa_refuses_native_reviewer_tamper(self):
         self.record('report', self.report_request('author'), 'author-report')
@@ -202,18 +194,17 @@ class JournalTests(unittest.TestCase):
         self.assert_unchanged(before)
         self.assertFalse(self.f.snapshot().exists('reports/qa.json'))
 
-    def test_locked_report_refuses_product_change(self):
+    def test_locked_report_accepts_other_chat_changes(self):
         self.record('report', self.report_request('author'), 'author-report')
         self.record('report', self.report_request('review'), 'review-report')
         request = self.report_request('qa')
-        before = self.f.snapshot()
         real_transact = writer.transact
         def racing(*args, **kwargs):
-            self.f.product.write_text('answer = 3\n')
+            (self.f.root / 'other-chat.md').write_text('Another task changed\n')
             return real_transact(*args, **kwargs)
-        with patch.object(writer, 'transact', new=racing), self.assertRaisesRegex(JournalError, 'stale'):
-            self.record('report', request, 'stale-qa')
-        self.assert_unchanged(before)
+        with patch.object(writer, 'transact', new=racing):
+            self.record('report', request, 'qa-with-other-chat-change')
+        self.assertEqual(evidence.validate_acceptance(self.f.snapshot(), self.f.source), [])
 
     def check_request(self, name='unit', exit_code=0):
         return {'id': name, 'assignment_id': 'author', 'cwd': str(self.f.root),
@@ -231,8 +222,10 @@ class JournalTests(unittest.TestCase):
         check = before.json('checks/unit.json')
         self.assertEqual(check['exit_code'], 0)
         self.assertEqual(before.read_bytes(check['output']['path']), b'actual check output\n')
-        self.assertEqual(check['output']['sha256'], digest(b'actual check output\n'))
+        self.assertEqual(check['output'], {'path': 'artifacts/checks/unit.log'})
         self.assertEqual(check['operation_id'], 'run-unit')
+        evidence.verify_evidence(self.f.snapshot(), [{'path': first['result']['path'], 'sha256': 'obsolete'}],
+                                 self.f.source, root_id=base.ROOT_ID, success_required=True)
 
     def test_failed_check_has_receipt_missing_executable_has_none(self):
         result = self.record('check', self.check_request('failing', 7), 'run-failing')
@@ -245,13 +238,19 @@ class JournalTests(unittest.TestCase):
         self.assert_unchanged(before)
         self.assertFalse(self.f.snapshot().exists('checks/missing.json'))
 
-    def test_check_that_changes_product_has_no_success_receipt(self):
+    def test_check_accepts_other_chat_changes_during_execution(self):
         request = self.check_request('mutating')
-        request['command'] = [sys.executable, '-B', '-c', 'from pathlib import Path; Path("result.py").write_text("changed")']
-        before = self.f.snapshot()
-        with self.assertRaisesRegex(JournalError, 'changed product'):
-            self.record('check', request, 'run-mutating')
-        self.assert_unchanged(before)
+        actual_run = writer.subprocess.run
+        def execute(*args, **kwargs):
+            result = actual_run(*args, **kwargs)
+            if args[0] == request['command']:
+                (self.f.root / 'other-chat.md').write_text('Another task changed\n')
+            return result
+        with patch.object(writer.subprocess, 'run', side_effect=execute):
+            receipt = self.record('check', request, 'run-mutating')
+        self.assertEqual(receipt['result']['exit_code'], 0)
+        evidence.verify_evidence(self.f.snapshot(), [{'path': receipt['result']['path']}], self.f.source,
+                                 root_id=base.ROOT_ID, success_required=True)
 
     def test_check_cwd_symlink_cannot_escape_product_scope(self):
         outside = tempfile.TemporaryDirectory(prefix='af-check-outside-')
@@ -270,15 +269,14 @@ class JournalTests(unittest.TestCase):
                 'command': [sys.executable, '-B', '-c',
                             'from pathlib import Path; Path("result.py").write_text(' + repr(text) + '); print("generated")']}
 
-    def test_generation_stores_changes_and_replay_never_executes(self):
+    def test_generation_stores_request_and_output_and_replay_never_executes(self):
         request = self.generation_request()
         first = self.record('generation', request, 'generate-result')
         self.assertTrue(first['executed'])
         receipt = first['receipt']
         body = self.f.snapshot().json(receipt['result']['path'])
-        self.assertEqual(body['changes'][0]['path'], str(self.f.product))
-        self.assertEqual(body['changes'][0]['before']['sha256'], digest(b'answer = 2\n'))
-        self.assertEqual(body['changes'][0]['after']['sha256'], digest(b'generated = 3\n'))
+        self.assertEqual(body['exit_code'], 0)
+        self.assertNotIn('changes', body)
         self.assertEqual(self.f.snapshot().read_bytes(body['output']['path']), b'generated\n')
         self.assertEqual(body['request'], request)
         self.assertNotIn('executed', json.dumps(receipt))
@@ -324,34 +322,30 @@ class JournalTests(unittest.TestCase):
                 self.record('generation', request, 'unowned-generation')
         self.assert_unchanged(before)
 
-    def test_generation_refuses_undeclared_changes_and_changed_requirements(self):
-        for target, content, error in (('extra.py', 'extra = 1', 'undeclared product'),
-                                       ('todo.md', self.f.plan.read_text().replace('Result is correct', 'Result changes'),
-                                        'changed context or requirements')):
-            with self.subTest(target=target):
-                before = self.f.snapshot()
-                old_plan = self.f.plan.read_text()
-                request = self.generation_request()
-                request['command'] = [sys.executable, '-B', '-c',
-                                      'from pathlib import Path; Path(' + repr(target) + ').write_text(' + repr(content) + ')']
-                try:
-                    with self.assertRaisesRegex(JournalError, error):
-                        self.record('generation', request, 'unexpected-' + Path(target).stem)
-                    self.assert_unchanged(before)
-                finally:
-                    if target == 'todo.md':
-                        self.f.plan.write_text(old_plan)
-                    else:
-                        (self.f.root / target).unlink(missing_ok=True)
+    def test_generation_accepts_other_chat_changes_during_execution(self):
+        request = self.generation_request()
+        actual_run = writer.subprocess.run
+        def execute(*args, **kwargs):
+            result = actual_run(*args, **kwargs)
+            if args[0] == request['command']:
+                (self.f.root / 'other-chat.md').write_text('Another task changed\n')
+            return result
+        with patch.object(writer.subprocess, 'run', side_effect=execute):
+            result = self.record('generation', request, 'generate-with-neighbor')
+        body = self.f.snapshot().json(result['receipt']['result']['path'])
+        self.assertTrue(result['executed'])
+        self.assertEqual(body['exit_code'], 0)
+        self.assertEqual(body['request']['outputs'], [str(self.f.product)])
 
-    def test_generation_noop_and_failed_execution_do_not_claim_changes(self):
+    def test_generation_records_noop_and_failed_execution(self):
         request = self.generation_request('answer = 2\n')
         result = self.record('generation', request, 'noop-generation')
-        self.assertEqual(self.f.snapshot().json(result['receipt']['result']['path'])['changes'], [])
+        self.assertEqual(result['receipt']['result']['exit_code'], 0)
         request['command'] = [sys.executable, '-B', '-c', 'print("failed generator"); raise SystemExit(7)']
         result = self.record('generation', request, 'failed-generation')
         self.assertEqual(result['receipt']['result']['exit_code'], 7)
-        self.assertEqual(self.f.snapshot().json(result['receipt']['result']['path'])['changes'], [])
+        body = self.f.snapshot().json(result['receipt']['result']['path'])
+        self.assertEqual(self.f.snapshot().read_bytes(body['output']['path']), b'failed generator\n')
 
     def test_generation_logs_cannot_be_published_as_user_artifacts(self):
         with self.assertRaisesRegex(JournalError, 'writer-owned'):
@@ -370,7 +364,7 @@ class JournalTests(unittest.TestCase):
         index = -2 if events[-1]['payload'].get('type') == 'task_complete' else len(events)
         events.insert(index, event)
         result = envelope['receipt']['result']
-        ref = {'path': result['path'], 'sha256': result['sha256'],
+        ref = {'path': result['path'],
                'native': {'thread_id': thread, 'turn_id': thread + '-turn', 'item_id': item['id']}}
         return ref, event
 
@@ -446,7 +440,6 @@ class JournalTests(unittest.TestCase):
         turn_b = 'child-report-correction'
         continuation = base.session(child, 'python-worker', report, cwd=self.f.root, turn=turn_b)
         self.f.source.sessions[child].extend(continuation[1:3] + continuation[-2:])
-        fingerprint = evidence.result_fingerprint(self.f.snapshot())
         observed = evidence.native_references(self.f.snapshot(), 'child', self.f.source)
         self.assertEqual(observed['turn_id'], turn_b)
         self.assertTrue(observed['completed'])
@@ -456,7 +449,6 @@ class JournalTests(unittest.TestCase):
             self.record('report', {'assignment_id': 'child', 'completion_turn_id': turn_b}, 'corrected-child')
         self.assertEqual(self.f.snapshot().json('reports/child.json')['evidence'], report['evidence'])
         self.assertEqual(counter.read_text(), '1')
-        self.assertEqual(evidence.result_fingerprint(self.f.snapshot()), fingerprint)
         self.assertEqual(generated.read_text(), 'generated = 4\n')
         for key in ('review', 'qa'):
             self.record('report', self.report_request(key), 'corrected-child-' + key)
@@ -464,7 +456,7 @@ class JournalTests(unittest.TestCase):
                                             summary='Accepted corrected report', source=self.f.source)
         self.assertEqual(receipt['result']['status'], 'completed')
 
-    def test_generation_requires_fresh_own_invocation_and_unchanged_output(self):
+    def test_generation_requires_real_own_invocation_without_tracking_output_changes(self):
         ref, event = self.native_generation(self.generation_request(), 'bound-generation')
         item = event['payload']['item']
         original_output, original_command = item['aggregated_output'], item['command']
@@ -481,11 +473,10 @@ class JournalTests(unittest.TestCase):
             self.record('report', request, 'echoed-author')
         item['command'] = original_command
         self.f.product.write_text('different = 4\n')
-        with self.assertRaisesRegex(JournalError, 'no native edit evidence'):
-            self.record('report', request, 'stale-generated-author')
-        self.assertFalse(self.f.snapshot().exists('reports/author.json'))
+        self.record('report', request, 'generated-author')
+        self.assertEqual(self.f.snapshot().json('reports/author.json')['authored_paths'], [str(self.f.product)])
 
-    def test_sequential_generations_keep_current_proof_for_each_output(self):
+    def test_sequential_generations_preserve_declared_output_evidence(self):
         import journal_lifecycle
         self.record('report', self.report_request('author'), 'initial-author')
         second = self.f.root / 'second.py'
@@ -499,13 +490,11 @@ class JournalTests(unittest.TestCase):
         request = {**request, 'command': [sys.executable, '-c', 'from pathlib import Path; Path("second.py").write_text("value = 2\\n")'],
                    'outputs': [str(second)]}
         latest, _ = self.native_generation(request, 'correct-second')
-        self.assertEqual(evidence.generation_evidence(self.f.snapshot(), first, self.f.source), [str(self.f.product)])
+        self.assertEqual(evidence.generation_evidence(self.f.snapshot(), first, self.f.source), [str(self.f.product), str(second)])
+        self.assertEqual(evidence.generation_evidence(self.f.snapshot(), latest, self.f.source), [str(second)])
         report = {'status': 'completed', 'summary': 'Generated and corrected files',
                   'authored_paths': [str(self.f.product), str(second)], 'evidence': [first]}
         publication = {'assignment_id': 'batch', 'turn_id': base.ROOT_ID + '-turn', 'report': report}
-        with self.assertRaisesRegex(JournalError, 'no native edit evidence.*second.py'):
-            self.record('report', publication, 'incomplete-batch-proof')
-        report['evidence'].append(latest)
         self.record('report', publication, 'batch-proof')
         for key in ('review', 'qa'):
             self.record('report', self.report_request(key), 'batch-' + key)
@@ -513,7 +502,7 @@ class JournalTests(unittest.TestCase):
                                             summary='Accepted both outputs', source=self.f.source)
         self.assertEqual(receipt['result']['status'], 'completed')
 
-    def test_dependent_author_correction_requires_current_generation_coverage(self):
+    def test_dependent_author_generation_remains_valid_after_file_changes(self):
         import journal_lifecycle
         original, _ = self.native_generation(self.generation_request(), 'predecessor-generation')
         request = self.report_request('author')
@@ -533,26 +522,20 @@ class JournalTests(unittest.TestCase):
         self.f.product.write_text('unobserved = 5\n')
         for key in ('review', 'qa'):
             self.record('report', self.report_request(key), 'unobserved-' + key)
-        with self.assertRaisesRegex(JournalError, 'lack native author coverage'):
-            journal_lifecycle.finalize(self.f.run, identifier='unobserved-final', status='completed',
-                                       summary='Must refuse unknown edits', source=self.f.source)
-        self.assertFalse(self.f.snapshot().exists('final.json'))
-        self.f.product.write_text('generated = 4\n')
-        for key in ('review', 'qa'):
-            self.record('report', self.report_request(key), 'corrected-' + key)
         receipt = journal_lifecycle.finalize(self.f.run, identifier='corrected-final', status='completed',
                                             summary='Accepted dependent correction', source=self.f.source)
         self.assertEqual(receipt['result']['status'], 'completed')
 
-    def test_generation_noop_and_failure_cannot_be_author_evidence(self):
+    def test_successful_noop_generation_is_evidence_and_failed_generation_is_not(self):
         ref, event = self.native_generation(self.generation_request('answer = 2\n'), 'no-write')
-        with self.assertRaisesRegex(JournalError, 'no observed file changes'):
-            evidence.verify_evidence(self.f.snapshot(), [ref], self.f.source, root_id=base.ROOT_ID)
+        evidence.verify_evidence(self.f.snapshot(), [ref], self.f.source, root_id=base.ROOT_ID)
+        self.assertEqual(evidence.generation_evidence(self.f.snapshot(), ref, self.f.source), [str(self.f.product)])
+        evidence.verify_evidence(self.f.snapshot(), [{**ref, 'sha256': 'obsolete'}], self.f.source, root_id=base.ROOT_ID)
         request = self.generation_request()
         request['command'][-1] += '; raise SystemExit(7)'
         result = self.record('generation', request, 'failed-write')
         receipt = result['receipt']
-        failed_ref = {'path': receipt['result']['path'], 'sha256': receipt['result']['sha256'], 'native': ref['native']}
+        failed_ref = {'path': receipt['result']['path'], 'native': ref['native']}
         with self.assertRaisesRegex(JournalError, 'command did not succeed'):
             evidence.verify_evidence(self.f.snapshot(), [failed_ref], self.f.source, root_id=base.ROOT_ID)
 
@@ -582,16 +565,16 @@ class JournalTests(unittest.TestCase):
         self.addCleanup(source.unlink, missing_ok=True)
         source.write_bytes(b'raw\x00evidence\n')
         receipt = writer.publish_artifact(self.f.run, 'artifacts/output.bin', source, identifier='publish-output')
-        ref = {'path': receipt['result']['path'], 'sha256': receipt['result']['sha256']}
+        ref = {'path': receipt['result']['path']}
         self.assertEqual(self.f.snapshot().read_bytes(ref['path']), source.read_bytes())
         evidence.verify_evidence(self.f.snapshot(), [ref], self.f.source, root_id=base.ROOT_ID)
         before = self.f.snapshot()
         source.write_bytes(b'different')
         with self.assertRaisesRegex(JournalError, 'different bytes'):
             writer.publish_artifact(self.f.run, ref['path'], source, identifier='overwrite-output')
-        for forged in ({**ref, 'sha256': '0' * 64}, {'path': '../outside', 'sha256': ref['sha256']}):
-            with self.assertRaises(JournalError):
-                evidence.verify_evidence(self.f.snapshot(), [forged], self.f.source, root_id=base.ROOT_ID)
+        evidence.verify_evidence(self.f.snapshot(), [{**ref, 'sha256': '0' * 64}], self.f.source, root_id=base.ROOT_ID)
+        with self.assertRaises(JournalError):
+            evidence.verify_evidence(self.f.snapshot(), [{'path': '../outside'}], self.f.source, root_id=base.ROOT_ID)
         self.assert_unchanged(before)
 
     def test_native_read_ignores_late_previous_turn_command(self):
@@ -647,6 +630,18 @@ class JournalTests(unittest.TestCase):
         with redirect_stdout(output):
             self.assertEqual(journal.main(['--run-dir', str(self.f.run), 'read', 'summary']), 0)
         self.assertEqual(json.loads(output.getvalue())['reports'][0]['path'], 'reports/author.json')
+
+    def test_read_result_returns_declared_author_paths_only(self):
+        (self.f.root / 'other-chat.md').write_text('Another task changed\n')
+        output = StringIO()
+        with redirect_stdout(output):
+            self.assertEqual(journal.main(['--run-dir', str(self.f.run), 'read', 'result']), 0)
+        self.assertEqual(json.loads(output.getvalue()), {'authored_paths': []})
+        self.record('report', self.report_request('author'), 'author-report')
+        output = StringIO()
+        with redirect_stdout(output):
+            self.assertEqual(journal.main(['--run-dir', str(self.f.run), 'read', 'result']), 0)
+        self.assertEqual(json.loads(output.getvalue()), {'authored_paths': [str(self.f.product)]})
 
 
 if __name__ == '__main__':

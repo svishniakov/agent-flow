@@ -1,7 +1,7 @@
 {
   "cases": [
     {"path": "completed.json"},
-    {"path": "stale-qa.json"},
+    {"path": "other-chat-change.json"},
     {"path": "failed-partial.json"}
   ]
 }

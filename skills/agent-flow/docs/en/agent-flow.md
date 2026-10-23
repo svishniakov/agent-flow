@@ -10,19 +10,19 @@ For a file-changing task, select a unique task heading and a flat acceptance-cri
 
 ## Execution
 
-Work happens in the actual checkout. An initial inventory records paths and fingerprints without baseline, working or candidate source copies. A separate worktree is optional when real isolation is needed.
+Work happens in the actual checkout. The journal stores scope paths and a reference to the selected requirements section. It does not scan the repository or track file changes. A separate worktree is optional when real isolation is needed.
 
 The main agent may implement directly. Additional workers receive independent scopes with one writer per path at a time.
 
-Each agent returns one report in its own completed native response. SQLite accepts it after checking the actual session and evidence. There are no additional handoff files, lane maps, timelines or mirrored summaries. Markdown is rendered on read.
+Each subagent returns one report in its own completed native response; the main agent registers its own report from its current turn. SQLite accepts reports after checking the actual session and evidence. There are no additional handoff files, lane maps, timelines or mirrored summaries. Markdown is rendered on read.
 
 ## Verification
 
-Positive completion of a file-changing task requires independent QA and reviewer agents. QA connects each criterion to actual verification of the current result. The reviewer checks the implementation and the exact accepted QA report.
+Positive completion of a file-changing task requires an independent reviewer, followed by independent QA. The reviewer checks the implementation and author reports. QA connects each criterion to actual verification of the result and refers to the accepted reviewer by assignment ID.
 
-Evidence includes the real command, cwd, exit and output. A relevant source change invalidates previous conclusions. Repeat affected checks rather than rerunning every check for a new receipt.
+Evidence includes the real command, cwd, exit and output. After substantive corrections to their work, the participants repeat the affected checks and review. The journal does not detect changes automatically; work in another chat does not invalidate this task's reports.
 
-A hash inventory cannot recover original uncommitted lines. Preserve user edits through focused changes and review. SQLite protects journal writes; it does not roll back source files or external actions.
+Each author reports their own work and paths, without accounting for unrelated changes in the repository. Preserve user edits through focused changes and review. SQLite protects journal writes; it does not roll back source files or external actions.
 
 ## Completion and memory
 

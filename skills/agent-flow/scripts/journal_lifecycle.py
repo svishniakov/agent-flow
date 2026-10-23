@@ -1,5 +1,5 @@
-from journal_io import JournalError, JournalSnapshot, encode_json, require, transact
-from verification_evidence import result_fingerprint, validate_acceptance
+from journal_io import JournalSnapshot, encode_json, require, transact
+from verification_evidence import validate_acceptance
 
 
 def finalize(run_dir, *, identifier, status, summary, reason=None, unverified=None, source=None):
@@ -12,22 +12,15 @@ def finalize(run_dir, *, identifier, status, summary, reason=None, unverified=No
     snapshot = JournalSnapshot.open(run_dir)
     if snapshot.operation_receipt(identifier) is not None:
         return transact(run_dir, identifier, payload, lambda current: ({}, {}))
-    try:
-        fingerprint = result_fingerprint(snapshot)
-    except (JournalError, OSError):
-        require(status == 'failed', 'current result cannot be verified')
-        fingerprint = None
     if status == 'completed':
         errors = validate_acceptance(snapshot, source=source)
         require(not errors, 'finalize validation failed: ' + '; '.join(errors))
     def publish(current):
         require(not current.exists('final.json'), 'task is already closed')
-        if fingerprint is not None:
-            require(result_fingerprint(current) == fingerprint, 'result changed before final publication')
         if status == 'completed':
             errors = validate_acceptance(current, source=source)
             require(not errors, 'finalize validation failed: ' + '; '.join(errors))
-        final = {'status': status, 'summary': summary, 'fingerprint': fingerprint,
+        final = {'status': status, 'summary': summary,
                  'reports': [name for name in sorted(current.documents) if name.startswith('reports/') and name.endswith('.json')]}
         if status == 'failed':
             final.update(reason=reason, unverified=unverified)

@@ -126,8 +126,6 @@ class CodexSessionSource:
                     filtered = {"type": kind, "payload": payload}
                     if "timestamp" in event:
                         filtered["timestamp"] = event["timestamp"]
-                    if index in event_indices:
-                        filtered["source_sha256"] = sha256(line.encode())
                     events.append(filtered)
         except (OSError, UnicodeError, json.JSONDecodeError) as exc:
             raise EvidenceError(f"execution unconfirmed: unreadable source session {thread_id}") from exc
@@ -365,12 +363,7 @@ def requirements(snapshot):
         require(match is not None, 'acceptance criteria must be a flat Markdown list')
         criteria.append({'id': 'ac-' + str(len(criteria) + 1), 'text': match.group(1).strip()})
     require(bool(criteria), 'acceptance criteria missing')
-    return {'digest': sha256(json.dumps(criteria, ensure_ascii=False, sort_keys=True).encode()), 'criteria': criteria}
-
-
-def result_fingerprint(snapshot):
-    from task_workspace import workspace_fingerprint
-    return workspace_fingerprint(snapshot.json('scope.json'), requirements(snapshot)['digest'], run_dir=snapshot.logical_root)
+    return {'criteria': criteria}
 
 
 def assignments(snapshot):
@@ -508,21 +501,20 @@ def native_patch_paths(call, output, cwd):
     return sorted(paths)
 
 
-def generation_evidence(snapshot, ref, source, *, assignment=None, item=None, current=True):
+def generation_evidence(snapshot, ref, source, *, assignment=None, item=None):
     from journal_io import encode_json
     from journal_structure import generation_invocation, record_id
-    from task_workspace import current_inventory
     from workspace_scope import path_allowed
     path = ref.get('path')
     require(isinstance(path, str) and path.startswith('generations/') and path.endswith('.json'), 'generation evidence path required')
     identifier = record_id(path.removeprefix('generations/').removesuffix('.json'))
-    require(snapshot.exists(path) and ref.get('sha256') == sha256(snapshot.read_bytes(path)), 'generation evidence bytes changed or missing')
+    require(snapshot.exists(path), 'generation evidence missing')
     body = snapshot.json(path)
     request = body.get('request', {})
     known = snapshot.json('assignments/' + record_id(request.get('assignment_id')) + '.json')
     require(known.get('kind') == 'author' and (assignment is None or known == assignment), 'generation belongs to another assignment')
     receipt = snapshot.operation_receipt(identifier)
-    require(receipt is not None and receipt['result'].get('path') == path and receipt['result'].get('sha256') == ref['sha256']
+    require(receipt is not None and receipt['result'].get('path') == path
             and receipt['payload_sha256'] == sha256(encode_json({'kind': 'generation', 'request': request}).encode())
             and body.get('operation_id') == identifier, 'generation operation receipt missing or changed')
     require(type(body.get('exit_code')) is int and body['exit_code'] == 0, 'generation command did not succeed')
@@ -553,20 +545,17 @@ def generation_evidence(snapshot, ref, source, *, assignment=None, item=None, cu
     output = body.get('output', {})
     require(output.get('path') == 'artifacts/generations/' + identifier + '.log', 'generation output path changed')
     verify_evidence(snapshot, [output], source, root_id=snapshot.identities['root_agent_id'])
-    changes = body.get('changes')
-    require(isinstance(changes, list) and changes, 'generation has no observed file changes')
+    outputs = request.get('outputs')
+    require(isinstance(outputs, list) and outputs, 'generation output paths missing')
     scope = snapshot.json('scope.json')
-    inventory = {str(Path(entry['root']) / entry['path']): entry for entry in current_inventory(scope, snapshot.logical_root)} if current else {}
     paths, seen = [], set()
-    for change in changes:
-        value = change.get('path')
-        require(isinstance(value, str) and value in request['outputs'] and path_allowed(scope, value), 'generation path outside product scope')
+    for value in outputs:
+        require(isinstance(value, str) and Path(value).is_absolute() and path_allowed(scope, value), 'generation path outside product scope')
         require(any(Path(value) == Path(allowed) or Path(value).is_relative_to(allowed) for allowed in known['allowed_paths']),
                 'generation path outside assignment')
-        require(value not in seen and change.get('before') != change.get('after'), 'generation changes must be unique and nonempty')
+        require(value not in seen, 'generation output paths must be unique')
         seen.add(value)
-        if not current or change.get('after') == inventory.get(value):
-            paths.append(value)
+        paths.append(value)
     return paths
 
 
@@ -648,15 +637,13 @@ def native_references(snapshot, assignment_id, source=None):
             result = envelope['receipt'].get('result', {})
             if not isinstance(result, dict) or not isinstance(result.get('path'), str) or not result['path'].startswith('generations/'):
                 continue
-            reference = {'path': result['path'], 'sha256': result.get('sha256'), 'native': ref}
+            reference = {'path': result['path'], 'native': ref}
             try:
                 paths = generation_evidence(snapshot, reference, source, assignment=assignment, item=observed)
             except JournalError as exc:
                 observations.append({'ref': reference, 'name': 'generation', 'success': False, 'authored_paths': [], 'reason': str(exc)})
             else:
                 observation = {'ref': reference, 'name': 'generation', 'success': bool(paths), 'authored_paths': paths}
-                if not paths:
-                    observation['reason'] = 'generation outputs are stale'
                 observations.append(observation)
             continue
         if observed.get('status') == 'completed':
@@ -675,20 +662,17 @@ def verify_evidence(snapshot, refs, source, *, root_id, role=None, success_requi
     for ref in refs:
         require(isinstance(ref, dict), 'evidence reference must be an object')
         if isinstance(ref.get('path'), str) and ref['path'].startswith('generations/'):
-            generation_evidence(snapshot, ref, source, current=False)
+            generation_evidence(snapshot, ref, source)
         elif 'path' in ref:
             path = ref['path']
             require(isinstance(path, str) and path.startswith(('artifacts/', 'checks/')) and '..' not in Path(path).parts,
                     'evidence must name artifacts/ or checks/')
             require(snapshot.exists(path), 'artifact evidence missing: ' + path)
-            require(ref.get('sha256') == sha256(snapshot.read_bytes(path)), 'artifact evidence bytes changed')
             if path.startswith('checks/'):
                 check = json.loads(snapshot.read_bytes(path))
-                require(check.get('fingerprint') == result_fingerprint(snapshot), 'referenced check is stale')
                 require(type(check.get('exit_code')) is int and (not success_required or check['exit_code'] == 0), 'referenced check did not succeed')
                 receipt = snapshot.operation_receipt(check.get('operation_id'))
-                require(receipt is not None and receipt['result'].get('path') == path
-                        and receipt['result'].get('sha256') == sha256(snapshot.read_bytes(path)), 'check operation receipt missing')
+                require(receipt is not None and receipt['result'].get('path') == path, 'check operation receipt missing')
                 verify_evidence(snapshot, [check.get('output')], source, root_id=root_id)
                 successful = successful or check['exit_code'] == 0
         elif 'item_id' in ref:
@@ -699,14 +683,14 @@ def verify_evidence(snapshot, refs, source, *, root_id, role=None, success_requi
     require(not success_required or successful, 'passed criterion requires a successful check or native inspection')
 
 
-def observed_author_paths(snapshot, assignment, report, source, *, turn, current=True):
+def observed_author_paths(snapshot, assignment, report, source, *, turn):
     root_id = snapshot.identities['root_agent_id']
     allowed_turns = author_turn_ids(source, assignment, turn=turn)
     observed = set()
     for ref in report.get('evidence', []):
         if isinstance(ref.get('path'), str) and ref['path'].startswith('generations/'):
             require(ref.get('native', {}).get('turn_id') in allowed_turns, 'generation author turn outside assignment')
-            observed.update(generation_evidence(snapshot, ref, source, assignment=assignment, current=current))
+            observed.update(generation_evidence(snapshot, ref, source, assignment=assignment))
             continue
         if 'path' in ref or ref.get('thread_id') != assignment['agent_id']:
             continue
@@ -720,13 +704,13 @@ def observed_author_paths(snapshot, assignment, report, source, *, turn, current
     return observed
 
 
-def authored_evidence(snapshot, assignment, report, source, *, turn, current=True):
+def authored_evidence(snapshot, assignment, report, source, *, turn):
     from workspace_scope import path_allowed
     paths = report.get('authored_paths')
     require(isinstance(paths, list) and len(paths) == len(set(paths)), 'author report requires unique authored_paths')
     scope = snapshot.json('scope.json')
     allowed = assignment.get('allowed_paths', [])
-    observed = observed_author_paths(snapshot, assignment, report, source, turn=turn, current=current)
+    observed = observed_author_paths(snapshot, assignment, report, source, turn=turn)
     for value in paths:
         require(isinstance(value, str) and Path(value).is_absolute(), 'authored_paths must be absolute')
         path = Path(value).absolute()
@@ -746,8 +730,7 @@ def accepted_review(snapshot, key, source, *, qa_agent_id):
     path = 'reports/' + key + '.json'
     require(snapshot.exists(path), 'QA requires current completed review')
     report = snapshot.json(path)
-    require(report.get('status') == 'completed' and report.get('fingerprint') == result_fingerprint(snapshot),
-            'QA requires current completed review')
+    require(report.get('status') == 'completed', 'QA requires current completed review')
     revalidate_report(snapshot, assignment, report, source)
     return report
 
@@ -774,6 +757,9 @@ def accept_report(snapshot, assignment, request, source=None, *, current=True):
         report = final_json(completion['answer']) if isinstance(completion['answer'], str) else copy.deepcopy(completion['answer'])
     require(isinstance(report, dict), 'report must be an object')
     require('source' not in report, 'report source binding is writer owned')
+    report.pop('fingerprint', None)
+    if isinstance(report.get('reviewer'), dict):
+        report['reviewer'].pop('sha256', None)
     require(report.get('status') in {'completed', 'failed'}, 'report status must be completed or failed')
     require(isinstance(report.get('summary'), str) and bool(report['summary'].strip()), 'report summary required')
     if report['status'] == 'failed':
@@ -781,7 +767,7 @@ def accept_report(snapshot, assignment, request, source=None, *, current=True):
     verify_evidence(snapshot, report.get('evidence'), source, root_id=root_id)
     kind = assignment['kind']
     if kind == 'author':
-        authored_evidence(snapshot, assignment, report, source, turn=turn, current=current)
+        authored_evidence(snapshot, assignment, report, source, turn=turn)
     if kind == 'analysis' and thread == root_id:
         require(any('path' not in ref and ref.get('thread_id') == thread
                     and ref.get('turn_id') == turn
@@ -790,7 +776,6 @@ def accept_report(snapshot, assignment, request, source=None, *, current=True):
                     for ref in report['evidence']), 'root analysis requires its own successful native inspection')
     if kind in {'qa', 'reviewer'}:
         require(thread != root_id, 'acceptance requires an independent child')
-        require(report.get('fingerprint') == result_fingerprint(snapshot), 'report fingerprint is stale')
         known = assignments(snapshot)
         author_ids = {item['agent_id'] for item in known.values() if item.get('kind') == 'author'}
         require(thread not in author_ids, 'QA/reviewer cannot be a product author')
@@ -804,8 +789,6 @@ def accept_report(snapshot, assignment, request, source=None, *, current=True):
         key = reviewer.get('assignment_id')
         require(isinstance(key, str) and key in assignment.get('depends_on', []), 'QA requires a reviewer dependency')
         accepted_review(snapshot, key, source, qa_agent_id=thread)
-        require(reviewer.get('sha256') == sha256(snapshot.read_bytes('reports/' + key + '.json')),
-                'QA reviewer report changed')
         expected = {item['id'] for item in requirements(snapshot)['criteria']}
         criteria = report.get('criteria')
         require(isinstance(criteria, dict) and set(criteria) == expected, 'QA must report every acceptance criterion')
@@ -835,30 +818,26 @@ def accept_report(snapshot, assignment, request, source=None, *, current=True):
             require(accepted.get('status') == 'completed', 'reviewer requires completed author report: ' + key)
             revalidate_report(snapshot, author, accepted, source)
     report['source'] = {'thread_id': thread, 'turn_id': turn, 'root_author': thread == root_id}
-    if kind == 'reviewer':
-        report['source']['authors'] = {key: sha256(snapshot.read_bytes('reports/' + key + '.json'))
-                                      for key, item in assignments(snapshot).items() if item.get('kind') == 'author'
-                                      and snapshot.exists('reports/' + key + '.json')}
-    refs = [*report['evidence'], *(ref for outcome in report.get('criteria', {}).values() for ref in outcome.get('evidence', []))]
-    refs = [ref['native'] if isinstance(ref.get('path'), str) and ref['path'].startswith('generations/') else ref for ref in refs]
-    report['source']['evidence_sha256'] = [sha256(json.dumps([ref, *([native_item(source, ref, root_id=root_id)] if 'item_id' in ref
-                                                                 else native_tool(source, ref, root_id=root_id))], sort_keys=True).encode())
-                                         for ref in refs if 'path' not in ref]
     return report
 
 
 def revalidate_report(snapshot, assignment, report, source):
+    report = copy.deepcopy(report)
+    report.pop('fingerprint', None)
+    if isinstance(report.get('reviewer'), dict):
+        report['reviewer'].pop('sha256', None)
     binding = report.get('source', {})
+    binding.pop('authors', None)
+    binding.pop('evidence_sha256', None)
     request = {'turn_id': binding.get('turn_id'), 'report': {k: v for k, v in report.items() if k != 'source'}} if binding.get('root_author') else {'completion_turn_id': binding.get('turn_id')}
     current = accept_report(snapshot, assignment, request, source, current=False)
-    require(current == report, 'accepted native report or author binding is stale')
+    require(current == report, 'accepted report does not match its native response')
 
 
 def validate_acceptance(snapshot, source=None):
     source = source or CodexSessionSource()
     errors = []
     try:
-        result_fingerprint(snapshot)
         known, accepted = assignments(snapshot), reports(snapshot)
         require(bool(known), 'assignments missing')
         for key, assignment in known.items():
@@ -869,15 +848,7 @@ def validate_acceptance(snapshot, source=None):
             for dependency in assignment.get('depends_on', []):
                 require(dependency in accepted and accepted[dependency].get('status') == 'completed', 'assignment dependency incomplete')
         authors = [item for key, item in known.items() if item.get('kind') == 'author']
-        from task_workspace import changed_paths
-        delta = set(changed_paths(snapshot.json('scope.json'), run_dir=snapshot.logical_root))
-        covered = set()
-        for key, report in accepted.items():
-            if known[key].get('kind') == 'author':
-                observed = observed_author_paths(snapshot, known[key], report, source, turn=report['source']['turn_id'])
-                covered.update(set(report.get('authored_paths', [])) & observed)
-        require(delta <= covered, 'current product changes lack native author coverage: ' + ', '.join(sorted(delta - covered)))
-        if authors or delta:
+        if authors:
             require(any(item.get('kind') == 'qa' for item in known.values()), 'independent QA missing')
             require(any(item.get('kind') == 'reviewer' for item in known.values()), 'independent reviewer missing')
     except (JournalError, OSError, ValueError, KeyError, TypeError) as exc:

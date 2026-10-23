@@ -21,8 +21,8 @@ def check_case(case):
         fixture = evidence.Fixture(directory)
         if case["scenario"] != "failed-partial":
             fixture.completed()
-        if case["scenario"] == "stale-qa":
-            fixture.product.write_text("answer = 3\n")
+        if case["scenario"] == "other-chat-change":
+            (fixture.root / "other-chat.md").write_text("Another task completed\n")
         arguments = {"identifier": "golden-final", "status": case["status"],
                      "summary": case["summary"], "source": fixture.source}
         if case["status"] == "failed":
@@ -37,7 +37,7 @@ def check_case(case):
             assert snapshot.revision == before, "rejected final changed journal revision"
             assert not snapshot.exists("final.json"), "rejected final published a document"
         else:
-            assert not case.get("expected_error"), "stale result was accepted"
+            assert not case.get("expected_error"), "invalid result was accepted"
             snapshot = fixture.snapshot()
             final = snapshot.json("final.json")
             assert final["status"] == case["status"]
@@ -66,7 +66,7 @@ def main():
         assert case["scenario"] not in scenarios, "duplicate golden scenario"
         scenarios.add(case["scenario"])
         check_case(case)
-    assert scenarios == {"completed", "stale-qa", "failed-partial"}, "ordinary workflow coverage missing"
+    assert scenarios == {"completed", "other-chat-change", "failed-partial"}, "ordinary workflow coverage missing"
     print("PASS golden trace runs")
     return 0
 

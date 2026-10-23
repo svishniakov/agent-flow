@@ -13,8 +13,8 @@ from unittest.mock import patch
 from agent_config import default_agents_dir, read_frontmatter, resolve_role_path, role_config
 from journal_io import JournalSnapshot, encode_json, initialize_journal, transact
 from task_workspace import bind_workspace
-from verification_evidence import (CodexSessionSource, JournalError, accept_report, native_item, native_references, native_tool, requirements, result_fingerprint,
-                                   sha256, validate_acceptance, verify_evidence)
+from verification_evidence import (CodexSessionSource, JournalError, accept_report, native_item, native_references,
+                                   native_tool, requirements, validate_acceptance, verify_evidence)
 
 ROOT_ID = '00000000-0000-4000-8000-000000000001'
 QA_ID = '00000000-0000-4000-8000-000000000002'
@@ -64,18 +64,19 @@ def file_change(thread_id, path, *, status='completed'):
 
 
 class Fixture:
-    def __init__(self, directory):
+    def __init__(self, directory, *, name='sample'):
         self.root = Path(directory).resolve()
         subprocess.run(['git', 'init', '-q', str(self.root)], check=True)
-        self.plan = self.root / 'todo.md'
+        self.plan = self.root / ('todo.md' if name == 'sample' else name + '-todo.md')
         self.plan.write_text('# Tasks\n\n## Sample\n\n### Критерии приёмки\n\n- [ ] Result is correct\n\n## Other\n\nUnrelated task\n')
-        self.product = self.root / 'result.py'
+        self.product = self.root / ('result.py' if name == 'sample' else name + '-result.py')
         self.product.write_text('answer = 1\n')
-        self.run = self.root / '.agent-work' / 'runs' / 'sample'
+        self.run = self.root / '.agent-work' / 'runs' / name
+        self.saved = 0
         self.scope = bind_workspace(self.root, run_dir=self.run, memory=[str(self.plan)])
         self.source = SyntheticSource()
         self.source.sessions[ROOT_ID] = session(ROOT_ID, 'python-worker', cwd=self.root,
-            patch='*** Begin Patch\n*** Update File: result.py\n@@\n-answer = 1\n+answer = 2\n*** End Patch')
+            patch='*** Begin Patch\n*** Update File: ' + self.product.name + '\n@@\n-answer = 1\n+answer = 2\n*** End Patch')
         self.known = {
             'author': {'id': 'author', 'kind': 'author', 'role': 'python-worker', 'agent_id': ROOT_ID, 'allowed_paths': [str(self.product)], 'depends_on': [], 'start_turn_id': ROOT_ID + '-turn'},
             'qa': {'id': 'qa', 'kind': 'qa', 'role': 'qa-verifier', 'agent_id': QA_ID, 'allowed_paths': [], 'depends_on': ['review']},
@@ -99,16 +100,17 @@ class Fixture:
             request = {'turn_id': turn or ROOT_ID + '-turn', 'report': report}
         else:
             if report is None:
-                report = {'status': 'completed', 'summary': 'Checked result', 'fingerprint': result_fingerprint(self.snapshot()), 'evidence': [self.ref(self.known[key]['agent_id'], turn)]}
+                report = {'status': 'completed', 'summary': 'Checked result', 'evidence': [self.ref(self.known[key]['agent_id'], turn)]}
                 if key == 'qa':
                     report['criteria'] = {'ac-1': {'status': 'passed', 'evidence': [self.ref(QA_ID, turn)]}}
             if key == 'qa':
-                report = {**report, 'reviewer': {'assignment_id': 'review', 'sha256': sha256(self.snapshot().read_bytes('reports/review.json'))}}
+                report = {**report, 'reviewer': {'assignment_id': 'review'}}
             thread = self.known[key]['agent_id']
             self.source.sessions[thread] = session(thread, self.known[key]['role'], report, cwd=self.root, turn=turn)
             request = {'completion_turn_id': turn or thread + '-turn'}
         canonical = accept_report(self.snapshot(), self.known[key], request, self.source)
-        transact(self.run, 'save-' + key + '-' + sha256(encode_json(canonical).encode()), {'report': canonical},
+        self.saved += 1
+        transact(self.run, 'save-' + key + '-' + str(self.saved), {'report': canonical},
                  lambda current: ({'reports/' + key + '.json': encode_json(canonical).encode()}, {'path': 'reports/' + key + '.json'}))
         return canonical
 
@@ -154,8 +156,8 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(validate_acceptance(self.f.snapshot(), self.f.source), [])
         review = self.f.snapshot().json('reports/review.json')
         qa = self.f.snapshot().json('reports/qa.json')
-        self.assertEqual(review['source']['authors'], {'author': sha256(self.f.snapshot().read_bytes('reports/author.json'))})
-        self.assertEqual(qa['reviewer'], {'assignment_id': 'review', 'sha256': sha256(self.f.snapshot().read_bytes('reports/review.json'))})
+        self.assertNotIn('authors', review['source'])
+        self.assertEqual(qa['reviewer'], {'assignment_id': 'review'})
         self.assertNotIn('qa', review)
         self.assertNotIn('authors', qa['source'])
 
@@ -440,7 +442,7 @@ class EvidenceTests(unittest.TestCase):
 
     def test_incomplete_and_stale_native_turn_refuse(self):
         self.f.reviewed()
-        report = {'status': 'completed', 'summary': 'Incomplete', 'fingerprint': result_fingerprint(self.f.snapshot()), 'evidence': [self.f.ref(QA_ID)]}
+        report = {'status': 'completed', 'summary': 'Incomplete', 'evidence': [self.f.ref(QA_ID)]}
         with self.assertRaisesRegex(JournalError, 'every acceptance criterion'):
             self.f.save('qa', report)
         self.f.source.sessions[QA_ID].append({'type': 'event_msg', 'payload': {'type': 'task_started', 'turn_id': 'new'}})
@@ -463,21 +465,45 @@ class EvidenceTests(unittest.TestCase):
                 with self.assertRaisesRegex(JournalError, 'own successful native inspection'):
                     accept_report(self.f.snapshot(), self.f.known[key], {'completion_turn_id': new_turn}, self.f.source)
 
-    def test_source_change_and_author_report_replacement_invalidate_qa(self):
+    def test_file_change_and_author_report_replacement_preserve_qa(self):
         self.f.completed()
         self.f.product.write_text('answer = 3\n')
-        self.assertIn('stale', ';'.join(validate_acceptance(self.f.snapshot(), self.f.source)))
+        self.assertEqual(validate_acceptance(self.f.snapshot(), self.f.source), [])
         self.f.product.write_text('answer = 2\n')
         report = {'status': 'completed', 'summary': 'Clarified implementation', 'authored_paths': [str(self.f.product)], 'evidence': [self.f.ref(ROOT_ID)]}
         self.f.save('author', report)
-        self.assertIn('stale', ';'.join(validate_acceptance(self.f.snapshot(), self.f.source)))
+        self.assertEqual(validate_acceptance(self.f.snapshot(), self.f.source), [])
 
-    def test_reviewer_report_replacement_invalidates_qa(self):
+    def test_reviewer_report_replacement_preserves_qa_assignment_reference(self):
         self.f.completed()
         report = {'status': 'completed', 'summary': 'Clarified independent review',
-                  'fingerprint': result_fingerprint(self.f.snapshot()), 'evidence': [self.f.ref(REVIEWER_ID)]}
+                  'evidence': [self.f.ref(REVIEWER_ID)]}
         self.f.save('review', report)
-        self.assertIn('QA reviewer report changed', ';'.join(validate_acceptance(self.f.snapshot(), self.f.source)))
+        self.assertEqual(validate_acceptance(self.f.snapshot(), self.f.source), [])
+
+    def test_legacy_report_and_scope_tracking_fields_do_not_block_acceptance(self):
+        self.f.completed()
+        snapshot = self.f.snapshot()
+        updates = {}
+        for key in ('author', 'review', 'qa'):
+            report = snapshot.json('reports/' + key + '.json')
+            report['fingerprint'] = 'obsolete-result'
+            report['source']['evidence_sha256'] = ['obsolete-native-evidence']
+            if key == 'review':
+                report['source']['authors'] = {'author': 'obsolete-author-report'}
+            if key == 'qa':
+                report['reviewer']['sha256'] = 'obsolete-review'
+            updates['reports/' + key + '.json'] = encode_json(report).encode()
+        scope = snapshot.json('scope.json')
+        scope.update(initial=[{'path': 'missing-from-old-snapshot'}], git={'old-head': 'obsolete'})
+        updates['scope.json'] = encode_json(scope).encode()
+        task = snapshot.json('task.json')
+        task['requirements']['digest'] = 'obsolete-requirements'
+        updates['task.json'] = encode_json(task).encode()
+        transact(self.f.run, 'legacy-fields', {'fixture': 'old-journal'}, lambda current: (updates, {}))
+        (self.f.root / 'another-chat.md').write_text('Independent change\n')
+        self.f.product.write_text('Changed file bytes\n')
+        self.assertEqual(validate_acceptance(self.f.snapshot(), self.f.source), [])
 
     def test_root_corrects_report_next_turn_using_completed_own_edits(self):
         self.f.source.sessions[ROOT_ID].append(file_change(ROOT_ID, self.f.product))
@@ -493,11 +519,9 @@ class EvidenceTests(unittest.TestCase):
         turn = 'root-report-correction'
         self.f.source.sessions[ROOT_ID].extend(session(ROOT_ID, 'python-worker', cwd=self.f.root, turn=turn)[1:3])
         report['summary'] = 'Implemented result'
-        fingerprint = result_fingerprint(self.f.snapshot())
         accepted = self.f.save('author', report, turn=turn)
         self.assertEqual(accepted['source']['turn_id'], turn)
         self.assertEqual(accepted['evidence'], [ref])
-        self.assertEqual(result_fingerprint(self.f.snapshot()), fingerprint)
         observed = native_references(self.f.snapshot(), 'author', self.f.source)
         self.assertEqual(observed['turn_id'], turn)
         self.assertFalse(observed['completed'])
@@ -521,14 +545,12 @@ class EvidenceTests(unittest.TestCase):
                 with self.assertRaisesRegex(JournalError, 'native edit author turn outside assignment'):
                     accept_report(self.f.snapshot(), assignment, {'turn_id': turn, 'report': report}, self.f.source)
 
-    def test_criteria_checkbox_normalizes_but_text_change_invalidates(self):
-        initial = requirements(self.f.snapshot())['digest']
-        fingerprint = result_fingerprint(self.f.snapshot())
+    def test_requirements_are_read_from_document_without_content_tracking(self):
+        initial = requirements(self.f.snapshot())
         self.f.plan.write_text(self.f.plan.read_text().replace('[ ]', '[x]').replace('Unrelated task', 'Changed unrelated task'))
-        self.assertEqual(requirements(self.f.snapshot())['digest'], initial)
-        self.assertEqual(result_fingerprint(self.f.snapshot()), fingerprint)
+        self.assertEqual(requirements(self.f.snapshot()), initial)
         self.f.plan.write_text(self.f.plan.read_text().replace('Result is correct', 'Result has tests'))
-        self.assertNotEqual(requirements(self.f.snapshot())['digest'], initial)
+        self.assertEqual(requirements(self.f.snapshot())['criteria'], [{'id': 'ac-1', 'text': 'Result has tests'}])
 
     def test_native_qa_tamper_is_rejected(self):
         self.f.completed()
@@ -538,12 +560,12 @@ class EvidenceTests(unittest.TestCase):
         events[-1]['payload']['last_agent_message'] = json.dumps(answer)
         self.assertIn('disagree', ';'.join(validate_acceptance(self.f.snapshot(), self.f.source)))
 
-    def test_observed_tool_output_is_pinned_and_root_continuation_is_allowed(self):
+    def test_successful_native_output_and_root_continuation_need_no_checksum(self):
         self.f.completed()
         self.f.source.sessions[ROOT_ID].append({'type': 'event_msg', 'payload': {'type': 'task_started', 'turn_id': 'root-next-turn'}})
         self.assertEqual(validate_acceptance(self.f.snapshot(), self.f.source), [])
         self.f.source.sessions[QA_ID][4]['payload']['output'] = '{"exit_code":0,"output":"Different inspection"}'
-        self.assertIn('stale', ';'.join(validate_acceptance(self.f.snapshot(), self.f.source)))
+        self.assertEqual(validate_acceptance(self.f.snapshot(), self.f.source), [])
 
     def test_failed_native_check_cannot_prove_passed_criterion(self):
         self.f.completed()
@@ -557,7 +579,7 @@ class EvidenceTests(unittest.TestCase):
                 outcome = {'status': 'unverified', 'reason': 'Required runtime check is forbidden', **evidence}
                 report = {'status': 'failed', 'summary': 'Inspected available sources',
                           'reason': 'Required runtime check is forbidden', 'evidence': [self.f.ref(QA_ID)],
-                          'fingerprint': result_fingerprint(self.f.snapshot()), 'criteria': {'ac-1': outcome}}
+                          'criteria': {'ac-1': outcome}}
                 accepted = self.f.save('qa', report)
                 self.assertEqual(accepted['criteria']['ac-1'], outcome)
                 self.assertEqual(accepted['status'], 'failed')
@@ -572,14 +594,14 @@ class EvidenceTests(unittest.TestCase):
             ({'status': 'unverified', 'reason': 'Forbidden', 'evidence': {}}, 'must be an array'),
             ({'status': 'unverified', 'reason': 'Forbidden', 'evidence': 'none'}, 'must be an array'),
             ({'status': 'unverified', 'reason': 'Forbidden',
-              'evidence': [{'path': 'artifacts/missing.txt', 'sha256': '0' * 64}]}, 'artifact evidence missing'),
+              'evidence': [{'path': 'artifacts/missing.txt'}]}, 'artifact evidence missing'),
             ({'status': 'passed'}, 'nonempty array'),
             ({'status': 'failed', 'evidence': []}, 'nonempty array'),
         ]
         for outcome, message in cases:
             with self.subTest(outcome=outcome):
                 report = {'status': 'failed', 'summary': 'Inspected sources', 'reason': 'Result not accepted',
-                          'evidence': [self.f.ref(QA_ID)], 'fingerprint': result_fingerprint(self.f.snapshot()),
+                          'evidence': [self.f.ref(QA_ID)],
                           'criteria': {'ac-1': outcome}}
                 with self.assertRaisesRegex(JournalError, 'criterion ac-1: .*' + message):
                     self.f.save('qa', report)
@@ -589,9 +611,9 @@ class EvidenceTests(unittest.TestCase):
         self.f.reviewed()
         transact(self.f.run, 'attachment', {'artifact': 'narrative'},
                  lambda current: ({'artifacts/pass.txt': b'PASS'}, {}))
-        report = {'status': 'completed', 'summary': 'Checked', 'fingerprint': result_fingerprint(self.f.snapshot()),
+        report = {'status': 'completed', 'summary': 'Checked',
                   'evidence': [self.f.ref(QA_ID)],
-                  'criteria': {'ac-1': {'status': 'passed', 'evidence': [{'path': 'artifacts/pass.txt', 'sha256': sha256(b'PASS')}]}}}
+                  'criteria': {'ac-1': {'status': 'passed', 'evidence': [{'path': 'artifacts/pass.txt'}]}}}
         with self.assertRaisesRegex(JournalError, 'successful check or native inspection'):
             self.f.save('qa', report)
 
@@ -637,18 +659,18 @@ class EvidenceTests(unittest.TestCase):
                 self.assertIn('source completion is before its own task_started',
                               ';'.join(validate_acceptance(self.f.snapshot(), self.f.source)))
 
-    def test_author_path_permission_and_changed_coverage(self):
+    def test_author_path_permission(self):
         self.f.known['author']['allowed_paths'] = [str(self.f.root / 'other.py')]
         with self.assertRaisesRegex(JournalError, 'outside assignment'):
             self.f.save('author')
 
-    def test_actual_check_reference_before_author_report_has_no_hash_cycle(self):
+    def test_actual_check_reference_before_author_report(self):
         from journal_io import write_entry
         receipt = write_entry(self.f.run, 'check', {'id': 'actual', 'assignment_id': 'author',
                               'command': [sys.executable, '-B', '-c', 'print("checked")'], 'cwd': str(self.f.root)}, identifier='check')
         receipt = receipt['result']
         report = {'status': 'completed', 'summary': 'Implemented result', 'authored_paths': [str(self.f.product)],
-                  'evidence': [self.f.ref(ROOT_ID), {'path': receipt['path'], 'sha256': receipt['sha256']}]}
+                  'evidence': [self.f.ref(ROOT_ID), {'path': receipt['path']}]}
         self.f.save('author', report)
         self.f.save('review')
         self.f.save('qa')

@@ -53,6 +53,8 @@ class InitTests(unittest.TestCase):
 
     def test_exact_repeat_preserves_identity_revision_and_receipts(self):
         first = init.initialize(self.run, **self.inputs)
+        self.product.write_text('answer = 2\n')
+        (self.root / 'other-chat.md').write_text('Another task changed\n')
         again = init.initialize(self.run, **self.inputs)
         self.assertEqual((first.run_uuid, first.revision, first.documents, first.operations),
                          (again.run_uuid, again.revision, again.documents, again.operations))

@@ -1,0 +1,5 @@
+{
+  "scenario": "other-chat-change",
+  "status": "completed",
+  "summary": "Another chat changes its files without invalidating completed QA"
+}

@@ -38,19 +38,19 @@ Report findings with the affected criterion, exposing scenario, consequence and 
 - Read the selected requirements, current scope, author reports, accepted review and actual files.
 - Run local QA against the local criteria without real external credentials or remote-service access. Keep live integration QA separate and run it only when its prerequisites and permissions are available. A missing external setup leaves that external scope unverified; it does not fail completed local criteria or prove full integration readiness.
 - Verify that fixtures and test doubles exercise the agreed contract and failure handling. Do not treat a mocked response as proof of live authentication, provider behavior or delivery. Do not remove an already selected required check to obtain a passing result; correct the plan and start a task with the appropriate scope first.
-- Confirm authors stopped product edits before verification.
-- Read the current result fingerprint and criterion IDs through the journal. Verify that the accepted review covers that fingerprint and record its exact SHA.
+- Confirm the task's authors stopped edits before verification.
+- Read the declared `authored_paths` and criterion IDs through the journal. Read the accepted review and refer to it by `assignment_id`.
 - Use the smallest allowed checks that prove the criteria. Execute a command through the check writer once; do not run it separately just to reproduce a receipt.
 - Verify actual command, cwd, exit and output. A tool's protocol success alone does not prove product behavior.
 - Check the claimed surface: storage tests do not prove UI interactions, and permission to execute does not prove execution.
-- Compare before/after state. Generated ignored outputs are not product changes; a tracked input change requires renewed verification.
+- Inspect the actual result against the criteria. A generation record proves execution with declared outputs, not that each output changed. After substantive corrections to this task, repeat the affected checks; changes from other tasks do not invalidate its reports.
 - Examine significant architecture constraints, path ownership, user changes and ordinary failure behavior relevant to this task.
 - For UI evidence, show the actual target state and exercise the claimed workflow.
 - Do not repeat unchanged tests or create a matrix of hypothetical edge cases.
 
 ## Output Contract
 
-Use the report shape in `references/traceable-runs.md` with a nonempty string `summary`. Product QA includes the checked fingerprint, `reviewer: {assignment_id, sha256}` and an outcome for every selected criterion. Include your own native inspection from this report's turn. An `unverified` criterion requires a nonempty reason; its evidence may be omitted or an empty array. Any supplied references are still verified. Report-level evidence remains required to establish your actual inspection. A positive report requires every criterion to be `passed` with evidence applicable to the current files. Replacing review makes its dependent QA report stale.
+Use the report shape in `references/traceable-runs.md` with a nonempty string `summary`. Product QA includes `reviewer: {assignment_id}` and an outcome for every selected criterion. Include your own native inspection from this report's turn. An `unverified` criterion requires a nonempty reason; its evidence may be omitted or an empty array. Any supplied references are still verified. Report-level evidence remains required to establish your actual inspection. A positive report requires every criterion to be `passed` with evidence applicable to the task's result. The journal does not track changes to file or report content.
 
 ## Hard Rules
 

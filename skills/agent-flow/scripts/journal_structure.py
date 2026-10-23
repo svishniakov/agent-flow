@@ -37,17 +37,17 @@ def request_contract():
         "report_statuses": sorted(REPORT_STATUSES),
         "report_required": ["status", "summary", "evidence"],
         "author_fields": ["authored_paths"],
-        "qa_fields": ["fingerprint", "criteria", "reviewer"],
-        "reviewer_fields": ["fingerprint"],
+        "qa_fields": ["criteria", "reviewer"],
+        "reviewer_fields": [],
         "native_evidence": ["thread_id", "turn_id", "call_id"],
         "native_item_evidence": ["thread_id", "turn_id", "item_id"],
-        "generation_evidence": ["path", "sha256", "native"],
-        "artifact_evidence": ["path", "sha256"],
+        "generation_evidence": ["path", "native"],
+        "artifact_evidence": ["path"],
         "read": ["summary", "result", "requirements", "native/ID", "task.json", "scope.json",
                  "assignments/ID.json", "reports/ID.json", "checks/ID.json", "generations/OPERATION_ID.json", "final.json"],
-        "check": "Executes command once; records actual cwd, exit code, output and unchanged result fingerprint. A missing receipt after interruption requires inspecting native execution before retrying.",
+        "check": "Executes command once; records actual cwd, exit code and output. A missing receipt after interruption requires inspecting native execution before retrying.",
         "report": "summary is a nonempty string. Child: assignment_id + latest completion_turn_id. Root author: assignment_id + current turn_id + report. Author evidence may refer to completed turns from the assignment start_turn_id. Correct the report in the same assignment with a new operation ID; do not repeat edits or generation.",
-        "generation": "Executes once under BEGIN IMMEDIATE; only declared output files may change. Requires exclusive product editing. Replay returns executed:false and cannot prove authorship. Inspect execution before retrying without a receipt.",
+        "generation": "Executes once under BEGIN IMMEDIATE; records declared output paths, exit code and output. Does not inspect file changes. Replay returns executed:false and cannot prove a new execution. Inspect execution before retrying without a receipt.",
         "generation_invocation": {"python": sys.executable, "journal": str(Path(__file__).with_name("journal.py").resolve()),
                                   "shell": "/bin/zsh", "login": True, "stdin_delimiter": "AF_GENERATION_REQUEST"},
     }
@@ -139,7 +139,6 @@ def assignment_record(snapshot, request, source=None):
 
 def execute_check(snapshot, request):
     from task_workspace import path_allowed
-    from verification_evidence import result_fingerprint
     identifier = record_id(request.get("id"))
     assignment_id = record_id(request.get("assignment_id"))
     assignment = snapshot.json("assignments/" + assignment_id + ".json")
@@ -155,18 +154,16 @@ def execute_check(snapshot, request):
     require(type(timeout) is int and timeout > 0, "timeout must be a positive integer")
     path = "checks/" + identifier + ".json"
     require(not snapshot.exists(path), "check ID already exists; use a new ID for a new execution")
-    before = result_fingerprint(snapshot)
     try:
         result = subprocess.run(command, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 timeout=timeout, check=False)
     except subprocess.TimeoutExpired as exc:
         raise JournalError("check timed out; inspect native execution before any retry") from exc
-    require(result_fingerprint(snapshot) == before, "check changed product inputs; inspect changes before recording a new check")
     output = "artifacts/checks/" + identifier + ".log"
     return path, output, result.stdout, {
         "assignment_id": assignment_id, "command": command, "cwd": str(cwd),
-        "exit_code": result.returncode, "fingerprint": before,
-        "output": {"path": output, "sha256": digest(result.stdout)},
+        "exit_code": result.returncode,
+        "output": {"path": output},
     }, assignment
 
 
@@ -175,17 +172,6 @@ def generation_invocation(run_dir, identifier, request, python=None):
                "--run-dir", str(Path(run_dir).resolve()), "record", "--kind", "generation",
                "--request-file", "-", "--operation-id", identifier]
     return shlex.join(command) + " <<'AF_GENERATION_REQUEST'\n" + encode_json(request) + "\nAF_GENERATION_REQUEST"
-
-
-def generation_state(snapshot):
-    from task_workspace import current_inventory, root_inventory
-    from verification_evidence import requirements
-    scope = snapshot.json("scope.json")
-    inventory = {str(Path(entry["root"]) / entry["path"]): entry
-                 for entry in current_inventory(scope, snapshot.logical_root)}
-    roots = [{"path": path} for path in scope["context"]]
-    context = [entry for root in roots for entry in root_inventory(root, roots, None, scope.get("memory", []))]
-    return inventory, digest(encode_json({"context": context, "requirements": requirements(snapshot)["digest"]}).encode())
 
 
 def execute_generation(snapshot, request, identifier):
@@ -212,32 +198,25 @@ def execute_generation(snapshot, request, identifier):
             and path_allowed(scope, cwd) and path_allowed(scope, str(Path(cwd).resolve())), "generation cwd outside product scope")
     timeout = request.get("timeout", 300)
     require(type(timeout) is int and timeout > 0, "timeout must be a positive integer")
-    before, context = generation_state(snapshot)
     try:
         result = subprocess.run(command, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 timeout=timeout, check=False)
     except subprocess.TimeoutExpired as exc:
         raise JournalError("generation timed out; file changes remain; inspect native execution before any retry") from exc
-    after, current_context = generation_state(snapshot)
-    changed = sorted(path for path in before.keys() | after.keys() if before.get(path) != after.get(path))
-    require(context == current_context, "generation changed context or requirements; inspect file changes before any retry")
-    require(set(changed) <= set(outputs), "generation changed undeclared product paths: " + ", ".join(set(changed) - set(outputs)))
     for path in outputs:
         require(not Path(path).is_symlink() and (not Path(path).exists() or Path(path).is_file()),
                 "generation output must remain a regular file: " + path)
-        require(not Path(path).exists() or path in after, "generation output is not inventoried: " + path)
     path = "generations/" + identifier + ".json"
     output = "artifacts/generations/" + identifier + ".log"
     body = {"operation_id": identifier, "request": request, "python": sys.executable, "exit_code": result.returncode,
-            "changes": [{"path": value, "before": before.get(value), "after": after.get(value)} for value in changed],
-            "output": {"path": output, "sha256": digest(result.stdout)}}
+            "output": {"path": output}}
     data = encoded(body)
-    return {path: data, output: result.stdout}, {"path": path, "sha256": digest(data), "exit_code": result.returncode}
+    return {path: data, output: result.stdout}, {"path": path, "exit_code": result.returncode}
 
 
 def write_entry(run_dir, kind, request, *, identifier, source=None):
     from task_workspace import expand_workspace
-    from verification_evidence import accept_report, result_fingerprint
+    from verification_evidence import accept_report
     validate_request(kind, request)
     require(isinstance(identifier, str) and bool(identifier.strip()), "operation-id is required")
     payload = {"kind": kind, "request": request}
@@ -279,13 +258,12 @@ def write_entry(run_dir, kind, request, *, identifier, source=None):
             path, output, output_bytes, body, assignment = prepared_check
             require(current.json("assignments/" + body["assignment_id"] + ".json") == assignment,
                     "check assignment changed before publication")
-            require(result_fingerprint(current) == body["fingerprint"], "check result is stale before publication")
             require(not current.exists(path), "check ID already exists; use a new ID for a new execution")
             body = {**body, "operation_id": identifier}
             data = encoded(body)
-            return {path: data, output: output_bytes}, {"path": path, "sha256": digest(data), "exit_code": body["exit_code"]}
+            return {path: data, output: output_bytes}, {"path": path, "exit_code": body["exit_code"]}
         data = encoded(body)
-        return {path: data}, {"path": path, "sha256": digest(data)}
+        return {path: data}, {"path": path}
 
     receipt = transact(run_dir, identifier, payload, publish)
     return {"executed": executed, "receipt": receipt} if kind == "generation" else receipt
@@ -305,25 +283,26 @@ def publish_artifact(run_dir, name, source_path, *, identifier):
     def publish(current):
         require(not current.exists(name) or current.read_bytes(name) == data,
                 "artifact already exists with different bytes; use a new name")
-        return {name: data}, {"path": name, "sha256": digest(data)}
+        return {name: data}, {"path": name}
 
     return transact(run_dir, identifier, payload, publish)
 
 
 def read_record(snapshot, name):
-    from task_workspace import changed_paths
-    from verification_evidence import requirements, result_fingerprint
+    from verification_evidence import requirements, reports
     if name.startswith("native/"):
         from verification_evidence import native_references
         return native_references(snapshot, record_id(name.removeprefix("native/")))
     if name == "requirements":
         return requirements(snapshot)
     if name == "result":
-        return {"fingerprint": result_fingerprint(snapshot),
-                "changed_paths": changed_paths(snapshot.json("scope.json"), run_dir=snapshot.logical_root)}
+        known = assignments(snapshot)
+        return {"authored_paths": sorted({path for key, report in reports(snapshot).items()
+                                         if known.get(key, {}).get("kind") == "author"
+                                         for path in report.get("authored_paths", [])})}
     if name == "summary":
         return {"task": snapshot.json("task.json"), "assignments": list(assignments(snapshot).values()),
-                "reports": [{"path": key, "sha256": digest(data), "status": json.loads(data)["status"],
+                "reports": [{"path": key, "status": json.loads(data)["status"],
                              "summary": json.loads(data)["summary"]}
                             for key, data in sorted(snapshot.documents.items()) if key.startswith("reports/")],
                 "final": snapshot.json("final.json") if snapshot.exists("final.json") else None}
