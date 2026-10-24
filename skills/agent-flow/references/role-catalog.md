@@ -55,7 +55,7 @@ Overlap notes: Use `design-documenter` for `docs/design/DESIGN.md`; use `ai-slop
 Status: active
 Use when: Implementation, plan, branch, or release readiness needs independent findings ordered by severity.
 Do not use when: The need is test execution, browser proof, or reproduction evidence.
-Overlap notes: Reviewer checks current code and author reports before product QA. After successful review, use `qa-verifier` for behavior checks against the same result. For architecture-sensitive review, reviewer checks the diff against the architect-owned contract instead of replacing architect judgment.
+Overlap notes: Reviewer applies `arch-simplicity-guard` to architecture and plans before dependent implementation, and checks current code and author reports before product QA. Plan review does not replace code review. After successful code review, use `qa-verifier` for behavior checks against the same result. For architecture-sensitive review, reviewer checks the diff against the architect-owned contract instead of replacing architect judgment.
 
 ### qa-verifier
 

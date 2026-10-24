@@ -5,6 +5,16 @@ Document status: done
 Choose the skill installed through npx or the Codex plugin ZIP. Python 3.11+ is required for
 setup scripts. Node.js and Skills CLI are needed only for `npx skills add`.
 
+## Architecture review dependency
+
+Architecture Simplicity Guard is a separate required skill for the architect and reviewer. Install or update it for either installation method, including upgrades to 0.7.6:
+
+```sh
+npx skills add https://github.com/svishniakov/arch-simplicity-guard -a codex -g
+```
+
+Its selector runs inside each executor's active Codex session; role export does not preselect the model profile. For a project-local installation, omit `-g`.
+
 ## Standalone skill
 
 For a new global installation from GitHub:

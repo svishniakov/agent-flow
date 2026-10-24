@@ -319,6 +319,32 @@
       }
     },
     {
+      "name": "arch-simplicity-guard",
+      "aliases": [],
+      "tier": "core",
+      "required_by_roles": [
+        "architect",
+        "reviewer"
+      ],
+      "install": {
+        "source_type": "manual",
+        "global": {
+          "path": "~/.agents/skills/arch-simplicity-guard",
+          "instructions": "Install `arch-simplicity-guard` from svishniakov/arch-simplicity-guard into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".agents/skills/arch-simplicity-guard",
+          "instructions": "Install `arch-simplicity-guard` from svishniakov/arch-simplicity-guard into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [],
+          "project": []
+        },
+        "prompt": null,
+        "notes": "Installation is explicit; the dependency checker does not install this skill automatically. Codex installs under ~/.codex/skills are also scanned. The executor runs the skill's selector; exporters do not choose model profiles."
+      }
+    },
+    {
       "name": "architecture-decision-records",
       "aliases": [],
       "tier": "optional",

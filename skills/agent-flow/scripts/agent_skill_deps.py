@@ -25,6 +25,7 @@ CORE_SKILLS = {
     "application-quality-assurance",
     "apple-hig-designer",
     "apple-ui-designer",
+    "arch-simplicity-guard",
     "browser-debugging",
     "browser-use",
     "build-web-apps:frontend-skill",

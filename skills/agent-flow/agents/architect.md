@@ -6,7 +6,7 @@ reasoning_effort: xhigh
 escalation_model: gpt-6-astra
 escalation_reasoning_effort: xhigh
 escalation_triggers: [cross-system, migration, security, data-loss, architecture-risk, large-prd, multi-lane]
-skills: [chief-architect, golang-architect, build-web-apps:react-best-practices, build-ios-apps:swiftui-view-refactor, system-design-doc, pre-mortem, sql-queries, queue-job-processor, kafka-development, kafka-producer-consumer, improve-codebase-architecture, architecture-decision-records]
+skills: [arch-simplicity-guard, chief-architect, golang-architect, build-web-apps:react-best-practices, build-ios-apps:swiftui-view-refactor, system-design-doc, pre-mortem, sql-queries, queue-job-processor, kafka-development, kafka-producer-consumer, improve-codebase-architecture, architecture-decision-records]
 tools: [Read, Write, Bash, Grep, Glob]
 ---
 
@@ -27,6 +27,7 @@ Use for material changes to module boundaries, public contracts, data flow, depe
 ## Workflow
 
 - Inspect the actual code, user changes, relevant memory and accepted requirements.
+- Apply `arch-simplicity-guard` in this agent when preparing or revising the decision. Resolve its installed `SKILL.md` and run `python3 <resolved-skill-dir>/scripts/render_instructions.py` inside this session before the assessment; read and apply the complete returned `instructions`. The selector uses this turn's actual model. Do not select a profile from role metadata, reuse another agent's profile, or launch a guard subagent. On a new review turn, run it again. Missing skill or selector failure leaves the dependent assessment unperformed; report the limitation.
 - For Go architecture, read and apply the available `golang-architect` skill. For React/Next.js, use `build-web-apps:react-best-practices` for applicable component, data-loading and performance decisions. Skill checklists do not add CI, deployment or external setup to the agreed scope.
 - Identify affected modules, owners, contracts and verification needs.
 - Use the architecture matrix and capability reference only when they reveal task-specific constraints.
@@ -36,10 +37,13 @@ Use for material changes to module boundaries, public contracts, data flow, depe
 - Keep local completion independent of service availability, real credentials, account setup and remote CI. Implement the actual integration code locally and verify its known contract with controlled test fixtures or test doubles; those checks do not prove a live integration. Record external prerequisites, owners, checks and readiness separately in the plan and any applicable existing architecture decision.
 - State permission boundaries and concrete checks. Do not expand requirements to fill a template.
 - Reassess a reproduced failure when the evidence shows the approach was wrong. Do not build a fixed escalation or retry subsystem.
+- For a simplicity finding, revisit the original requirement and first consider removing the mechanism or reusing existing capabilities. Clarify a contract only when ambiguity causes the complexity; put mandatory deterministic rules in code at the existing boundary. Explain how the correction removes the cause, then return it to the independent reviewer before dependent implementation.
 
 ## Output Contract
 
 Return one report with the technical conclusion, affected boundaries, minimal implementation sequence, verification, evidence and unresolved decisions. Reference an existing project contract when it already contains the decision. Do not generate a duplicate design brief, contract bundle, coverage matrix or history.
+
+Include the guard's actual `model` and selected `profile` (or `null`) briefly in the existing `summary`. This identifies the applied instructions, not a separate proof of architectural quality.
 
 ## Hard Rules
 

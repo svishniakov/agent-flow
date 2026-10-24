@@ -25,6 +25,8 @@ Describe the result you need and any constraints. Include the relevant plan or f
 
 Work happens in the actual checkout without mandatory source copies. Each agent has one current report in SQLite, and the orchestrator summarizes it. File-changing tasks require independent QA and review. Final appears only when work ends as completed or failed.
 
+Architecture and plan reviews use [Architecture Simplicity Guard](https://github.com/svishniakov/arch-simplicity-guard). The architect and independent reviewer run its selector inside their own Codex sessions to receive instructions for their actual models. Blocking simplicity findings are resolved before dependent implementation.
+
 ## Installation
 
 Choose one of two options.
@@ -33,11 +35,12 @@ Choose one of two options.
 
 ```bash
 npx skills add https://github.com/svishniakov/agent-flow -a codex -g
+npx skills add https://github.com/svishniakov/arch-simplicity-guard -a codex -g
 python3 ~/.agents/skills/agent-flow/scripts/check-agent-deps.py --post-install
 python3 ~/.agents/skills/agent-flow/scripts/sync-codex-agent-config.py --output-dir ~/.codex/agents
 ```
 
-The second command reports missing skills and guides dependency setup. The third creates the specialist configurations for Codex. Run it again after updating the skill's role files.
+Install the guard dependency, check for other missing skills, then synchronize specialist configurations for Codex. Repeat the synchronization after updating the skill's role files.
 
 **Codex plugin:** download `agent-flow-X.Y.Z-codex-plugin.zip` from
 [Releases](https://github.com/svishniakov/agent-flow/releases/latest) and follow the
@@ -53,6 +56,7 @@ a fresh Codex task:
 
 ```bash
 npx skills add https://github.com/svishniakov/agent-flow -a codex -g
+npx skills add https://github.com/svishniakov/arch-simplicity-guard -a codex -g
 python3 ~/.agents/skills/agent-flow/scripts/sync-codex-agent-config.py --output-dir ~/.codex/agents
 ```
 

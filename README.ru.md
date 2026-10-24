@@ -25,6 +25,8 @@ Agent Flow Реализуй согласованный план и провер�
 
 Работа идёт в реальном checkout без обязательного копирования исходников. У каждого агента один текущий отчёт в SQLite; оркестратор делает вывод по отчётам. Для изменения файлов обязательны независимые QA и reviewer. Final появляется только при завершении с completed или failed.
 
+Для проверки архитектуры и планов используется [Architecture Simplicity Guard](https://github.com/svishniakov/arch-simplicity-guard). Архитектор и независимый reviewer вызывают селектор внутри собственных сессий Codex и получают инструкции для фактической модели каждого. Блокирующие замечания по простоте устраняются до зависимой реализации.
+
 ## Установка
 
 Выберите один из двух способов.
@@ -33,12 +35,13 @@ Agent Flow Реализуй согласованный план и провер�
 
 ```bash
 npx skills add https://github.com/svishniakov/agent-flow -a codex -g
+npx skills add https://github.com/svishniakov/arch-simplicity-guard -a codex -g
 python3 ~/.agents/skills/agent-flow/scripts/check-agent-deps.py --post-install
 python3 ~/.agents/skills/agent-flow/scripts/sync-codex-agent-config.py --output-dir ~/.codex/agents
 ```
 
-Вторая команда сообщает о недостающих скиллах. Третья создаёт конфигурации
-специалистов и сохраняет эталон для безопасного обновления. При конфликте она
+Установите зависимость guard, проверьте остальные скиллы и синхронизируйте роли.
+Последняя команда создаёт конфигурации специалистов и сохраняет эталон для безопасного обновления. При конфликте она
 сохраняет пользовательские файлы и выводит их пути. Повторите её после обновления ролей.
 
 **Плагин Codex:** скачайте `agent-flow-X.Y.Z-codex-plugin.zip` из
@@ -55,6 +58,7 @@ python3 ~/.agents/skills/agent-flow/scripts/sync-codex-agent-config.py --output-
 
 ```bash
 npx skills add https://github.com/svishniakov/agent-flow -a codex -g
+npx skills add https://github.com/svishniakov/arch-simplicity-guard -a codex -g
 python3 ~/.agents/skills/agent-flow/scripts/sync-codex-agent-config.py --output-dir ~/.codex/agents
 ```
 

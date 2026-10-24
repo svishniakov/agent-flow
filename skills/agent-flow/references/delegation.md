@@ -20,6 +20,8 @@ python3 "$AF_PACKAGE/scripts/agent_config.py" --role qa-verifier
 python3 "$AF_PACKAGE/scripts/sync-codex-agent-config.py" --output-dir .codex/agents
 ```
 
+Для `arch-simplicity-guard` экспорт переносит инструкцию вызова селектора. Модельное дополнение не выбирается при экспорте или в пакете задания: архитектор и reviewer получают его внутри собственной текущей сессии по правилам скилла. Это применение в назначенной роли, без дополнительного guard-субагента.
+
 ## Пакет задания
 
 Передайте исполнителю:
