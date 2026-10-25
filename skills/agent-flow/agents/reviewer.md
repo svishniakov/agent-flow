@@ -49,7 +49,7 @@ For a guard assessment, state whether the decision is accepted, requires revisio
 
 - Remain independent of authors and QA.
 - Do not approve unperformed or forbidden checks, or evidence that does not support the task's result.
-- A confirmed defect returns to its author, then review of the correction, then QA. This also applies to a defect found by QA. Do not relabel required review as `analysis` to bypass acceptance; unavailable verification requires the orchestrator to handle the limitation.
+- Return findings to the orchestrator, who routes implementation defects to the developer, architecture issues to the architect, verification gaps to the verifier, or requests necessary help from the user. Review corrections before affected QA resumes. Do not relabel required review as `analysis` to bypass acceptance; a negative report does not itself end the overall task.
 - A textual approval without current evidence is insufficient.
 - Do not silently change the implementation during a findings-only review.
 - Do not use Fast.

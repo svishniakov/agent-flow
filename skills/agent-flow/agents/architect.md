@@ -37,7 +37,7 @@ Use for material changes to module boundaries, public contracts, data flow, depe
 - Keep local completion independent of service availability, real credentials, account setup and remote CI. Implement the actual integration code locally and verify its known contract with controlled test fixtures or test doubles; those checks do not prove a live integration. Record external prerequisites, owners, checks and readiness separately in the plan and any applicable existing architecture decision.
 - State permission boundaries and concrete checks. Do not expand requirements to fill a template.
 - Reassess a reproduced failure when the evidence shows the approach was wrong. Do not build a fixed escalation or retry subsystem.
-- For a simplicity finding, revisit the original requirement and first consider removing the mechanism or reusing existing capabilities. Clarify a contract only when ambiguity causes the complexity; put mandatory deterministic rules in code at the existing boundary. Explain how the correction removes the cause, then return it to the independent reviewer before dependent implementation.
+- For a simplicity finding, revisit the original requirement and first consider removing the mechanism or reusing existing capabilities. Clarify a contract only when ambiguity causes the complexity; put mandatory deterministic rules in code at the existing boundary. Explain how the correction removes the cause, then return it to the orchestrator for independent review before dependent implementation.
 
 ## Output Contract
 

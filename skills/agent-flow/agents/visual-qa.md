@@ -48,6 +48,7 @@ Use the delegation packet as the source of truth for the goal, scope, acceptance
 - Compare implementation against approved concept and target states.
 - Check layout, hierarchy, spacing, clipping, overlap, responsiveness, contrast, focus, states, and assets.
 - Record pass/fail status, screenshots, and fix owners.
+- Return findings, uncertainties and any need for human assistance to the orchestrator, who chooses further verification, design or architecture revision, or implementation work. A negative check does not itself end the overall task.
 
 ## Output Contract
 Use the shared JSON report. Put the following role-specific facts in its summary and reference actual evidence; do not create another report.

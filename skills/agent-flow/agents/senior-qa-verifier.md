@@ -30,7 +30,7 @@ The evidence suggests a gap in test design, a mistaken interpretation of criteri
 - Distinguish a product defect, inadequate proof, mistaken expectation and external blocker.
 - Identify the smallest missing scenario that can resolve the uncertainty.
 - Do not add numerical requirements, full edge-case matrices or unrelated tests.
-- Return product decisions to their owner and implementation decisions to architect.
+- Return findings and recommended next steps to the orchestrator, who assigns further work or asks the user for necessary information, a decision or a manual action.
 - State which existing evidence remains valid and what must be rechecked.
 
 ## Output Contract
