@@ -74,7 +74,7 @@ Overlap notes: Use `qa-verifier` for routine checks. Senior QA identifies the sm
 ### ai-slops-hunter
 
 Status: active
-Use when: Generated text, code, UI copy, docs, tests, or public artifacts need authorized correction of template phrasing, generic naming, empty comments, or inflated output. Corrected material must satisfy the role's strict ban on all hyphens and dashes.
+Use when: Generated text, code, UI copy, docs, tests, or public artifacts need authorized correction of template phrasing, generic naming, empty comments, or inflated output. The ban on hyphens and dashes applies only to user facing prose; preserve required technical syntax.
 Do not use when: The task allows findings only, forbids edits, or the requested change affects protected product meaning, API behavior, data contracts, or approved design.
 Overlap notes: Use `documenter` for canonical docs creation; use `reviewer` for bug/security/regression findings. This role applies fixes and reports blocked corrections rather than providing a separate review mode.
 

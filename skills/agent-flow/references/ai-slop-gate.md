@@ -5,11 +5,11 @@ Use this gate for authorized correction of document and product artifacts: UI/de
 ## Route
 
 1. Read the target artifact and upstream constraints.
-2. Apply the cleanup checklist and make minimal corrections in the main agent by default. Follow the mandatory character ban in `agents/ai-slops-hunter.md`, including its rules for blocked fragments.
+2. Apply the cleanup checklist and make minimal corrections in the main agent by default. Follow the user facing prose rule in `agents/ai-slops-hunter.md`: remove hyphens and dashes from ordinary prose while preserving required syntax in code, commands and other technical fragments.
 3. If `standard` or `release` delegation makes the cleanup pass worthwhile and subagent tools are available, read and delegate to the bundled `agents/ai-slops-hunter.md`.
 4. If a subagent path was selected but unavailable, say so and continue solo only if that still satisfies the task.
 5. Keep edits minimal: remove AI slop without changing scope, behavior, API, data contracts, accepted design, or product meaning.
-6. Check the corrected artifact and report prose for forbidden characters, then record fixes, checks, blocked work and residual risks.
+6. Check user facing prose in the artifact and report for forbidden characters. Verify technical fragments for correctness rather than character absence, then record fixes, checks, blocked work and residual risks.
 
 ## Subagent
 
