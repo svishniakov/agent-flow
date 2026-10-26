@@ -17,7 +17,7 @@ Skills в frontmatter выбираются по предмету поручен�
 - `documenter` - Documentation subagent for PRDs, specifications, task records, review sections, lessons, release notes, README work, and project documentation.
 - `reviewer` - Independent final reviewer for bugs, regressions, missing tests, plan alignment, quality, security, and release readiness.
 - `qa-verifier` - QA verification subagent for tests, logs, reproduction, browser or simulator checks, regression risk, and readiness assessment.
-- `ai-slops-hunter` - AI-slop detection and cleanup subagent for text, code, UI/design, docs, copy, tests, and generated artifacts.
+- `ai-slops-hunter` - AI slop cleanup subagent for text, code, UI, docs, tests, and generated artifacts. Applies minimal fixes and prohibits all hyphens and dashes.
 
 ## Implementation workers
 

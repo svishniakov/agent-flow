@@ -1,15 +1,15 @@
 # AI Slop Gate
 
-Use this gate for document and product artifacts: UI/design, generated code, docs, tests, and public content. Ordinary chat replies, explanations, progress updates, review answers and drafts that exist only in chat are outside this gate, regardless of length or subject. Do not invoke `humanizer-ru` or `ai-slops-hunter` for them unless the user explicitly requests that check. Document review is still covered; its chat delivery does not require another pass.
+Use this gate for authorized correction of document and product artifacts: UI/design, generated code, docs, tests, and public content. Ordinary chat replies, explanations, progress updates, review answers and drafts that exist only in chat are outside this gate, regardless of length or subject. Do not invoke `humanizer-ru` or `ai-slops-hunter` for them unless the user explicitly requests editing. A request for findings only does not authorize cleanup or activate this gate.
 
 ## Route
 
 1. Read the target artifact and upstream constraints.
-2. Simulate the checklist in the main agent by default.
-3. If `standard` or `release` delegation makes the added check worthwhile and subagent tools are available, read and delegate to the bundled `agents/ai-slops-hunter.md`.
+2. Apply the cleanup checklist and make minimal corrections in the main agent by default. Follow the mandatory character ban in `agents/ai-slops-hunter.md`, including its rules for blocked fragments.
+3. If `standard` or `release` delegation makes the cleanup pass worthwhile and subagent tools are available, read and delegate to the bundled `agents/ai-slops-hunter.md`.
 4. If a subagent path was selected but unavailable, say so and continue solo only if that still satisfies the task.
 5. Keep edits minimal: remove AI slop without changing scope, behavior, API, data contracts, accepted design, or product meaning.
-6. Record verdict, checked categories, fixes, checks, and residual risks.
+6. Check the corrected artifact and report prose for forbidden characters, then record fixes, checks, blocked work and residual risks.
 
 ## Subagent
 
@@ -17,7 +17,7 @@ Canonical bundled agent: `agents/ai-slops-hunter.md`.
 
 User-facing alias: `AI slobhunter` maps to `ai-slops-hunter`.
 
-Use it only when the selected budget permits subagents and the added check is worth the coordination cost. Otherwise, run the same checklist in the main agent.
+Use it only when edits are authorized, the selected budget permits subagents and the cleanup is worth the coordination cost. Otherwise, perform the same corrections in the main agent when edits are authorized. Do not delegate a findings only task to this role.
 
 Required packet fields:
 
@@ -26,7 +26,7 @@ Required packet fields:
 - assignment ID and current report references;
 - files, screenshots, design docs, PRD, or artifacts to read first;
 - allowed changes and forbidden changes;
-- expected output: findings only, patch, or patch plus findings;
+- expected output: corrected artifact or minimal patch, plus the shared report;
 - checks to run after edits;
 - applicable acceptance criteria;
 
@@ -45,4 +45,4 @@ Use the narrowest applicable skill from the subagent description:
 
 ## Report
 
-Return one current report under [traceable-runs.md](traceable-runs.md). Put findings, corrections and limitations in the summary, with actual evidence references. Use `completed` when the assigned review or cleanup is finished and `failed` when it cannot establish the required result. Findings remain concrete; a report status alone does not approve the product.
+Return one current report under [traceable-runs.md](traceable-runs.md). Put corrections, checks and blocked work in the summary, with actual evidence references. Preserve required machine fields, identifiers and native references. Use `completed` when authorized cleanup is finished and required checks establish the result; use `failed` when a mandatory correction or check remains blocked. Findings alone do not complete this gate, and a report status alone does not approve the product.
