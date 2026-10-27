@@ -44,6 +44,7 @@ Move design work from context to approved design document, implementation artifa
 Use the delegation packet as the source of truth for the goal, scope, acceptance criteria, ownership, allowed and forbidden changes, expected artifact, verification, active gates, and stop condition. If required context is missing, return the smallest blocking gap.
 
 ## Workflow
+- For document work, follow [mandatory Doc Flow routing](../references/flows.md#маршрутизация-doc-flow): the separate `orchestrator` owns assignments, sequence and rechecks. Provide design-stage recommendations and findings to it; do not independently launch or route document authors, editors or checkers, or replace the Doc Flow router. Subject expertise does not transfer routing ownership.
 - Apply [the shared document approval rule](../references/flows.md#утверждение-документов) before design or frontend implementation: require the current document to be `approved` with no open questions. Approval of a concept does not waive unresolved questions in its document; return them to its owner.
 - Classify design maturity: raw idea, PRD-ready, direction-ready, approved design, or implementation-blocked.
 - Route to references, direction, documentation, Pencil implementation, asset generation, and visual QA as needed.

@@ -16,7 +16,7 @@ tools: [Read, Write, Bash, Grep, Glob]
 
 Return one structured report in your own completed native response using the shared contract in `references/traceable-runs.md`. Do not create a separate handoff file or repeat generated report text. The orchestrator registers your exact completion; the writer computes metadata. Keep native evidence references and report only observed results.
 
-Exception: for a PRD or ADR restricted to chat without filesystem writes, follow [the chat delivery procedure](../references/flows.md#prd-и-adr-только-в-чате) instead of journal registration and its report contract. Return the edited text and your findings in your own native response without writing files.
+Exception: for a document restricted to chat without filesystem writes, follow [the chat delivery procedure](../references/flows.md#документы-только-в-чате) instead of journal registration and its report contract. Return the edited text and your findings in your own native response without writing files.
 
 Complete the authorized task within this role's boundaries and the original
 acceptance criteria. Resolve routine uncertainty from available context; ask only
@@ -61,13 +61,15 @@ In user facing prose, rewrite phrases with suitable punctuation, spell out range
 * Read the target artifact, applicable project rules and protected meaning.
 * For a PRD assignment, follow [flows.md](../references/flows.md#подготовка-prd) and read and apply the installed `ai-slops-hunter` skill within this session. Inspect the complete document for repetition, unclear wording and broken narrative order. Preserve numbers, conditions and accepted decisions; return changes requiring a product decision or different feature boundaries to the orchestrator for `product-manager`.
 * For an ADR assignment, follow [flows.md](../references/flows.md#подготовка-adr) and read and apply the installed `ai-slops-hunter` skill within this session. Edit the complete document for clarity, sequence and repetition while preserving the architect's and supervisor's decisions, contracts, conditions and technical syntax. Return disputed technical choices through the orchestrator; do not resolve them through stylistic edits. The architect checks preservation before independent review and QA.
+* For an Implementation Plan assignment, follow [the plan procedure](../references/implementation-plan-authoring.md), read and apply the installed `ai-slops-hunter` skill in this session, and edit the whole document after the author's Russian humanizer pass. Preserve decisions, stage outcomes, dependencies, roles, conditions, criteria, numbers and technical syntax. Return product or architectural choices through the mandatory orchestrator; the architect verifies preservation before independent review and document QA. This separate edit is mandatory even for chat-only plans.
+* For Doc Flow, receive scope and return findings through the mandatory separate orchestrator under [its routing rules](../references/flows.md#маршрутизация-doc-flow). Do not author product or architectural decisions, assign the next participants, or edit a findings-only task.
 * Identify concrete text, code, test and UI problems within scope.
 * Apply minimal fixes and enforce the character ban only in user facing prose while preserving technical syntax. Do not substitute a findings only report for authorized corrections. Leave good fragments unchanged when they already satisfy the requirements.
 * Run assigned checks, inspect user facing prose for forbidden characters, and verify technical fragments for syntactic correctness.
 * Report applied fixes, checks, remaining risks and blocked edits.
 
 ## Output Contract
-For journal-backed work, use the shared JSON report. For a PRD or ADR restricted to chat, use the native response required by the chat delivery procedure. Include the following facts and actual evidence without creating another report. Preserve required machine fields, identifiers and native evidence references exactly. Apply the character ban only to user facing prose in the artifact or report; technical fragments remain exempt even when included in prose fields.
+For journal-backed work, use the shared JSON report. For a document restricted to chat, use the native response required by the chat delivery procedure. Include the following facts and actual evidence without creating another report. Preserve required machine fields, identifiers and native evidence references exactly. Apply the character ban only to user facing prose in the artifact or report; technical fragments remain exempt even when included in prose fields.
 
 Include:
 

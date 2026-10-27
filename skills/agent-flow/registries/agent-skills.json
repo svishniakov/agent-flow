@@ -1031,7 +1031,7 @@
           "project": []
         },
         "prompt": null,
-        "notes": "Plugin-provided skill; no direct skill copy command is bundled."
+        "notes": "Plugin-provided skill; no direct skill copy command is bundled. In Doc Flow use only substantive local plan-assessment criteria under references/implementation-plan-authoring.md. Do not run its PR discovery, GitHub posting or approval workflow, assume its permissions, or use CONDITIONAL PASS; verdicts are PASS/FAIL and do not grant document approval."
       }
     },
     {
@@ -3131,7 +3131,7 @@
           "project": []
         },
         "prompt": null,
-        "notes": "Upstream: https://skills.sh/testomatio/skills/qa-requirement-reviewer. MIT; version 1.0.0. Required for the qa.requirements assignment. Agent Flow's qa-verifier prompt owns project-specific instructions; illustrative upstream values are not project requirements."
+        "notes": "Upstream: https://skills.sh/testomatio/skills/qa-requirement-reviewer. MIT; version 1.0.0. Reading and applying this skill is required for the preliminary qa.requirements assessment, including Implementation Plans; missing skill leaves that assessment unperformed. The recommended tier is installation priority, not permission to skip it. Agent Flow's qa-verifier prompt owns project-specific instructions and the shared report contract; illustrative upstream values are not project requirements."
       }
     },
     {

@@ -4,6 +4,8 @@ Use for UI, UX, visual systems, Pencil, Figma, screenshots, frontend implementat
 
 Apply [the shared document approval rule](flows.md#утверждение-документов). A design document with any open question cannot be approved or used for implementation. An approved visual direction alone does not establish approval of a document that still contains unresolved decisions.
 
+Creating, revising or reviewing a design document is a document task under [mandatory Doc Flow routing](flows.md#маршрутизация-doc-flow), even inside design-flow. The separate orchestrator owns assignments, sequencing and findings; design-orchestrator supplies design expertise and recommendations without a parallel document route. Preserve the existing design author and specialist checks.
+
 ## Maturity Stages
 
 - `raw-idea`: no PRD, audience, or goal. Shape product first.
