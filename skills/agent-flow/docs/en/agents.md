@@ -36,6 +36,8 @@ The architecture agent. It turns product scope into an implementation plan: modu
 
 It should not write code instead of worker agents when the plan is already ready.
 
+For Elixir/Phoenix, it applies `elixir-essentials` and the relevant `otp-essentials`, `ecto-essentials`, or `phoenix-liveview-essentials`. It defines boundaries between contexts, domain logic, persistence, and processes, and justifies supervision. Astro architecture decisions use `astro-best-practices`. Skills are selected by task and checked against the project's versions.
+
 ### researcher
 
 The research agent. It gathers facts from documentation, APIs, SDKs, the repository, GitHub, external sources, and fresh pages. Use it when the model cannot rely on memory: versions, flags, contracts, current rules, competitors, standards, or niche APIs.
@@ -80,6 +82,14 @@ The frontend executor. It works with UI, React, styling, responsive behavior, cl
 
 It runs build/type/lint/test or browser checks when relevant. It must not redesign the interface without approval.
 
+### astro-worker
+
+Astro Worker implements HTML pages, layouts, components, styles, routes, images, and content collections. Use it for Astro landing pages, company sites, blogs, and documentation from approved requirements and applicable design.
+
+It applies `astro` and `astro-best-practices`, keeps static content in `.astro`, and adds scripts or framework islands when required. It runs the build and applicable type checks. It checks responsive layouts and changed interactions in the browser. Design selection and independent visual verification remain with the respective roles.
+
+Astro pages remain its responsibility when the project uses Bun. A separate `bun-worker` assignment is needed only for independent Bun runtime or package workflow work.
+
 ### typescript-worker
 
 The TypeScript/JavaScript worker. It changes typed app code, Node/Bun/React modules, API clients, shared types, tests, and scoped refactors.
@@ -97,6 +107,14 @@ It must not mix package managers without an explicit decision.
 The Python worker. It handles scoped Python tasks: backend, CLI, automation, data processing, QA scripts, PDF/RAG utilities, tests, and dependency hygiene.
 
 It must preserve simplicity, reproducibility, and clear CLI/API boundaries.
+
+### elixir-phoenix-worker
+
+Elixir Phoenix Worker implements Elixir domain logic, Phoenix APIs, HEEx/LiveView, Channels, Ecto, migrations, OTP processes, and Mix tooling from an approved plan. It also handles Elixir projects without Phoenix.
+
+It applies `elixir-essentials` and selects `otp-essentials`, `ecto-essentials`, or `phoenix-liveview-essentials` by task. It checks formatting and relevant ExUnit, ConnTest, or LiveViewTest cases; Credo and Dialyzer follow project rules. It preserves boundaries between domain logic, persistence, and processes, and does not introduce a GenServer merely to organize functions.
+
+This role owns Elixir/Phoenix tasks instead of generic backend/frontend workers. Material contract or architecture changes go to the architect; external migrations require authorization.
 
 ### golang-worker
 

@@ -6,7 +6,7 @@ reasoning_effort: xhigh
 escalation_model: gpt-6.1-sol
 escalation_reasoning_effort: max
 escalation_triggers: [cross-system, migration, security, data-loss, architecture-risk, large-prd, multi-lane]
-skills: [arch-simplicity-guard, chief-architect, golang-architect, build-web-apps:react-best-practices, build-ios-apps:swiftui-view-refactor, system-design-doc, pre-mortem, sql-queries, queue-job-processor, kafka-development, kafka-producer-consumer, improve-codebase-architecture, architecture-decision-records, humanizer-ru]
+skills: [arch-simplicity-guard, chief-architect, golang-architect, elixir-essentials, otp-essentials, ecto-essentials, phoenix-liveview-essentials, astro-best-practices, build-web-apps:react-best-practices, build-ios-apps:swiftui-view-refactor, system-design-doc, pre-mortem, sql-queries, queue-job-processor, kafka-development, kafka-producer-consumer, improve-codebase-architecture, architecture-decision-records, humanizer-ru]
 tools: [Read, Write, Bash, Grep, Glob]
 ---
 
@@ -34,6 +34,8 @@ Use for ADR or Implementation Plan creation or substantive revision, including d
 - For ADR work, follow [flows.md](../references/flows.md#подготовка-adr). Read and apply the installed `architecture-decision-records` skill and relevant stack skills. Write the complete ADR yourself; do not hand authorship to `documenter`. Describe architectural decisions and their consequences rather than file changes. Apply `humanizer-ru` to Russian prose before the required independent editor, then verify preservation of decisions before independent review and document QA.
 - Apply `arch-simplicity-guard` in this agent when preparing or revising the decision. Resolve its installed `SKILL.md` and run `python3 <resolved-skill-dir>/scripts/render_instructions.py` inside this session before the assessment; read and apply the complete returned `instructions`. The selector uses this turn's actual model. Do not select a profile from role metadata, reuse another agent's profile, or launch a guard subagent. On a new review turn, run it again. Missing skill or selector failure leaves the dependent assessment unperformed; report the limitation.
 - For Go architecture, read and apply the available `golang-architect` skill. For React/Next.js, use `build-web-apps:react-best-practices` for applicable component, data-loading and performance decisions. Skill checklists do not add CI, deployment or external setup to the agreed scope.
+- For Elixir/Phoenix architecture, apply `elixir-essentials` and the relevant `otp-essentials`, `ecto-essentials`, or `phoenix-liveview-essentials` skill. Define boundaries between Phoenix contexts, pure domain logic, Ecto persistence, and OTP processes. Justify state and supervision; keep LiveView events and rendering separate from domain rules. Verify decisions against the project's Elixir, OTP, Phoenix, Ecto, and LiveView versions.
+- For Astro architecture, apply `astro-best-practices` to rendering, content, and hydration decisions. Verify APIs against the project's version and official documentation. Load stack skills only when the decision concerns that stack; their examples do not override accepted contracts or expand scope.
 - Identify affected modules, owners, contracts and verification needs.
 - Use the architecture matrix and capability reference only when they reveal task-specific constraints.
 - Prefer existing components and local changes. Reject speculative frameworks, fallback modes and unnecessary abstractions.

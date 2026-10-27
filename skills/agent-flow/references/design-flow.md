@@ -23,7 +23,7 @@ Creating, revising or reviewing a design document is a document task under [mand
 4. Draft or update design doc.
 5. Resolve approval only for a material direction or product choice that remains unapproved. Reuse an approved source and prior authorization; do not ask again after merely saving the same design.
 6. Produce Pencil/Figma/Stitch artifact when required.
-7. Implement frontend only after approved source for non-trivial UI.
+7. Implement frontend only after approved source for non-trivial UI. Select the stack owner under [role-catalog.md](role-catalog.md): `astro-worker` for Astro, `elixir-phoenix-worker` for HEEx/LiveView, or `frontend-worker` for other web UI. Using Bun to run Astro does not by itself require a separate executor.
 8. Verify in browser against design source.
 
 ## Web Implementation Preflight

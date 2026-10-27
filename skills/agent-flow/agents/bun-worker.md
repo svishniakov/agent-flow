@@ -37,6 +37,7 @@ Keep Bun workflows fast, reproducible, and compatible with project conventions.
 
 ## Do Not Use When
 - Plain TypeScript work has no runtime/package concern.
+- Astro pages or components are the main work; use `astro-worker` even when Bun runs the project.
 - Python/Go/iOS code is in scope.
 - Architecture is undecided.
 

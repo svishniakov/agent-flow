@@ -88,6 +88,12 @@
       "nickname_candidates": ["Frontend Worker"]
     },
     {
+      "role": "astro-worker",
+      "stable_agent_name": "Astro Worker",
+      "stable_agent_slug": "astro-worker",
+      "nickname_candidates": ["Astro Worker"]
+    },
+    {
       "role": "typescript-worker",
       "stable_agent_name": "TypeScript Worker",
       "stable_agent_slug": "typescript-worker",
@@ -104,6 +110,12 @@
       "stable_agent_name": "Python Worker",
       "stable_agent_slug": "python-worker",
       "nickname_candidates": ["Python Worker"]
+    },
+    {
+      "role": "elixir-phoenix-worker",
+      "stable_agent_name": "Elixir Phoenix Worker",
+      "stable_agent_slug": "elixir-phoenix-worker",
+      "nickname_candidates": ["Elixir Phoenix Worker"]
     },
     {
       "role": "golang-worker",

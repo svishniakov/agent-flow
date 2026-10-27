@@ -31,12 +31,16 @@ Skills в frontmatter выбираются по предмету поручен�
 
 - `backend-worker` - Backend execution subagent for scoped server, API, database, queue, integration, auth, or service changes from an approved plan.
 - `frontend-worker` - Frontend execution subagent for scoped UI, React, styling, responsive behavior, and client-state changes from an approved plan.
+- `astro-worker` - Astro implementation subagent for scoped HTML pages, layouts, components, styling, routing, content collections, assets, selective hydration, and build checks from an approved plan and applicable design.
 - `typescript-worker` - TypeScript/JavaScript implementation subagent for typed app code, Node/Bun/React modules, API clients, contracts, tests, and scoped refactors from an approved plan.
 - `bun-worker` - Bun runtime subagent for Bun-based JavaScript/TypeScript projects, scripts, tests, dev servers, package management, lockfiles, and Node/npm-to-Bun migration.
 - `python-worker` - Python implementation subagent for scoped backend, CLI, automation, data processing, QA scripts, tests, PDF/RAG utilities, and dependency hygiene from an approved plan.
+- `elixir-phoenix-worker` - Elixir and Phoenix implementation subagent for scoped domain logic, APIs, LiveView, Ecto persistence and migrations, OTP processes, Mix tooling, and tests from an approved plan.
 - `golang-worker` - Go implementation subagent for scoped Go services, Kafka producers/consumers, CLIs, packages, concurrency, tests, modules, and idiomatic refactors from an approved plan.
 - `ios-worker` - iOS execution subagent for scoped SwiftUI, App Intents, simulator, HIG, and Apple-platform implementation tasks from an approved plan.
 - `rag-retrieval-engineer` - Retrieval-first LLM/RAG engineer for semantic search, chunking, embeddings, reranking, vector stores, graph databases, GraphRAG, and retrieval quality evaluation.
+
+Elixir/Phoenix поручайте `elixir-phoenix-worker`, включая HEEx/LiveView и Elixir без Phoenix. Страницы и компоненты Astro поручайте `astro-worker`. Наличие Bun в проекте само по себе не требует `bun-worker`: его отдельное назначение нужно для работы с Bun runtime или управлением пакетами. Границы пересечений описаны в [role-catalog.md](role-catalog.md).
 
 ## Design flow
 

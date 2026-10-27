@@ -85,28 +85,35 @@ Overlap notes: Use product-manager for PRD authorship, architect for ADR and Imp
 Status: active
 Use when: Server code, APIs, DB/storage, queues, auth, integrations, or background jobs need scoped implementation.
 Do not use when: The work is primarily UI, TypeScript-only shared code, or architecture planning.
-Overlap notes: Use `typescript-worker` for shared TS modules; use `architect` before broad contract changes.
+Overlap notes: Use `elixir-phoenix-worker` for Elixir/Phoenix implementation and `typescript-worker` for shared TS modules; use `architect` before broad contract changes.
 
 ### frontend-worker
 
 Status: active
 Use when: UI, React, styling, responsive behavior, forms, navigation, and client state need implementation from an approved scope/design.
 Do not use when: The work is generic TS/JS backend/shared modules or visual concept selection.
-Overlap notes: Use `typescript-worker` for non-visual TS/JS; use design roles before non-trivial UI implementation.
+Overlap notes: Use `astro-worker` for Astro pages and components, `elixir-phoenix-worker` for Phoenix HEEx/LiveView, and `typescript-worker` for non-visual TS/JS. Use design roles before non-trivial UI implementation.
+
+### astro-worker
+
+Status: active
+Use when: Astro HTML pages, layouts, components, styles, routes, images, Markdown/MDX, content collections, or selective hydration need scoped implementation from approved requirements and applicable design.
+Do not use when: Design or architecture must be selected first, only independent visual verification is needed, or the main implementation does not use Astro.
+Overlap notes: Own Astro page implementation even when Bun runs the project. Use `bun-worker` only for a separate Bun runtime or package workflow assignment and `typescript-worker` for shared code outside the Astro task. Keep one owner per assigned path; use design roles for concept decisions and `visual-qa` for independent visual evidence.
 
 ### typescript-worker
 
 Status: active
 Use when: TypeScript/JavaScript modules, shared types, Node/Bun/React code, API clients, tests, or scoped refactors need implementation.
 Do not use when: The work is primarily visual UI polish, Bun package workflow, or backend domain design.
-Overlap notes: Use `frontend-worker` for UI behavior/styling; use `bun-worker` for Bun runtime/package workflow.
+Overlap notes: Use `astro-worker` for Astro pages and components, `frontend-worker` for other UI behavior/styling, and `bun-worker` for Bun runtime/package workflow.
 
 ### bun-worker
 
 Status: active
 Use when: Bun scripts, `bun.lock`, Bun tests, dev servers, dependency workflow, or package-manager migration is the main work.
-Do not use when: The task is ordinary TS/JS implementation with no Bun-specific workflow.
-Overlap notes: Use `typescript-worker` for code changes; use `bun-worker` for runtime/tooling behavior.
+Do not use when: The task is ordinary TS/JS implementation or Astro page work with no Bun-specific workflow.
+Overlap notes: Use `astro-worker` for Astro pages and `typescript-worker` for other code changes. Using Bun to run an Astro project does not by itself require a separate Bun executor.
 
 ### python-worker
 
@@ -114,6 +121,13 @@ Status: active
 Use when: Python backend, CLI, automation, data processing, QA scripts, PDF/RAG utilities, tests, or dependency hygiene need scoped work.
 Do not use when: The task is only docs, research, or non-Python implementation.
 Overlap notes: Use `rag-retrieval-engineer` for retrieval strategy; use `qa-verifier` for independent verification.
+
+### elixir-phoenix-worker
+
+Status: active
+Use when: Elixir domain logic, Phoenix APIs, HEEx/LiveView, Channels, Ecto persistence and migrations, OTP processes, Mix tooling, or tests need scoped implementation. Elixir without Phoenix is also in scope.
+Do not use when: Architecture must be selected first, the main stack is not Elixir, or only independent behavior verification is needed.
+Overlap notes: Own Elixir/Phoenix implementation instead of a generic backend/frontend worker, including LiveView behavior and HEEx. Use `architect` for material context, persistence, supervision, or public contract decisions and `qa-verifier` for independent evidence. Design roles own visual direction.
 
 ### golang-worker
 
@@ -164,7 +178,7 @@ Overlap notes: Use `ui-ux-designer` after direction selection; use `visual-qa` a
 Status: active
 Use when: Approved direction needs screen flows, prototypes, visual specs, component guidance, or implementation handoff.
 Do not use when: No product/design direction exists, or the work is frontend implementation.
-Overlap notes: Use `ui-ux-design-director` first for direction; use `frontend-worker` for code.
+Overlap notes: Use `ui-ux-design-director` first for direction. Route code to `astro-worker` for Astro, `elixir-phoenix-worker` for HEEx/LiveView, or `frontend-worker` for other web UI.
 
 ### design-documenter
 
@@ -192,7 +206,7 @@ Overlap notes: Use `ui-ux-design-director` for direction; use `visual-qa` for fi
 Status: active
 Use when: Pencil/Figma/site UI must be checked against `DESIGN.md` for layout, overlap, clipped text, responsiveness, contrast, focus, states, assets, and design intent.
 Do not use when: The task is redesign or implementation.
-Overlap notes: Use `frontend-worker`, `pencil-designer`, or `design-asset-generator` to fix issues after QA.
+Overlap notes: Return code issues to the assigned stack owner: `astro-worker`, `elixir-phoenix-worker`, or `frontend-worker`. Use `pencil-designer` or `design-asset-generator` for artifact or asset fixes.
 
 ## Growth
 

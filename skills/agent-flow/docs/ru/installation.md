@@ -15,6 +15,20 @@ npx skills add https://github.com/svishniakov/arch-simplicity-guard -a codex -g
 
 Селектор вызывается внутри текущей сессии каждого исполнителя Codex; экспорт ролей не выбирает модельное дополнение заранее. Для установки только в текущий проект уберите `-g`.
 
+## Skills для Elixir/Phoenix и Astro
+
+Для задач Elixir/Phoenix архитектор и `elixir-phoenix-worker` используют четыре предметных skill из [igmarin/elixir-phoenix-skills](https://skills.sh/igmarin/elixir-phoenix-skills). Для `astro-worker` выбраны [astro](https://skills.sh/astrolicious/agent-skills/astro) и [astro-best-practices](https://skills.sh/incluud/astro-agent-skills/astro-best-practices); последний также используется архитектором при решениях по Astro.
+
+Установите нужный набор явно. Общая установка Agent Flow не устанавливает эти зависимости автоматически:
+
+```sh
+npx skills add igmarin/elixir-phoenix-skills --skill elixir-essentials otp-essentials ecto-essentials phoenix-liveview-essentials -a codex -g
+npx skills add astrolicious/agent-skills --skill astro -a codex -g
+npx skills add incluud/astro-agent-skills --skill astro-best-practices -a codex -g
+```
+
+Для установки только в проект уберите `-g`. Проверить зависимости отдельной роли можно командой `python3 check-agent-deps.py --scope role:elixir-phoenix-worker --strict` или `python3 check-agent-deps.py --scope role:astro-worker --strict` из каталога scripts выбранного пакета. После обновления Agent Flow синхронизируйте роли и начните новую задачу Codex, как описано ниже. Сторонние skills применяются по задаче; API сверяются с версией проекта.
+
 ## Отдельный скилл
 
 Для новой глобальной установки из GitHub:

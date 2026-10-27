@@ -316,8 +316,10 @@
       "aliases": [],
       "tier": "core",
       "required_by_roles": [
+        "astro-worker",
         "backend-worker",
         "bun-worker",
+        "elixir-phoenix-worker",
         "golang-worker",
         "python-worker",
         "qa-verifier",
@@ -394,6 +396,65 @@
         },
         "prompt": null,
         "notes": "Required for ADR creation and substantive revision under references/flows.md; other architecture tasks select it when relevant. The recommended tier is an installation priority, not permission to skip the required ADR pass. Installation is explicit; legacy Codex installs under ~/.codex/skills are also scanned."
+      }
+    },
+    {
+      "name": "astro",
+      "aliases": [],
+      "tier": "recommended",
+      "required_by_roles": [
+        "astro-worker"
+      ],
+      "install": {
+        "source_type": "git",
+        "global": {
+          "path": "~/.agents/skills/astro",
+          "instructions": "Install `astro` from astrolicious/agent-skills into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".agents/skills/astro",
+          "instructions": "Install `astro` from astrolicious/agent-skills into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [
+            "npx skills add astrolicious/agent-skills --skill astro -a codex -g -y"
+          ],
+          "project": [
+            "npx skills add astrolicious/agent-skills --skill astro -a codex -y"
+          ]
+        },
+        "prompt": null,
+        "notes": "Source: https://skills.sh/astrolicious/agent-skills/astro. Installation requires explicit authorization. Load this skill only for the relevant stack and task; verify APIs against the project versions. Preserve upstream files."
+      }
+    },
+    {
+      "name": "astro-best-practices",
+      "aliases": [],
+      "tier": "recommended",
+      "required_by_roles": [
+        "architect",
+        "astro-worker"
+      ],
+      "install": {
+        "source_type": "git",
+        "global": {
+          "path": "~/.agents/skills/astro-best-practices",
+          "instructions": "Install `astro-best-practices` from incluud/astro-agent-skills into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".agents/skills/astro-best-practices",
+          "instructions": "Install `astro-best-practices` from incluud/astro-agent-skills into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [
+            "npx skills add incluud/astro-agent-skills --skill astro-best-practices -a codex -g -y"
+          ],
+          "project": [
+            "npx skills add incluud/astro-agent-skills --skill astro-best-practices -a codex -y"
+          ]
+        },
+        "prompt": null,
+        "notes": "Source: https://skills.sh/incluud/astro-agent-skills/astro-best-practices. Installation requires explicit authorization. Load this skill only for the relevant stack and task; verify APIs against the project versions. Preserve upstream files."
       }
     },
     {
@@ -750,6 +811,7 @@
       ],
       "tier": "optional",
       "required_by_roles": [
+        "astro-worker",
         "design-orchestrator",
         "frontend-worker",
         "pencil-designer",
@@ -1364,6 +1426,66 @@
         },
         "prompt": null,
         "notes": "Manual source; this registry has no authoritative public source yet. Skills CLI installs normally use ~/.agents/skills; legacy Codex installs under ~/.codex/skills are still scanned."
+      }
+    },
+    {
+      "name": "ecto-essentials",
+      "aliases": [],
+      "tier": "recommended",
+      "required_by_roles": [
+        "architect",
+        "elixir-phoenix-worker"
+      ],
+      "install": {
+        "source_type": "git",
+        "global": {
+          "path": "~/.agents/skills/ecto-essentials",
+          "instructions": "Install `ecto-essentials` from igmarin/elixir-phoenix-skills into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".agents/skills/ecto-essentials",
+          "instructions": "Install `ecto-essentials` from igmarin/elixir-phoenix-skills into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [
+            "npx skills add igmarin/elixir-phoenix-skills --skill ecto-essentials -a codex -g -y"
+          ],
+          "project": [
+            "npx skills add igmarin/elixir-phoenix-skills --skill ecto-essentials -a codex -y"
+          ]
+        },
+        "prompt": null,
+        "notes": "Source: https://skills.sh/igmarin/elixir-phoenix-skills/ecto-essentials. Installation requires explicit authorization. Load this skill only for the relevant stack and task; verify APIs against the project versions. Preserve upstream files."
+      }
+    },
+    {
+      "name": "elixir-essentials",
+      "aliases": [],
+      "tier": "recommended",
+      "required_by_roles": [
+        "architect",
+        "elixir-phoenix-worker"
+      ],
+      "install": {
+        "source_type": "git",
+        "global": {
+          "path": "~/.agents/skills/elixir-essentials",
+          "instructions": "Install `elixir-essentials` from igmarin/elixir-phoenix-skills into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".agents/skills/elixir-essentials",
+          "instructions": "Install `elixir-essentials` from igmarin/elixir-phoenix-skills into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [
+            "npx skills add igmarin/elixir-phoenix-skills --skill elixir-essentials -a codex -g -y"
+          ],
+          "project": [
+            "npx skills add igmarin/elixir-phoenix-skills --skill elixir-essentials -a codex -y"
+          ]
+        },
+        "prompt": null,
+        "notes": "Source: https://skills.sh/igmarin/elixir-phoenix-skills/elixir-essentials. Installation requires explicit authorization. Load this skill only for the relevant stack and task; verify APIs against the project versions. Preserve upstream files."
       }
     },
     {
@@ -2757,6 +2879,36 @@
       }
     },
     {
+      "name": "otp-essentials",
+      "aliases": [],
+      "tier": "recommended",
+      "required_by_roles": [
+        "architect",
+        "elixir-phoenix-worker"
+      ],
+      "install": {
+        "source_type": "git",
+        "global": {
+          "path": "~/.agents/skills/otp-essentials",
+          "instructions": "Install `otp-essentials` from igmarin/elixir-phoenix-skills into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".agents/skills/otp-essentials",
+          "instructions": "Install `otp-essentials` from igmarin/elixir-phoenix-skills into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [
+            "npx skills add igmarin/elixir-phoenix-skills --skill otp-essentials -a codex -g -y"
+          ],
+          "project": [
+            "npx skills add igmarin/elixir-phoenix-skills --skill otp-essentials -a codex -y"
+          ]
+        },
+        "prompt": null,
+        "notes": "Source: https://skills.sh/igmarin/elixir-phoenix-skills/otp-essentials. Installation requires explicit authorization. Load this skill only for the relevant stack and task; verify APIs against the project versions. Preserve upstream files."
+      }
+    },
+    {
       "name": "outcome-roadmap",
       "aliases": [],
       "tier": "optional",
@@ -2854,6 +3006,36 @@
         },
         "prompt": null,
         "notes": "Manual source; this registry has no authoritative public source yet. Skills CLI installs normally use ~/.agents/skills; legacy Codex installs under ~/.codex/skills are still scanned."
+      }
+    },
+    {
+      "name": "phoenix-liveview-essentials",
+      "aliases": [],
+      "tier": "recommended",
+      "required_by_roles": [
+        "architect",
+        "elixir-phoenix-worker"
+      ],
+      "install": {
+        "source_type": "git",
+        "global": {
+          "path": "~/.agents/skills/phoenix-liveview-essentials",
+          "instructions": "Install `phoenix-liveview-essentials` from igmarin/elixir-phoenix-skills into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".agents/skills/phoenix-liveview-essentials",
+          "instructions": "Install `phoenix-liveview-essentials` from igmarin/elixir-phoenix-skills into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [
+            "npx skills add igmarin/elixir-phoenix-skills --skill phoenix-liveview-essentials -a codex -g -y"
+          ],
+          "project": [
+            "npx skills add igmarin/elixir-phoenix-skills --skill phoenix-liveview-essentials -a codex -y"
+          ]
+        },
+        "prompt": null,
+        "notes": "Source: https://skills.sh/igmarin/elixir-phoenix-skills/phoenix-liveview-essentials. Installation requires explicit authorization. Load this skill only for the relevant stack and task; verify APIs against the project versions. Preserve upstream files."
       }
     },
     {
@@ -3595,8 +3777,10 @@
       "aliases": [],
       "tier": "core",
       "required_by_roles": [
+        "astro-worker",
         "backend-worker",
         "bun-worker",
+        "elixir-phoenix-worker",
         "golang-worker",
         "orchestrator",
         "python-worker",

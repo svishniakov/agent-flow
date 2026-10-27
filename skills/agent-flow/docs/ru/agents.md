@@ -36,6 +36,8 @@ python3 scripts/sync-codex-agent-config.py --output-dir .codex/agents
 
 Не должен писать код вместо worker-агентов, если план уже готов.
 
+Для Elixir/Phoenix применяет `elixir-essentials` и подходящие `otp-essentials`, `ecto-essentials`, `phoenix-liveview-essentials`. Определяет границы contexts, доменной логики, хранения данных и процессов, обосновывает supervision. Для архитектурных решений по Astro использует `astro-best-practices`. Skills подключаются по задаче с учётом версий проекта.
+
 ### researcher
 
 Исследовательский агент. Собирает факты из документации, API, SDK, репозитория, GitHub, внешних источников и свежих страниц. Нужен, когда нельзя опираться на память модели: версии, flags, контракты, текущие правила, конкуренты, стандарты или нишевые API.
@@ -80,6 +82,14 @@ Frontend-исполнитель. Работает с UI, React, styling, respons
 
 Проверяет build/type/lint/test или browser checks, когда это применимо. Не должен редизайнить интерфейс без approval.
 
+### astro-worker
+
+Astro Worker реализует HTML страницы, layouts, компоненты, стили, маршруты, изображения и content collections. Подходит для лендингов, корпоративных сайтов, блогов и документации на Astro. Работает по согласованным требованиям и применимому дизайну.
+
+Использует `astro` и `astro-best-practices`. Сохраняет статическое содержимое в `.astro`, добавляет скрипты и framework islands по потребности. Выполняет сборку и принятые в проекте проверки типов. Проверяет адаптивность и изменённые сценарии в браузере. Выбор дизайна и независимая визуальная проверка остаются у соответствующих ролей.
+
+Страницы Astro остаются его ответственностью и при использовании Bun. Отдельный `bun-worker` нужен только для самостоятельной задачи по Bun runtime или управлению пакетами.
+
 ### typescript-worker
 
 TypeScript/JavaScript worker. Делает изменения в typed app code, Node/Bun/React modules, API clients, shared types, tests и scoped refactors.
@@ -97,6 +107,14 @@ Bun runtime worker. Отвечает за Bun workflow: package scripts, `bun.lo
 Python worker. Делает scoped Python-задачи: backend, CLI, automation, data processing, QA scripts, PDF/RAG utilities, tests и dependency hygiene.
 
 Должен сохранять простоту, воспроизводимость и понятные CLI/API boundaries.
+
+### elixir-phoenix-worker
+
+Elixir Phoenix Worker реализует доменную логику на Elixir, Phoenix API, HEEx/LiveView, Channels, Ecto, миграции, процессы OTP и задачи Mix по согласованному плану. Подходит и для Elixir без Phoenix.
+
+Использует `elixir-essentials` и подключает `otp-essentials`, `ecto-essentials`, `phoenix-liveview-essentials` по предмету поручения. Проверяет форматирование и относящиеся к изменению ExUnit, ConnTest или LiveViewTest. Credo и Dialyzer применяет по правилам проекта. Сохраняет границы доменной логики, хранения данных и процессов; не создаёт GenServer для организации обычных функций.
+
+Эта роль получает Elixir/Phoenix задачи вместо общих backend/frontend исполнителей. Существенные изменения контрактов и архитектуры передаются архитектору; внешние миграции требуют разрешения.
 
 ### golang-worker
 
