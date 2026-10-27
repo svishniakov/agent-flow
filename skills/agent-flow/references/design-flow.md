@@ -2,6 +2,8 @@
 
 Use for UI, UX, visual systems, Pencil, Figma, screenshots, frontend implementation, assets, or `DESIGN.md`.
 
+Apply [the shared document approval rule](flows.md#утверждение-документов). A design document with any open question cannot be approved or used for implementation. An approved visual direction alone does not establish approval of a document that still contains unresolved decisions.
+
 ## Maturity Stages
 
 - `raw-idea`: no PRD, audience, or goal. Shape product first.

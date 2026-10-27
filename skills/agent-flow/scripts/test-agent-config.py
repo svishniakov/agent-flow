@@ -182,11 +182,13 @@ def test_active_replacement_models() -> None:
     assert len(role_paths) == 27
     for path in role_paths:
         metadata = read_frontmatter(path)
-        model = "gpt-6-astra" if path.stem == "architect" else "gpt-6.1-sol"
+        model = "gpt-6-astra" if path.stem in {"supervising-architect", "senior-qa-verifier"} else "gpt-6.1-sol"
         effort = "xhigh" if path.stem in XHIGH_REASONING_ROLES else (
             "high" if path.stem in HIGH_REASONING_ROLES else "medium"
         )
-        ceiling = "high" if effort == "medium" else "xhigh"
+        ceiling = "max" if path.stem in {"architect", "supervising-architect"} else (
+            "high" if effort == "medium" else "xhigh"
+        )
         assert metadata["model"] == metadata["escalation_model"] == model, path.stem
         assert metadata["reasoning_effort"] == effort, path.stem
         assert metadata["escalation_reasoning_effort"] == ceiling, path.stem

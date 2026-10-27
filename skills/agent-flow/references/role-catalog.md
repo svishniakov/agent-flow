@@ -13,7 +13,7 @@ Do not create a new role for a one-off lane. Use the existing role with a separa
 Status: active
 Use when: Flow choice, budget selection, dependency gate judgment, evidence scope, delegation packets, report integration, or final readiness needs a focused orchestration pass.
 Do not use when: The main agent can route and verify directly, or when a specialized implementation/review role owns the work.
-Overlap notes: Use `architect` for technical design depth, `reviewer` for independent critique, and `qa-verifier` for result evidence. PRD preparation follows [flows.md](flows.md#подготовка-prd) with its required author and independent editor.
+Overlap notes: Use `architect` for technical design depth, `reviewer` for independent critique, and `qa-verifier` for result evidence. PRD and ADR preparation follow their procedures in [flows.md](flows.md) with required authors, independent editing and document checks. Route disputed ADR decisions immediately to `supervising-architect`.
 
 ### product-manager
 
@@ -25,16 +25,16 @@ Overlap notes: Own the complete PRD under [flows.md](flows.md#подготовк
 ### architect
 
 Status: active
-Use when: Work touches module boundaries, APIs, storage, queues, integrations, migrations, public contracts, or several subsystems, or when code review needs a technical contract for architecture-sensitive readiness.
-Do not use when: The plan is already narrow enough for a worker.
-Overlap notes: Use `backend-worker`, `frontend-worker`, or language workers for execution after architecture is settled. Use `reviewer` for independent findings against the architect-owned contract.
+Use when: An ADR needs creation or substantive revision, including documentation of an already selected decision, or work touches module boundaries, APIs, storage, queues, integrations, migrations, public contracts, or several subsystems.
+Do not use when: The plan is already narrow enough for a worker and no ADR preparation is requested.
+Overlap notes: Own the complete ADR under [flows.md](flows.md#подготовка-adr); use the required ADR skill and guard, send disputes to `supervising-architect`, and preserve the independent editor, reviewer and QA. Use workers for execution after architecture is settled.
 
 ### supervising-architect
 
 Status: active
-Use when: A reproduced failure remains after ordinary architecture review, or an unresolved approach needs independent diagnosis.
-Do not use when: A worker can apply a confirmed local correction, or the only issue is an unavailable external check.
-Overlap notes: Use `architect` for ordinary architecture decisions. This role reassesses a concrete unresolved cause and verification path; it does not impose an attempt counter or automatic escalation chain.
+Use when: An ADR decision is disputed, including a substantive guard finding, or a reproduced failure remains after ordinary architecture review and needs independent diagnosis.
+Do not use when: An ordinary correction needs no architectural choice, or the only issue is an unavailable check.
+Overlap notes: Resolve ADR disputes immediately under [flows.md](flows.md#подготовка-adr), apply the guard and record the chosen decision in the document. This makes the supervisor a coauthor, not the final independent reviewer. Keep `architect` responsible for the complete ADR; no failed retry count is required.
 
 ### researcher
 
@@ -47,22 +47,22 @@ Overlap notes: Use `ui-reference-researcher` for visual/UI references; use `rag-
 
 Status: active
 Use when: Technical specs, README, release notes, lessons, task records, or handoff docs need clear written output.
-Do not use when: A PRD needs creation or substantive revision, or the task is code execution or independent technical review.
-Overlap notes: Use `product-manager` for complete PRD authorship, `design-documenter` for `docs/design/DESIGN.md`, and `ai-slops-hunter` for cleanup of already written text.
+Do not use when: A PRD or ADR needs creation or substantive revision, or the task is code execution or independent technical review.
+Overlap notes: Use `product-manager` for complete PRD authorship, `architect` for complete ADR authorship, `design-documenter` for `docs/design/DESIGN.md`, and `ai-slops-hunter` for cleanup of already written text.
 
 ### reviewer
 
 Status: active
-Use when: PRD content, implementation, plan, branch, or release readiness needs independent findings ordered by severity.
+Use when: PRD or ADR content, implementation, plan, branch, or release readiness needs independent findings ordered by severity.
 Do not use when: The need is test execution, browser proof, or reproduction evidence.
-Overlap notes: PRD review checks the document under [flows.md](flows.md#подготовка-prd), followed by document QA. Reviewer applies `arch-simplicity-guard` to architecture and plans before dependent implementation, and checks current code and author reports before product QA. Plan review does not replace code review. After successful code review, use `qa-verifier` for behavior checks against the same result. For architecture-sensitive review, reviewer checks the diff against the architect-owned contract instead of replacing architect judgment.
+Overlap notes: PRD and ADR review check the document under [flows.md](flows.md), followed by document QA. Reviewer applies `arch-simplicity-guard` to architecture and plans before dependent implementation and sends disputed ADR choices through the orchestrator to the supervisor. Remain independent of all authors, including the supervisor and editor. Plan review does not replace code review before product QA.
 
 ### qa-verifier
 
 Status: active
-Use when: Requirements and acceptance criteria need pre-development review (`qa.requirements`), PRD readiness needs verification, or tests, logs, reproduction, browser/simulator smoke, regression checks and readiness evidence are needed.
+Use when: Requirements and acceptance criteria need pre-development review (`qa.requirements`), PRD or ADR readiness needs verification, or tests, logs, reproduction, browser/simulator smoke, regression checks and readiness evidence are needed.
 Do not use when: The task is architectural critique or code review without execution evidence.
-Overlap notes: Requirements review identifies gaps for product-manager or architect without authoring their decisions. PRD document QA follows successful independent review under [flows.md](flows.md#подготовка-prd) and does not require application execution. Neither replaces final implementation QA, which starts after successful independent `reviewer` approval. Use workers for code fixes, then review the correction before affected QA checks.
+Overlap notes: Requirements review identifies gaps for product-manager or architect without authoring their decisions. PRD and ADR document QA follow successful independent review under [flows.md](flows.md) and do not require application execution. Neither replaces final implementation QA. Remain independent of all authors, including the supervisor and editor, and of the reviewer.
 
 ### senior-qa-verifier
 
@@ -76,7 +76,7 @@ Overlap notes: Use `qa-verifier` for routine checks. Senior QA identifies the sm
 Status: active
 Use when: Generated text, code, UI copy, docs, tests, or public artifacts need authorized correction of template phrasing, generic naming, empty comments, or inflated output. The ban on hyphens and dashes applies only to user facing prose; preserve required technical syntax.
 Do not use when: The task allows findings only, forbids edits, or the requested change affects protected product meaning, API behavior, data contracts, or approved design.
-Overlap notes: Use `product-manager` for PRD authorship and `documenter` for other canonical docs; use `reviewer` for independent findings. This role performs the required separate PRD edit under [flows.md](flows.md#подготовка-prd), preserving product decisions. It applies fixes and reports blocked corrections rather than providing a separate review mode.
+Overlap notes: Use `product-manager` for PRD authorship, `architect` for ADR authorship and `documenter` for other canonical docs. This role performs the required separate PRD and ADR editing under [flows.md](flows.md), preserving decisions. Architectural disputes return through the orchestrator; they are not resolved by stylistic edits. Use `reviewer` for independent findings.
 
 ## Implementation Workers
 

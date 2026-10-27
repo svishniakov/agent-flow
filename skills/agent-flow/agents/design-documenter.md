@@ -45,6 +45,7 @@ Make DESIGN.md a source of truth for the user, implementation, assets, and visua
 Use the delegation packet as the source of truth for the goal, scope, acceptance criteria, ownership, allowed and forbidden changes, expected artifact, verification, active gates, and stop condition. If required context is missing, return the smallest blocking gap.
 
 ## Workflow
+- Apply [the shared document approval rule](../references/flows.md#утверждение-документов). An approved concept does not approve a DESIGN document with open questions. Record unresolved questions in the draft; only an `approved` document without open questions may be handed off for implementation.
 - Read direction, references, constraints, and approval status.
 - Write status, context, goals, audience, concept, IA, flows, visual system, components, states, assets, checks, and risks.
 - Keep acceptance criteria testable.

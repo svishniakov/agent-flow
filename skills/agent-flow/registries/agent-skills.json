@@ -349,7 +349,8 @@
       "tier": "core",
       "required_by_roles": [
         "architect",
-        "reviewer"
+        "reviewer",
+        "supervising-architect"
       ],
       "install": {
         "source_type": "manual",
@@ -372,7 +373,7 @@
     {
       "name": "architecture-decision-records",
       "aliases": [],
-      "tier": "optional",
+      "tier": "recommended",
       "required_by_roles": [
         "architect",
         "supervising-architect"
@@ -381,18 +382,18 @@
         "source_type": "manual",
         "global": {
           "path": "~/.agents/skills/architecture-decision-records",
-          "instructions": "Install `architecture-decision-records` into the global skill root, then rerun the dependency check."
+          "instructions": "Install `architecture-decision-records` into the global skill root for ADR preparation, then rerun the dependency check."
         },
         "project": {
           "path": ".agents/skills/architecture-decision-records",
-          "instructions": "Install `architecture-decision-records` into the project skill root, then rerun the dependency check."
+          "instructions": "Install `architecture-decision-records` into the project skill root for ADR preparation, then rerun the dependency check."
         },
         "commands": {
           "global": [],
           "project": []
         },
         "prompt": null,
-        "notes": "Manual source; this registry has no authoritative public source yet. Skills CLI installs normally use ~/.agents/skills; legacy Codex installs under ~/.codex/skills are still scanned."
+        "notes": "Required for ADR creation and substantive revision under references/flows.md; other architecture tasks select it when relevant. The recommended tier is an installation priority, not permission to skip the required ADR pass. Installation is explicit; legacy Codex installs under ~/.codex/skills are also scanned."
       }
     },
     {
@@ -2247,6 +2248,7 @@
       "aliases": [],
       "tier": "optional",
       "required_by_roles": [
+        "architect",
         "documenter",
         "product-manager"
       ],
