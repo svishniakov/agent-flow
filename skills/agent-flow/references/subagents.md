@@ -6,17 +6,19 @@
 
 Для положительного завершения изменения файлов нужны независимые реальные `qa-verifier` и `reviewer` при любом масштабе. Остальные агенты добавляются по пользе для задачи. Недоступная обязательная роль не заменяется переименованием root или другого агента.
 
+Подготовка PRD требует автора `product-manager` и отдельного редактора `ai-slops-hunter` по [flows.md](flows.md#подготовка-prd), включая документ только в чате. Эти назначения не становятся необязательными при уменьшении масштаба.
+
 Skills в frontmatter выбираются по предмету поручения. Их список не разрешает установку и не требует запускать все инструменты.
 
 ## Core orchestration and planning
 
 - `orchestrator` - Agent Flow orchestration support subagent for routing, dependency gate checks, sequencing, report integrity, delegation packets, verification evidence, and final integration under the explicit Agent Flow invocation model.
-- `product-manager` - Product subagent for turning an idea into scope, audience, problem, value, constraints, non-goals, PRD frame, and acceptance criteria.
+- `product-manager` - Product subagent owning PRD creation and substantive revision, coherent product scope, user outcomes, constraints, and acceptance criteria.
 - `architect` - Architecture subagent for implementation plans, module boundaries, dependencies, sequencing, ownership, risk, and verification criteria.
 - `researcher` - Research subagent for documentation, APIs, SDKs, external sources, local examples, constraints, comparisons, and source-backed findings.
-- `documenter` - Documentation subagent for PRDs, specifications, task records, review sections, lessons, release notes, README work, and project documentation.
-- `reviewer` - Independent final reviewer for bugs, regressions, missing tests, plan alignment, quality, security, and release readiness.
-- `qa-verifier` - QA verification subagent for tests, logs, reproduction, browser or simulator checks, regression risk, and readiness assessment.
+- `documenter` - Documentation subagent for technical specifications, task records, review sections, lessons, release notes, README work, and project documentation outside PRD authorship.
+- `reviewer` - Independent reviewer for PRD content, architecture and plans before implementation, and code before QA for correctness, evidence, simplicity, security, and readiness.
+- `qa-verifier` - QA verification subagent for requirements and PRD readiness, tests, logs, reproduction, browser or simulator checks, and evidence of completed work.
 - `ai-slops-hunter` - AI slop cleanup subagent for text, code, UI, docs, tests, and generated artifacts. Bans hyphens and dashes only in user facing prose and preserves technical syntax.
 
 ## Implementation workers

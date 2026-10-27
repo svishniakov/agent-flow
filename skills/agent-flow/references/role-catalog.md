@@ -13,14 +13,14 @@ Do not create a new role for a one-off lane. Use the existing role with a separa
 Status: active
 Use when: Flow choice, budget selection, dependency gate judgment, evidence scope, delegation packets, report integration, or final readiness needs a focused orchestration pass.
 Do not use when: The main agent can route and verify directly, or when a specialized implementation/review role owns the work.
-Overlap notes: Use `architect` for technical design depth, `reviewer` for independent critique, and `qa-verifier` for behavioral evidence.
+Overlap notes: Use `architect` for technical design depth, `reviewer` for independent critique, and `qa-verifier` for result evidence. PRD preparation follows [flows.md](flows.md#подготовка-prd) with its required author and independent editor.
 
 ### product-manager
 
 Status: active
-Use when: A user idea needs audience, problem, scope, non-goals, assumptions, and acceptance criteria before architecture or implementation.
-Do not use when: Requirements are already specific and testable, or the task is a narrow bugfix.
-Overlap notes: Use `documenter` to write final PRD/spec text; use `architect` after product scope is stable.
+Use when: A PRD needs creation or substantive revision, including from settled requirements, or an idea needs audience, problem, scope, non-goals, assumptions and acceptance criteria.
+Do not use when: The task is only implementation or a narrow bugfix with no PRD preparation requested.
+Overlap notes: Own the complete PRD under [flows.md](flows.md#подготовка-prd); use the independent editor and document checks defined there. Use `documenter` for other documentation and `architect` for authorized implementation planning after product scope is stable.
 
 ### architect
 
@@ -46,23 +46,23 @@ Overlap notes: Use `ui-reference-researcher` for visual/UI references; use `rag-
 ### documenter
 
 Status: active
-Use when: PRDs, specs, README, release notes, lessons, task records, or handoff docs need clear written output.
-Do not use when: The task is code execution or independent technical review.
-Overlap notes: Use `design-documenter` for `docs/design/DESIGN.md`; use `ai-slops-hunter` for cleanup of already written text.
+Use when: Technical specs, README, release notes, lessons, task records, or handoff docs need clear written output.
+Do not use when: A PRD needs creation or substantive revision, or the task is code execution or independent technical review.
+Overlap notes: Use `product-manager` for complete PRD authorship, `design-documenter` for `docs/design/DESIGN.md`, and `ai-slops-hunter` for cleanup of already written text.
 
 ### reviewer
 
 Status: active
-Use when: Implementation, plan, branch, or release readiness needs independent findings ordered by severity.
+Use when: PRD content, implementation, plan, branch, or release readiness needs independent findings ordered by severity.
 Do not use when: The need is test execution, browser proof, or reproduction evidence.
-Overlap notes: Reviewer applies `arch-simplicity-guard` to architecture and plans before dependent implementation, and checks current code and author reports before product QA. Plan review does not replace code review. After successful code review, use `qa-verifier` for behavior checks against the same result. For architecture-sensitive review, reviewer checks the diff against the architect-owned contract instead of replacing architect judgment.
+Overlap notes: PRD review checks the document under [flows.md](flows.md#подготовка-prd), followed by document QA. Reviewer applies `arch-simplicity-guard` to architecture and plans before dependent implementation, and checks current code and author reports before product QA. Plan review does not replace code review. After successful code review, use `qa-verifier` for behavior checks against the same result. For architecture-sensitive review, reviewer checks the diff against the architect-owned contract instead of replacing architect judgment.
 
 ### qa-verifier
 
 Status: active
-Use when: Requirements and acceptance criteria need pre-development review (`qa.requirements`), or tests, logs, reproduction, browser/simulator smoke, regression checks, and readiness evidence are needed.
+Use when: Requirements and acceptance criteria need pre-development review (`qa.requirements`), PRD readiness needs verification, or tests, logs, reproduction, browser/simulator smoke, regression checks and readiness evidence are needed.
 Do not use when: The task is architectural critique or code review without execution evidence.
-Overlap notes: Requirements review identifies gaps for product-manager or architect without authoring their decisions. It does not replace final implementation QA, which starts after successful independent `reviewer` approval. Use workers for code fixes, then review the correction before affected QA checks.
+Overlap notes: Requirements review identifies gaps for product-manager or architect without authoring their decisions. PRD document QA follows successful independent review under [flows.md](flows.md#подготовка-prd) and does not require application execution. Neither replaces final implementation QA, which starts after successful independent `reviewer` approval. Use workers for code fixes, then review the correction before affected QA checks.
 
 ### senior-qa-verifier
 
@@ -76,7 +76,7 @@ Overlap notes: Use `qa-verifier` for routine checks. Senior QA identifies the sm
 Status: active
 Use when: Generated text, code, UI copy, docs, tests, or public artifacts need authorized correction of template phrasing, generic naming, empty comments, or inflated output. The ban on hyphens and dashes applies only to user facing prose; preserve required technical syntax.
 Do not use when: The task allows findings only, forbids edits, or the requested change affects protected product meaning, API behavior, data contracts, or approved design.
-Overlap notes: Use `documenter` for canonical docs creation; use `reviewer` for bug/security/regression findings. This role applies fixes and reports blocked corrections rather than providing a separate review mode.
+Overlap notes: Use `product-manager` for PRD authorship and `documenter` for other canonical docs; use `reviewer` for independent findings. This role performs the required separate PRD edit under [flows.md](flows.md#подготовка-prd), preserving product decisions. It applies fixes and reports blocked corrections rather than providing a separate review mode.
 
 ## Implementation Workers
 
@@ -171,7 +171,7 @@ Overlap notes: Use `ui-ux-design-director` first for direction; use `frontend-wo
 Status: active
 Use when: `docs/design/DESIGN.md` must capture design status, flows, visual system, components, states, assets, checks, and risks.
 Do not use when: The task is general documentation unrelated to design contracts.
-Overlap notes: Use `documenter` for PRD/spec/README; use `design-documenter` for design-source truth.
+Overlap notes: Use `product-manager` for PRDs, `documenter` for technical specs and README, and `design-documenter` for design-source truth.
 
 ### pencil-designer
 

@@ -6,7 +6,7 @@ reasoning_effort: medium
 escalation_model: gpt-6.1-sol
 escalation_reasoning_effort: high
 escalation_triggers: [broad-cleanup, public-docs, ui-copy]
-skills: [impeccable, humanize-ts, english-humanizer, humanize-text, copy-editing, grammar-check, code-review-excellence, frontend-design, accessibility, agent-governance, ai-agents-architect]
+skills: [ai-slops-hunter, impeccable, humanize-ts, english-humanizer, humanize-text, copy-editing, grammar-check, code-review-excellence, frontend-design, accessibility, agent-governance, ai-agents-architect]
 tools: [Read, Write, Bash, Grep, Glob]
 ---
 
@@ -15,6 +15,8 @@ tools: [Read, Write, Bash, Grep, Glob]
 ## Execution guidance
 
 Return one structured report in your own completed native response using the shared contract in `references/traceable-runs.md`. Do not create a separate handoff file or repeat generated report text. The orchestrator registers your exact completion; the writer computes metadata. Keep native evidence references and report only observed results.
+
+Exception: for a PRD restricted to chat without filesystem writes, follow [the chat delivery procedure](../references/flows.md#prd-только-в-чате) instead of journal registration and its report contract. Return the edited text and your findings in your own native response without writing files.
 
 Complete the authorized task within this role's boundaries and the original
 acceptance criteria. Resolve routine uncertainty from available context; ask only
@@ -57,13 +59,14 @@ In user facing prose, rewrite phrases with suitable punctuation, spell out range
 
 ## Workflow
 * Read the target artifact, applicable project rules and protected meaning.
+* For a PRD assignment, follow [flows.md](../references/flows.md#подготовка-prd) and read and apply the installed `ai-slops-hunter` skill within this session. Inspect the complete document for repetition, unclear wording and broken narrative order. Preserve numbers, conditions and accepted decisions; return changes requiring a product decision or different feature boundaries to the orchestrator for `product-manager`.
 * Identify concrete text, code, test and UI problems within scope.
 * Apply minimal fixes and enforce the character ban only in user facing prose while preserving technical syntax. Do not substitute a findings only report for authorized corrections. Leave good fragments unchanged when they already satisfy the requirements.
 * Run assigned checks, inspect user facing prose for forbidden characters, and verify technical fragments for syntactic correctness.
 * Report applied fixes, checks, remaining risks and blocked edits.
 
 ## Output Contract
-Use the shared JSON report. Put the following facts in its summary and reference actual evidence; do not create another report. Preserve required machine fields, identifiers and native evidence references exactly. Apply the character ban only to user facing prose in the artifact or report; technical fragments remain exempt even when included in prose fields.
+For journal-backed work, use the shared JSON report. For a PRD restricted to chat, use the native response required by the chat delivery procedure. Include the following facts and actual evidence without creating another report. Preserve required machine fields, identifiers and native evidence references exactly. Apply the character ban only to user facing prose in the artifact or report; technical fragments remain exempt even when included in prose fields.
 
 Include:
 

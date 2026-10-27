@@ -1,6 +1,12 @@
 # AI Slop Gate
 
-Use this gate for authorized correction of document and product artifacts: UI/design, generated code, docs, tests, and public content. Ordinary chat replies, explanations, progress updates, review answers and drafts that exist only in chat are outside this gate, regardless of length or subject. Do not invoke `humanizer-ru` or `ai-slops-hunter` for them unless the user explicitly requests editing. A request for findings only does not authorize cleanup or activate this gate.
+Use this gate for authorized correction of document and product artifacts: UI/design, generated code, docs, tests, and public content. Ordinary chat replies, explanations, progress updates, review answers and drafts that exist only in chat are outside this gate unless editing is explicitly requested, with the PRD exception below. A request for findings only does not authorize cleanup or activate this gate.
+
+## PRD preparation
+
+For a new or substantively revised PRD, follow the mandatory authoring and independent editing sequence in [flows.md](flows.md#подготовка-prd), including when the PRD is delivered only in chat. The separate `ai-slops-hunter` pass is required at every budget; the main author's cleanup cannot replace it. That procedure also defines skill use, preservation of product meaning, return of product questions, rechecks and unavailable participants. Keep the authorized output form; chat delivery does not authorize filesystem writes.
+
+The optional delegation choices below apply to other artifacts, not to this required PRD pass.
 
 ## Route
 
@@ -17,7 +23,7 @@ Canonical bundled agent: `agents/ai-slops-hunter.md`.
 
 User-facing alias: `AI slobhunter` maps to `ai-slops-hunter`.
 
-Use it only when edits are authorized, the selected budget permits subagents and the cleanup is worth the coordination cost. Otherwise, perform the same corrections in the main agent when edits are authorized. Do not delegate a findings only task to this role.
+Edits must be authorized. For PRDs, use the required separate editor under the procedure above. For other artifacts, delegate when the selected budget permits subagents and the cleanup is worth the coordination cost; otherwise perform the same corrections in the main agent. Do not delegate a findings only task to this role.
 
 Required packet fields:
 
@@ -45,4 +51,4 @@ Use the narrowest applicable skill from the subagent description:
 
 ## Report
 
-Return one current report under [traceable-runs.md](traceable-runs.md). Put corrections, checks and blocked work in the summary, with actual evidence references. Preserve required machine fields, identifiers and native references. Use `completed` when authorized cleanup is finished and required checks establish the result; use `failed` when a mandatory correction or check remains blocked. Findings alone do not complete this gate, and a report status alone does not approve the product.
+For journal-backed work, return one current report under [traceable-runs.md](traceable-runs.md). For a PRD restricted to chat, return the corrected text and conclusion under [the chat delivery procedure](flows.md#prd-только-в-чате). Include corrections, checks and blocked work with actual evidence. Preserve required machine fields, identifiers and native references. Use `completed` when authorized cleanup is finished and required checks establish the result; use `failed` when a mandatory correction or check remains blocked. Findings alone do not complete this gate, and a report status alone does not approve the product.
