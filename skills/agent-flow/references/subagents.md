@@ -29,6 +29,7 @@ Skills в frontmatter выбираются по предмету поручен�
 
 ## Implementation workers
 
+- `devops-worker` - DevOps implementation subagent for scoped CI/CD pipelines, web application builds and deployments, environment configuration, release automation, rollback, and deployment verification from an approved plan.
 - `backend-worker` - Backend execution subagent for scoped server, API, database, queue, integration, auth, or service changes from an approved plan.
 - `frontend-worker` - Frontend execution subagent for scoped UI, React, styling, responsive behavior, and client-state changes from an approved plan.
 - `astro-worker` - Astro implementation subagent for scoped HTML pages, layouts, components, styling, routing, content collections, assets, selective hydration, and build checks from an approved plan and applicable design.
@@ -40,7 +41,7 @@ Skills в frontmatter выбираются по предмету поручен�
 - `ios-worker` - iOS execution subagent for scoped SwiftUI, App Intents, simulator, HIG, and Apple-platform implementation tasks from an approved plan.
 - `rag-retrieval-engineer` - Retrieval-first LLM/RAG engineer for semantic search, chunking, embeddings, reranking, vector stores, graph databases, GraphRAG, and retrieval quality evaluation.
 
-Elixir/Phoenix поручайте `elixir-phoenix-worker`, включая HEEx/LiveView и Elixir без Phoenix. Страницы и компоненты Astro поручайте `astro-worker`. Наличие Bun в проекте само по себе не требует `bun-worker`: его отдельное назначение нужно для работы с Bun runtime или управлением пакетами. Границы пересечений описаны в [role-catalog.md](role-catalog.md).
+Elixir/Phoenix поручайте `elixir-phoenix-worker`, включая HEEx/LiveView и Elixir без Phoenix. Страницы и компоненты Astro поручайте `astro-worker`. Наличие Bun в проекте само по себе не требует `bun-worker`: его отдельное назначение нужно для работы с Bun runtime или управлением пакетами. CI/CD, выпуск артефактов и deploy web приложений поручайте `devops-worker`; код приложения и миграций остаётся у профильного Worker. Передавайте целевое окружение и уже полученные разрешения. Границы пересечений описаны в [role-catalog.md](role-catalog.md).
 
 ## Design flow
 

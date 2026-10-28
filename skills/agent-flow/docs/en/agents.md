@@ -70,6 +70,16 @@ It does not change product meaning, behavior, APIs, data contracts, or approved 
 
 ## Implementation workers
 
+### devops-worker
+
+DevOps Worker implements CI/CD pipelines, web application builds and deployments, environment configuration, artifact publication, release automation, rollback, and deployment verification from an approved plan. Its scope includes static sites and server applications; containers and infrastructure as code apply when the project requires them.
+
+It selects `github-actions-templates`, `deployment-pipeline-design`, and `gha-security-review` by task. Docker, GitHub, QA, and available platform skills support the relevant work. The security skill focuses on attacks by external participants; attack examples are analysis material and do not authorize execution.
+
+The assignment specifies the target account, service, environment, source revision, allowed resources, and existing permissions. It preserves the project's runtime, package manager, and hosting approach, keeps secrets out of code, logs, and artifacts, and prepares recovery for risky changes. Local containers require explicit authorization. Existing deployment permission remains valid for the same action and target.
+
+It verifies the published version, URL, service state, logs, and key scenarios within scope. A successful pipeline alone does not prove a working application. Application and migration code stay with the stack worker; material platform and topology choices go to the architect. Independent review and QA remain separate.
+
 ### backend-worker
 
 The backend executor. It implements bounded changes in server code, APIs, database, queues, auth, integrations, and background jobs from an approved plan.

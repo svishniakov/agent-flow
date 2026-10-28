@@ -80,12 +80,19 @@ Overlap notes: Use product-manager for PRD authorship, architect for ADR and Imp
 
 ## Implementation Workers
 
+### devops-worker
+
+Status: active
+Use when: CI/CD pipelines, web application builds and deployments, artifact publication, release automation, delivery configuration, failed deploys, rollback, or deployment verification need scoped work from an approved plan.
+Do not use when: Application or migration code is the main work, material platform/topology decisions are unresolved, or only independent review or QA is needed.
+Overlap notes: Own delivery workflows and hosting configuration across application stacks. Stack workers own application code and migrations; `bun-worker` owns separate Bun runtime or package work. Use `architect` for material platform and topology decisions, and existing reviewer/QA roles for independent acceptance. Supply the target account, environment, source revision, external resource scope, and existing permissions. Build success alone does not prove a working deployment.
+
 ### backend-worker
 
 Status: active
 Use when: Server code, APIs, DB/storage, queues, auth, integrations, or background jobs need scoped implementation.
 Do not use when: The work is primarily UI, TypeScript-only shared code, or architecture planning.
-Overlap notes: Use `elixir-phoenix-worker` for Elixir/Phoenix implementation and `typescript-worker` for shared TS modules; use `architect` before broad contract changes.
+Overlap notes: Use `elixir-phoenix-worker` for Elixir/Phoenix implementation, `typescript-worker` for shared TS modules, and `devops-worker` for delivery workflows and hosting configuration; use `architect` before broad contract changes.
 
 ### frontend-worker
 
@@ -99,7 +106,7 @@ Overlap notes: Use `astro-worker` for Astro pages and components, `elixir-phoeni
 Status: active
 Use when: Astro HTML pages, layouts, components, styles, routes, images, Markdown/MDX, content collections, or selective hydration need scoped implementation from approved requirements and applicable design.
 Do not use when: Design or architecture must be selected first, only independent visual verification is needed, or the main implementation does not use Astro.
-Overlap notes: Own Astro page implementation even when Bun runs the project. Use `bun-worker` only for a separate Bun runtime or package workflow assignment and `typescript-worker` for shared code outside the Astro task. Keep one owner per assigned path; use design roles for concept decisions and `visual-qa` for independent visual evidence.
+Overlap notes: Own Astro page implementation even when Bun runs the project. Use `bun-worker` only for a separate Bun runtime or package workflow assignment, `typescript-worker` for shared code outside the Astro task, and `devops-worker` for delivery workflows and hosting configuration. Keep one owner per assigned path; use design roles for concept decisions and `visual-qa` for independent visual evidence.
 
 ### typescript-worker
 
@@ -113,7 +120,7 @@ Overlap notes: Use `astro-worker` for Astro pages and components, `frontend-work
 Status: active
 Use when: Bun scripts, `bun.lock`, Bun tests, dev servers, dependency workflow, or package-manager migration is the main work.
 Do not use when: The task is ordinary TS/JS implementation or Astro page work with no Bun-specific workflow.
-Overlap notes: Use `astro-worker` for Astro pages and `typescript-worker` for other code changes. Using Bun to run an Astro project does not by itself require a separate Bun executor.
+Overlap notes: Use `astro-worker` for Astro pages, `typescript-worker` for other code changes, and `devops-worker` for CI/CD and deployment. Using Bun to run an Astro project does not by itself require a separate Bun executor.
 
 ### python-worker
 
@@ -127,7 +134,7 @@ Overlap notes: Use `rag-retrieval-engineer` for retrieval strategy; use `qa-veri
 Status: active
 Use when: Elixir domain logic, Phoenix APIs, HEEx/LiveView, Channels, Ecto persistence and migrations, OTP processes, Mix tooling, or tests need scoped implementation. Elixir without Phoenix is also in scope.
 Do not use when: Architecture must be selected first, the main stack is not Elixir, or only independent behavior verification is needed.
-Overlap notes: Own Elixir/Phoenix implementation instead of a generic backend/frontend worker, including LiveView behavior and HEEx. Use `architect` for material context, persistence, supervision, or public contract decisions and `qa-verifier` for independent evidence. Design roles own visual direction.
+Overlap notes: Own Elixir/Phoenix implementation instead of a generic backend/frontend worker, including LiveView behavior and HEEx. Keep application and migration code here; `devops-worker` owns delivery workflows and coordinates migration execution within permission. Use `architect` for material context, persistence, supervision, or public contract decisions and `qa-verifier` for independent evidence. Design roles own visual direction.
 
 ### golang-worker
 

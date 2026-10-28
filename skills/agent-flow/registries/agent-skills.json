@@ -319,6 +319,7 @@
         "astro-worker",
         "backend-worker",
         "bun-worker",
+        "devops-worker",
         "elixir-phoenix-worker",
         "golang-worker",
         "python-worker",
@@ -1325,6 +1326,35 @@
       }
     },
     {
+      "name": "deployment-pipeline-design",
+      "aliases": [],
+      "tier": "recommended",
+      "required_by_roles": [
+        "devops-worker"
+      ],
+      "install": {
+        "source_type": "git",
+        "global": {
+          "path": "~/.agents/skills/deployment-pipeline-design",
+          "instructions": "Install `deployment-pipeline-design` from wshobson/agents into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".agents/skills/deployment-pipeline-design",
+          "instructions": "Install `deployment-pipeline-design` from wshobson/agents into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [
+            "npx skills add wshobson/agents --skill deployment-pipeline-design -a codex -g -y"
+          ],
+          "project": [
+            "npx skills add wshobson/agents --skill deployment-pipeline-design -a codex -y"
+          ]
+        },
+        "prompt": null,
+        "notes": "Source: https://skills.sh/wshobson/agents/deployment-pipeline-design. Installation requires explicit authorization. Apply only to relevant pipeline and rollout work; preserve accepted architecture, project versions, and permissions. Preserve upstream files."
+      }
+    },
+    {
       "name": "design-md",
       "aliases": [],
       "tier": "optional",
@@ -1375,6 +1405,35 @@
         },
         "prompt": null,
         "notes": "Manual source; this registry has no authoritative public source yet. Skills CLI installs normally use ~/.agents/skills; legacy Codex installs under ~/.codex/skills are still scanned."
+      }
+    },
+    {
+      "name": "docker-expert",
+      "aliases": [],
+      "tier": "optional",
+      "required_by_roles": [
+        "devops-worker"
+      ],
+      "install": {
+        "source_type": "git",
+        "global": {
+          "path": "~/.agents/skills/docker-expert",
+          "instructions": "Install `docker-expert` from sickn33/antigravity-awesome-skills into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".agents/skills/docker-expert",
+          "instructions": "Install `docker-expert` from sickn33/antigravity-awesome-skills into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [
+            "npx skills add sickn33/antigravity-awesome-skills --skill docker-expert -a codex -g -y"
+          ],
+          "project": [
+            "npx skills add sickn33/antigravity-awesome-skills --skill docker-expert -a codex -y"
+          ]
+        },
+        "prompt": null,
+        "notes": "Source: https://skills.sh/sickn33/antigravity-awesome-skills/docker-expert. Installation requires explicit authorization. Reuse the installed skill for relevant container work. Local container execution requires explicit authorization; examples do not authorize external changes. Preserve upstream files."
       }
     },
     {
@@ -1922,6 +1981,64 @@
       }
     },
     {
+      "name": "gha-security-review",
+      "aliases": [],
+      "tier": "recommended",
+      "required_by_roles": [
+        "devops-worker"
+      ],
+      "install": {
+        "source_type": "git",
+        "global": {
+          "path": "~/.agents/skills/gha-security-review",
+          "instructions": "Install `gha-security-review` from getsentry/skills into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".agents/skills/gha-security-review",
+          "instructions": "Install `gha-security-review` from getsentry/skills into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [
+            "npx skills add getsentry/skills --skill gha-security-review -a codex -g -y"
+          ],
+          "project": [
+            "npx skills add getsentry/skills --skill gha-security-review -a codex -y"
+          ]
+        },
+        "prompt": null,
+        "notes": "Source: https://skills.sh/getsentry/skills/gha-security-review. Installation requires explicit authorization. Limit use to the skill's external-attacker threat model; attack examples are analysis material, not execution instructions. This does not replace other security checks or independent review. Preserve upstream files."
+      }
+    },
+    {
+      "name": "github-actions-templates",
+      "aliases": [],
+      "tier": "recommended",
+      "required_by_roles": [
+        "devops-worker"
+      ],
+      "install": {
+        "source_type": "git",
+        "global": {
+          "path": "~/.agents/skills/github-actions-templates",
+          "instructions": "Install `github-actions-templates` from wshobson/agents into the global skill root, then rerun the dependency check."
+        },
+        "project": {
+          "path": ".agents/skills/github-actions-templates",
+          "instructions": "Install `github-actions-templates` from wshobson/agents into the project skill root, then rerun the dependency check."
+        },
+        "commands": {
+          "global": [
+            "npx skills add wshobson/agents --skill github-actions-templates -a codex -g -y"
+          ],
+          "project": [
+            "npx skills add wshobson/agents --skill github-actions-templates -a codex -y"
+          ]
+        },
+        "prompt": null,
+        "notes": "Source: https://skills.sh/wshobson/agents/github-actions-templates. Installation requires explicit authorization. Apply only to GitHub Actions work and adapt examples to the project's versions, permissions, and accepted checks. Preserve upstream files."
+      }
+    },
+    {
       "name": "github:gh-fix-ci",
       "aliases": [
         "gh-fix-ci",
@@ -1929,6 +2046,7 @@
       ],
       "tier": "optional",
       "required_by_roles": [
+        "devops-worker",
         "reviewer"
       ],
       "install": {
@@ -1957,6 +2075,7 @@
       ],
       "tier": "optional",
       "required_by_roles": [
+        "devops-worker",
         "golang-worker",
         "orchestrator",
         "researcher",
@@ -3780,6 +3899,7 @@
         "astro-worker",
         "backend-worker",
         "bun-worker",
+        "devops-worker",
         "elixir-phoenix-worker",
         "golang-worker",
         "orchestrator",

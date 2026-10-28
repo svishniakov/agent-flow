@@ -29,6 +29,19 @@ npx skills add incluud/astro-agent-skills --skill astro-best-practices -a codex 
 
 Для установки только в проект уберите `-g`. Проверить зависимости отдельной роли можно командой `python3 check-agent-deps.py --scope role:elixir-phoenix-worker --strict` или `python3 check-agent-deps.py --scope role:astro-worker --strict` из каталога scripts выбранного пакета. После обновления Agent Flow синхронизируйте роли и начните новую задачу Codex, как описано ниже. Сторонние skills применяются по задаче; API сверяются с версией проекта.
 
+## Skills для DevOps
+
+Для `devops-worker` выбраны [github-actions-templates](https://skills.sh/wshobson/agents/github-actions-templates) и [deployment-pipeline-design](https://skills.sh/wshobson/agents/deployment-pipeline-design) из `wshobson/agents`, а также [gha-security-review](https://skills.sh/getsentry/skills/gha-security-review) от Sentry. Установите эти зависимости явно:
+
+```sh
+npx skills add wshobson/agents --skill github-actions-templates deployment-pipeline-design -a codex -g
+npx skills add getsentry/skills --skill gha-security-review -a codex -g
+```
+
+Для установки только в проект уберите `-g`. Из каталога scripts выбранного пакета запустите `python3 check-agent-deps.py --scope role:devops-worker --strict`: команда проверяет весь набор зависимостей роли, включая скиллы Docker, GitHub и QA. Используйте уже установленные скиллы и плагины. Общая установка Agent Flow не устанавливает эти зависимости автоматически. Синхронизируйте роли и начните новую задачу Codex, как описано ниже.
+
+Подключайте скиллы по поручению, адаптируйте шаблоны к версиям проекта и действующим разрешениям. `gha-security-review` рассматривает пути атак внешнего участника; его примеры предназначены для анализа, а не для выполнения. Этот скилл не заменяет независимое review. Для задач Vercel роль может использовать доступный скилл плагина `build-web-apps:deploy-to-vercel` без повторной установки отдельной копии.
+
 ## Отдельный скилл
 
 Для новой глобальной установки из GitHub:

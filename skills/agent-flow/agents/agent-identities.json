@@ -76,6 +76,12 @@
       "nickname_candidates": ["AI Slop Hunter"]
     },
     {
+      "role": "devops-worker",
+      "stable_agent_name": "DevOps Worker",
+      "stable_agent_slug": "devops-worker",
+      "nickname_candidates": ["DevOps Worker"]
+    },
+    {
       "role": "backend-worker",
       "stable_agent_name": "Backend Worker",
       "stable_agent_slug": "backend-worker",

@@ -179,7 +179,7 @@ def test_role_validation(root: Path) -> None:
 
 def test_active_replacement_models() -> None:
     role_paths = sorted(default_agents_dir().glob("*.md"))
-    assert len(role_paths) == 29
+    assert len(role_paths) == 30
     for path in role_paths:
         metadata = read_frontmatter(path)
         model = "gpt-6-astra" if path.stem in {"supervising-architect", "senior-qa-verifier"} else "gpt-6.1-sol"
