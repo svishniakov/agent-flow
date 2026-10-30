@@ -1,28 +1,33 @@
-from journal_io import JournalSnapshot, encode_json, require, transact
-from verification_evidence import validate_acceptance
+from journal_io import JournalSnapshot, encode_json, require, require_writable, transact
+from verification_evidence import CodexSessionSource, revalidate_report, validate_acceptance
 
 
-def finalize(run_dir, *, identifier, status, summary, reason=None, unverified=None, source=None):
-    require(status in {'completed', 'failed'}, 'final status must be completed or failed')
-    require(isinstance(summary, str) and bool(summary.strip()), 'final summary required')
-    if status == 'failed':
-        require(isinstance(reason, str) and bool(reason.strip()), 'failed final reason required')
-        require(isinstance(unverified, list) and all(isinstance(item, str) and item.strip() for item in unverified), 'failed final requires unverified list')
-    payload = {'command': 'finalize', 'status': status, 'summary': summary, 'reason': reason, 'unverified': unverified}
+def finalize(run_dir, *, identifier, report_id, source=None):
+    require(isinstance(report_id, str) and bool(report_id.strip()), 'final report ID required')
+    payload = {'command': 'finalize', 'report_id': report_id}
     snapshot = JournalSnapshot.open(run_dir)
+    require_writable(snapshot)
     if snapshot.operation_receipt(identifier) is not None:
         return transact(run_dir, identifier, payload, lambda current: ({}, {}))
-    if status == 'completed':
-        errors = validate_acceptance(snapshot, source=source)
+    require(not snapshot.exists('final.json'), 'task is already closed')
+    source = source or CodexSessionSource()
+    require(snapshot.exists('assignments/' + report_id + '.json')
+            and snapshot.exists('reports/' + report_id + '.json'), 'final report missing')
+    assignment = snapshot.json('assignments/' + report_id + '.json')
+    report = snapshot.json('reports/' + report_id + '.json')
+    if report.get('outcome') == 'passed':
+        errors = validate_acceptance(snapshot, source=source, report_id=report_id)
         require(not errors, 'finalize validation failed: ' + '; '.join(errors))
+    else:
+        require(assignment['agent_id'] == snapshot.identities['root_agent_id'], 'terminal nonpass report must belong to root')
+        revalidate_report(snapshot, assignment, report, source)
+        require(isinstance(report.get('reason'), str) and bool(report['reason'].strip()), 'terminal reason required')
+        require(isinstance(report.get('unverified'), list) and all(isinstance(item, str) and item.strip() for item in report['unverified']), 'terminal report requires unverified list')
     def publish(current):
         require(not current.exists('final.json'), 'task is already closed')
-        if status == 'completed':
-            errors = validate_acceptance(current, source=source)
-            require(not errors, 'finalize validation failed: ' + '; '.join(errors))
-        final = {'status': status, 'summary': summary,
-                 'reports': [name for name in sorted(current.documents) if name.startswith('reports/') and name.endswith('.json')]}
-        if status == 'failed':
-            final.update(reason=reason, unverified=unverified)
-        return {'final.json': encode_json(final).encode()}, {'command': 'finalize', 'status': status, 'path': 'final.json'}
-    return transact(run_dir, identifier, payload, publish)
+        final = {'status': report['status'], 'outcome': report['outcome'], 'summary': report['summary'],
+                 'report_id': report_id}
+        if report['outcome'] != 'passed':
+            final.update(reason=report['reason'], unverified=report['unverified'])
+        return {'final.json': encode_json(final).encode()}, {'command': 'finalize', 'outcome': report['outcome'], 'path': 'final.json'}
+    return transact(run_dir, identifier, payload, publish, expected_revision=snapshot.revision)

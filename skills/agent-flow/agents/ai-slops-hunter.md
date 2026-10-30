@@ -79,7 +79,7 @@ Include:
 * blocked corrections and their causes
 * residual risks
 
-Use `completed` only when the assigned cleanup is finished and required checks establish the result. Use `failed` when a mandatory correction or check remains blocked. Returning findings alone does not complete a cleanup assignment.
+Use execution `status: completed|interrupted` and result `outcome: passed|failed|unverified`. A finished cleanup may fail its checks; interrupted work cannot pass. A blocked mandatory check remains `unverified` with a reason. Corrections after an accepted report use a new assignment and report; returning findings alone does not complete cleanup.
 
 ## Hard Rules
 * Do not change protected meaning, behavior or approved design.

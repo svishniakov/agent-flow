@@ -141,6 +141,13 @@ STORAGE_SCHEMA = {
     "operations": "CREATE TABLE operations (operation_id TEXT PRIMARY KEY, payload_sha256 TEXT NOT NULL, revision INTEGER NOT NULL, result TEXT NOT NULL)",
 }
 
+CONTRACT_VERSION = 2
+
+
+def require_writable(snapshot):
+    require(snapshot.json('task.json').get('contract_version') == CONTRACT_VERSION,
+            'legacy journal is read-only; start a new task')
+
 
 def validate_storage_schema(connection):
     schema = dict(connection.execute("SELECT name, sql FROM sqlite_master WHERE type='table'"))
@@ -154,7 +161,7 @@ def _database_identity(path):
     return metadata.st_dev, metadata.st_ino
 
 
-def connect_database(run_dir, *, timeout=2.0, create=False):
+def connect_database(run_dir, *, timeout=2.0, create=False, read_only=False):
     path = Path(run_dir).absolute() / ".journal/state.sqlite3"
     validate_directory(path.parent)
     if create:
@@ -170,10 +177,12 @@ def connect_database(run_dir, *, timeout=2.0, create=False):
         companion = path.with_name(path.name + suffix)
         if companion.exists() or companion.is_symlink():
             _database_identity(companion)
-    connection = sqlite3.connect(path.as_uri() + "?mode=rw", uri=True,
+    connection = sqlite3.connect(path.as_uri() + ("?mode=ro" if read_only else "?mode=rw"), uri=True,
                                  timeout=timeout, isolation_level=None)
     try:
         require(_database_identity(path) == before, "journal database changed while opening")
+        if read_only:
+            return connection
         settings = {"journal_mode": "DELETE", "synchronous": "EXTRA",
                     "read_uncommitted": "OFF",
                     "fullfsync": "ON" if sys.platform == "darwin" else "OFF"}
@@ -235,9 +244,17 @@ class JournalSnapshot:
         run_dir = Path(run_dir).absolute()
         connection = None
         try:
-            connection = connect_database(run_dir)
+            connection = connect_database(run_dir, read_only=True)
             connection.execute("BEGIN")
-            snapshot = cls.from_connection(run_dir, connection)
+            try:
+                snapshot = cls.from_connection(run_dir, connection)
+            except sqlite3.OperationalError as exc:
+                if 'readonly' not in str(exc).lower():
+                    raise
+                connection.close()
+                connection = connect_database(run_dir)
+                connection.execute('BEGIN')
+                snapshot = cls.from_connection(run_dir, connection)
             connection.commit()
             return snapshot
         except (sqlite3.DatabaseError, OSError, ValueError) as exc:
@@ -267,11 +284,13 @@ def _put_documents(connection, documents):
     for name, data in documents.items():
         logical_path(name)
         require(data is None or isinstance(data, bytes), f"journal content must be bytes: {name}")
-        if data is None:
-            connection.execute("DELETE FROM documents WHERE path=?", (name,))
+        require(data is not None, 'journal history cannot be deleted: ' + name)
+        previous = connection.execute('SELECT content FROM documents WHERE path=?', (name,)).fetchone()
+        if previous is not None:
+            require(name == 'scope.json', 'journal history is immutable: ' + name)
+            connection.execute('UPDATE documents SET content=?, sha256=? WHERE path=?', (data, digest(data), name))
         else:
-            connection.execute("INSERT OR REPLACE INTO documents VALUES (?, 'file', ?, ?)",
-                               (name, data, digest(data)))
+            connection.execute("INSERT INTO documents VALUES (?, 'file', ?, ?)", (name, data, digest(data)))
 
 
 def initialize_journal(run_dir, documents, *, source_root, identities=None, identifier="initialize", payload=None):
@@ -293,6 +312,7 @@ def initialize_journal(run_dir, documents, *, source_root, identities=None, iden
         tables = list(connection.execute("SELECT name FROM sqlite_master WHERE type='table'"))
         if tables:
             snapshot = JournalSnapshot.from_connection(run_dir, connection)
+            require_writable(snapshot)
             previous = snapshot.operation_receipt(identifier)
             require(previous is not None and previous["revision"] == 1
                     and previous["payload_sha256"] == payload_sha,
@@ -314,7 +334,7 @@ def initialize_journal(run_dir, documents, *, source_root, identities=None, iden
     return JournalSnapshot.open(run_dir)
 
 
-def transact(run_dir, identifier, payload, publisher, *, timeout=2.0):
+def transact(run_dir, identifier, payload, publisher, *, timeout=2.0, expected_revision=None):
     require(isinstance(identifier, str) and bool(identifier.strip()), "operation ID is required")
     require(identifier != "initialize", "initialize is a reserved operation ID")
     payload_sha = digest(encode_json(payload).encode())
@@ -323,11 +343,14 @@ def transact(run_dir, identifier, payload, publisher, *, timeout=2.0):
         connection = connect_database(run_dir, timeout=timeout)
         connection.execute("BEGIN IMMEDIATE")
         snapshot = JournalSnapshot.from_connection(run_dir, connection)
+        require_writable(snapshot)
         previous = snapshot.operation_receipt(identifier)
         if previous is not None:
             require(previous["payload_sha256"] == payload_sha, "operation ID payload conflict")
             return previous
         require(not snapshot.exists("final.json"), "task is closed")
+        require(expected_revision is None or snapshot.revision == expected_revision,
+                'journal revision conflict; inspect current state before retrying')
         updates, result = publisher(snapshot)
         require(isinstance(updates, dict) and isinstance(result, dict),
                 "publisher must return document updates and an object result")

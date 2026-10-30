@@ -14,7 +14,7 @@ def main(argv=None):
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("contract")
     record = commands.add_parser("record")
-    record.add_argument("--kind", required=True, choices=("assignment", "scope", "report", "check", "generation"))
+    record.add_argument("--kind", required=True, choices=("assignment", "scope", "report", "check", "generation", "transfer"))
     record.add_argument("--request-file", required=True, help="JSON file or - for stdin.")
     record.add_argument("--operation-id", required=True)
     publish = commands.add_parser("publish")
@@ -24,10 +24,7 @@ def main(argv=None):
     read.add_argument("path")
     read.add_argument("--format", choices=("json", "markdown"), default="json")
     final = commands.add_parser("finalize")
-    final.add_argument("--status", choices=("completed", "failed"), required=True)
-    final.add_argument("--summary", required=True)
-    final.add_argument("--reason")
-    final.add_argument("--unverified", action="append", default=[])
+    final.add_argument("--report-id", required=True)
     final.add_argument("--operation-id", required=True)
     args = parser.parse_args(argv)
     try:
@@ -54,8 +51,7 @@ def main(argv=None):
                     return 0
             else:
                 from journal_lifecycle import finalize
-                result = finalize(run_dir, identifier=args.operation_id, status=args.status,
-                                  summary=args.summary, reason=args.reason, unverified=args.unverified)
+                result = finalize(run_dir, identifier=args.operation_id, report_id=args.report_id)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         if args.command == "record" and args.kind == "generation" and result["receipt"]["result"]["exit_code"] != 0:
             return 1

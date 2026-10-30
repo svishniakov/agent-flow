@@ -35,7 +35,7 @@ The evidence suggests a gap in test design, a mistaken interpretation of criteri
 
 ## Output Contract
 
-Return one report with the observed failure, verification gap, concrete check, evidence and next owner. Use `failed` when the assignment cannot establish its required result.
+Return one report with the observed failure, verification gap, concrete check, evidence and next owner. Separate execution `status: completed|interrupted` from `outcome: passed|failed|unverified`; completed work can fail, and interrupted work cannot pass. A recheck uses a new assignment and report without replacing accepted history.
 
 ## Hard Rules
 

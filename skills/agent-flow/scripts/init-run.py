@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 from types import SimpleNamespace
 
-from journal_io import JournalError, JournalSnapshot, initialize_journal, require
+from journal_io import CONTRACT_VERSION, JournalError, JournalSnapshot, initialize_journal, require, require_writable
 from journal_structure import encoded, record_id, replay
 from task_workspace import bind_workspace
 from verification_evidence import CodexSessionSource, own_metadata, requirements
@@ -21,13 +21,14 @@ def initialize(run_dir, *, repo, summary, root_agent_id, requirement_source, roo
     require(isinstance(summary, str) and bool(summary.strip()), "summary is required")
     requirement_source = dict(requirement_source)
     requirement_source["path"] = str((repo / requirement_source["path"]).absolute())
-    task = {"summary": summary, "requirements": requirement_source}
+    task = {"contract_version": CONTRACT_VERSION, "summary": summary, "requirements": requirement_source}
     declared_memory = sorted(set([requirement_source["path"], *(memory or [])]))
     payload = {"kind": "initialize", "request": {"source_root": str(repo), "task": task,
                "root_agent_id": root_agent_id, "roots": roots or [], "context": context or [],
                "memory": declared_memory}}
     if (run_dir / ".journal/state.sqlite3").exists():
         snapshot = JournalSnapshot.open(run_dir)
+        require_writable(snapshot)
         prior = replay(snapshot, identifier, payload)
         require(prior is not None, "task already exists; choose a new slug")
         return snapshot

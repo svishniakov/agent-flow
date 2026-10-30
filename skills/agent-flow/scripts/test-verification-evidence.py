@@ -82,7 +82,7 @@ class Fixture:
             'qa': {'id': 'qa', 'kind': 'qa', 'role': 'qa-verifier', 'agent_id': QA_ID, 'allowed_paths': [], 'depends_on': ['review']},
             'review': {'id': 'review', 'kind': 'reviewer', 'role': 'reviewer', 'agent_id': REVIEWER_ID, 'allowed_paths': [], 'depends_on': ['author']},
         }
-        docs = {'task.json': encode_json({'summary': 'Sample', 'requirements': {'path': str(self.plan), 'task_heading': 'Sample', 'criteria_heading': 'Критерии приёмки'}}).encode(),
+        docs = {'task.json': encode_json({'contract_version': 2, 'summary': 'Sample', 'requirements': {'path': str(self.plan), 'task_heading': 'Sample', 'criteria_heading': 'Критерии приёмки'}}).encode(),
                 'scope.json': encode_json(self.scope).encode()}
         docs.update({'assignments/' + key + '.json': encode_json(value).encode() for key, value in self.known.items()})
         initialize_journal(self.run, docs, source_root=self.root, identities={'root_agent_id': ROOT_ID})
@@ -95,18 +95,24 @@ class Fixture:
         return {'thread_id': thread, 'turn_id': turn or thread + '-turn', 'call_id': 'tool'}
 
     def save(self, key, report=None, *, turn=None):
-        if key == 'author':
-            report = report or {'status': 'completed', 'summary': 'Implemented result', 'authored_paths': [str(self.product)], 'evidence': [self.ref(ROOT_ID, turn)]}
+        kind = self.known[key]['kind']
+        if kind in {'author', 'analysis'}:
+            report = report or {'status': 'completed', 'outcome': 'passed', 'summary': 'Implemented result', 'authored_paths': [str(self.product)], 'evidence': [self.ref(ROOT_ID, turn)]}
             request = {'turn_id': turn or ROOT_ID + '-turn', 'report': report}
         else:
             if report is None:
-                report = {'status': 'completed', 'summary': 'Checked result', 'evidence': [self.ref(self.known[key]['agent_id'], turn)]}
-                if key == 'qa':
+                report = {'status': 'completed', 'outcome': 'passed', 'summary': 'Checked result', 'evidence': [self.ref(self.known[key]['agent_id'], turn)]}
+                if kind == 'qa':
                     report['criteria'] = {'ac-1': {'status': 'passed', 'evidence': [self.ref(QA_ID, turn)]}}
-            if key == 'qa':
-                report = {**report, 'reviewer': {'assignment_id': 'review'}}
+            if kind == 'qa':
+                review = next(value for value in self.known[key]['depends_on'] if self.known[value]['kind'] == 'reviewer')
+                report = {**report, 'reviewer': {'assignment_id': review}}
             thread = self.known[key]['agent_id']
-            self.source.sessions[thread] = session(thread, self.known[key]['role'], report, cwd=self.root, turn=turn)
+            events = session(thread, self.known[key]['role'], report, cwd=self.root, turn=turn)
+            if thread in self.source.sessions and turn:
+                self.source.sessions[thread].extend(events[1:])
+            else:
+                self.source.sessions[thread] = events
             request = {'completion_turn_id': turn or thread + '-turn'}
         canonical = accept_report(self.snapshot(), self.known[key], request, self.source)
         self.saved += 1
@@ -144,6 +150,7 @@ class EvidenceTests(unittest.TestCase):
     def indexed_session(self, home, thread_id, events, *, suffix='', agent_path=None):
         path = home / 'sessions' / ('rollout-' + thread_id + suffix + '.jsonl')
         path.write_text(''.join(json.dumps(event) + '\n' for event in events), encoding='utf-8')
+        source = CodexSessionSource()
         metadata = next(event['payload'] for event in events if event['type'] == 'session_meta')
         with closing(sqlite3.connect(home / 'state_5.sqlite')) as connection:
             connection.execute('INSERT OR REPLACE INTO threads VALUES (?, ?, ?, ?)',
@@ -153,7 +160,7 @@ class EvidenceTests(unittest.TestCase):
 
     def test_real_root_author_and_independent_native_reports(self):
         self.f.completed()
-        self.assertEqual(validate_acceptance(self.f.snapshot(), self.f.source), [])
+        self.assertEqual(validate_acceptance(self.f.snapshot(), self.f.source, report_id='qa'), [])
         review = self.f.snapshot().json('reports/review.json')
         qa = self.f.snapshot().json('reports/qa.json')
         self.assertNotIn('authors', review['source'])
@@ -199,12 +206,13 @@ class EvidenceTests(unittest.TestCase):
         events[4]['payload']['output'] = 'Script completed\nOutput:\n{}'
         events.append(file_change(ROOT_ID, self.f.product))
         path = self.indexed_session(home, ROOT_ID, events)
+        source = CodexSessionSource()
         observed = native_references(self.f.snapshot(), 'author', source)
         ref = {'thread_id': ROOT_ID, 'turn_id': ROOT_ID + '-turn', 'item_id': 'exec-native-patch'}
         self.assertEqual(observed['observations'][-1], {
             'ref': ref, 'name': 'FileChange', 'success': True, 'authored_paths': [str(self.f.product)]})
         self.assertFalse(observed['observations'][0]['success'])
-        report = {'status': 'completed', 'summary': 'Implemented result',
+        report = {'status': 'completed', 'outcome': 'passed', 'summary': 'Implemented result',
                   'authored_paths': [str(self.f.product)], 'evidence': [ref]}
         accepted = accept_report(self.f.snapshot(), self.f.known['author'],
                                  {'turn_id': ref['turn_id'], 'report': report}, source)
@@ -215,6 +223,7 @@ class EvidenceTests(unittest.TestCase):
         events.pop()
         events[4]['payload']['output'] = json.dumps(file_change(ROOT_ID, self.f.product))
         path.write_text(''.join(json.dumps(event) + '\n' for event in events))
+        source = CodexSessionSource()
         with self.assertRaisesRegex(JournalError, 'native item missing'):
             accept_report(self.f.snapshot(), self.f.known['author'],
                           {'turn_id': ref['turn_id'], 'report': report}, source)
@@ -222,7 +231,7 @@ class EvidenceTests(unittest.TestCase):
     def test_native_file_change_rejects_failed_foreign_and_duplicate_items(self):
         source, home = self.native_source()
         ref = {'thread_id': ROOT_ID, 'turn_id': ROOT_ID + '-turn', 'item_id': 'exec-native-patch'}
-        report = {'status': 'completed', 'summary': 'Implemented result',
+        report = {'status': 'completed', 'outcome': 'passed', 'summary': 'Implemented result',
                   'authored_paths': [str(self.f.product)], 'evidence': [ref]}
         original = self.f.source.sessions[ROOT_ID] + [file_change(ROOT_ID, self.f.product)]
         for alteration, message in (('failed', 'did not succeed'), ('foreign-thread', 'thread or turn mismatch'),
@@ -239,6 +248,7 @@ class EvidenceTests(unittest.TestCase):
                 else:
                     events.append(copy.deepcopy(events[-1]))
                 self.indexed_session(home, ROOT_ID, events)
+                source = CodexSessionSource()
                 with self.assertRaisesRegex(JournalError, message):
                     accept_report(self.f.snapshot(), self.f.known['author'],
                                   {'turn_id': ref['turn_id'], 'report': report}, source)
@@ -252,12 +262,14 @@ class EvidenceTests(unittest.TestCase):
     def test_native_file_change_child_retains_role_parent_and_author_checks(self):
         source, home = self.native_source()
         self.indexed_session(home, ROOT_ID, self.f.source.sessions[ROOT_ID])
+        source = CodexSessionSource()
         ref = {'thread_id': QA_ID, 'turn_id': QA_ID + '-turn', 'item_id': 'exec-native-patch'}
-        report = {'status': 'completed', 'summary': 'Implemented result',
+        report = {'status': 'completed', 'outcome': 'passed', 'summary': 'Implemented result',
                   'authored_paths': [str(self.f.product)], 'evidence': [ref]}
         events = session(QA_ID, 'python-worker', report, cwd=self.f.root)
         events.insert(-2, file_change(QA_ID, self.f.product))
         self.indexed_session(home, QA_ID, events)
+        source = CodexSessionSource()
         assignment = dict(self.f.known['author'], agent_id=QA_ID, start_turn_id=QA_ID + '-turn')
         accepted = accept_report(self.f.snapshot(), assignment, {'completion_turn_id': ref['turn_id']}, source)
         self.assertEqual(accepted['authored_paths'], [str(self.f.product)])
@@ -288,6 +300,7 @@ class EvidenceTests(unittest.TestCase):
                                                         'output_unavailable': content.startswith('flagged-')}},
                 ])
         self.indexed_session(home, ROOT_ID, events)
+        source = CodexSessionSource()
         observed = native_references(self.f.snapshot(), 'author', source)
         self.assertEqual(len(observed['observations']), 9)
         self.assertTrue(observed['observations'][0]['success'])
@@ -301,6 +314,7 @@ class EvidenceTests(unittest.TestCase):
                 native_tool(source, item['ref'], root_id=ROOT_ID)
         events.append(copy.deepcopy(events[-1]))
         self.indexed_session(home, ROOT_ID, events)
+        source = CodexSessionSource()
         with self.assertRaisesRegex(JournalError, 'ambiguous'):
             native_references(self.f.snapshot(), 'author', source)
 
@@ -311,6 +325,7 @@ class EvidenceTests(unittest.TestCase):
         meta['agent_path'] = '/root/qa'
         meta['source']['subagent']['thread_spawn']['agent_path'] = '/root/qa'
         path = self.indexed_session(home, QA_ID, events, suffix='_' + REVIEWER_ID, agent_path='/root/qa')
+        source = CodexSessionSource()
         self.assertEqual(source.resolve_session('/root/qa', ROOT_ID, 'qa-verifier')['codex_thread_id'], QA_ID)
         observed = native_references(self.f.snapshot(), 'qa', source)
         self.assertTrue(observed['completed'])
@@ -321,6 +336,7 @@ class EvidenceTests(unittest.TestCase):
             source.resolve_session('/root/qa', REVIEWER_ID, 'qa-verifier')
         meta['source']['subagent']['thread_spawn']['parent_thread_id'] = REVIEWER_ID
         path.write_text(''.join(json.dumps(event) + '\n' for event in events), encoding='utf-8')
+        source = CodexSessionSource()
         with self.assertRaisesRegex(JournalError, 'conflicting source parent_thread_id'):
             source.resolve_session('/root/qa', ROOT_ID, 'qa-verifier')
 
@@ -332,6 +348,7 @@ class EvidenceTests(unittest.TestCase):
             meta['agent_path'] = '/root/qa'
             meta['source']['subagent']['thread_spawn']['agent_path'] = '/root/qa'
             path = self.indexed_session(home, thread, events, agent_path='/root/qa')
+            source = CodexSessionSource()
             if parent != ROOT_ID:
                 path.unlink()
         self.assertEqual(source.resolve_session('/root/qa', ROOT_ID, 'qa-verifier')['codex_thread_id'], QA_ID)
@@ -339,7 +356,9 @@ class EvidenceTests(unittest.TestCase):
     def test_index_selects_current_root_edits_over_old_filename(self):
         source, home = self.native_source()
         self.indexed_session(home, ROOT_ID, session(ROOT_ID, 'python-worker', cwd=self.f.root, turn='old'))
+        source = CodexSessionSource()
         self.indexed_session(home, ROOT_ID, self.f.source.sessions[ROOT_ID], suffix='_' + QA_ID)
+        source = CodexSessionSource()
         index_before = (home / 'state_5.sqlite').read_bytes()
         observed = native_references(self.f.snapshot(), 'author', source)
         self.assertEqual(observed['turn_id'], ROOT_ID + '-turn')
@@ -347,7 +366,7 @@ class EvidenceTests(unittest.TestCase):
             'ref': self.f.ref(ROOT_ID), 'name': 'apply_patch', 'success': True,
             'authored_paths': [str(self.f.product)],
         }])
-        report = {'status': 'completed', 'summary': 'Implemented result',
+        report = {'status': 'completed', 'outcome': 'passed', 'summary': 'Implemented result',
                   'authored_paths': [str(self.f.product)], 'evidence': [self.f.ref(ROOT_ID)]}
         accepted = accept_report(self.f.snapshot(), self.f.known['author'],
                                  {'turn_id': observed['turn_id'], 'report': report}, source)
@@ -357,12 +376,14 @@ class EvidenceTests(unittest.TestCase):
     def test_index_reads_plain_filename_and_rejects_foreign_actions(self):
         source, home = self.native_source()
         self.indexed_session(home, ROOT_ID, self.f.source.sessions[ROOT_ID])
+        source = CodexSessionSource()
         observed = native_references(self.f.snapshot(), 'author', source)
         self.assertEqual(observed['observations'][0]['ref'], self.f.ref(ROOT_ID))
         self.assertTrue(observed['observations'][0]['success'])
         child = session(QA_ID, 'python-worker', cwd=self.f.root, patch='*** Update File: result.py\n')
         self.indexed_session(home, QA_ID, child, suffix='_' + REVIEWER_ID)
-        report = {'status': 'completed', 'summary': 'Not my edit',
+        source = CodexSessionSource()
+        report = {'status': 'completed', 'outcome': 'passed', 'summary': 'Not my edit',
                   'authored_paths': [str(self.f.product)], 'evidence': [self.f.ref(QA_ID)]}
         with self.assertRaisesRegex(JournalError, 'authored path has no native edit evidence'):
             accept_report(self.f.snapshot(), self.f.known['author'],
@@ -371,6 +392,7 @@ class EvidenceTests(unittest.TestCase):
     def test_index_failure_never_falls_back_to_old_file(self):
         source, home = self.native_source()
         old = self.indexed_session(home, ROOT_ID, self.f.source.sessions[ROOT_ID])
+        source = CodexSessionSource()
         index = home / 'state_5.sqlite'
         with closing(sqlite3.connect(index)) as connection:
             connection.execute('DELETE FROM threads')
@@ -378,9 +400,11 @@ class EvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(JournalError, 'execution unconfirmed:.*missing or ambiguous in Codex index'):
             source.read(ROOT_ID)
         self.indexed_session(home, ROOT_ID, self.f.source.sessions[ROOT_ID], suffix='_' + QA_ID).unlink()
+        source = CodexSessionSource()
         with self.assertRaisesRegex(JournalError, 'execution unconfirmed: unreadable source session'):
             source.read(ROOT_ID)
         self.indexed_session(home, ROOT_ID, session(QA_ID, 'qa-verifier'), suffix='_' + QA_ID)
+        source = CodexSessionSource()
         with self.assertRaisesRegex(JournalError, 'execution unconfirmed: missing or conflicting session metadata'):
             source.read(ROOT_ID)
         index.unlink()
@@ -419,7 +443,7 @@ class EvidenceTests(unittest.TestCase):
 
     def test_child_author_reads_native_answer_not_request_body(self):
         assignment = {**self.f.known['author'], 'agent_id': QA_ID, 'start_turn_id': QA_ID + '-turn'}
-        report = {'status': 'completed', 'summary': 'Native author', 'authored_paths': [str(self.f.product)], 'evidence': [self.f.ref(QA_ID)]}
+        report = {'status': 'completed', 'outcome': 'passed', 'summary': 'Native author', 'authored_paths': [str(self.f.product)], 'evidence': [self.f.ref(QA_ID)]}
         self.f.source.sessions[QA_ID] = session(QA_ID, 'python-worker', report, cwd=self.f.root, patch='*** Update File: result.py\n')
         result = accept_report(self.f.snapshot(), assignment, {'completion_turn_id': QA_ID + '-turn', 'report': {'summary': 'Forged'}}, self.f.source)
         self.assertEqual(result['summary'], 'Native author')
@@ -427,7 +451,7 @@ class EvidenceTests(unittest.TestCase):
     def test_root_analysis_uses_current_native_inspection_without_author_paths(self):
         assignment = {**self.f.known['author'], 'kind': 'analysis', 'allowed_paths': []}
         self.f.source.sessions[ROOT_ID] = session(ROOT_ID, 'python-worker', cwd=self.f.root)
-        body = {'status': 'completed', 'summary': 'Analyzed current sources', 'evidence': [self.f.ref(ROOT_ID)]}
+        body = {'status': 'completed', 'outcome': 'passed', 'summary': 'Analyzed current sources', 'evidence': [self.f.ref(ROOT_ID)]}
         accepted = accept_report(self.f.snapshot(), assignment, {'turn_id': ROOT_ID + '-turn', 'report': body}, self.f.source)
         self.assertEqual(accepted['summary'], body['summary'])
         self.assertNotIn('authored_paths', accepted)
@@ -442,7 +466,7 @@ class EvidenceTests(unittest.TestCase):
 
     def test_incomplete_and_stale_native_turn_refuse(self):
         self.f.reviewed()
-        report = {'status': 'completed', 'summary': 'Incomplete', 'evidence': [self.f.ref(QA_ID)]}
+        report = {'status': 'completed', 'outcome': 'passed', 'summary': 'Incomplete', 'evidence': [self.f.ref(QA_ID)]}
         with self.assertRaisesRegex(JournalError, 'every acceptance criterion'):
             self.f.save('qa', report)
         self.f.source.sessions[QA_ID].append({'type': 'event_msg', 'payload': {'type': 'task_started', 'turn_id': 'new'}})
@@ -468,47 +492,40 @@ class EvidenceTests(unittest.TestCase):
     def test_file_change_and_author_report_replacement_preserve_qa(self):
         self.f.completed()
         self.f.product.write_text('answer = 3\n')
-        self.assertEqual(validate_acceptance(self.f.snapshot(), self.f.source), [])
+        self.assertEqual(validate_acceptance(self.f.snapshot(), self.f.source, report_id='qa'), [])
         self.f.product.write_text('answer = 2\n')
-        report = {'status': 'completed', 'summary': 'Clarified implementation', 'authored_paths': [str(self.f.product)], 'evidence': [self.f.ref(ROOT_ID)]}
-        self.f.save('author', report)
-        self.assertEqual(validate_acceptance(self.f.snapshot(), self.f.source), [])
+        report = {'status': 'completed', 'outcome': 'passed', 'summary': 'Clarified implementation', 'authored_paths': [str(self.f.product)], 'evidence': [self.f.ref(ROOT_ID)]}
+        with self.assertRaisesRegex(JournalError, 'immutable'):
+            self.f.save('author', report)
+        self.assertEqual(validate_acceptance(self.f.snapshot(), self.f.source, report_id='qa'), [])
 
     def test_reviewer_report_replacement_preserves_qa_assignment_reference(self):
         self.f.completed()
-        report = {'status': 'completed', 'summary': 'Clarified independent review',
+        report = {'status': 'completed', 'outcome': 'passed', 'summary': 'Clarified independent review',
                   'evidence': [self.f.ref(REVIEWER_ID)]}
-        self.f.save('review', report)
-        self.assertEqual(validate_acceptance(self.f.snapshot(), self.f.source), [])
+        with self.assertRaisesRegex(JournalError, 'immutable'):
+            self.f.save('review', report)
+        self.assertIn('accepted report does not match its native response',
+                      ';'.join(validate_acceptance(self.f.snapshot(), self.f.source, report_id='qa')))
 
-    def test_legacy_report_and_scope_tracking_fields_do_not_block_acceptance(self):
-        self.f.completed()
+    def test_legacy_journal_remains_readable_but_mutations_are_refused(self):
+        from types import MappingProxyType
+        from dataclasses import replace
+        from journal_io import require_writable
         snapshot = self.f.snapshot()
-        updates = {}
-        for key in ('author', 'review', 'qa'):
-            report = snapshot.json('reports/' + key + '.json')
-            report['fingerprint'] = 'obsolete-result'
-            report['source']['evidence_sha256'] = ['obsolete-native-evidence']
-            if key == 'review':
-                report['source']['authors'] = {'author': 'obsolete-author-report'}
-            if key == 'qa':
-                report['reviewer']['sha256'] = 'obsolete-review'
-            updates['reports/' + key + '.json'] = encode_json(report).encode()
-        scope = snapshot.json('scope.json')
-        scope.update(initial=[{'path': 'missing-from-old-snapshot'}], git={'old-head': 'obsolete'})
-        updates['scope.json'] = encode_json(scope).encode()
+        documents = dict(snapshot.documents)
         task = snapshot.json('task.json')
-        task['requirements']['digest'] = 'obsolete-requirements'
-        updates['task.json'] = encode_json(task).encode()
-        transact(self.f.run, 'legacy-fields', {'fixture': 'old-journal'}, lambda current: (updates, {}))
-        (self.f.root / 'another-chat.md').write_text('Independent change\n')
-        self.f.product.write_text('Changed file bytes\n')
-        self.assertEqual(validate_acceptance(self.f.snapshot(), self.f.source), [])
+        task.pop('contract_version')
+        documents['task.json'] = encode_json(task).encode()
+        legacy = replace(snapshot, documents=MappingProxyType(documents))
+        self.assertEqual(legacy.json('task.json')['summary'], 'Sample')
+        with self.assertRaisesRegex(JournalError, 'read-only'):
+            require_writable(legacy)
 
     def test_root_corrects_report_next_turn_using_completed_own_edits(self):
         self.f.source.sessions[ROOT_ID].append(file_change(ROOT_ID, self.f.product))
         ref = {'thread_id': ROOT_ID, 'turn_id': ROOT_ID + '-turn', 'item_id': 'exec-native-patch'}
-        report = {'status': 'completed', 'summary': {'result': 'Implemented result'},
+        report = {'status': 'completed', 'outcome': 'passed', 'summary': {'result': 'Implemented result'},
                   'authored_paths': [str(self.f.product)], 'evidence': [ref]}
         before = self.f.snapshot()
         with self.assertRaisesRegex(JournalError, 'report summary required'):
@@ -532,7 +549,7 @@ class EvidenceTests(unittest.TestCase):
         events.append(file_change(ROOT_ID, self.f.product))
         turn = 'new-author-turn'
         events.extend(session(ROOT_ID, 'python-worker', cwd=self.f.root, turn=turn)[1:3])
-        report = {'status': 'completed', 'summary': 'Claimed old edits', 'authored_paths': [str(self.f.product)],
+        report = {'status': 'completed', 'outcome': 'passed', 'summary': 'Claimed old edits', 'authored_paths': [str(self.f.product)],
                   'evidence': [self.f.ref(ROOT_ID)]}
         with self.assertRaisesRegex(JournalError, 'previous author turn is unfinished'):
             self.f.save('author', report, turn=turn)
@@ -558,32 +575,34 @@ class EvidenceTests(unittest.TestCase):
         answer = json.loads(events[-1]['payload']['last_agent_message'])
         answer['summary'] = 'Tampered native final'
         events[-1]['payload']['last_agent_message'] = json.dumps(answer)
-        self.assertIn('disagree', ';'.join(validate_acceptance(self.f.snapshot(), self.f.source)))
+        self.assertIn('disagree', ';'.join(validate_acceptance(self.f.snapshot(), self.f.source, report_id='qa')))
 
     def test_successful_native_output_and_root_continuation_need_no_checksum(self):
         self.f.completed()
         self.f.source.sessions[ROOT_ID].append({'type': 'event_msg', 'payload': {'type': 'task_started', 'turn_id': 'root-next-turn'}})
-        self.assertEqual(validate_acceptance(self.f.snapshot(), self.f.source), [])
+        self.assertEqual(validate_acceptance(self.f.snapshot(), self.f.source, report_id='qa'), [])
         self.f.source.sessions[QA_ID][4]['payload']['output'] = '{"exit_code":0,"output":"Different inspection"}'
-        self.assertEqual(validate_acceptance(self.f.snapshot(), self.f.source), [])
+        self.assertEqual(validate_acceptance(self.f.snapshot(), self.f.source, report_id='qa'), [])
 
     def test_failed_native_check_cannot_prove_passed_criterion(self):
         self.f.completed()
         self.f.source.sessions[QA_ID][4]['payload']['output'] = '{"exit_code":1,"output":"PASS"}'
-        self.assertIn('successful native inspection', ';'.join(validate_acceptance(self.f.snapshot(), self.f.source)))
+        self.assertIn('successful native inspection', ';'.join(validate_acceptance(self.f.snapshot(), self.f.source, report_id='qa')))
 
     def test_unverified_criterion_accepts_missing_empty_or_valid_evidence(self):
         self.f.reviewed()
         for evidence in ({}, {'evidence': []}, {'evidence': [self.f.ref(QA_ID)]}):
             with self.subTest(evidence=evidence):
+                self.f = Fixture(self.f.root, name='variant-' + str(len(str(evidence))))
+                self.f.reviewed()
                 outcome = {'status': 'unverified', 'reason': 'Required runtime check is forbidden', **evidence}
-                report = {'status': 'failed', 'summary': 'Inspected available sources',
+                report = {'status': 'completed', 'outcome': 'failed', 'summary': 'Inspected available sources',
                           'reason': 'Required runtime check is forbidden', 'evidence': [self.f.ref(QA_ID)],
                           'criteria': {'ac-1': outcome}}
                 accepted = self.f.save('qa', report)
                 self.assertEqual(accepted['criteria']['ac-1'], outcome)
-                self.assertEqual(accepted['status'], 'failed')
-                self.assertIn('assignment failed: qa', ';'.join(validate_acceptance(self.f.snapshot(), self.f.source)))
+                self.assertEqual(accepted['outcome'], 'failed')
+                self.assertIn('final QA did not pass', ';'.join(validate_acceptance(self.f.snapshot(), self.f.source, report_id='qa')))
 
     def test_criterion_errors_identify_the_criterion(self):
         self.f.reviewed()
@@ -600,7 +619,7 @@ class EvidenceTests(unittest.TestCase):
         ]
         for outcome, message in cases:
             with self.subTest(outcome=outcome):
-                report = {'status': 'failed', 'summary': 'Inspected sources', 'reason': 'Result not accepted',
+                report = {'status': 'completed', 'outcome': 'failed', 'summary': 'Inspected sources', 'reason': 'Result not accepted',
                           'evidence': [self.f.ref(QA_ID)],
                           'criteria': {'ac-1': outcome}}
                 with self.assertRaisesRegex(JournalError, 'criterion ac-1: .*' + message):
@@ -611,7 +630,7 @@ class EvidenceTests(unittest.TestCase):
         self.f.reviewed()
         transact(self.f.run, 'attachment', {'artifact': 'narrative'},
                  lambda current: ({'artifacts/pass.txt': b'PASS'}, {}))
-        report = {'status': 'completed', 'summary': 'Checked',
+        report = {'status': 'completed', 'outcome': 'passed', 'summary': 'Checked',
                   'evidence': [self.f.ref(QA_ID)],
                   'criteria': {'ac-1': {'status': 'passed', 'evidence': [{'path': 'artifacts/pass.txt'}]}}}
         with self.assertRaisesRegex(JournalError, 'successful check or native inspection'):
@@ -638,16 +657,16 @@ class EvidenceTests(unittest.TestCase):
         self.f.completed()
         original = copy.deepcopy(self.f.source.sessions[QA_ID])
         self.f.source.sessions[QA_ID][0]['payload']['parent_thread_id'] = REVIEWER_ID
-        self.assertIn('parent_thread_id mismatch', ';'.join(validate_acceptance(self.f.snapshot(), self.f.source)))
+        self.assertIn('parent_thread_id mismatch', ';'.join(validate_acceptance(self.f.snapshot(), self.f.source, report_id='qa')))
         self.f.source.sessions[QA_ID] = copy.deepcopy(original)
         self.f.source.sessions[QA_ID][2]['payload']['model'] = 'unregistered-model'
-        self.assertIn('source model', ';'.join(validate_acceptance(self.f.snapshot(), self.f.source)))
+        self.assertIn('source model', ';'.join(validate_acceptance(self.f.snapshot(), self.f.source, report_id='qa')))
         self.f.source.sessions[QA_ID] = original[:-1]
-        self.assertIn('completed turn missing', ';'.join(validate_acceptance(self.f.snapshot(), self.f.source)))
+        self.assertIn('completed turn missing', ';'.join(validate_acceptance(self.f.snapshot(), self.f.source, report_id='qa')))
 
     def test_completion_before_start_is_rejected(self):
         self.f.completed()
-        self.assertEqual(validate_acceptance(self.f.snapshot(), self.f.source), [])
+        self.assertEqual(validate_acceptance(self.f.snapshot(), self.f.source, report_id='qa'), [])
         events = self.f.source.sessions[QA_ID]
         for started_at, completed_at in (
             ('2026-10-19T10:00:00+00:00', '2026-10-19T09:59:59+00:00'),
@@ -657,7 +676,7 @@ class EvidenceTests(unittest.TestCase):
                 events[1]['payload']['started_at'] = started_at
                 events[-1]['payload']['completed_at'] = completed_at
                 self.assertIn('source completion is before its own task_started',
-                              ';'.join(validate_acceptance(self.f.snapshot(), self.f.source)))
+                              ';'.join(validate_acceptance(self.f.snapshot(), self.f.source, report_id='qa')))
 
     def test_author_path_permission(self):
         self.f.known['author']['allowed_paths'] = [str(self.f.root / 'other.py')]
@@ -669,12 +688,12 @@ class EvidenceTests(unittest.TestCase):
         receipt = write_entry(self.f.run, 'check', {'id': 'actual', 'assignment_id': 'author',
                               'command': [sys.executable, '-B', '-c', 'print("checked")'], 'cwd': str(self.f.root)}, identifier='check')
         receipt = receipt['result']
-        report = {'status': 'completed', 'summary': 'Implemented result', 'authored_paths': [str(self.f.product)],
+        report = {'status': 'completed', 'outcome': 'passed', 'summary': 'Implemented result', 'authored_paths': [str(self.f.product)],
                   'evidence': [self.f.ref(ROOT_ID), {'path': receipt['path']}]}
         self.f.save('author', report)
         self.f.save('review')
         self.f.save('qa')
-        self.assertEqual(validate_acceptance(self.f.snapshot(), self.f.source), [])
+        self.assertEqual(validate_acceptance(self.f.snapshot(), self.f.source, report_id='qa'), [])
 
     def test_old_uncited_failed_check_does_not_block_fresh_result(self):
         from journal_io import write_entry
@@ -682,7 +701,7 @@ class EvidenceTests(unittest.TestCase):
                     'command': [sys.executable, '-B', '-c', 'raise SystemExit(1)'], 'cwd': str(self.f.root)}, identifier='old-check')
         self.f.product.write_text('answer = 3\n')
         self.f.completed()
-        self.assertEqual(validate_acceptance(self.f.snapshot(), self.f.source), [])
+        self.assertEqual(validate_acceptance(self.f.snapshot(), self.f.source, report_id='qa'), [])
 
 
 if __name__ == '__main__':

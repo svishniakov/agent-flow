@@ -62,9 +62,9 @@ def check_stale_doc_patterns(errors, docs=AGENT_DOCS):
 
 
 def check_documented_vocabulary(errors, doc=STATUS_DOC):
-    from journal_structure import REQUEST_FIELDS
+    from journal_structure import REQUEST_FIELDS, REPORT_STATUSES
     text = doc.read_text(encoding="utf-8")
-    for status in ("completed", "failed"):
+    for status in sorted(REPORT_STATUSES | {'passed', 'failed', 'unverified'}):
         if f"`{status}`" not in text:
             fail(errors, f"{doc.name} does not document report status `{status}`")
     for kind in sorted(REQUEST_FIELDS):

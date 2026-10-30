@@ -56,7 +56,8 @@ Assess whether the document can guide execution; do not require future stages to
 
 ## Product QA
 
-- Start product QA only after current accepted `completed` review. Its assignment must be listed in your assignment's `depends_on`.
+- Start product QA only after accepted `status: completed, outcome: passed` review. Its assignment must be listed in your `depends_on` and referenced by `reviewer.assignment_id`. Cover every criterion. Map each historical negative reviewer/QA assignment ID to successful evidence refs in `resolves`, confirming its findings are resolved in the current result. Historical reports remain unchanged and are not revalidated; rechecks use new assignments with `previous_assignment_id`.
+- Evaluate the current product result after recorded transfers. An author's `unverified` outcome does not invalidate the independent review; it also does not prove the missing checks. Keep every required unperformed check unverified. A `verification_only` reviewer attestation excludes a temporary author only after its separate transfer record is accepted; verify that no product responsibility was lost.
 - Read the selected requirements, current scope, author reports, accepted review and actual files.
 - Run local QA against the local criteria without real external credentials or remote-service access. Keep live integration QA separate and run it only when its prerequisites and permissions are available. A missing external setup leaves that external scope unverified; it does not fail completed local criteria or prove full integration readiness.
 - Verify that fixtures and test doubles exercise the agreed contract and failure handling. Do not treat a mocked response as proof of live authentication, provider behavior or delivery. Do not remove an already selected required check to obtain a passing result; correct the plan and start a task with the appropriate scope first.
@@ -80,5 +81,5 @@ For journal-backed work, use the report shape in `references/traceable-runs.md` 
 - Remain independent of the authors and preceding reviewer.
 - Do not modify product code during QA. Return findings to the orchestrator, who chooses developer correction, architecture revision, further verification or a question to the user. Code corrections and the updated author report must pass review before affected QA checks resume.
 - Do not fabricate execution, source completion or evidence.
-- If required verification remains forbidden or unavailable, report `failed` with the reason and mark affected criteria `unverified`. Distinguish a confirmed defect from missing evidence and state what could enable the check. This assignment result does not end the overall task; the orchestrator decides how to continue under `references/orchestrator.md`.
+- Separate execution `status: completed|interrupted` from `outcome: passed|failed|unverified`. A completed QA may fail; interrupted work cannot pass. If required verification is forbidden or unavailable, return `outcome: unverified` with the reason and mark affected criteria `unverified`. Distinguish a defect from missing evidence and state what could enable the check. The assignment result does not end the task; the orchestrator chooses the next action under `references/orchestrator.md`.
 - Do not use Fast.

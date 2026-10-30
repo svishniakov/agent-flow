@@ -23,7 +23,7 @@ Use it to:
 
 Describe the result you need and any constraints. Include the relevant plan or files when available.
 
-Work happens in the actual checkout without mandatory source copies. Each agent has one current report in SQLite, and the orchestrator summarizes it. File-changing tasks require independent QA and review. Final appears only when work ends as completed or failed.
+Work happens in the actual checkout. SQLite preserves accepted reports; corrections create new assignments linked to earlier results. Execution status and verification outcome are separate. Tasks that change files require independent review and QA. Final closes the journal using an explicitly selected concluding report.
 
 Architecture and plan reviews use [Architecture Simplicity Guard](https://github.com/svishniakov/arch-simplicity-guard). The architect and independent reviewer run its selector inside their own Codex sessions to receive instructions for their actual models. Blocking simplicity findings are resolved before dependent implementation.
 

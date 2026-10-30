@@ -83,7 +83,12 @@ class PluginBuild(unittest.TestCase):
         thread_id = "00000000-0000-4000-8000-000000000001"
         rollout = codex_home / "sessions" / (thread_id + ".jsonl")
         rollout.write_text(
-            json.dumps({"type": "session_meta", "payload": {"id": thread_id, "cwd": str(project)}}) + "\n")
+            '\n'.join(json.dumps(event) for event in [
+                {"type": "session_meta", "payload": {"id": thread_id, "cwd": str(project)}},
+                {"type": "event_msg", "payload": {"type": "task_started", "turn_id": "smoke-turn"}},
+                {"type": "response_item", "payload": {"type": "function_call", "call_id": "inspect", "name": "exec_command", "arguments": '{"cmd":"inspect installed lifecycle"}'}},
+                {"type": "response_item", "payload": {"type": "function_call_output", "call_id": "inspect", "output": '{"exit_code":0,"output":"Installed lifecycle inspected"}'}},
+            ]) + '\n')
         with closing(sqlite3.connect(codex_home / "state_5.sqlite")) as connection:
             connection.execute("CREATE TABLE threads (id TEXT PRIMARY KEY, rollout_path TEXT)")
             connection.execute("INSERT INTO threads VALUES (?, ?)", (thread_id, str(rollout)))
@@ -113,16 +118,26 @@ class PluginBuild(unittest.TestCase):
         self.assertNotEqual(manual.returncode, 0, manual.stdout + manual.stderr)
         with sqlite3.connect(run / ".journal/state.sqlite3") as connection:
             self.assertEqual(before, connection.execute("SELECT revision FROM run_state").fetchone())
+        for kind, request in [
+            ('assignment', {'id': 'stop', 'kind': 'analysis', 'role': 'python-worker', 'agent_id': '/root', 'allowed_paths': [], 'depends_on': []}),
+            ('report', {'assignment_id': 'stop', 'turn_id': 'smoke-turn', 'report': {
+                'status': 'interrupted', 'outcome': 'unverified', 'summary': 'Smoke stopped before implementation',
+                'reason': 'No product work is part of this installed-package smoke', 'unverified': ['Product acceptance'],
+                'evidence': [{'thread_id': thread_id, 'turn_id': 'smoke-turn', 'call_id': 'inspect'}]}}),
+        ]:
+            recorded = subprocess.run([sys.executable, '-B', str(package / 'scripts/journal.py'), '--run-dir', str(run),
+                'record', '--kind', kind, '--request-file', '-', '--operation-id', 'installed-' + kind],
+                input=json.dumps(request), env=environment, capture_output=True, text=True)
+            self.assertEqual(recorded.returncode, 0, recorded.stdout + recorded.stderr)
         closed = subprocess.run([sys.executable, "-B", str(package / "scripts/journal.py"), "--run-dir", str(run),
-                                 "finalize", "--status", "failed", "--summary", "Smoke stopped before implementation",
-                                 "--reason", "No product work is part of this installed-package smoke",
-                                 "--unverified", "Product acceptance", "--operation-id", "installed-final"],
+                                 "finalize", "--report-id", "stop", "--operation-id", "installed-final"],
                                 env=environment, capture_output=True, text=True)
         self.assertEqual(closed.returncode, 0, closed.stdout + closed.stderr)
         read = subprocess.run([sys.executable, "-B", str(package / "scripts/journal.py"),
                                "--run-dir", str(run), "read", "final.json"], capture_output=True, text=True)
         self.assertEqual(read.returncode, 0, read.stderr)
-        self.assertEqual(json.loads(read.stdout)["status"], "failed")
+        self.assertEqual(json.loads(read.stdout)["status"], "interrupted")
+        self.assertEqual(json.loads(read.stdout)["outcome"], "unverified")
 
     def test_missing_required_entry_and_symlink_fail_before_output(self):
         source = self.copy_source("broken skill")

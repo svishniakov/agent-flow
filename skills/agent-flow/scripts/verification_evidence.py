@@ -4,7 +4,10 @@ import hashlib
 import json
 import os
 import re
+import shlex
+import shutil
 import sqlite3
+from collections import Counter
 from contextlib import closing
 from pathlib import Path
 from agent_config import default_agents_dir, read_frontmatter, role_config, resolve_role_path
@@ -35,8 +38,80 @@ def public_content(content) -> tuple[list[dict], bool]:
     return visible, unavailable
 
 
+class _SessionEvents(list):
+    def __init__(self):
+        super().__init__()
+        self.metadata = {}
+
+
 class CodexSessionSource:
     """Read the current native session selected by the Codex index, never exports."""
+
+    def __init__(self):
+        self._raw = {}
+        self._views = {}
+        self._own = {}
+        self._native = {}
+        self._validated = set()
+        self._turn_index = {}
+
+    def turn_index(self, thread):
+        if thread not in self._turn_index:
+            events = self.read(thread)
+            own = tuple(_own_session_events(self, events, thread))
+            groups, started = {}, []
+            completed, active, last_started = set(), None, None
+            duplicate_completions = set()
+            for index, event in own:
+                payload = event.get('payload', {})
+                kind = payload.get('type') if event.get('type') == 'event_msg' else None
+                if kind == 'task_started':
+                    if active is not None and active != payload.get('turn_id'):
+                        groups.setdefault(active, []).append((index, event))
+                    active = payload.get('turn_id')
+                    last_started = active
+                    started.append(active)
+                if active is not None:
+                    groups.setdefault(active, []).append((index, event))
+                if kind in {'task_complete', 'turn_aborted'}:
+                    turn = payload.get('turn_id')
+                    if turn != active:
+                        groups.setdefault(turn, []).append((index, event))
+                    if active != turn or turn in completed:
+                        duplicate_completions.add(turn)
+                    completed.add(turn)
+                    active = None
+            self._turn_index[thread] = {
+                'groups': groups, 'started': started, 'counts': Counter(started),
+                'positions': {turn: index for index, turn in enumerate(started)},
+                'completed': completed, 'invalid_completions': duplicate_completions,
+                'last_started': last_started, 'active': active,
+            }
+        return self._turn_index[thread]
+
+    def native_index(self, thread):
+        if thread not in self._native:
+            initial = self.read(thread)
+            events = self.read(thread, event_indices=range(1, len(initial) + 1))
+            calls, outputs, items = {}, {}, {}
+            active = None
+            for _, event in _own_session_events(self, events, thread):
+                payload = event.get('payload', {})
+                if event.get('type') == 'event_msg':
+                    if payload.get('type') == 'task_started':
+                        active = payload.get('turn_id')
+                    elif payload.get('type') in {'task_complete', 'turn_aborted'}:
+                        active = None
+                    elif payload.get('type') == 'item_completed':
+                        item = payload.get('item', {})
+                        items.setdefault(item.get('id'), []).append((active, payload))
+                elif event.get('type') == 'response_item' and active is not None:
+                    kind = payload.get('type')
+                    target = calls if kind in {'function_call', 'custom_tool_call'} else outputs if kind in {'function_call_output', 'custom_tool_call_output'} else None
+                    if target is not None:
+                        target.setdefault((active, payload.get('call_id')), []).append(payload)
+            self._native[thread] = (events, calls, outputs, items)
+        return self._native[thread]
 
     def session_dir(self) -> Path:
         codex_dir = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))).expanduser()
@@ -72,18 +147,23 @@ class CodexSessionSource:
 
     def read(self, thread_id: str, *, event_indices=()) -> list[dict]:
         require(isinstance(thread_id, str) and UUID.fullmatch(thread_id), "invalid Codex thread ID")
+        selection = frozenset(event_indices)
+        key = (thread_id, selection)
+        if key in self._views:
+            return self._views[key]
         rows = self._index_rows('SELECT rollout_path FROM threads WHERE id = ?', (thread_id,))
         require(len(rows) == 1, f"execution unconfirmed: source session {thread_id} missing or ambiguous in Codex index")
         require(isinstance(rows[0][0], str) and bool(rows[0][0]),
                 f"execution unconfirmed: source session {thread_id} has no rollout_path")
-        events = []
+        events = _SessionEvents()
         try:
             path = Path(rows[0][0])
             require(path.is_absolute() and path.resolve().is_relative_to(self.session_dir().resolve()),
                     f"execution unconfirmed: source session {thread_id} is outside native sessions")
-            with path.open(encoding="utf-8", newline="") as handle:
-                for index, line in enumerate(handle, 1):
-                    event = json.loads(line)
+            if thread_id not in self._raw:
+                with path.open(encoding="utf-8", newline="") as handle:
+                    self._raw[thread_id] = [json.loads(line) for line in handle]
+            for index, event in enumerate(self._raw[thread_id], 1):
                     require(isinstance(event, dict), "source event must be an object")
                     payload = event.get("payload", {})
                     require(isinstance(payload, dict), "source payload must be an object")
@@ -92,7 +172,7 @@ class CodexSessionSource:
                         payload = {k: payload[k] for k in ("id", "session_id", "parent_thread_id", "agent_role", "agent_path", "source", "cwd") if k in payload}
                     elif kind == "turn_context":
                         payload = {k: payload[k] for k in ("turn_id", "model") if k in payload}
-                    elif kind == "event_msg" and payload.get("type") in {"task_started", "task_complete"}:
+                    elif kind == "event_msg" and payload.get("type") in {"task_started", "task_complete", "turn_aborted"}:
                         payload = {k: payload[k] for k in ("type", "turn_id", "last_agent_message", "started_at", "completed_at") if k in payload}
                     elif kind == "event_msg" and payload.get("type") == "item_completed":
                         item = payload.get("item", {})
@@ -130,7 +210,11 @@ class CodexSessionSource:
         except (OSError, UnicodeError, json.JSONDecodeError) as exc:
             raise EvidenceError(f"execution unconfirmed: unreadable source session {thread_id}") from exc
         own_metadata(events, thread_id)
+        self._views[key] = events
         return events
+
+
+_CACHED_SESSION_SOURCE = CodexSessionSource
 
 
 def final_json(text) -> dict:
@@ -153,6 +237,8 @@ def child_spawn(meta: dict) -> dict:
 
 def own_metadata(events, thread_id: str):
     require(isinstance(events, list), "unsupported source events")
+    if isinstance(events, _SessionEvents) and thread_id in events.metadata:
+        return events.metadata[thread_id]
     matches = []
     for index, event in enumerate(events):
         require(isinstance(event, dict), "source event must be an object")
@@ -164,10 +250,21 @@ def own_metadata(events, thread_id: str):
         if meta["id"] == thread_id:
             matches.append((index, meta))
     require(len(matches) == 1, "execution unconfirmed: missing or conflicting session metadata")
+    if isinstance(events, _SessionEvents):
+        events.metadata[thread_id] = matches[0]
     return matches[0]
 
 
 def _own_session_events(source, events, thread_id):
+    if isinstance(source, _CACHED_SESSION_SOURCE):
+        key = (thread_id, id(events))
+        if key not in source._own:
+            source._own[key] = tuple(_uncached_own_session_events(source, events, thread_id))
+        return iter(source._own[key])
+    return _uncached_own_session_events(source, events, thread_id)
+
+
+def _uncached_own_session_events(source, events, thread_id):
     meta_index, meta = own_metadata(events, thread_id)
     inherited = [event["payload"] for event in events if event.get("type") == "session_meta"
                  and event["payload"]["id"] != thread_id]
@@ -265,7 +362,9 @@ def completed_turn(source, thread_id: str, turn_id: str, root_id: str, role: str
     completions = []
     last_started = None
     started_at = None
-    for _, event in _own_session_events(source, events, thread_id):
+    indexed = source.turn_index(thread_id) if isinstance(source, _CACHED_SESSION_SOURCE) else None
+    selected_events = indexed['groups'].get(turn_id, ()) if indexed is not None else _own_session_events(source, events, thread_id)
+    for _, event in selected_events:
         payload = event.get("payload", {})
         kind = event.get("type")
         if kind == "event_msg" and payload.get("type") == "task_started":
@@ -298,6 +397,8 @@ def completed_turn(source, thread_id: str, turn_id: str, root_id: str, role: str
                 completions.append({"answer": answer})
             active = None
     require(len(completions) == 1, "execution unconfirmed: own completed turn missing or ambiguous")
+    if indexed is not None:
+        last_started, active = indexed['last_started'], indexed['active']
     require(not current or last_started == turn_id and active is None, "selected completion is stale or continuation is unfinished")
     return completions[0]
 
@@ -305,6 +406,21 @@ def completed_turn(source, thread_id: str, turn_id: str, root_id: str, role: str
 def author_turn_ids(source, assignment, *, turn=None, events=None):
     thread = assignment['agent_id']
     events = source.read(thread) if events is None else events
+    if isinstance(source, _CACHED_SESSION_SOURCE):
+        index = source.turn_index(thread)
+        started, counts, positions = index['started'], index['counts'], index['positions']
+        require(bool(started), 'author source turn missing')
+        start = assignment.get('start_turn_id')
+        turn = started[-1] if turn is None else turn
+        require(isinstance(start, str) and bool(start) and counts[start] == 1, 'author assignment start turn missing or ambiguous')
+        require(isinstance(turn, str) and bool(turn) and counts[turn] == 1, 'author report turn missing or ambiguous')
+        first, last = positions[start], positions[turn]
+        require(first <= last, 'author report precedes assignment start turn')
+        selected = started[first:last + 1]
+        require(all(isinstance(value, str) and value and counts[value] == 1 for value in selected), 'author source turn missing or ambiguous')
+        require(not set(selected) & index['invalid_completions'], 'author completion missing or ambiguous')
+        require(all(value in index['completed'] for value in selected[:-1]), 'previous author turn is unfinished')
+        return selected
     own_events = [event for _, event in _own_session_events(source, events, thread)]
     started = [event['payload'].get('turn_id') for event in own_events
                if event.get('type') == 'event_msg' and event.get('payload', {}).get('type') == 'task_started']
@@ -381,6 +497,13 @@ def native_tool_record(source, ref, *, root_id=None, role=None):
     require('item_id' not in ref, 'native reference must select either call_id or item_id')
     thread, turn, call_id = (ref.get(key) for key in ('thread_id', 'turn_id', 'call_id'))
     require(all(isinstance(value, str) and value for value in (thread, turn, call_id)), 'native evidence requires thread_id, turn_id and call_id')
+    if isinstance(source, _CACHED_SESSION_SOURCE):
+        events, indexed_calls, indexed_outputs, _ = source.native_index(thread)
+        _validate_native_source(source, events, thread, root_id, role)
+        calls = indexed_calls.get((turn, call_id), [])
+        outputs = indexed_outputs.get((turn, call_id), [])
+        require(len(calls) == 1 and len(outputs) == 1, 'native tool call or output missing or ambiguous')
+        return calls[0], outputs[0]
     events = source.read(thread)
     indices = range(1, len(events) + 1)
     events = source.read(thread, event_indices=indices)
@@ -429,6 +552,17 @@ def native_item(source, ref, *, root_id=None, role=None):
     thread, turn, item_id = (ref.get(key) for key in ('thread_id', 'turn_id', 'item_id'))
     require(all(isinstance(value, str) and value for value in (thread, turn, item_id)),
             'native evidence requires thread_id, turn_id and item_id')
+    if isinstance(source, _CACHED_SESSION_SOURCE):
+        events, _, _, items = source.native_index(thread)
+        _validate_native_source(source, events, thread, root_id, role)
+        matches = []
+        for active, payload in items.get(item_id, []):
+            require(active == turn and payload.get('turn_id') == turn and payload.get('thread_id') == thread,
+                    'native item thread or turn mismatch')
+            matches.append(payload['item'])
+        require(len(matches) == 1, 'native item missing or ambiguous')
+        require(matches[0].get('type') in {'FileChange', 'CommandExecution'}, 'unsupported native item type')
+        return matches[0]
     events = source.read(thread)
     _, meta = own_metadata(events, thread)
     if root_id and thread != root_id:
@@ -453,6 +587,18 @@ def native_item(source, ref, *, root_id=None, role=None):
     return matches[0]
 
 
+def _validate_native_source(source, events, thread, root_id, role):
+    key = (thread, root_id, role)
+    if key in source._validated:
+        return
+    _, meta = own_metadata(events, thread)
+    if root_id and thread != root_id:
+        session_metadata(events, thread, root_id, role or meta.get('agent_role'), source=source)
+    elif root_id:
+        require(not meta.get('parent_thread_id') and not child_spawn(meta), 'root identity must be the actual source root')
+    source._validated.add(key)
+
+
 def native_file_change_paths(item):
     require(item.get('type') == 'FileChange', 'native edit requires FileChange')
     require(item.get('status') == 'completed', 'native edit did not succeed')
@@ -467,6 +613,118 @@ def native_file_change_paths(item):
         if target is not None:
             require(isinstance(target, str) and Path(target).is_absolute(), 'native move path must be absolute')
             paths.add(str(Path(target).absolute()))
+    return sorted(paths)
+
+
+def native_assignment_stopped(source, assignment, *, before_turn_id=None):
+    thread = assignment['agent_id']
+    events = source.read(thread)
+    own_metadata(events, thread)
+    own = tuple(_own_session_events(source, events, thread))
+    boundary = None
+    if before_turn_id is not None:
+        starts = [(index, event) for index, event in own if event.get('type') == 'event_msg'
+                  and event.get('payload', {}).get('type') == 'task_started']
+        require(starts and starts[-1][1]['payload'].get('turn_id') == before_turn_id, 'transfer destination turn is not current')
+        boundary = starts[-1][0]
+    active, stopped = None, None
+    for index, event in own:
+        if boundary is not None and index >= boundary:
+            break
+        payload = event.get('payload', {})
+        if event.get('type') != 'event_msg':
+            continue
+        if payload.get('type') == 'task_started':
+            active, stopped = payload.get('turn_id'), None
+        elif payload.get('type') in {'task_complete', 'turn_aborted'}:
+            require(active is not None and payload.get('turn_id') == active, 'native stop turn mismatch')
+            stopped = {'thread_id': thread, 'turn_id': active, 'event_index': index,
+                       'event_type': payload['type']}
+            active = None
+    require(active is None and stopped is not None, 'previous assignment executor is still active or stop unconfirmed')
+    if boundary is not None:
+        require(not any(index > boundary and event.get('payload', {}).get('turn_id') == stopped['turn_id']
+                        for index, event in own), 'previous executor has events after transfer destination start')
+    return stopped
+
+
+def trusted_patch_executable(executable):
+    installed = shutil.which('apply_patch')
+    if installed is None:
+        return False
+    candidate = installed if executable == 'apply_patch' else executable
+    return Path(candidate).is_absolute() and Path(candidate).resolve() == Path(installed).resolve()
+
+
+def native_command_paths(item):
+    require(item.get('type') == 'CommandExecution', 'native command execution required')
+    require(item.get('status') == 'completed' and type(item.get('exit_code')) is int
+            and item['exit_code'] == 0, 'native edit command did not succeed')
+    command, cwd = item.get('command'), item.get('cwd')
+    require(isinstance(command, list) and all(isinstance(x, str) for x in command), 'native command argv required')
+    require(isinstance(cwd, str) and Path(cwd).is_absolute(), 'native command cwd required')
+    script = command[2] if len(command) == 3 and command[:2] in (['/bin/zsh', '-lc'], ['/bin/bash', '-lc']) else None
+    output = item.get('aggregated_output', item.get('stdout', ''))
+    require(isinstance(output, str), 'native command output required')
+    patch = None
+    if script is not None:
+        lines = script.strip().splitlines()
+        match = re.fullmatch(r"((?:/[A-Za-z0-9_./-]+/)?apply_patch)\s+<<\s*'([A-Za-z_][A-Za-z0-9_]*)'\s*", lines[0]) if lines else None
+        if match and match.group(2) in lines[1:]:
+            if not trusted_patch_executable(match.group(1)):
+                return []
+            end = lines.index(match.group(2), 1)
+            require(not any(line.strip() for line in lines[end + 1:]), 'standalone patch must end at first heredoc delimiter')
+            patch = '\n'.join(lines[1:end])
+        else:
+            try:
+                argv = shlex.split(script)
+            except ValueError:
+                return []
+            if argv and argv[0] in {'rm', '/bin/rm', '/usr/bin/rm'} and script.strip() == shlex.join(argv):
+                return native_command_paths({**item, 'command': argv})
+            return []
+    elif len(command) == 2 and trusted_patch_executable(command[0]):
+        patch = command[1]
+    elif command and command[0] in {'rm', '/bin/rm', '/usr/bin/rm'}:
+        args = command[1:]
+        if not args or args[0] != '-v':
+            return []
+        args = args[1:]
+        if args and args[0] == '--':
+            args = args[1:]
+        require(args and all(Path(x).is_absolute() and '..' not in Path(x).parts for x in args), 'literal absolute removal paths required')
+        lines = set(output.splitlines())
+        require(all(x in lines or "removed '" + x + "'" in lines for x in args), 'native removal result does not confirm paths')
+        return sorted(set(args))
+    else:
+        return []
+    require(patch.startswith('*** Begin Patch\n') and patch.endswith('\n*** End Patch'), 'complete standalone patch required')
+    require(patch.splitlines().count('*** Begin Patch') == 1 and patch.splitlines().count('*** End Patch') == 1,
+            'patch must contain exactly one begin and end marker')
+    require(all(not line.startswith('*** ') or re.fullmatch(r'\*\*\* (?:Begin Patch|End Patch|End of File|(?:Add|Update|Delete) File: .+|Move to: .+)', line)
+                for line in patch.splitlines()), 'unsupported patch control line')
+    require(not re.search(r'(?im)^.*(?:error:|verification failed|failed to)', output), 'native patch output reports failure')
+    requested = []
+    operations = {'Add': 'A', 'Update': 'M', 'Delete': 'D'}
+    for operation, name in re.findall(r'^\*\*\* (Add|Update|Delete) File: ([^\n]+)$', patch, re.M):
+        requested.append((operations[operation], name.strip()))
+    for name in re.findall(r'^\*\*\* Move to: ([^\n]+)$', patch, re.M):
+        requested.append(('M', name.strip()))
+    require(len({name for _, name in requested}) == len(requested), 'duplicate patch paths are ambiguous')
+    require(requested and ('Success. Updated' in output or 'Done!' in output), 'native patch success missing')
+    paths = set()
+    actual = {name.strip() for name in re.findall(r'^[AMD] ([^\n]+)$', output, re.M)}
+    moved = dict(re.findall(r'^\*\*\* Update File: ([^\n]+)\n\*\*\* Move to: ([^\n]+)', patch, re.M))
+    for _, name in requested:
+        path = Path(name)
+        absolute = str((path if path.is_absolute() else Path(cwd) / path).absolute())
+        require('..' not in path.parts, 'native patch path must not traverse parents')
+        confirmed = moved.get(name, name)
+        confirmed_path = Path(confirmed)
+        confirmed_absolute = str((confirmed_path if confirmed_path.is_absolute() else Path(cwd) / confirmed_path).absolute())
+        require(confirmed in actual or confirmed_absolute in actual, 'native patch result does not confirm path: ' + name)
+        paths.add(absolute)
     return sorted(paths)
 
 
@@ -570,7 +828,7 @@ def native_references(snapshot, assignment_id, source=None):
         require(not metadata.get('parent_thread_id') and not child_spawn(metadata), 'root identity must be the actual source root')
     else:
         session_metadata(events, thread, root, assignment['role'], source=source)
-    author_turns = author_turn_ids(source, assignment, events=events) if assignment['kind'] == 'author' else None
+    author_turns = set(author_turn_ids(source, assignment, events=events)) if assignment['kind'] == 'author' else None
     turn, completed, calls, outputs, items = None, False, [], {}, []
     started_turns = set()
     for _, event in _own_session_events(source, events, thread):
@@ -629,6 +887,13 @@ def native_references(snapshot, assignment_id, source=None):
         observed = native_item(source, ref, root_id=root, role=assignment['role'])
         if observed.get('type') == 'CommandExecution':
             try:
+                paths = native_command_paths(observed)
+            except JournalError:
+                paths = []
+            if paths:
+                observations.append({'ref': ref, 'name': 'CommandExecution', 'success': True, 'authored_paths': paths})
+                continue
+            try:
                 envelope = json.loads(observed.get('aggregated_output', ''))
             except (ValueError, TypeError):
                 continue
@@ -676,7 +941,12 @@ def verify_evidence(snapshot, refs, source, *, root_id, role=None, success_requi
                 verify_evidence(snapshot, [check.get('output')], source, root_id=root_id)
                 successful = successful or check['exit_code'] == 0
         elif 'item_id' in ref:
-            native_file_change_paths(native_item(source, ref, root_id=root_id, role=role))
+            item = native_item(source, ref, root_id=root_id, role=role)
+            if item.get('type') == 'CommandExecution':
+                require(bool(native_command_paths(item)), 'native command edit unconfirmed')
+                successful = True
+            else:
+                native_file_change_paths(item)
         else:
             call, output = native_tool(source, ref, root_id=root_id, role=role)
             successful = successful or native_succeeded(call, output)
@@ -696,7 +966,8 @@ def observed_author_paths(snapshot, assignment, report, source, *, turn):
             continue
         require(ref.get('turn_id') in allowed_turns, 'native edit author turn outside assignment')
         if 'item_id' in ref:
-            observed.update(native_file_change_paths(native_item(source, ref, root_id=root_id, role=assignment['role'])))
+            item = native_item(source, ref, root_id=root_id, role=assignment['role'])
+            observed.update(native_command_paths(item) if item.get('type') == 'CommandExecution' else native_file_change_paths(item))
             continue
         call, output = native_tool(source, ref, root_id=root_id, role=assignment['role'])
         _, metadata = own_metadata(source.read(assignment['agent_id']), assignment['agent_id'])
@@ -730,7 +1001,7 @@ def accepted_review(snapshot, key, source, *, qa_agent_id):
     path = 'reports/' + key + '.json'
     require(snapshot.exists(path), 'QA requires current completed review')
     report = snapshot.json(path)
-    require(report.get('status') == 'completed', 'QA requires current completed review')
+    require(report.get('status') == 'completed' and report.get('outcome') == 'passed', 'QA requires current passed review')
     revalidate_report(snapshot, assignment, report, source)
     return report
 
@@ -760,10 +1031,12 @@ def accept_report(snapshot, assignment, request, source=None, *, current=True):
     report.pop('fingerprint', None)
     if isinstance(report.get('reviewer'), dict):
         report['reviewer'].pop('sha256', None)
-    require(report.get('status') in {'completed', 'failed'}, 'report status must be completed or failed')
+    require(report.get('status') in {'completed', 'interrupted'}, 'report status must be completed or interrupted')
+    require(report.get('outcome') in {'passed', 'failed', 'unverified'}, 'report outcome must be passed, failed or unverified')
+    require(report['status'] == 'completed' or report['outcome'] != 'passed', 'interrupted report cannot pass')
     require(isinstance(report.get('summary'), str) and bool(report['summary'].strip()), 'report summary required')
-    if report['status'] == 'failed':
-        require(isinstance(report.get('reason'), str) and bool(report['reason'].strip()), 'failed report reason required')
+    if report['outcome'] != 'passed':
+        require(isinstance(report.get('reason'), str) and bool(report['reason'].strip()), 'nonpass report reason required')
     verify_evidence(snapshot, report.get('evidence'), source, root_id=root_id)
     kind = assignment['kind']
     if kind == 'author':
@@ -781,7 +1054,7 @@ def accept_report(snapshot, assignment, request, source=None, *, current=True):
         require(thread not in author_ids, 'QA/reviewer cannot be a product author')
         require(any('path' not in ref and ref.get('thread_id') == thread
                     and ref.get('turn_id') == turn
-                    and (report['status'] == 'failed' or 'item_id' not in ref and native_succeeded(*native_tool(source, ref, root_id=root_id, role=assignment['role'])))
+                    and (report['outcome'] != 'passed' or 'item_id' not in ref and native_succeeded(*native_tool(source, ref, root_id=root_id, role=assignment['role'])))
                     for ref in report['evidence']), 'QA/reviewer requires its own successful native inspection')
     if kind == 'qa':
         reviewer = report.get('reviewer', {})
@@ -805,11 +1078,25 @@ def accept_report(snapshot, assignment, request, source=None, *, current=True):
                                 success_required=outcome['status'] == 'passed')
             except JournalError as exc:
                 raise JournalError(f'criterion {criterion}: {exc}') from exc
-        if report['status'] == 'completed':
-            require(all(item['status'] == 'passed' for item in criteria.values()), 'completed QA requires passed criteria')
+        if report['outcome'] == 'passed':
+            require(all(item['status'] == 'passed' for item in criteria.values()), 'passed QA requires passed criteria')
+        resolutions = report.get('resolves', {})
+        require(isinstance(resolutions, dict), 'QA resolves must map assignment IDs to evidence')
+        for prior, refs in resolutions.items():
+            require(prior in known and known[prior]['kind'] in {'qa', 'reviewer'}
+                    and snapshot.exists('reports/' + prior + '.json'), 'resolution must reference a historical review or QA report')
+            require(snapshot.json('reports/' + prior + '.json')['outcome'] != 'passed', 'resolution must reference a negative result')
+            verify_evidence(snapshot, refs, source, root_id=root_id, success_required=True)
     if kind == 'reviewer':
         require('qa' not in report, 'reviewer report must not depend on QA')
-        for key, author in known.items():
+        verification_only = report.get('verification_only', [])
+        require(isinstance(verification_only, list) and all(isinstance(key, str) for key in verification_only)
+                and len(verification_only) == len(set(verification_only)),
+                'verification_only must be unique author assignment IDs')
+        require(all(key in known and known[key]['kind'] == 'author' for key in verification_only),
+                'verification_only must reference existing author assignments')
+        for key in assignment.get('depends_on', []):
+            author = known[key]
             if author['kind'] != 'author':
                 continue
             path = 'reports/' + key + '.json'
@@ -834,23 +1121,26 @@ def revalidate_report(snapshot, assignment, report, source):
     require(current == report, 'accepted report does not match its native response')
 
 
-def validate_acceptance(snapshot, source=None):
+def validate_acceptance(snapshot, source=None, *, report_id=None):
     source = source or CodexSessionSource()
     errors = []
     try:
         known, accepted = assignments(snapshot), reports(snapshot)
-        require(bool(known), 'assignments missing')
-        for key, assignment in known.items():
-            require(key in accepted, 'assignment report missing: ' + key)
-            report = accepted[key]
-            require(report.get('status') == 'completed', 'assignment failed: ' + key)
-            revalidate_report(snapshot, assignment, report, source)
-            for dependency in assignment.get('depends_on', []):
-                require(dependency in accepted and accepted[dependency].get('status') == 'completed', 'assignment dependency incomplete')
-        authors = [item for key, item in known.items() if item.get('kind') == 'author']
-        if authors:
-            require(any(item.get('kind') == 'qa' for item in known.values()), 'independent QA missing')
-            require(any(item.get('kind') == 'reviewer' for item in known.values()), 'independent reviewer missing')
+        require(report_id in known and known[report_id]['kind'] == 'qa', 'final report must select independent QA')
+        require(report_id in accepted, 'final QA report missing')
+        report = accepted[report_id]
+        require(report.get('status') == 'completed' and report.get('outcome') == 'passed', 'final QA did not pass')
+        revalidate_report(snapshot, known[report_id], report, source)
+        review_id = report['reviewer']['assignment_id']
+        covered = set(known[review_id].get('depends_on', []))
+        superseded = {item['previous_assignment_id'] for item in known.values() if item.get('previous_assignment_id')}
+        from journal_transfers import transferred_assignments
+        superseded.update(transferred_assignments(snapshot))
+        authors = {key for key, item in known.items() if item['kind'] == 'author' and key not in superseded}
+        require(authors <= covered, 'final review does not cover current author assignments: ' + ', '.join(sorted(authors - covered)))
+        negatives = {key for key, value in accepted.items() if key != report_id
+                     and known[key]['kind'] in {'qa', 'reviewer'} and value.get('outcome') != 'passed'}
+        require(negatives <= set(report.get('resolves', {})), 'final QA has unresolved findings: ' + ', '.join(sorted(negatives - set(report.get('resolves', {})))))
     except (JournalError, OSError, ValueError, KeyError, TypeError) as exc:
         errors.append(str(exc))
     return errors

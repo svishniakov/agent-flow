@@ -14,7 +14,7 @@ Work happens in the actual checkout. The journal stores scope paths and a refere
 
 The main agent may implement directly. Additional workers receive independent scopes with one writer per path at a time.
 
-Each subagent returns one report in its own completed native response; the main agent registers its own report from its current turn. SQLite accepts reports after checking the actual session and evidence. There are no additional handoff files, lane maps, timelines or mirrored summaries. Markdown is rendered on read.
+Each assignment receives one immutable report verified against its native session and evidence. A correction creates a new assignment with `previous_assignment_id`. Execution status is `completed` or `interrupted`; verification outcome is `passed`, `failed` or `unverified`. A completed check may find a defect. Markdown is rendered from SQLite on read.
 
 ## Verification
 
@@ -26,10 +26,10 @@ Each author reports their own work and paths, without accounting for unrelated c
 
 ## Completion and memory
 
-Final is created only at the end: `completed`, or `failed` with its reason and unverified scope. The orchestrator summarizes the accepted reports, checks and limitations.
+`finalize --report-id` closes the journal using the selected concluding report. Success requires independent QA of the current result and evidence resolving earlier findings through `resolves`; negative reports remain unchanged. A root report records a terminal stop with its reason and unverified scope. After closure, only reads and exact operation replays are allowed.
 
 To Do, Lessons and Implementation Notes remain ordinary persistent project memory. Update them directly; they are not mirrored into SQLite. Historical agent reports are not an input to a new task.
 
-After a package update, sync roles and start a new chat. Old runtime formats and migrations are not supported. Existing user archives are not automatically deleted.
+New tasks use contract 2. Earlier SQLite journals remain readable without conversion and reject writes. After a package update, sync roles and start a new chat.
 
 The complete command contract, report shapes and worked sequence are in [traceable-runs.md](../../references/traceable-runs.md). [Installation](installation.md) · [Roles](agents.md).
